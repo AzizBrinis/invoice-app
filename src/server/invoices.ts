@@ -1,0 +1,484 @@
+import { prisma } from "@/lib/prisma";
+import { calculateDocumentTotals, calculateLineTotals } from "@/lib/documents";
+import {
+  InvoiceStatus,
+  QuoteStatus,
+  type Prisma,
+} from "@prisma/client";
+import { z } from "zod";
+import { nextInvoiceNumber } from "@/server/sequences";
+
+const invoiceLineSchema = z.object({
+  id: z.string().optional(),
+  productId: z.string().nullable().optional(),
+  description: z.string().min(2, "Description requise"),
+  quantity: z.number().positive(),
+  unit: z.string().min(1, "Unité requise"),
+  unitPriceHTCents: z.number().int().nonnegative(),
+  vatRate: z.number().min(0).max(100),
+  discountRate: z.number().min(0).max(100).nullable().optional(),
+  discountAmountCents: z
+    .number()
+    .int()
+    .nonnegative()
+    .nullable()
+    .optional(),
+  position: z.number().int().nonnegative(),
+});
+
+export const invoiceInputSchema = z.object({
+  id: z.string().optional(),
+  number: z.string().optional(),
+  clientId: z.string().min(1, "Client requis"),
+  status: z.nativeEnum(InvoiceStatus).default(InvoiceStatus.BROUILLON),
+  reference: z.string().nullable().optional(),
+  issueDate: z.coerce.date(),
+  dueDate: z.coerce.date().nullable().optional(),
+  currency: z.string().default("EUR"),
+  globalDiscountRate: z.number().min(0).max(100).nullable().optional(),
+  globalDiscountAmountCents: z
+    .number()
+    .int()
+    .nonnegative()
+    .nullable()
+    .optional(),
+  notes: z.string().nullable().optional(),
+  terms: z.string().nullable().optional(),
+  lateFeeRate: z.number().min(0).max(100).nullable().optional(),
+  lines: z
+    .array(invoiceLineSchema)
+    .min(1, "Au moins une ligne est nécessaire"),
+});
+
+export type InvoiceInput = z.infer<typeof invoiceInputSchema>;
+
+export type InvoiceFilters = {
+  search?: string;
+  status?: InvoiceStatus | "all";
+  clientId?: string;
+  issueDateFrom?: Date;
+  issueDateTo?: Date;
+  dueDateBefore?: Date;
+  page?: number;
+  pageSize?: number;
+};
+
+const DEFAULT_PAGE_SIZE = 10;
+
+function calculateStatusAfterPayment(
+  invoice: {
+    status: InvoiceStatus;
+    totalTTCCents: number;
+    amountPaidCents: number;
+    dueDate: Date | null;
+  },
+) {
+  const remaining = invoice.totalTTCCents - invoice.amountPaidCents;
+  if (invoice.status === InvoiceStatus.ANNULEE) {
+    return InvoiceStatus.ANNULEE;
+  }
+  if (remaining <= 0) {
+    return InvoiceStatus.PAYEE;
+  }
+  if (invoice.amountPaidCents > 0) {
+    if (invoice.dueDate && invoice.dueDate.getTime() < Date.now()) {
+      return InvoiceStatus.RETARD;
+    }
+    return InvoiceStatus.PARTIELLE;
+  }
+  if (invoice.dueDate && invoice.dueDate.getTime() < Date.now()) {
+    return InvoiceStatus.RETARD;
+  }
+  return invoice.status === InvoiceStatus.BROUILLON
+    ? InvoiceStatus.BROUILLON
+    : InvoiceStatus.ENVOYEE;
+}
+
+function buildInvoiceWhere(
+  filters: InvoiceFilters,
+): Prisma.InvoiceWhereInput {
+  const {
+    search,
+    status = "all",
+    clientId,
+    issueDateFrom,
+    issueDateTo,
+    dueDateBefore,
+  } = filters;
+  return {
+    ...(status === "all" ? {} : { status }),
+    ...(clientId ? { clientId } : {}),
+    ...(issueDateFrom || issueDateTo
+      ? {
+          issueDate: {
+            ...(issueDateFrom ? { gte: issueDateFrom } : {}),
+            ...(issueDateTo ? { lte: issueDateTo } : {}),
+          },
+        }
+      : {}),
+    ...(dueDateBefore
+      ? {
+          dueDate: {
+            lte: dueDateBefore,
+          },
+        }
+      : {}),
+    ...(search
+      ? {
+          OR: [
+            { number: { contains: search, mode: "insensitive" } },
+            { reference: { contains: search, mode: "insensitive" } },
+            {
+              client: {
+                displayName: {
+                  contains: search,
+                  mode: "insensitive",
+                },
+              },
+            },
+          ],
+        }
+      : {}),
+  } satisfies Prisma.InvoiceWhereInput;
+}
+
+function computeInvoiceTotals(payload: InvoiceInput) {
+  const computedLines = payload.lines.map((line) =>
+    calculateLineTotals({
+      quantity: line.quantity,
+      unitPriceHTCents: line.unitPriceHTCents,
+      vatRate: line.vatRate,
+      discountRate: line.discountRate ?? undefined,
+      discountAmountCents: line.discountAmountCents ?? undefined,
+    }),
+  );
+
+  const totals = calculateDocumentTotals(
+    computedLines,
+    payload.globalDiscountRate ?? undefined,
+    payload.globalDiscountAmountCents ?? undefined,
+  );
+
+  return { computedLines, totals };
+}
+
+function serializeVat(entries: ReturnType<typeof calculateDocumentTotals>["vatEntries"]) {
+  return entries.map((entry) => ({
+    rate: entry.rate,
+    baseHT: entry.baseHTCents,
+    totalTVA: entry.totalTVACents,
+  }));
+}
+
+export async function listInvoices(filters: InvoiceFilters = {}) {
+  const { page = 1, pageSize = DEFAULT_PAGE_SIZE } = filters;
+  const where = buildInvoiceWhere(filters);
+
+  const [items, total] = await Promise.all([
+    prisma.invoice.findMany({
+      where,
+      include: {
+        client: true,
+        payments: true,
+      },
+      orderBy: {
+        issueDate: "desc",
+      },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+    prisma.invoice.count({ where }),
+  ]);
+
+  return {
+    items,
+    total,
+    page,
+    pageSize,
+    pageCount: Math.ceil(total / pageSize),
+  };
+}
+
+export async function getInvoice(id: string) {
+  return prisma.invoice.findUnique({
+    where: { id },
+    include: {
+      client: true,
+      lines: { orderBy: { position: "asc" }, include: { product: true } },
+      payments: { orderBy: { date: "desc" } },
+      quote: true,
+    },
+  });
+}
+
+export async function createInvoice(input: InvoiceInput) {
+  const payload = invoiceInputSchema.parse(input);
+  const { computedLines, totals } = computeInvoiceTotals(payload);
+  const number = payload.number ?? (await nextInvoiceNumber());
+
+  const invoice = await prisma.invoice.create({
+    data: {
+      number,
+      clientId: payload.clientId,
+      status: payload.status,
+      reference: payload.reference,
+      issueDate: payload.issueDate,
+      dueDate: payload.dueDate,
+      currency: payload.currency,
+      globalDiscountRate: payload.globalDiscountRate ?? null,
+      globalDiscountAmountCents: totals.globalDiscountAppliedCents,
+      vatBreakdown: serializeVat(totals.vatEntries),
+      notes: payload.notes,
+      terms: payload.terms,
+      lateFeeRate: payload.lateFeeRate ?? null,
+      subtotalHTCents: totals.subtotalHTCents,
+      totalDiscountCents: totals.totalDiscountCents,
+      totalTVACents: totals.totalTVACents,
+      totalTTCCents: totals.totalTTCCents,
+      amountPaidCents: 0,
+      lines: {
+        create: payload.lines.map((line, index) => ({
+          productId: line.productId ?? null,
+          description: line.description,
+          quantity: line.quantity,
+          unit: line.unit,
+          unitPriceHTCents: line.unitPriceHTCents,
+          vatRate: line.vatRate,
+          discountRate: line.discountRate ?? null,
+          discountAmountCents: computedLines[index].discountAmountCents,
+          totalHTCents: computedLines[index].totalHTCents,
+          totalTVACents: computedLines[index].totalTVACents,
+          totalTTCCents: computedLines[index].totalTTCCents,
+          position: line.position,
+        })),
+      },
+    },
+    include: {
+      client: true,
+      lines: true,
+      payments: true,
+    },
+  });
+
+  return invoice;
+}
+
+export async function updateInvoice(id: string, input: InvoiceInput) {
+  const payload = invoiceInputSchema.parse({ ...input, id });
+  const { computedLines, totals } = computeInvoiceTotals(payload);
+
+  const invoice = await prisma.$transaction(async (tx) => {
+    await tx.invoiceLine.deleteMany({ where: { invoiceId: id } });
+
+    const updated = await tx.invoice.update({
+      where: { id },
+      data: {
+        clientId: payload.clientId,
+        status: payload.status,
+        reference: payload.reference,
+        issueDate: payload.issueDate,
+        dueDate: payload.dueDate,
+        currency: payload.currency,
+        globalDiscountRate: payload.globalDiscountRate ?? null,
+        globalDiscountAmountCents: totals.globalDiscountAppliedCents,
+        vatBreakdown: serializeVat(totals.vatEntries),
+        notes: payload.notes,
+        terms: payload.terms,
+        lateFeeRate: payload.lateFeeRate ?? null,
+        subtotalHTCents: totals.subtotalHTCents,
+        totalDiscountCents: totals.totalDiscountCents,
+        totalTVACents: totals.totalTVACents,
+        totalTTCCents: totals.totalTTCCents,
+        lines: {
+          create: payload.lines.map((line, index) => ({
+            productId: line.productId ?? null,
+            description: line.description,
+            quantity: line.quantity,
+            unit: line.unit,
+            unitPriceHTCents: line.unitPriceHTCents,
+            vatRate: line.vatRate,
+            discountRate: line.discountRate ?? null,
+            discountAmountCents: computedLines[index].discountAmountCents,
+            totalHTCents: computedLines[index].totalHTCents,
+            totalTVACents: computedLines[index].totalTVACents,
+            totalTTCCents: computedLines[index].totalTTCCents,
+            position: line.position,
+          })),
+        },
+      },
+      include: {
+        client: true,
+        lines: true,
+        payments: true,
+      },
+    });
+
+    return updated;
+  });
+
+  return invoice;
+}
+
+export async function deleteInvoice(id: string) {
+  await prisma.invoice.delete({
+    where: { id },
+  });
+}
+
+export async function changeInvoiceStatus(id: string, status: InvoiceStatus) {
+  return prisma.invoice.update({
+    where: { id },
+    data: { status },
+  });
+}
+
+const paymentSchema = z.object({
+  invoiceId: z.string(),
+  amountCents: z.number().int().positive(),
+  method: z.string().nullable().optional(),
+  date: z.coerce.date(),
+  note: z.string().nullable().optional(),
+});
+
+export async function recordPayment(input: z.infer<typeof paymentSchema>) {
+  const payload = paymentSchema.parse(input);
+
+  return prisma.$transaction(async (tx) => {
+    const payment = await tx.payment.create({
+      data: payload,
+    });
+
+    const sums = await tx.payment.aggregate({
+      where: { invoiceId: payload.invoiceId },
+      _sum: {
+        amountCents: true,
+      },
+    });
+
+    const invoice = await tx.invoice.findUniqueOrThrow({
+      where: { id: payload.invoiceId },
+      select: {
+        status: true,
+        totalTTCCents: true,
+        dueDate: true,
+      },
+    });
+
+    const amountPaidCents = sums._sum.amountCents ?? 0;
+    const newStatus = calculateStatusAfterPayment({
+      status: invoice.status,
+      totalTTCCents: invoice.totalTTCCents,
+      amountPaidCents,
+      dueDate: invoice.dueDate,
+    });
+
+    await tx.invoice.update({
+      where: { id: payload.invoiceId },
+      data: {
+        amountPaidCents,
+        status: newStatus,
+      },
+    });
+
+    return payment;
+  });
+}
+
+export async function deletePayment(paymentId: string) {
+  await prisma.$transaction(async (tx) => {
+    const payment = await tx.payment.delete({
+      where: { id: paymentId },
+    });
+
+    const sums = await tx.payment.aggregate({
+      where: { invoiceId: payment.invoiceId },
+      _sum: {
+        amountCents: true,
+      },
+    });
+
+    const invoice = await tx.invoice.findUniqueOrThrow({
+      where: { id: payment.invoiceId },
+      select: {
+        status: true,
+        totalTTCCents: true,
+        dueDate: true,
+      },
+    });
+
+    const amountPaidCents = sums._sum.amountCents ?? 0;
+    const newStatus = calculateStatusAfterPayment({
+      status: invoice.status,
+      totalTTCCents: invoice.totalTTCCents,
+      amountPaidCents,
+      dueDate: invoice.dueDate,
+    });
+
+    await tx.invoice.update({
+      where: { id: payment.invoiceId },
+      data: {
+        amountPaidCents,
+        status: newStatus,
+      },
+    });
+  });
+}
+
+export async function reconcileInvoiceStatus(id: string) {
+  const invoice = await prisma.invoice.findUnique({
+    where: { id },
+    include: {
+      payments: true,
+    },
+  });
+
+  if (!invoice) return null;
+
+  const amountPaidCents = invoice.payments.reduce(
+    (sum, payment) => sum + payment.amountCents,
+    0,
+  );
+
+  const newStatus = calculateStatusAfterPayment({
+    status: invoice.status,
+    totalTTCCents: invoice.totalTTCCents,
+    amountPaidCents,
+    dueDate: invoice.dueDate,
+  });
+
+  const updated = await prisma.invoice.update({
+    where: { id },
+    data: {
+      amountPaidCents,
+      status: newStatus,
+    },
+    include: {
+      client: true,
+      lines: true,
+      payments: true,
+      quote: true,
+    },
+  });
+
+  return updated;
+}
+
+export async function linkQuoteToInvoice(
+  invoiceId: string,
+  quoteId: string,
+) {
+  await prisma.$transaction(async (tx) => {
+    await tx.invoice.update({
+      where: { id: invoiceId },
+      data: { quoteId },
+    });
+
+    await tx.quote.update({
+      where: { id: quoteId },
+      data: {
+        status: QuoteStatus.ACCEPTE,
+        invoice: { connect: { id: invoiceId } },
+      },
+    });
+  });
+}

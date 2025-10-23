@@ -1,0 +1,123 @@
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@/components/ui/button";
+
+type ClientFormProps = {
+  action: (formData: FormData) => void;
+  submitLabel: string;
+  defaultValues?: {
+    displayName?: string | null;
+    companyName?: string | null;
+    address?: string | null;
+    email?: string | null;
+    phone?: string | null;
+    vatNumber?: string | null;
+    notes?: string | null;
+    isActive?: boolean;
+  };
+};
+
+export function ClientForm({ action, submitLabel, defaultValues }: ClientFormProps) {
+  return (
+    <form action={action} className="card space-y-5 p-6">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-2">
+          <label htmlFor="displayName" className="text-sm font-medium text-zinc-700">
+            Nom / Raison sociale
+          </label>
+          <Input
+            id="displayName"
+            name="displayName"
+            defaultValue={defaultValues?.displayName ?? ""}
+            required
+          />
+        </div>
+        <div className="space-y-2">
+          <label htmlFor="companyName" className="text-sm font-medium text-zinc-700">
+            Raison sociale secondaire
+          </label>
+          <Input
+            id="companyName"
+            name="companyName"
+            defaultValue={defaultValues?.companyName ?? ""}
+          />
+        </div>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-2">
+          <label htmlFor="email" className="text-sm font-medium text-zinc-700">
+            E-mail
+          </label>
+          <Input
+            id="email"
+            name="email"
+            type="email"
+            defaultValue={defaultValues?.email ?? ""}
+          />
+        </div>
+        <div className="space-y-2">
+          <label htmlFor="phone" className="text-sm font-medium text-zinc-700">
+            Téléphone
+          </label>
+          <Input id="phone" name="phone" defaultValue={defaultValues?.phone ?? ""} />
+        </div>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-2">
+          <label htmlFor="vatNumber" className="text-sm font-medium text-zinc-700">
+            Numéro de TVA
+          </label>
+          <Input
+            id="vatNumber"
+            name="vatNumber"
+            defaultValue={defaultValues?.vatNumber ?? ""}
+          />
+        </div>
+        <div className="space-y-2">
+          <label htmlFor="isActive" className="text-sm font-medium text-zinc-700">
+            Statut
+          </label>
+          <select
+            id="isActive"
+            name="isActive"
+            className="input"
+            defaultValue={defaultValues?.isActive === false ? "false" : "true"}
+          >
+            <option value="true">Actif</option>
+            <option value="false">Inactif</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <label htmlFor="address" className="text-sm font-medium text-zinc-700">
+          Adresse
+        </label>
+        <Textarea
+          id="address"
+          name="address"
+          rows={3}
+          defaultValue={defaultValues?.address ?? ""}
+        />
+      </div>
+
+      <div className="space-y-2">
+        <label htmlFor="notes" className="text-sm font-medium text-zinc-700">
+          Notes internes
+        </label>
+        <Textarea
+          id="notes"
+          name="notes"
+          rows={4}
+          defaultValue={defaultValues?.notes ?? ""}
+        />
+      </div>
+
+      <div className="flex justify-end gap-3">
+        <Button type="submit">{submitLabel}</Button>
+      </div>
+    </form>
+  );
+}

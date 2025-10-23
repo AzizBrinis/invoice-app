@@ -1,0 +1,266 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  name         String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  sessions     Session[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+}
+
+model CompanySettings {
+  id                     Int           @id @default(1)
+  companyName            String
+  logoUrl                String?
+  siren                  String?
+  tvaNumber              String?
+  address                String?
+  email                  String?
+  phone                  String?
+  iban                   String?
+  defaultCurrency        String        @default("EUR")
+  defaultVatRate         Float         @default(0)
+  paymentTerms           String?
+  invoiceNumberPrefix    String        @default("FAC")
+  quoteNumberPrefix      String        @default("DEV")
+  resetNumberingAnnually Boolean       @default(true)
+  defaultInvoiceFooter   String?
+  defaultQuoteFooter     String?
+  legalFooter            String?
+  defaultConditions      String?
+  invoiceTemplateId      String?
+  quoteTemplateId        String?
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
+  invoiceTemplate        PdfTemplate?  @relation("InvoiceTemplate", fields: [invoiceTemplateId], references: [id])
+  quoteTemplate          PdfTemplate?  @relation("QuoteTemplate", fields: [quoteTemplateId], references: [id])
+}
+
+model PdfTemplate {
+  id        String            @id @default(cuid())
+  type      PdfTemplateType
+  name      String
+  content   Json
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+  invoice   CompanySettings[] @relation("InvoiceTemplate")
+  quote     CompanySettings[] @relation("QuoteTemplate")
+}
+
+enum PdfTemplateType {
+  DEVIS
+  FACTURE
+}
+
+model Client {
+  id           String    @id @default(cuid())
+  displayName  String
+  companyName  String?
+  address      String?
+  email        String?
+  phone        String?
+  vatNumber    String?
+  notes        String?
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  quotes       Quote[]
+  invoices     Invoice[]
+}
+
+model Product {
+  id                   String        @id @default(cuid())
+  sku                  String        @unique
+  name                 String
+  description          String?
+  category             String?
+  unit                 String        @default("unité")
+  priceHTCents         Int
+  priceTTCCents        Int
+  vatRate              Float
+  defaultDiscountRate  Float?
+  isActive             Boolean       @default(true)
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+  quoteLines           QuoteLine[]
+  invoiceLines         InvoiceLine[]
+}
+
+model Quote {
+  id                       String        @id @default(cuid())
+  number                   String        @unique
+  status                   QuoteStatus   @default(BROUILLON)
+  reference                String?
+  issueDate                DateTime
+  validUntil               DateTime?
+  clientId                 String
+  client                   Client        @relation(fields: [clientId], references: [id])
+  currency                 String        @default("EUR")
+  globalDiscountRate       Float?
+  globalDiscountAmountCents Int?
+  vatBreakdown             Json?
+  notes                    String?
+  terms                    String?
+  subtotalHTCents          Int
+  totalDiscountCents       Int
+  totalTVACents            Int
+  totalTTCCents            Int
+  createdAt                DateTime      @default(now())
+  updatedAt                DateTime      @updatedAt
+  lines                    QuoteLine[]
+  invoice                  Invoice?
+}
+
+enum QuoteStatus {
+  BROUILLON
+  ENVOYE
+  ACCEPTE
+  REFUSE
+  EXPIRE
+}
+
+model QuoteLine {
+  id                   String   @id @default(cuid())
+  quoteId              String
+  productId            String?
+  description          String
+  quantity             Float
+  unit                 String   @default("unité")
+  unitPriceHTCents     Int
+  vatRate              Float
+  discountRate         Float?
+  discountAmountCents  Int?
+  totalHTCents         Int
+  totalTVACents        Int
+  totalTTCCents        Int
+  position             Int
+  quote                Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  product              Product? @relation(fields: [productId], references: [id])
+}
+
+model Invoice {
+  id                       String         @id @default(cuid())
+  number                   String         @unique
+  status                   InvoiceStatus  @default(BROUILLON)
+  reference                String?
+  issueDate                DateTime
+  dueDate                  DateTime?
+  clientId                 String
+  client                   Client         @relation(fields: [clientId], references: [id])
+  currency                 String         @default("EUR")
+  globalDiscountRate       Float?
+  globalDiscountAmountCents Int?
+  vatBreakdown             Json?
+  notes                    String?
+  terms                    String?
+  lateFeeRate              Float?
+  subtotalHTCents          Int
+  totalDiscountCents       Int
+  totalTVACents            Int
+  totalTTCCents            Int
+  amountPaidCents          Int            @default(0)
+  createdAt                DateTime       @default(now())
+  updatedAt                DateTime       @updatedAt
+  quoteId                  String?        @unique
+  quote                    Quote?         @relation(fields: [quoteId], references: [id])
+  lines                    InvoiceLine[]
+  payments                 Payment[]
+}
+
+enum InvoiceStatus {
+  BROUILLON
+  ENVOYEE
+  PAYEE
+  PARTIELLE
+  RETARD
+  ANNULEE
+}
+
+model InvoiceLine {
+  id                   String    @id @default(cuid())
+  invoiceId            String
+  productId            String?
+  description          String
+  quantity             Float
+  unit                 String    @default("unité")
+  unitPriceHTCents     Int
+  vatRate              Float
+  discountRate         Float?
+  discountAmountCents  Int?
+  totalHTCents         Int
+  totalTVACents        Int
+  totalTTCCents        Int
+  position             Int
+  invoice              Invoice   @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  product              Product?  @relation(fields: [productId], references: [id])
+}
+
+model Payment {
+  id             String   @id @default(cuid())
+  invoiceId      String
+  amountCents    Int
+  method         String?
+  date           DateTime
+  note           String?
+  createdAt      DateTime @default(now())
+  invoice        Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+}
+
+model NumberingSequence {
+  id        String       @id @default(cuid())
+  type      SequenceType
+  prefix    String
+  year      Int
+  counter   Int          @default(0)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@unique([type, year])
+}
+
+enum SequenceType {
+  DEVIS
+  FACTURE
+}
+
+model EmailLog {
+  id           String       @id @default(cuid())
+  documentType DocumentType
+  documentId   String
+  to           String
+  subject      String
+  body         String?
+  sentAt       DateTime?
+  status       EmailStatus  @default(EN_ATTENTE)
+  error        String?
+  createdAt    DateTime     @default(now())
+}
+
+enum DocumentType {
+  DEVIS
+  FACTURE
+}
+
+enum EmailStatus {
+  EN_ATTENTE
+  ENVOYE
+  ECHEC
+}
