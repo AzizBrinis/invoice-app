@@ -3,6 +3,10 @@ import { redirect } from "next/navigation";
 import { randomBytes, createHash } from "crypto";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
+import {
+  extractSignedToken,
+  signSessionToken,
+} from "@/lib/session-cookie";
 
 const SESSION_COOKIE_NAME =
   process.env.SESSION_COOKIE_NAME ?? "session_token";
@@ -30,7 +34,8 @@ async function persistSession(token: string, userId: string) {
   });
 
   const cookieStore = await cookies();
-  cookieStore.set(SESSION_COOKIE_NAME, token, {
+  const signature = await signSessionToken(token);
+  cookieStore.set(SESSION_COOKIE_NAME, `${token}.${signature}`, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "strict",
@@ -52,7 +57,8 @@ export async function verifyPassword(
 
 export async function getSessionTokenFromCookie() {
   const cookieStore = await cookies();
-  return cookieStore.get(SESSION_COOKIE_NAME)?.value ?? null;
+  const rawValue = cookieStore.get(SESSION_COOKIE_NAME)?.value ?? null;
+  return extractSignedToken(rawValue);
 }
 
 export async function getCurrentUser() {

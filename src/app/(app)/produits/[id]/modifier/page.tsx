@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { ProductForm } from "@/app/(app)/produits/product-form";
 import { updateProductAction } from "@/app/(app)/produits/actions";
+import { getSettings } from "@/server/settings";
+import type { CurrencyCode } from "@/lib/currency";
 
 type PageParams = { id: string };
 
@@ -21,7 +23,10 @@ export default async function EditProduitPage({
   params: PageParams | Promise<PageParams>;
 }) {
   const resolvedParams = isPromise<PageParams>(params) ? await params : params;
-  const product = await prisma.product.findUnique({ where: { id: resolvedParams.id } });
+  const [product, settings] = await Promise.all([
+    prisma.product.findUnique({ where: { id: resolvedParams.id } }),
+    getSettings(),
+  ]);
 
   if (!product) {
     notFound();
@@ -48,6 +53,7 @@ export default async function EditProduitPage({
       <ProductForm
         action={updateProductAction.bind(null, product.id)}
         submitLabel="Enregistrer"
+        currencyCode={settings.defaultCurrency as CurrencyCode}
         defaultValues={product}
       />
     </div>

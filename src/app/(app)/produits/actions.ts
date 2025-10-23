@@ -88,38 +88,72 @@ export async function importProductsAction(formData: FormData) {
     return index >= 0 ? row[index]?.trim() ?? "" : "";
   };
 
+  const entries: Array<{
+    sku: string;
+    data: {
+      name: string;
+      description: string | null;
+      category: string | null;
+      unit: string;
+      priceHTCents: number;
+      priceTTCCents: number;
+      vatRate: number;
+      defaultDiscountRate: number | null;
+      isActive: boolean;
+    };
+  }> = [];
+  const errors: string[] = [];
+
   for (let i = 1; i < lines.length; i += 1) {
     const row = lines[i].split(delimiter);
     const sku = findValue(row, "sku");
     const name = findValue(row, "nom");
     if (!sku || !name) continue;
 
-    const priceHT = Number(findValue(row, "prix ht").replace(",", "."));
-    const vatRate = Number(findValue(row, "tva").replace(",", "."));
-    const discountRaw = findValue(row, "remise");
-    const discountRate = discountRaw ? Number(discountRaw.replace(",", ".")) : null;
+    const rowNumber = i + 1;
+    const priceHTRaw = findValue(row, "prix ht").replace(",", ".");
+    const vatRateRaw = findValue(row, "tva").replace(",", ".");
+    const discountRaw = findValue(row, "remise").replace(",", ".");
+
+    const priceHT = Number(priceHTRaw);
+    const vatRate = Number(vatRateRaw);
+    const discountRate =
+      discountRaw.length > 0 ? Number(discountRaw) : null;
+
+    if (!Number.isFinite(priceHT) || priceHT < 0) {
+      errors.push(`ligne ${rowNumber}: prix HT invalide`);
+      continue;
+    }
+
+    if (!Number.isFinite(vatRate) || vatRate < 0 || vatRate > 100) {
+      errors.push(`ligne ${rowNumber}: TVA invalide`);
+      continue;
+    }
+
+    if (
+      discountRate !== null &&
+      (!Number.isFinite(discountRate) ||
+        discountRate < 0 ||
+        discountRate > 100)
+    ) {
+      errors.push(`ligne ${rowNumber}: remise invalide`);
+      continue;
+    }
+
     const priceHTCents = toCents(priceHT);
     const priceTTCCents = Math.round(priceHTCents * (1 + vatRate / 100));
+    const description = findValue(row, "description") || null;
+    const categoryValue = findValue(row, "cat") || null;
+    const unitValue =
+      findValue(row, "unité") || findValue(row, "unite") || "unité";
 
-    await prisma.product.upsert({
-      where: { sku },
-      update: {
+    entries.push({
+      sku,
+      data: {
         name,
-        description: findValue(row, "description") || null,
-        category: findValue(row, "cat"),
-        unit: findValue(row, "unité") || findValue(row, "unite") || "unité",
-        priceHTCents,
-        priceTTCCents,
-        vatRate,
-        defaultDiscountRate: discountRate,
-        isActive: true,
-      },
-      create: {
-        sku,
-        name,
-        description: findValue(row, "description") || null,
-        category: findValue(row, "cat") || null,
-        unit: findValue(row, "unité") || findValue(row, "unite") || "unité",
+        description,
+        category: categoryValue && categoryValue.length > 0 ? categoryValue : null,
+        unit: unitValue,
         priceHTCents,
         priceTTCCents,
         vatRate,
@@ -127,6 +161,35 @@ export async function importProductsAction(formData: FormData) {
         isActive: true,
       },
     });
+  }
+
+  if (entries.length === 0) {
+    const message =
+      errors.length > 0
+        ? `Aucune ligne valide traitée (${errors.join(", ")})`
+        : "Aucune ligne valide trouvée dans le fichier CSV.";
+    throw new Error(message);
+  }
+
+  await prisma.$transaction(
+    entries.map((entry) =>
+      prisma.product.upsert({
+        where: { sku: entry.sku },
+        update: entry.data,
+        create: {
+          sku: entry.sku,
+          ...entry.data,
+        },
+      }),
+    ),
+  );
+
+  if (errors.length > 0) {
+    console.warn(
+      `[importProductsAction] Lignes ignorées lors de l'import : ${errors.join(
+        ", ",
+      )}`,
+    );
   }
 
   revalidatePath("/produits");

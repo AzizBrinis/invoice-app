@@ -36,7 +36,7 @@ model CompanySettings {
   email                  String?
   phone                  String?
   iban                   String?
-  defaultCurrency        String        @default("EUR")
+  defaultCurrency        String        @default("TND")
   defaultVatRate         Float         @default(0)
   paymentTerms           String?
   invoiceNumberPrefix    String        @default("FAC")
@@ -48,6 +48,7 @@ model CompanySettings {
   defaultConditions      String?
   invoiceTemplateId      String?
   quoteTemplateId        String?
+  taxConfiguration       Json?
   createdAt              DateTime      @default(now())
   updatedAt              DateTime      @updatedAt
   invoiceTemplate        PdfTemplate?  @relation("InvoiceTemplate", fields: [invoiceTemplateId], references: [id])
@@ -113,16 +114,20 @@ model Quote {
   validUntil               DateTime?
   clientId                 String
   client                   Client        @relation(fields: [clientId], references: [id])
-  currency                 String        @default("EUR")
+  currency                 String        @default("TND")
   globalDiscountRate       Float?
   globalDiscountAmountCents Int?
   vatBreakdown             Json?
+  taxSummary               Json?
+  taxConfiguration         Json?
   notes                    String?
   terms                    String?
   subtotalHTCents          Int
   totalDiscountCents       Int
   totalTVACents            Int
   totalTTCCents            Int
+  fodecAmountCents          Int           @default(0)
+  timbreAmountCents         Int           @default(0)
   createdAt                DateTime      @default(now())
   updatedAt                DateTime      @updatedAt
   lines                    QuoteLine[]
@@ -151,6 +156,8 @@ model QuoteLine {
   totalHTCents         Int
   totalTVACents        Int
   totalTTCCents        Int
+  fodecRate            Float?
+  fodecAmountCents     Int?
   position             Int
   quote                Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
   product              Product? @relation(fields: [productId], references: [id])
@@ -165,10 +172,12 @@ model Invoice {
   dueDate                  DateTime?
   clientId                 String
   client                   Client         @relation(fields: [clientId], references: [id])
-  currency                 String         @default("EUR")
+  currency                 String         @default("TND")
   globalDiscountRate       Float?
   globalDiscountAmountCents Int?
   vatBreakdown             Json?
+  taxSummary               Json?
+  taxConfiguration         Json?
   notes                    String?
   terms                    String?
   lateFeeRate              Float?
@@ -177,6 +186,8 @@ model Invoice {
   totalTVACents            Int
   totalTTCCents            Int
   amountPaidCents          Int            @default(0)
+  fodecAmountCents          Int            @default(0)
+  timbreAmountCents         Int            @default(0)
   createdAt                DateTime       @default(now())
   updatedAt                DateTime       @updatedAt
   quoteId                  String?        @unique
@@ -208,6 +219,8 @@ model InvoiceLine {
   totalHTCents         Int
   totalTVACents        Int
   totalTTCCents        Int
+  fodecRate            Float?
+  fodecAmountCents     Int?
   position             Int
   invoice              Invoice   @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   product              Product?  @relation(fields: [productId], references: [id])

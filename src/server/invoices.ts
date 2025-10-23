@@ -1,5 +1,11 @@
 import { prisma } from "@/lib/prisma";
 import { calculateDocumentTotals, calculateLineTotals } from "@/lib/documents";
+import { getSettings } from "@/server/settings";
+import {
+  DEFAULT_TAX_CONFIGURATION,
+  normalizeTaxConfiguration,
+  type TaxConfiguration,
+} from "@/lib/taxes";
 import {
   InvoiceStatus,
   QuoteStatus,
@@ -23,6 +29,7 @@ const invoiceLineSchema = z.object({
     .nonnegative()
     .nullable()
     .optional(),
+  fodecRate: z.number().min(0).max(100).nullable().optional(),
   position: z.number().int().nonnegative(),
 });
 
@@ -34,7 +41,7 @@ export const invoiceInputSchema = z.object({
   reference: z.string().nullable().optional(),
   issueDate: z.coerce.date(),
   dueDate: z.coerce.date().nullable().optional(),
-  currency: z.string().default("EUR"),
+  currency: z.string().default("TND"),
   globalDiscountRate: z.number().min(0).max(100).nullable().optional(),
   globalDiscountAmountCents: z
     .number()
@@ -48,6 +55,14 @@ export const invoiceInputSchema = z.object({
   lines: z
     .array(invoiceLineSchema)
     .min(1, "Au moins une ligne est nécessaire"),
+  taxes: z
+    .object({
+      applyFodec: z.boolean().optional(),
+      applyTimbre: z.boolean().optional(),
+      documentFodecRate: z.number().min(0).max(100).nullable().optional(),
+      timbreAmountCents: z.number().int().nonnegative().nullable().optional(),
+    })
+    .optional(),
 });
 
 export type InvoiceInput = z.infer<typeof invoiceInputSchema>;
@@ -142,24 +157,84 @@ function buildInvoiceWhere(
   } satisfies Prisma.InvoiceWhereInput;
 }
 
-function computeInvoiceTotals(payload: InvoiceInput) {
+function computeInvoiceTotals(
+  payload: InvoiceInput,
+  taxConfig = DEFAULT_TAX_CONFIGURATION,
+) {
+  const applyFodec =
+    taxConfig.fodec.enabled && (payload.taxes?.applyFodec ?? true);
+  const applyTimbre =
+    taxConfig.timbre.enabled &&
+    (payload.taxes?.applyTimbre ?? taxConfig.timbre.autoApply);
+
   const computedLines = payload.lines.map((line) =>
-    calculateLineTotals({
-      quantity: line.quantity,
-      unitPriceHTCents: line.unitPriceHTCents,
-      vatRate: line.vatRate,
-      discountRate: line.discountRate ?? undefined,
-      discountAmountCents: line.discountAmountCents ?? undefined,
-    }),
+    calculateLineTotals(
+      {
+        quantity: line.quantity,
+        unitPriceHTCents: line.unitPriceHTCents,
+        vatRate: line.vatRate,
+        discountRate: line.discountRate ?? undefined,
+        discountAmountCents: line.discountAmountCents ?? undefined,
+      },
+      {
+        fodecRate:
+          taxConfig.fodec.application === "line" && applyFodec
+            ? line.fodecRate ?? taxConfig.fodec.rate
+            : null,
+        fodecCalculationOrder: taxConfig.fodec.calculationOrder,
+        roundingMode: taxConfig.rounding.line,
+      },
+    ),
   );
+
+  const documentFodecRate =
+    taxConfig.fodec.application === "document" && applyFodec
+      ? payload.taxes?.documentFodecRate ?? taxConfig.fodec.rate
+      : null;
+
+  const timbreAmountCents = applyTimbre
+    ? payload.taxes?.timbreAmountCents ?? taxConfig.timbre.amountCents
+    : 0;
 
   const totals = calculateDocumentTotals(
     computedLines,
     payload.globalDiscountRate ?? undefined,
     payload.globalDiscountAmountCents ?? undefined,
+    {
+      taxConfiguration: taxConfig,
+      applyFodec,
+      applyTimbre,
+      documentFodecRate,
+      timbreAmountCents,
+    },
   );
 
-  return { computedLines, totals };
+  const taxConfigurationSnapshot: TaxConfiguration = {
+    ...taxConfig,
+    fodec: {
+      ...taxConfig.fodec,
+      enabled: applyFodec,
+      rate:
+        taxConfig.fodec.application === "document" && documentFodecRate != null
+          ? documentFodecRate
+          : taxConfig.fodec.rate,
+    },
+    timbre: {
+      ...taxConfig.timbre,
+      enabled: applyTimbre,
+      amountCents: timbreAmountCents,
+    },
+  };
+
+  return {
+    computedLines,
+    totals,
+    applyFodec,
+    applyTimbre,
+    documentFodecRate,
+    timbreAmountCents,
+    taxConfigurationSnapshot,
+  };
 }
 
 function serializeVat(entries: ReturnType<typeof calculateDocumentTotals>["vatEntries"]) {
@@ -213,7 +288,12 @@ export async function getInvoice(id: string) {
 
 export async function createInvoice(input: InvoiceInput) {
   const payload = invoiceInputSchema.parse(input);
-  const { computedLines, totals } = computeInvoiceTotals(payload);
+  const settings = await getSettings();
+  const taxConfig = normalizeTaxConfiguration(
+    (settings as { taxConfiguration?: unknown }).taxConfiguration,
+  );
+  const { computedLines, totals, timbreAmountCents, taxConfigurationSnapshot } =
+    computeInvoiceTotals(payload, taxConfig);
   const number = payload.number ?? (await nextInvoiceNumber());
 
   const invoice = await prisma.invoice.create({
@@ -228,6 +308,8 @@ export async function createInvoice(input: InvoiceInput) {
       globalDiscountRate: payload.globalDiscountRate ?? null,
       globalDiscountAmountCents: totals.globalDiscountAppliedCents,
       vatBreakdown: serializeVat(totals.vatEntries),
+      taxSummary: totals.taxSummary,
+      taxConfiguration: taxConfigurationSnapshot,
       notes: payload.notes,
       terms: payload.terms,
       lateFeeRate: payload.lateFeeRate ?? null,
@@ -236,6 +318,8 @@ export async function createInvoice(input: InvoiceInput) {
       totalTVACents: totals.totalTVACents,
       totalTTCCents: totals.totalTTCCents,
       amountPaidCents: 0,
+      fodecAmountCents: totals.fodecAmountCents,
+      timbreAmountCents,
       lines: {
         create: payload.lines.map((line, index) => ({
           productId: line.productId ?? null,
@@ -249,6 +333,8 @@ export async function createInvoice(input: InvoiceInput) {
           totalHTCents: computedLines[index].totalHTCents,
           totalTVACents: computedLines[index].totalTVACents,
           totalTTCCents: computedLines[index].totalTTCCents,
+          fodecRate: computedLines[index].fodecRate ?? null,
+          fodecAmountCents: computedLines[index].fodecAmountCents,
           position: line.position,
         })),
       },
@@ -265,7 +351,12 @@ export async function createInvoice(input: InvoiceInput) {
 
 export async function updateInvoice(id: string, input: InvoiceInput) {
   const payload = invoiceInputSchema.parse({ ...input, id });
-  const { computedLines, totals } = computeInvoiceTotals(payload);
+  const settings = await getSettings();
+  const taxConfig = normalizeTaxConfiguration(
+    (settings as { taxConfiguration?: unknown }).taxConfiguration,
+  );
+  const { computedLines, totals, timbreAmountCents, taxConfigurationSnapshot } =
+    computeInvoiceTotals(payload, taxConfig);
 
   const invoice = await prisma.$transaction(async (tx) => {
     await tx.invoiceLine.deleteMany({ where: { invoiceId: id } });
@@ -282,6 +373,8 @@ export async function updateInvoice(id: string, input: InvoiceInput) {
         globalDiscountRate: payload.globalDiscountRate ?? null,
         globalDiscountAmountCents: totals.globalDiscountAppliedCents,
         vatBreakdown: serializeVat(totals.vatEntries),
+        taxSummary: totals.taxSummary,
+        taxConfiguration: taxConfigurationSnapshot,
         notes: payload.notes,
         terms: payload.terms,
         lateFeeRate: payload.lateFeeRate ?? null,
@@ -289,6 +382,8 @@ export async function updateInvoice(id: string, input: InvoiceInput) {
         totalDiscountCents: totals.totalDiscountCents,
         totalTVACents: totals.totalTVACents,
         totalTTCCents: totals.totalTTCCents,
+        fodecAmountCents: totals.fodecAmountCents,
+        timbreAmountCents,
         lines: {
           create: payload.lines.map((line, index) => ({
             productId: line.productId ?? null,
@@ -302,6 +397,8 @@ export async function updateInvoice(id: string, input: InvoiceInput) {
             totalHTCents: computedLines[index].totalHTCents,
             totalTVACents: computedLines[index].totalTVACents,
             totalTTCCents: computedLines[index].totalTTCCents,
+            fodecRate: computedLines[index].fodecRate ?? null,
+            fodecAmountCents: computedLines[index].fodecAmountCents,
             position: line.position,
           })),
         },

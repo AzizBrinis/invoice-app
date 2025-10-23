@@ -4,6 +4,7 @@ import puppeteer from "puppeteer";
 import { prisma } from "@/lib/prisma";
 import { formatCurrency as formatCurrencyIntl, formatDate } from "@/lib/formatters";
 import { fromCents } from "@/lib/money";
+import { getCurrencyInfo, getDefaultCurrencyCode } from "@/lib/currency";
 import type {
   Invoice,
   InvoiceLine,
@@ -54,8 +55,9 @@ function formatCurrency(value: number, currency: string) {
   return formatCurrencyIntl(value, currency);
 }
 
-function formatNumber(value: number) {
-  return new Intl.NumberFormat("fr-FR", {
+function formatNumber(value: number, currency: string) {
+  const { locale } = getCurrencyInfo(currency);
+  return new Intl.NumberFormat(locale, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(value);
@@ -217,7 +219,7 @@ function buildLinesHtml(
           <td class="border-b py-3 pl-3 text-xs">${index + 1}.</td>
           <td class="border-b py-3 pl-2 text-xs">${escapeHtml(line.description ?? "")}</td>
           <td class="border-b py-3 pl-2 text-right text-xs">${escapeHtml(formatCurrency(unitPriceHT, currency))}</td>
-          <td class="border-b py-3 pl-2 text-center text-xs">${formatNumber(quantity)}</td>
+          <td class="border-b py-3 pl-2 text-center text-xs">${formatNumber(quantity, currency)}</td>
           <td class="border-b py-3 pl-2 text-center text-xs">${vatRate.toFixed(2)}%</td>
           <td class="border-b py-3 pl-2 text-right text-xs">${escapeHtml(formatCurrency(totalHT, currency))}</td>
           <td class="border-b py-3 pl-2 pr-3 text-right text-xs">${escapeHtml(formatCurrency(totalTTC, currency))}</td>
@@ -235,7 +237,7 @@ function buildDocumentHtml(
   settings: CompanySettings | null,
 ) {
   const logoSrc = resolveLogo(settings);
-  const currency = document.currency ?? settings?.defaultCurrency ?? "EUR";
+  const currency = document.currency ?? settings?.defaultCurrency ?? getDefaultCurrencyCode();
   const title = type === "invoice" ? "Facture" : "Devis";
   const identifierLabel = type === "invoice" ? "Facture #" : "Devis #";
   const dateLabel = type === "invoice" ? "Date" : "Date d'émission";
@@ -256,6 +258,11 @@ function buildDocumentHtml(
   const totalTVA = fromCents(document.totalTVACents ?? 0);
   const totalTTC = fromCents(document.totalTTCCents ?? 0);
   const discount = fromCents(document.totalDiscountCents ?? 0);
+  const fodecAmount = fromCents((document as { fodecAmountCents?: number }).fodecAmountCents ?? 0);
+  const timbreAmount = fromCents((document as { timbreAmountCents?: number }).timbreAmountCents ?? 0);
+  const taxSummaryEntries = Array.isArray((document as { taxSummary?: unknown }).taxSummary)
+    ? ((document as { taxSummary?: unknown }).taxSummary as Array<Record<string, unknown>>)
+    : [];
 
   const { rowsHtml, vatTotal } = buildLinesHtml(document.lines, currency);
 
@@ -300,6 +307,48 @@ function buildDocumentHtml(
   const statusLabel = isInvoiceDoc
     ? translateInvoiceStatus(invoiceDoc!.status)
     : translateQuoteStatus(quoteDoc!.status);
+
+  const taxSummaryRows = taxSummaryEntries
+    .map((entry, index) => {
+      const label = typeof entry.label === "string" ? entry.label : typeof entry.type === "string" ? entry.type : `Taxe ${index + 1}`;
+      const rate = typeof entry.rate === "number" ? `${entry.rate}%` : "—";
+      const base = typeof entry.baseCents === "number"
+        ? entry.baseCents
+        : typeof (entry as { baseHTCents?: unknown }).baseHTCents === "number"
+        ? (entry as { baseHTCents: number }).baseHTCents
+        : 0;
+      const amount = typeof entry.amountCents === "number" ? entry.amountCents : 0;
+      return `
+        <tr>
+          <td class="px-4 py-2 text-left text-slate-600">${escapeHtml(label)}</td>
+          <td class="px-4 py-2 text-left text-slate-600">${escapeHtml(formatCurrency(fromCents(base), currency))}</td>
+          <td class="px-4 py-2 text-left text-slate-600">${rate}</td>
+          <td class="px-4 py-2 text-right text-slate-700">${escapeHtml(formatCurrency(fromCents(amount), currency))}</td>
+        </tr>
+      `;
+    })
+    .join("");
+
+  const taxSummaryHtml = taxSummaryRows.length
+    ? `
+      <div class="px-14 pb-6 text-sm text-neutral-700">
+        <h3 class="text-main font-bold">Résumé fiscal</h3>
+        <table class="mt-3 w-full border-collapse border-spacing-0 text-xs">
+          <thead>
+            <tr class="text-slate-500">
+              <th class="px-4 py-2 text-left">Taxe</th>
+              <th class="px-4 py-2 text-left">Base</th>
+              <th class="px-4 py-2 text-left">Taux</th>
+              <th class="px-4 py-2 text-right">Montant</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-200">
+            ${taxSummaryRows}
+          </tbody>
+        </table>
+      </div>
+    `
+    : "";
 
   const html = `
     <!DOCTYPE html>
@@ -420,6 +469,30 @@ function buildDocumentHtml(
                                     <div class="whitespace-nowrap font-bold text-main">${escapeHtml(formatCurrency(discount, currency))}</div>
                                   </td>
                                 </tr>
+                                ${
+                                  fodecAmount > 0
+                                    ? `<tr>
+                                  <td class="p-3">
+                                    <div class="whitespace-nowrap text-slate-400">FODEC:</div>
+                                  </td>
+                                  <td class="p-3 text-right">
+                                    <div class="whitespace-nowrap font-bold text-main">${escapeHtml(formatCurrency(fodecAmount, currency))}</div>
+                                  </td>
+                                </tr>`
+                                    : ""
+                                }
+                                ${
+                                  timbreAmount > 0
+                                    ? `<tr>
+                                  <td class="p-3">
+                                    <div class="whitespace-nowrap text-slate-400">Timbre fiscal:</div>
+                                  </td>
+                                  <td class="p-3 text-right">
+                                    <div class="whitespace-nowrap font-bold text-main">${escapeHtml(formatCurrency(timbreAmount, currency))}</div>
+                                  </td>
+                                </tr>`
+                                    : ""
+                                }
                                 <tr>
                                   <td class="bg-main p-3">
                                     <div class="whitespace-nowrap font-bold text-white">Total TTC:</div>
@@ -439,6 +512,8 @@ function buildDocumentHtml(
               </tbody>
             </table>
           </div>
+
+          ${taxSummaryHtml}
 
           ${bankInfo ? `<div class="px-14 text-sm text-neutral-700 pbi-a"><p class="text-main font-bold">Coordonnées bancaires</p><div>${bankInfo}</div></div>` : ""}
 

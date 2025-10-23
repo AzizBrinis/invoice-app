@@ -1,9 +1,33 @@
 import { PrismaClient, InvoiceStatus, QuoteStatus } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { calculateDocumentTotals, calculateLineTotals } from "../src/lib/documents";
-import { euroToCents } from "../src/lib/documents";
+import { currencyUnitToCents } from "../src/lib/documents";
+import { DEFAULT_TAX_CONFIGURATION } from "../src/lib/taxes";
 
 const prisma = new PrismaClient();
+
+const APPLY_FODEC_SEED = DEFAULT_TAX_CONFIGURATION.fodec.enabled;
+const APPLY_TIMBRE_SEED =
+  DEFAULT_TAX_CONFIGURATION.timbre.enabled &&
+  DEFAULT_TAX_CONFIGURATION.timbre.autoApply;
+
+const TAX_OPTIONS_SEED = {
+  taxConfiguration: DEFAULT_TAX_CONFIGURATION,
+  applyFodec: APPLY_FODEC_SEED,
+  applyTimbre: APPLY_TIMBRE_SEED,
+  documentFodecRate:
+    DEFAULT_TAX_CONFIGURATION.fodec.application === "document" && APPLY_FODEC_SEED
+      ? DEFAULT_TAX_CONFIGURATION.fodec.rate
+      : null,
+  timbreAmountCents: APPLY_TIMBRE_SEED
+    ? DEFAULT_TAX_CONFIGURATION.timbre.amountCents
+    : 0,
+} as const;
+
+const LINE_FODEC_RATE_SEED =
+  DEFAULT_TAX_CONFIGURATION.fodec.application === "line" && APPLY_FODEC_SEED
+    ? DEFAULT_TAX_CONFIGURATION.fodec.rate
+    : null;
 
 async function resetDatabase() {
   await prisma.emailLog.deleteMany();
@@ -61,84 +85,85 @@ async function seed() {
   await prisma.companySettings.create({
     data: {
       id: 1,
-      companyName: "Société Démonstration",
+      companyName: "Société Démonstration Tunisie",
       logoUrl: null,
-      siren: "123 456 789",
-      tvaNumber: "FR12 3456 78901",
+      siren: "B123456789",
+      tvaNumber: "TN1234567A",
       address:
-        "15 Avenue de la République\n75011 Paris\nFrance",
-      email: "contact@demo.fr",
-      phone: "+33 1 23 45 67 89",
-      iban: "FR76 3000 6000 0112 3456 7890 189",
-      defaultCurrency: "EUR",
+        "12 Avenue Habib Bourguiba\n1000 Tunis\nTunisie",
+      email: "contact@demo.tn",
+      phone: "+216 71 100 200",
+      iban: "TN5900100012345678901234",
+      defaultCurrency: "TND",
       defaultVatRate: 20,
-      paymentTerms: "Paiement à 30 jours fin de mois.",
+      paymentTerms: "Paiement à 30 jours fin de mois en TND.",
       invoiceNumberPrefix: "FAC",
       quoteNumberPrefix: "DEV",
       resetNumberingAnnually: true,
       defaultInvoiceFooter:
-        "Mentions légales : pénalités de retard exigibles, indemnité forfaitaire de recouvrement de 40 €.",
+        "Mentions légales : pénalités de retard exigibles, indemnité forfaitaire de recouvrement de 40 TND.",
       defaultQuoteFooter:
         "Le devis est valable 30 jours. Réponse souhaitée sous 15 jours.",
       legalFooter:
-        "Société Démonstration - SAS au capital de 50 000 € - RCS Paris 123 456 789.",
+        "Société Démonstration Tunisie - SARL au capital de 150 000 TND - Registre B123456789.",
       defaultConditions:
-        "Paiement par virement bancaire. Livraison sous 5 jours ouvrés après acceptation.",
+        "Paiement par virement bancaire en dinars tunisiens. Livraison sous 5 jours ouvrés après acceptation.",
       invoiceTemplateId: invoiceTemplate.id,
       quoteTemplateId: quoteTemplate.id,
+      taxConfiguration: DEFAULT_TAX_CONFIGURATION,
     },
   });
 
   const clients = await prisma.$transaction(
     [
       {
-        displayName: "Ateliers Martin",
-        companyName: "Ateliers Martin SARL",
+        displayName: "Ateliers Sahel",
+        companyName: "Ateliers Sahel SARL",
         address:
-          "24 Rue des Lilas\n44100 Nantes\nFrance",
-        email: "contact@ateliersmartin.fr",
-        phone: "+33 2 40 00 11 22",
-        vatNumber: "FR45 6789 01234",
+          "24 Rue de la Liberté\n4000 Sousse\nTunisie",
+        email: "contact@atelierssahel.tn",
+        phone: "+216 73 300 400",
+        vatNumber: "TN0987654B",
         notes: "Client historique, conditions négociées.",
       },
       {
-        displayName: "Agence Boréal",
-        companyName: "Agence Boréal",
+        displayName: "Agence Carthage",
+        companyName: "Agence Carthage",
         address:
-          "5 Rue de la Paix\n31000 Toulouse\nFrance",
-        email: "facturation@boreal.fr",
-        phone: "+33 5 34 12 98 76",
-        vatNumber: "FR98 7654 32109",
+          "5 Rue des Salines\n2078 La Marsa\nTunisie",
+        email: "facturation@carthage.tn",
+        phone: "+216 71 222 333",
+        vatNumber: "TN2233445C",
         notes: "Préférence pour les devis détaillés.",
       },
       {
-        displayName: "Clinique du Parc",
-        companyName: "Clinique du Parc",
+        displayName: "Clinique El Amen",
+        companyName: "Clinique El Amen",
         address:
-          "112 Boulevard des Hôpitaux\n69000 Lyon\nFrance",
-        email: "compta@cliniqueduparc.fr",
-        phone: "+33 4 72 00 45 45",
-        vatNumber: "FR21 4567 89012",
+          "112 Avenue de l'Indépendance\n3000 Sfax\nTunisie",
+        email: "compta@cliniqueelamen.tn",
+        phone: "+216 74 500 600",
+        vatNumber: "TN5566778D",
         notes: "Facturation mensuelle regroupée.",
       },
       {
-        displayName: "Maison Côté Mer",
-        companyName: "Maison d'hôtes Côté Mer",
+        displayName: "Maison Dar El Bahri",
+        companyName: "Maison d'hôtes Dar El Bahri",
         address:
-          "8 Promenade des Anglais\n06000 Nice\nFrance",
-        email: "gestion@cotemer.fr",
-        phone: "+33 4 93 12 34 56",
-        vatNumber: "FR34 5678 90123",
+          "8 Corniche du Lac\n1053 Les Berges du Lac\nTunisie",
+        email: "gestion@darelbahri.tn",
+        phone: "+216 71 888 999",
+        vatNumber: "TN6677889E",
         notes: "Client saisonnier.",
       },
       {
-        displayName: "Start Innov",
-        companyName: "Start Innov SAS",
+        displayName: "Startup InnovTN",
+        companyName: "Start Innov Tunisie",
         address:
-          "18 Rue Oberkampf\n75011 Paris\nFrance",
-        email: "finance@startinnov.fr",
-        phone: "+33 1 53 67 89 10",
-        vatNumber: "FR87 1234 56789",
+          "18 Rue de Monastir\n1073 Montplaisir\nTunisie",
+        email: "finance@innovtn.tn",
+        phone: "+216 71 555 444",
+        vatNumber: "TN7788990F",
         notes: "Paiement rapide, communication Slack.",
       },
     ].map((data) => prisma.client.create({ data })),
@@ -229,7 +254,7 @@ async function seed() {
 
   const products = await prisma.$transaction(
     productsData.map((product) => {
-      const priceHTCents = euroToCents(product.priceHT);
+    const priceHTCents = currencyUnitToCents(product.priceHT);
       const priceTTCCents = Math.round(
         priceHTCents * (1 + product.vat / 100),
       );
@@ -306,15 +331,24 @@ async function seed() {
     const client = clients[i];
     const lines = quoteLines[i].map((line) => {
       const product = products[line.productIndex];
-      return calculateLineTotals({
-        quantity: line.quantity,
-        unitPriceHTCents: product.priceHTCents,
-        vatRate: product.vatRate,
-        discountRate: line.discountRate,
-      });
+      return calculateLineTotals(
+        {
+          quantity: line.quantity,
+          unitPriceHTCents: product.priceHTCents,
+          vatRate: product.vatRate,
+          discountRate: line.discountRate,
+        },
+        {
+          fodecRate: LINE_FODEC_RATE_SEED,
+          fodecCalculationOrder: DEFAULT_TAX_CONFIGURATION.fodec.calculationOrder,
+          roundingMode: DEFAULT_TAX_CONFIGURATION.rounding.line,
+        },
+      );
     });
 
-    const totals = calculateDocumentTotals(lines, 5);
+    const totals = calculateDocumentTotals(lines, 5, undefined, {
+      ...TAX_OPTIONS_SEED,
+    });
     const number = `DEV-${quoteBaseDate.getFullYear()}-${String(i + 1).padStart(4, "0")}`;
 
     const quote = await prisma.quote.create({
@@ -333,16 +367,20 @@ async function seed() {
           quoteBaseDate.getDate() + 30,
         ),
         clientId: client.id,
-        currency: "EUR",
+        currency: "TND",
         globalDiscountRate: 5,
         globalDiscountAmountCents: totals.globalDiscountAppliedCents,
         vatBreakdown: totals.vatEntries,
+        taxSummary: totals.taxSummary ?? [],
+        taxConfiguration: DEFAULT_TAX_CONFIGURATION,
         notes: "Merci pour votre confiance.",
         terms: "Validité 30 jours. Signature électronique acceptée.",
         subtotalHTCents: totals.subtotalHTCents,
         totalDiscountCents: totals.totalDiscountCents,
         totalTVACents: totals.totalTVACents,
         totalTTCCents: totals.totalTTCCents,
+        fodecAmountCents: totals.fodecAmountCents ?? 0,
+        timbreAmountCents: totals.timbreAmountCents ?? 0,
         lines: {
           create: lines.map((line, index) => ({
             productId: products[quoteLines[i][index].productIndex].id,
@@ -356,6 +394,8 @@ async function seed() {
             totalHTCents: line.totalHTCents,
             totalTVACents: line.totalTVACents,
             totalTTCCents: line.totalTTCCents,
+            fodecRate: line.fodecRate ?? null,
+            fodecAmountCents: line.fodecAmountCents,
             position: index,
           })),
         },
@@ -403,17 +443,28 @@ async function seed() {
     const client = clients[(i + 2) % clients.length];
     const lines = invoiceLinesSeed[i].map((line) => {
       const product = products[line.productIndex];
-      return calculateLineTotals({
-        quantity: line.quantity,
-        unitPriceHTCents: product.priceHTCents,
-        vatRate: product.vatRate,
-        discountRate: line.discountRate,
-      });
+      return calculateLineTotals(
+        {
+          quantity: line.quantity,
+          unitPriceHTCents: product.priceHTCents,
+          vatRate: product.vatRate,
+          discountRate: line.discountRate,
+        },
+        {
+          fodecRate: LINE_FODEC_RATE_SEED,
+          fodecCalculationOrder: DEFAULT_TAX_CONFIGURATION.fodec.calculationOrder,
+          roundingMode: DEFAULT_TAX_CONFIGURATION.rounding.line,
+        },
+      );
     });
 
     const totals = calculateDocumentTotals(
       lines,
       i === 0 ? 0 : 3,
+      undefined,
+      {
+        ...TAX_OPTIONS_SEED,
+      },
     );
     const number = `FAC-${quoteBaseDate.getFullYear()}-${String(i + 1).padStart(4, "0")}`;
 
@@ -436,13 +487,15 @@ async function seed() {
           quoteBaseDate.getDate() + (i === 0 ? 10 : -5),
         ),
         clientId: client.id,
-        currency: "EUR",
+        currency: "TND",
         globalDiscountRate: i === 0 ? null : 3,
         globalDiscountAmountCents:
           totals.globalDiscountAppliedCents > 0
             ? totals.globalDiscountAppliedCents
             : null,
         vatBreakdown: totals.vatEntries,
+        taxSummary: totals.taxSummary ?? [],
+        taxConfiguration: DEFAULT_TAX_CONFIGURATION,
         notes: "Merci pour votre règlement.",
         terms: "Paiement par virement. IBAN fourni.",
         lateFeeRate: 5,
@@ -454,6 +507,8 @@ async function seed() {
           invoiceStatus === InvoiceStatus.PAYEE
             ? totals.totalTTCCents
             : Math.round(totals.totalTTCCents * 0.4),
+        fodecAmountCents: totals.fodecAmountCents ?? 0,
+        timbreAmountCents: totals.timbreAmountCents ?? 0,
         lines: {
           create: lines.map((line, index) => ({
             productId: products[invoiceLinesSeed[i][index].productIndex].id,
@@ -468,6 +523,8 @@ async function seed() {
             totalHTCents: line.totalHTCents,
             totalTVACents: line.totalTVACents,
             totalTTCCents: line.totalTTCCents,
+            fodecRate: line.fodecRate ?? null,
+            fodecAmountCents: line.fodecAmountCents,
             position: index,
           })),
         },

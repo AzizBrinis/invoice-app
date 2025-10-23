@@ -201,10 +201,10 @@ export default async function FacturesPage({
                   {invoice.dueDate ? formatDate(invoice.dueDate) : "—"}
                 </td>
                 <td className="px-4 py-3 text-right text-zinc-900">
-                  {formatCurrency(fromCents(invoice.totalTTCCents))}
+                  {formatCurrency(fromCents(invoice.totalTTCCents), invoice.currency)}
                 </td>
                 <td className="px-4 py-3 text-right text-zinc-600">
-                  {formatCurrency(fromCents(invoice.amountPaidCents))}
+                  {formatCurrency(fromCents(invoice.amountPaidCents), invoice.currency)}
                 </td>
                 <td className="px-4 py-3">
                   <Badge variant={statusVariant(invoice.status)}>{STATUS_LABELS[invoice.status]}</Badge>

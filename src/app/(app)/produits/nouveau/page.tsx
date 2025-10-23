@@ -1,8 +1,11 @@
 import Link from "next/link";
 import { ProductForm } from "@/app/(app)/produits/product-form";
 import { createProductAction } from "@/app/(app)/produits/actions";
+import { getSettings } from "@/server/settings";
+import type { CurrencyCode } from "@/lib/currency";
 
-export default function NouveauProduitPage() {
+export default async function NouveauProduitPage() {
+  const settings = await getSettings();
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -21,7 +24,11 @@ export default function NouveauProduitPage() {
           Retour à la liste
         </Link>
       </div>
-      <ProductForm action={createProductAction} submitLabel="Créer le produit" />
+      <ProductForm
+        action={createProductAction}
+        submitLabel="Créer le produit"
+        currencyCode={settings.defaultCurrency as CurrencyCode}
+      />
     </div>
   );
 }

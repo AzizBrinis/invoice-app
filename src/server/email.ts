@@ -45,10 +45,10 @@ export async function sendQuoteEmail(params: {
 
   const subject =
     params.subject ??
-    `Votre devis ${quote.number} — ${formatCurrency(fromCents(quote.totalTTCCents))}`;
+    `Votre devis ${quote.number} — ${formatCurrency(fromCents(quote.totalTTCCents), quote.currency)}`;
   const message =
     params.message ??
-    `Bonjour ${quote.client.displayName},\n\nVeuillez trouver ci-joint le devis ${quote.number} du ${formatDate(quote.issueDate)}.\n\nMontant TTC : ${formatCurrency(fromCents(quote.totalTTCCents))}.\n\nCordialement,\n${FROM_EMAIL}`;
+    `Bonjour ${quote.client.displayName},\n\nVeuillez trouver ci-joint le devis ${quote.number} du ${formatDate(quote.issueDate)}.\n\nMontant TTC : ${formatCurrency(fromCents(quote.totalTTCCents), quote.currency)}.\n\nCordialement,\n${FROM_EMAIL}`;
 
   await transport.sendMail({
     from: FROM_EMAIL,
@@ -95,10 +95,10 @@ export async function sendInvoiceEmail(params: {
 
   const subject =
     params.subject ??
-    `Votre facture ${invoice.number} — ${formatCurrency(fromCents(invoice.totalTTCCents))}`;
+    `Votre facture ${invoice.number} — ${formatCurrency(fromCents(invoice.totalTTCCents), invoice.currency)}`;
   const message =
     params.message ??
-    `Bonjour ${invoice.client.displayName},\n\nVeuillez trouver ci-joint la facture ${invoice.number} du ${formatDate(invoice.issueDate)}.\n\nMontant TTC : ${formatCurrency(fromCents(invoice.totalTTCCents))}.\n\nCordialement,\n${FROM_EMAIL}`;
+    `Bonjour ${invoice.client.displayName},\n\nVeuillez trouver ci-joint la facture ${invoice.number} du ${formatDate(invoice.issueDate)}.\n\nMontant TTC : ${formatCurrency(fromCents(invoice.totalTTCCents), invoice.currency)}.\n\nCordialement,\n${FROM_EMAIL}`;
 
   await transport.sendMail({
     from: FROM_EMAIL,

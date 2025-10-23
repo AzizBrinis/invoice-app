@@ -9,6 +9,9 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { formatCurrency } from "@/lib/formatters";
 import { fromCents } from "@/lib/money";
+import { getSettings } from "@/server/settings";
+import { SUPPORTED_CURRENCIES, type CurrencyCode } from "@/lib/currency";
+import { normalizeTaxConfiguration } from "@/lib/taxes";
 
 type PageParams = { id: string };
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -47,9 +50,10 @@ export default async function EditDevisPage({
     ? resolvedSearchParams.error[0]
     : resolvedSearchParams?.error ?? null;
 
-  const [clients, products] = await Promise.all([
+  const [clients, products, settings] = await Promise.all([
     prisma.client.findMany({ orderBy: { displayName: "asc" } }),
     prisma.product.findMany({ orderBy: { name: "asc" } }),
+    getSettings(),
   ]);
 
   return (
@@ -82,6 +86,9 @@ export default async function EditDevisPage({
         submitLabel="Mettre à jour le devis"
         clients={clients}
         products={products}
+        defaultCurrency={settings.defaultCurrency as CurrencyCode}
+        currencyOptions={SUPPORTED_CURRENCIES}
+        taxConfiguration={normalizeTaxConfiguration(settings.taxConfiguration)}
         defaultQuote={quote}
       />
       <section className="card space-y-4 p-6">

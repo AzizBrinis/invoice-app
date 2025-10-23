@@ -1,5 +1,59 @@
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
+import {
+  CURRENCY_CODES,
+  getDefaultCurrencyCode,
+} from "@/lib/currency";
+import {
+  DEFAULT_TAX_CONFIGURATION,
+  normalizeTaxConfiguration,
+  TAX_ORDER_ITEMS,
+} from "@/lib/taxes";
+
+const roundingModeSchema = z.enum(["nearest-cent", "up", "down"]);
+
+const taxRateSchema = z.object({
+  code: z.string().min(1),
+  label: z.string().min(1),
+  rate: z.number(),
+});
+
+const taxConfigurationSchema = z.object({
+  tva: z
+    .object({
+      rates: z.array(taxRateSchema).min(1),
+      applyMode: z.enum(["line", "document"]).default("line"),
+      allowExemption: z.boolean().default(true),
+    })
+    .default(DEFAULT_TAX_CONFIGURATION.tva),
+  fodec: z
+    .object({
+      enabled: z.boolean().default(true),
+      rate: z.number().min(0).default(DEFAULT_TAX_CONFIGURATION.fodec.rate),
+      application: z.enum(["line", "document"]).default("line"),
+      calculationOrder: z
+        .enum(["BEFORE_TVA", "AFTER_TVA"])
+        .default("BEFORE_TVA"),
+    })
+    .default(DEFAULT_TAX_CONFIGURATION.fodec),
+  timbre: z
+    .object({
+      enabled: z.boolean().default(false),
+      amountCents: z.number().int().nonnegative().default(0),
+      autoApply: z.boolean().default(true),
+    })
+    .default(DEFAULT_TAX_CONFIGURATION.timbre),
+  order: z
+    .array(z.enum(TAX_ORDER_ITEMS))
+    .min(1)
+    .default(DEFAULT_TAX_CONFIGURATION.order),
+  rounding: z
+    .object({
+      line: roundingModeSchema.default("nearest-cent"),
+      total: roundingModeSchema.default("nearest-cent"),
+    })
+    .default(DEFAULT_TAX_CONFIGURATION.rounding),
+});
 
 export const settingsSchema = z.object({
   companyName: z.string().min(2, "Nom obligatoire"),
@@ -14,7 +68,7 @@ export const settingsSchema = z.object({
   email: z.string().email("E-mail invalide").nullable().optional(),
   phone: z.string().min(5, "Téléphone invalide").nullable().optional(),
   iban: z.string().min(10, "IBAN invalide").nullable().optional(),
-  defaultCurrency: z.string().min(3, "Devise requise"),
+  defaultCurrency: z.enum(CURRENCY_CODES).default(getDefaultCurrencyCode()),
   defaultVatRate: z
     .number({
       invalid_type_error: "Taux de TVA invalide",
@@ -31,6 +85,7 @@ export const settingsSchema = z.object({
   defaultConditions: z.string().nullable().optional(),
   invoiceTemplateId: z.string().nullable().optional(),
   quoteTemplateId: z.string().nullable().optional(),
+  taxConfiguration: taxConfigurationSchema.optional(),
 });
 
 export type SettingsInput = z.infer<typeof settingsSchema>;
@@ -45,17 +100,25 @@ export async function getSettings() {
   });
 
   if (settings) {
-    return settings;
+    const normalizedTaxConfig = normalizeTaxConfiguration(
+      (settings as { taxConfiguration?: unknown }).taxConfiguration,
+    );
+
+    return {
+      ...settings,
+      taxConfiguration: normalizedTaxConfig,
+    };
   }
 
   return prisma.companySettings.create({
     data: {
       id: 1,
       companyName: "Nouvelle société",
-      defaultCurrency: "EUR",
+      defaultCurrency: "TND",
       defaultVatRate: 20,
       invoiceNumberPrefix: "FAC",
       quoteNumberPrefix: "DEV",
+      taxConfiguration: DEFAULT_TAX_CONFIGURATION,
     },
     include: {
       invoiceTemplate: true,
@@ -66,15 +129,19 @@ export async function getSettings() {
 
 export async function updateSettings(input: SettingsInput) {
   const parsed = settingsSchema.parse(input);
+  const { taxConfiguration, ...rest } = parsed;
+  const normalizedTaxConfig = normalizeTaxConfiguration(taxConfiguration);
 
   const settings = await prisma.companySettings.upsert({
     where: { id: 1 },
     update: {
-      ...parsed,
+      ...rest,
+      taxConfiguration: normalizedTaxConfig,
     },
     create: {
       id: 1,
-      ...parsed,
+      ...rest,
+      taxConfiguration: normalizedTaxConfig,
     },
     include: {
       invoiceTemplate: true,

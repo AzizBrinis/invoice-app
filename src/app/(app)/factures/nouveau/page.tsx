@@ -2,11 +2,15 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { InvoiceEditor } from "@/app/(app)/factures/invoice-editor";
 import { createInvoiceAction } from "@/app/(app)/factures/actions";
+import { getSettings } from "@/server/settings";
+import { SUPPORTED_CURRENCIES, type CurrencyCode } from "@/lib/currency";
+import { normalizeTaxConfiguration } from "@/lib/taxes";
 
 export default async function NouvelleFacturePage() {
-  const [clients, products] = await Promise.all([
+  const [clients, products, settings] = await Promise.all([
     prisma.client.findMany({ orderBy: { displayName: "asc" } }),
     prisma.product.findMany({ orderBy: { name: "asc" }, where: { isActive: true } }),
+    getSettings(),
   ]);
 
   return (
@@ -27,6 +31,9 @@ export default async function NouvelleFacturePage() {
         submitLabel="Enregistrer la facture"
         clients={clients}
         products={products}
+        defaultCurrency={settings.defaultCurrency as CurrencyCode}
+        currencyOptions={SUPPORTED_CURRENCIES}
+        taxConfiguration={normalizeTaxConfiguration(settings.taxConfiguration)}
       />
     </div>
   );

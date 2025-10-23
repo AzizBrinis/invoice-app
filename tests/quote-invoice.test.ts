@@ -54,7 +54,7 @@ describe("Quotes and invoices", () => {
       status: QuoteStatus.BROUILLON,
       issueDate: new Date(),
       validUntil: new Date(),
-      currency: "EUR",
+      currency: "TND",
       lines: [
         {
           productId,
@@ -83,7 +83,7 @@ describe("Quotes and invoices", () => {
       status: InvoiceStatus.BROUILLON,
       issueDate: new Date(),
       dueDate: new Date(),
-      currency: "EUR",
+      currency: "TND",
       lines: [
         {
           productId,

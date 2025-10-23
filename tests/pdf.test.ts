@@ -23,7 +23,7 @@ describePdf("PDF generation", () => {
         status: "ENVOYEE",
         issueDate: new Date(),
         dueDate: new Date(),
-        currency: "EUR",
+        currency: "TND",
         subtotalHTCents: 10000,
         totalDiscountCents: 0,
         totalTVACents: 2000,

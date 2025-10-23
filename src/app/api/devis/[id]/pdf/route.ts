@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { generateQuotePdf } from "@/server/pdf";
+import { getCurrentUser } from "@/lib/auth";
 
 type PageParams = { id: string };
 
@@ -16,6 +17,14 @@ export async function GET(
   _request: Request,
   { params }: { params: PageParams | Promise<PageParams> },
 ) {
+  const user = await getCurrentUser();
+  if (!user) {
+    return NextResponse.json(
+      { message: "Authentification requise" },
+      { status: 401 },
+    );
+  }
+
   const resolvedParams = isPromise<PageParams>(params) ? await params : params;
   try {
     const buffer = await generateQuotePdf(resolvedParams.id);

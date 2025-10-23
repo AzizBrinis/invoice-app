@@ -1,10 +1,16 @@
 import { prisma } from "@/lib/prisma";
 import { endOfMonth, startOfMonth, subMonths } from "date-fns";
 
-export async function getDashboardMetrics() {
+export async function getDashboardMetrics(currency?: string) {
   const now = new Date();
   const monthStart = startOfMonth(now);
   const monthEnd = endOfMonth(now);
+
+  const currencyFilter = currency
+    ? {
+        currency,
+      }
+    : {};
 
   const [
     revenueThisMonth,
@@ -18,6 +24,7 @@ export async function getDashboardMetrics() {
           gte: monthStart,
           lte: monthEnd,
         },
+        ...currencyFilter,
         status: {
           in: ["PAYEE", "PARTIELLE", "ENVOYEE", "RETARD"],
         },
@@ -28,11 +35,13 @@ export async function getDashboardMetrics() {
     }),
     prisma.invoice.count({
       where: {
+        ...currencyFilter,
         status: "RETARD",
       },
     }),
     prisma.invoice.aggregate({
       where: {
+        ...currencyFilter,
         status: {
           in: ["ENVOYEE", "PARTIELLE", "RETARD"],
         },
@@ -44,6 +53,7 @@ export async function getDashboardMetrics() {
     }),
     prisma.quote.count({
       where: {
+        ...currencyFilter,
         status: {
           in: ["ENVOYE", "BROUILLON"],
         },
@@ -55,7 +65,7 @@ export async function getDashboardMetrics() {
     (outstandingAmount._sum.totalTTCCents ?? 0) -
     (outstandingAmount._sum.amountPaidCents ?? 0);
 
-  const chart = await buildRevenueHistory();
+  const chart = await buildRevenueHistory(currency);
 
   return {
     revenueThisMonthCents: revenueThisMonth._sum.amountPaidCents ?? 0,
@@ -66,12 +76,17 @@ export async function getDashboardMetrics() {
   };
 }
 
-async function buildRevenueHistory() {
+async function buildRevenueHistory(currency?: string) {
   const now = new Date();
   const results: {
     month: string;
     amountCents: number;
   }[] = [];
+  const currencyFilter = currency
+    ? {
+        currency,
+      }
+    : {};
 
   for (let i = 5; i >= 0; i -= 1) {
     const target = subMonths(now, i);
@@ -84,6 +99,7 @@ async function buildRevenueHistory() {
           gte: start,
           lte: end,
         },
+        ...currencyFilter,
         status: {
           in: ["PAYEE", "PARTIELLE", "ENVOYEE", "RETARD"],
         },

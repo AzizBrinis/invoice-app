@@ -75,6 +75,29 @@ export default async function FactureDetailPage({
     fromCents(invoice.totalTTCCents - invoice.amountPaidCents),
     invoice.currency,
   );
+  const taxSummary: Array<{
+    type?: string;
+    label?: string;
+    rate?: number | null;
+    baseCents?: number;
+    amountCents?: number;
+  }> = Array.isArray(invoice.taxSummary)
+    ? (invoice.taxSummary as Array<Record<string, unknown>>).map((entry) => ({
+        type: typeof entry.type === "string" ? entry.type : undefined,
+        label: typeof entry.label === "string" ? entry.label : undefined,
+        rate: typeof entry.rate === "number" ? entry.rate : undefined,
+        baseCents:
+          typeof entry.baseCents === "number"
+            ? entry.baseCents
+            : typeof (entry as { baseHTCents?: unknown }).baseHTCents === "number"
+            ? ((entry as { baseHTCents: number }).baseHTCents)
+            : 0,
+        amountCents:
+          typeof entry.amountCents === "number"
+            ? entry.amountCents
+            : 0,
+      }))
+    : [];
 
   return (
     <div className="space-y-6">
@@ -135,6 +158,40 @@ export default async function FactureDetailPage({
           </p>
         </div>
       </section>
+
+      {taxSummary.length > 0 && (
+        <section className="card overflow-hidden">
+          <div className="border-b border-zinc-200 px-4 py-3">
+            <h2 className="text-base font-semibold text-zinc-900">Résumé fiscal</h2>
+          </div>
+          <table className="min-w-full divide-y divide-zinc-200 text-sm">
+            <thead className="bg-zinc-50 text-xs uppercase text-zinc-500">
+              <tr>
+                <th className="px-4 py-3 text-left">Taxe</th>
+                <th className="px-4 py-3 text-left">Base</th>
+                <th className="px-4 py-3 text-left">Taux</th>
+                <th className="px-4 py-3 text-right">Montant</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-100">
+              {taxSummary.map((entry, index) => (
+                <tr key={`${entry.type ?? "tax"}-${entry.rate ?? index}`}>
+                  <td className="px-4 py-3 text-zinc-700">{entry.label ?? entry.type ?? "Taxe"}</td>
+                  <td className="px-4 py-3 text-zinc-600">
+                    {formatCurrency(fromCents(entry.baseCents ?? 0), invoice.currency)}
+                  </td>
+                  <td className="px-4 py-3 text-zinc-600">
+                    {entry.rate != null ? `${entry.rate}%` : "—"}
+                  </td>
+                  <td className="px-4 py-3 text-right text-zinc-800">
+                    {formatCurrency(fromCents(entry.amountCents ?? 0), invoice.currency)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
 
       <section className="card overflow-hidden">
         <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3">
@@ -229,7 +286,7 @@ export default async function FactureDetailPage({
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1">
                 <label htmlFor="amount" className="text-zinc-600">
-                  Montant (€)
+                  {`Montant (${invoice.currency})`}
                 </label>
                 <Input
                   id="amount"

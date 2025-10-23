@@ -11,6 +11,12 @@ import {
   type LineComputationResult,
 } from "@/lib/documents";
 import { nextQuoteNumber, nextInvoiceNumber } from "@/server/sequences";
+import { getSettings } from "@/server/settings";
+import {
+  DEFAULT_TAX_CONFIGURATION,
+  normalizeTaxConfiguration,
+  type TaxConfiguration,
+} from "@/lib/taxes";
 
 const quoteLineInputSchema = z.object({
   id: z.string().optional(),
@@ -27,6 +33,7 @@ const quoteLineInputSchema = z.object({
     .nonnegative()
     .nullable()
     .optional(),
+  fodecRate: z.number().min(0).max(100).nullable().optional(),
   position: z.number().int().nonnegative(),
 });
 
@@ -38,7 +45,7 @@ export const quoteInputSchema = z.object({
   reference: z.string().nullable().optional(),
   issueDate: z.coerce.date(),
   validUntil: z.coerce.date().nullable().optional(),
-  currency: z.string().default("EUR"),
+  currency: z.string().default("TND"),
   globalDiscountRate: z.number().min(0).max(100).nullable().optional(),
   globalDiscountAmountCents: z
     .number()
@@ -51,6 +58,14 @@ export const quoteInputSchema = z.object({
   lines: z
     .array(quoteLineInputSchema)
     .min(1, "Au moins une ligne est nécessaire"),
+  taxes: z
+    .object({
+      applyFodec: z.boolean().optional(),
+      applyTimbre: z.boolean().optional(),
+      documentFodecRate: z.number().min(0).max(100).nullable().optional(),
+      timbreAmountCents: z.number().int().nonnegative().nullable().optional(),
+    })
+    .optional(),
 });
 
 export type QuoteInput = z.infer<typeof quoteInputSchema>;
@@ -134,26 +149,85 @@ export async function listQuotes(filters: QuoteFilters = {}) {
   };
 }
 
-function computeTotalsFromLines(lines: QuoteInput["lines"], globalRate?: number | null, globalAmount?: number | null) {
+function computeTotalsFromLines(
+  lines: QuoteInput["lines"],
+  globalRate?: number | null,
+  globalAmount?: number | null,
+  taxConfig = DEFAULT_TAX_CONFIGURATION,
+  taxes?: QuoteInput["taxes"],
+) {
+  const applyFodec = taxConfig.fodec.enabled && (taxes?.applyFodec ?? true);
+  const applyTimbre =
+    taxConfig.timbre.enabled &&
+    (taxes?.applyTimbre ?? taxConfig.timbre.autoApply);
+
   const computedLines = lines.map((line) =>
-    calculateLineTotals({
-      quantity: line.quantity,
-      unitPriceHTCents: line.unitPriceHTCents,
-      vatRate: line.vatRate,
-      discountRate: line.discountRate ?? undefined,
-      discountAmountCents: line.discountAmountCents ?? undefined,
-    }),
+    calculateLineTotals(
+      {
+        quantity: line.quantity,
+        unitPriceHTCents: line.unitPriceHTCents,
+        vatRate: line.vatRate,
+        discountRate: line.discountRate ?? undefined,
+        discountAmountCents: line.discountAmountCents ?? undefined,
+      },
+      {
+        fodecRate:
+          taxConfig.fodec.application === "line" && applyFodec
+            ? line.fodecRate ?? taxConfig.fodec.rate
+            : null,
+        fodecCalculationOrder: taxConfig.fodec.calculationOrder,
+        roundingMode: taxConfig.rounding.line,
+      },
+    ),
   );
+
+  const documentFodecRate =
+    taxConfig.fodec.application === "document" && applyFodec
+      ? taxes?.documentFodecRate ?? taxConfig.fodec.rate
+      : null;
+
+  const timbreAmountCents = applyTimbre
+    ? taxes?.timbreAmountCents ?? taxConfig.timbre.amountCents
+    : 0;
 
   const totals = calculateDocumentTotals(
     computedLines,
     globalRate ?? undefined,
     globalAmount ?? undefined,
+    {
+      taxConfiguration: taxConfig,
+      applyFodec,
+      applyTimbre,
+      documentFodecRate,
+      timbreAmountCents,
+    },
   );
+
+  const taxConfigurationSnapshot: TaxConfiguration = {
+    ...taxConfig,
+    fodec: {
+      ...taxConfig.fodec,
+      enabled: applyFodec,
+      rate:
+        taxConfig.fodec.application === "document" && documentFodecRate != null
+          ? documentFodecRate
+          : taxConfig.fodec.rate,
+    },
+    timbre: {
+      ...taxConfig.timbre,
+      enabled: applyTimbre,
+      amountCents: timbreAmountCents,
+    },
+  };
 
   return {
     computedLines,
     totals,
+    applyFodec,
+    applyTimbre,
+    documentFodecRate,
+    timbreAmountCents,
+    taxConfigurationSnapshot,
   };
 }
 
@@ -181,6 +255,8 @@ function mapLineData(
     totalHTCents: computed.totalHTCents,
     totalTVACents: computed.totalTVACents,
     totalTTCCents: computed.totalTTCCents,
+    fodecRate: computed.fodecRate ?? null,
+    fodecAmountCents: computed.fodecAmountCents,
     position: line.position,
   };
 }
@@ -204,10 +280,17 @@ export async function getQuote(id: string) {
 export async function createQuote(input: QuoteInput) {
   const payload = quoteInputSchema.parse(input);
 
-  const { computedLines, totals } = computeTotalsFromLines(
+  const settings = await getSettings();
+  const taxConfig = normalizeTaxConfiguration(
+    (settings as { taxConfiguration?: unknown }).taxConfiguration,
+  );
+
+  const { computedLines, totals, taxConfigurationSnapshot } = computeTotalsFromLines(
     payload.lines,
     payload.globalDiscountRate,
     payload.globalDiscountAmountCents ?? undefined,
+    taxConfig,
+    payload.taxes,
   );
 
   const number = payload.number ?? (await nextQuoteNumber());
@@ -224,12 +307,16 @@ export async function createQuote(input: QuoteInput) {
       globalDiscountRate: payload.globalDiscountRate ?? null,
       globalDiscountAmountCents: totals.globalDiscountAppliedCents,
       vatBreakdown: serializeVatBreakdown(totals.vatEntries),
+      taxSummary: totals.taxSummary,
+      taxConfiguration: taxConfigurationSnapshot,
       notes: payload.notes,
       terms: payload.terms,
       subtotalHTCents: totals.subtotalHTCents,
       totalDiscountCents: totals.totalDiscountCents,
       totalTVACents: totals.totalTVACents,
       totalTTCCents: totals.totalTTCCents,
+      fodecAmountCents: totals.fodecAmountCents,
+      timbreAmountCents: totals.timbreAmountCents,
       lines: {
         create: payload.lines.map((line, index) =>
           mapLineData(line, computedLines[index]),
@@ -249,11 +336,17 @@ export async function createQuote(input: QuoteInput) {
 
 export async function updateQuote(id: string, input: QuoteInput) {
   const payload = quoteInputSchema.parse({ ...input, id });
+  const settings = await getSettings();
+  const taxConfig = normalizeTaxConfiguration(
+    (settings as { taxConfiguration?: unknown }).taxConfiguration,
+  );
 
-  const { computedLines, totals } = computeTotalsFromLines(
+  const { computedLines, totals, taxConfigurationSnapshot } = computeTotalsFromLines(
     payload.lines,
     payload.globalDiscountRate,
     payload.globalDiscountAmountCents ?? undefined,
+    taxConfig,
+    payload.taxes,
   );
 
   const quote = await prisma.$transaction(async (tx) => {
@@ -271,12 +364,16 @@ export async function updateQuote(id: string, input: QuoteInput) {
         globalDiscountRate: payload.globalDiscountRate ?? null,
         globalDiscountAmountCents: totals.globalDiscountAppliedCents,
         vatBreakdown: serializeVatBreakdown(totals.vatEntries),
+        taxSummary: totals.taxSummary,
+        taxConfiguration: taxConfigurationSnapshot,
         notes: payload.notes,
         terms: payload.terms,
         subtotalHTCents: totals.subtotalHTCents,
         totalDiscountCents: totals.totalDiscountCents,
         totalTVACents: totals.totalTVACents,
         totalTTCCents: totals.totalTTCCents,
+        fodecAmountCents: totals.fodecAmountCents,
+        timbreAmountCents: totals.timbreAmountCents,
         lines: {
           create: payload.lines.map((line, index) =>
             mapLineData(line, computedLines[index]),
@@ -330,12 +427,17 @@ export async function duplicateQuote(id: string) {
       globalDiscountRate: existing.globalDiscountRate,
       globalDiscountAmountCents: existing.globalDiscountAmountCents,
       vatBreakdown: existing.vatBreakdown,
+      taxSummary: existing.taxSummary ?? [],
+      taxConfiguration:
+        existing.taxConfiguration ?? DEFAULT_TAX_CONFIGURATION,
       notes: existing.notes,
       terms: existing.terms,
       subtotalHTCents: existing.subtotalHTCents,
       totalDiscountCents: existing.totalDiscountCents,
       totalTVACents: existing.totalTVACents,
       totalTTCCents: existing.totalTTCCents,
+      fodecAmountCents: existing.fodecAmountCents ?? 0,
+      timbreAmountCents: existing.timbreAmountCents ?? 0,
       lines: {
         create: existing.lines.map((line, index) => ({
           productId: line.productId,
@@ -349,6 +451,8 @@ export async function duplicateQuote(id: string) {
           totalHTCents: line.totalHTCents,
           totalTVACents: line.totalTVACents,
           totalTTCCents: line.totalTTCCents,
+          fodecRate: line.fodecRate,
+          fodecAmountCents: line.fodecAmountCents,
           position: index,
         })),
       },
@@ -395,6 +499,9 @@ export async function convertQuoteToInvoice(id: string) {
         globalDiscountRate: quote.globalDiscountRate,
         globalDiscountAmountCents: quote.globalDiscountAmountCents,
         vatBreakdown: quote.vatBreakdown,
+        taxSummary: quote.taxSummary ?? [],
+        taxConfiguration:
+          quote.taxConfiguration ?? DEFAULT_TAX_CONFIGURATION,
         notes: quote.notes,
         terms: quote.terms,
         subtotalHTCents: quote.subtotalHTCents,
@@ -402,6 +509,8 @@ export async function convertQuoteToInvoice(id: string) {
         totalTVACents: quote.totalTVACents,
         totalTTCCents: quote.totalTTCCents,
         amountPaidCents: 0,
+        fodecAmountCents: quote.fodecAmountCents ?? 0,
+        timbreAmountCents: quote.timbreAmountCents ?? 0,
         lines: {
           create: quote.lines.map((line, index) => ({
             productId: line.productId,
@@ -415,6 +524,8 @@ export async function convertQuoteToInvoice(id: string) {
             totalHTCents: line.totalHTCents,
             totalTVACents: line.totalTVACents,
             totalTTCCents: line.totalTTCCents,
+            fodecRate: line.fodecRate,
+            fodecAmountCents: line.fodecAmountCents,
             position: index,
           })),
         },

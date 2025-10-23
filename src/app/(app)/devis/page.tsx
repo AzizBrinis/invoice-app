@@ -200,7 +200,7 @@ export default async function DevisPage({
                   {quote.validUntil ? formatDate(quote.validUntil) : "—"}
                 </td>
                 <td className="px-4 py-3 text-right text-zinc-900">
-                  {formatCurrency(fromCents(quote.totalTTCCents))}
+                  {formatCurrency(fromCents(quote.totalTTCCents), quote.currency)}
                 </td>
                 <td className="px-4 py-3">
                   <Badge variant={statusVariant(quote.status)}>{STATUS_LABELS[quote.status]}</Badge>

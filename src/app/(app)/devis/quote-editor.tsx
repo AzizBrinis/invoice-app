@@ -11,6 +11,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import type { Client } from "@prisma/client";
 import type { Product } from "@prisma/client";
+import type { CurrencyInfo, CurrencyCode } from "@/lib/currency";
+import type { TaxConfiguration } from "@/lib/taxes";
 
 type QuoteLineForm = {
   id?: string;
@@ -22,6 +24,7 @@ type QuoteLineForm = {
   vatRate: number;
   discountRate?: number | null;
   discountAmount?: number | null;
+  fodecRate?: number | null;
 };
 
 type QuoteEditorProps = {
@@ -29,6 +32,9 @@ type QuoteEditorProps = {
   submitLabel: string;
   clients: Client[];
   products: Product[];
+  defaultCurrency: CurrencyCode;
+  currencyOptions: CurrencyInfo[];
+  taxConfiguration: TaxConfiguration;
   defaultQuote?: Quote & { lines: QuoteLine[] };
 };
 
@@ -54,6 +60,9 @@ export function QuoteEditor({
   submitLabel,
   clients,
   products,
+  defaultCurrency,
+  currencyOptions,
+  taxConfiguration,
   defaultQuote,
 }: QuoteEditorProps) {
   const [clientId, setClientId] = useState(defaultQuote?.clientId ?? clients[0]?.id ?? "");
@@ -65,7 +74,9 @@ export function QuoteEditor({
     defaultQuote?.validUntil ? defaultQuote.validUntil.toISOString().slice(0, 10) : "",
   );
   const [reference, setReference] = useState(defaultQuote?.reference ?? "");
-  const [currency, setCurrency] = useState(defaultQuote?.currency ?? "EUR");
+  const [currency, setCurrency] = useState<CurrencyCode>(
+    defaultQuote?.currency ?? defaultCurrency,
+  );
   const [globalDiscountRate, setGlobalDiscountRate] = useState<number | "">(
     defaultQuote?.globalDiscountRate ?? "",
   );
@@ -76,6 +87,24 @@ export function QuoteEditor({
   );
   const [notes, setNotes] = useState(defaultQuote?.notes ?? "");
   const [terms, setTerms] = useState(defaultQuote?.terms ?? "");
+  const defaultLineFodecRate =
+    taxConfiguration.fodec.enabled && taxConfiguration.fodec.application === "line"
+      ? taxConfiguration.fodec.rate
+      : null;
+  const [applyFodec, setApplyFodec] = useState(
+    taxConfiguration.fodec.enabled,
+  );
+  const [documentFodecRate, setDocumentFodecRate] = useState<number | "">(
+    taxConfiguration.fodec.application === "document"
+      ? taxConfiguration.fodec.rate
+      : "",
+  );
+  const [applyTimbre, setApplyTimbre] = useState(
+    taxConfiguration.timbre.enabled && taxConfiguration.timbre.autoApply,
+  );
+  const [timbreAmount, setTimbreAmount] = useState<number>(
+    fromCents(taxConfiguration.timbre.amountCents),
+  );
 
   const initialLines: QuoteLineForm[] = defaultQuote
     ? defaultQuote.lines
@@ -93,22 +122,39 @@ export function QuoteEditor({
             line.discountAmountCents != null
               ? fromCents(line.discountAmountCents)
               : undefined,
+          fodecRate:
+            taxConfiguration.fodec.application === "line" &&
+            taxConfiguration.fodec.enabled
+              ? line.fodecRate ?? taxConfiguration.fodec.rate
+              : null,
         }))
-    : [createEmptyLine(products[0])];
+    : [createEmptyLine(products[0], defaultLineFodecRate)];
 
   const [lines, setLines] = useState<QuoteLineForm[]>(initialLines);
   const payloadRef = useRef<HTMLInputElement>(null);
 
   const totals = useMemo(() => {
     const computedLines = lines.map((line) =>
-      calculateLineTotals({
-        quantity: line.quantity,
-        unitPriceHTCents: toCents(line.unitPrice),
-        vatRate: line.vatRate,
-        discountRate: line.discountRate ?? undefined,
-        discountAmountCents:
-          line.discountAmount != null ? toCents(line.discountAmount) : undefined,
-      }),
+      calculateLineTotals(
+        {
+          quantity: line.quantity,
+          unitPriceHTCents: toCents(line.unitPrice),
+          vatRate: line.vatRate,
+          discountRate: line.discountRate ?? undefined,
+          discountAmountCents:
+            line.discountAmount != null ? toCents(line.discountAmount) : undefined,
+        },
+        {
+          fodecRate:
+            taxConfiguration.fodec.application === "line" &&
+            taxConfiguration.fodec.enabled &&
+            applyFodec
+              ? line.fodecRate ?? taxConfiguration.fodec.rate
+              : null,
+          fodecCalculationOrder: taxConfiguration.fodec.calculationOrder,
+          roundingMode: taxConfiguration.rounding.line,
+        },
+      ),
     );
 
     const totalsResult = calculateDocumentTotals(
@@ -117,13 +163,34 @@ export function QuoteEditor({
       typeof globalDiscountAmount === "number"
         ? toCents(globalDiscountAmount)
         : undefined,
+      {
+        taxConfiguration,
+        applyFodec,
+        applyTimbre,
+        documentFodecRate:
+          taxConfiguration.fodec.application === "document" && applyFodec
+            ? typeof documentFodecRate === "number"
+              ? documentFodecRate
+              : taxConfiguration.fodec.rate
+            : null,
+        timbreAmountCents: applyTimbre ? toCents(timbreAmount) : 0,
+      },
     );
 
     return {
       computedLines,
       totals: totalsResult,
     };
-  }, [lines, globalDiscountRate, globalDiscountAmount]);
+  }, [
+    lines,
+    globalDiscountRate,
+    globalDiscountAmount,
+    taxConfiguration,
+    applyFodec,
+    applyTimbre,
+    documentFodecRate,
+    timbreAmount,
+  ]);
 
   const handleLineChange = (index: number, updates: Partial<QuoteLineForm>) => {
     setLines((prev) => {
@@ -147,11 +214,17 @@ export function QuoteEditor({
       unit: product.unit,
       discountRate: product.defaultDiscountRate ?? undefined,
       discountAmount: undefined,
+      fodecRate:
+        taxConfiguration.fodec.application === "line" &&
+        taxConfiguration.fodec.enabled &&
+        applyFodec
+          ? taxConfiguration.fodec.rate
+          : null,
     });
   };
 
   const addLine = () => {
-    setLines((prev) => [...prev, createEmptyLine(products[0])]);
+    setLines((prev) => [...prev, createEmptyLine(products[0], defaultLineFodecRate)]);
   };
 
   const removeLine = (index: number) => {
@@ -187,16 +260,33 @@ export function QuoteEditor({
       terms: terms || null,
       lines: lines.map((line, index) => ({
         productId: line.productId ?? null,
-        description: line.description,
+        description: (line.description ?? "").trim(),
         quantity: line.quantity,
-        unit: line.unit,
+        unit: (line.unit ?? "").trim() || "unité",
         unitPriceHTCents: toCents(line.unitPrice),
         vatRate: line.vatRate,
         discountRate: line.discountRate ?? null,
         discountAmountCents:
           line.discountAmount != null ? toCents(line.discountAmount) : null,
+        fodecRate:
+          taxConfiguration.fodec.application === "line" &&
+          taxConfiguration.fodec.enabled &&
+          applyFodec
+            ? line.fodecRate ?? taxConfiguration.fodec.rate
+            : null,
         position: index,
       })),
+      taxes: {
+        applyFodec,
+        applyTimbre,
+        documentFodecRate:
+          taxConfiguration.fodec.application === "document"
+            ? documentFodecRate === ""
+              ? null
+              : Number(documentFodecRate)
+            : null,
+        timbreAmountCents: applyTimbre ? toCents(timbreAmount) : 0,
+      },
     };
     return payload;
   };
@@ -295,12 +385,95 @@ export function QuoteEditor({
             <label className="text-sm font-medium text-zinc-700" htmlFor="currency">
               Devise
             </label>
-            <Input
+            <select
               id="currency"
               name="currency"
+              className="input"
               value={currency}
-              onChange={(event) => setCurrency(event.target.value)}
-            />
+              onChange={(event) =>
+                setCurrency(event.target.value as CurrencyCode)
+              }
+            >
+              {currencyOptions.map((option) => (
+                <option key={option.code} value={option.code}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-3">
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-zinc-700">FODEC</label>
+            <div className="flex items-center gap-3">
+              <input
+                id="applyFodec"
+                name="applyFodec"
+                type="checkbox"
+                className="h-4 w-4"
+                checked={applyFodec}
+                onChange={(event) => setApplyFodec(event.target.checked)}
+                disabled={!taxConfiguration.fodec.enabled}
+              />
+              <label htmlFor="applyFodec" className="text-sm text-zinc-700">
+                Appliquer la FODEC
+              </label>
+            </div>
+          </div>
+          {taxConfiguration.fodec.application === "document" ? (
+            <div className="space-y-2">
+              <label htmlFor="documentFodecRate" className="text-sm font-medium text-zinc-700">
+                Taux FODEC (%)
+              </label>
+              <Input
+                id="documentFodecRate"
+                name="documentFodecRate"
+                type="number"
+                step="0.1"
+                min="0"
+                value={documentFodecRate}
+                onChange={(event) =>
+                  setDocumentFodecRate(
+                    event.target.value === "" ? "" : Number(event.target.value),
+                  )
+                }
+                disabled={!applyFodec}
+              />
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-zinc-700">Application</label>
+              <p className="text-sm text-zinc-600">Appliquée sur chaque ligne</p>
+            </div>
+          )}
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-zinc-700">Timbre fiscal</label>
+            <div className="space-y-2">
+              <div className="flex items-center gap-3">
+                <input
+                  id="applyTimbre"
+                  name="applyTimbre"
+                  type="checkbox"
+                  className="h-4 w-4"
+                  checked={applyTimbre}
+                  onChange={(event) => setApplyTimbre(event.target.checked)}
+                  disabled={!taxConfiguration.timbre.enabled}
+                />
+                <label htmlFor="applyTimbre" className="text-sm text-zinc-700">
+                  Ajouter le timbre fiscal
+                </label>
+              </div>
+              <Input
+                id="timbreAmount"
+                name="timbreAmount"
+                type="number"
+                step="0.01"
+                min="0"
+                value={timbreAmount}
+                onChange={(event) => setTimbreAmount(Number(event.target.value) || 0)}
+                disabled={!applyTimbre}
+              />
+            </div>
           </div>
         </div>
       </section>
@@ -320,8 +493,11 @@ export function QuoteEditor({
                 <th className="px-3 py-2 text-left">Description</th>
                 <th className="px-3 py-2 text-left">Qté</th>
                 <th className="px-3 py-2 text-left">Unité</th>
-                <th className="px-3 py-2 text-left">Prix HT (€)</th>
+                <th className="px-3 py-2 text-left">{`Prix HT (${currency})`}</th>
                 <th className="px-3 py-2 text-left">Remise (%)</th>
+                {taxConfiguration.fodec.application === "line" && taxConfiguration.fodec.enabled && (
+                  <th className="px-3 py-2 text-left">FODEC (%)</th>
+                )}
                 <th className="px-3 py-2 text-left">TVA (%)</th>
                 <th className="px-3 py-2 text-right">Total TTC</th>
                 <th className="px-3 py-2 text-right">Actions</th>
@@ -383,6 +559,25 @@ export function QuoteEditor({
                         }
                       />
                     </td>
+                    {taxConfiguration.fodec.application === "line" && taxConfiguration.fodec.enabled && (
+                      <td className="px-3 py-2">
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.1"
+                          value={line.fodecRate ?? ""}
+                          onChange={(event) =>
+                            handleLineChange(index, {
+                              fodecRate:
+                                event.target.value === ""
+                                  ? null
+                                  : Number(event.target.value),
+                            })
+                          }
+                          disabled={!applyFodec}
+                        />
+                      </td>
+                    )}
                     <td className="px-3 py-2">
                       <Input
                         type="number"
@@ -411,7 +606,7 @@ export function QuoteEditor({
                       />
                     </td>
                     <td className="px-3 py-2 text-right font-medium text-zinc-700">
-                      {formatCurrency(fromCents(computed.totalTTCCents))}
+                      {formatCurrency(fromCents(computed.totalTTCCents), currency)}
                     </td>
                     <td className="px-3 py-2 text-right">
                       <div className="flex justify-end gap-2">
@@ -468,7 +663,7 @@ export function QuoteEditor({
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium text-zinc-700" htmlFor="globalDiscountAmount">
-                Remise (€)
+                {`Remise (${currency})`}
               </label>
               <Input
                 id="globalDiscountAmount"
@@ -520,23 +715,33 @@ export function QuoteEditor({
           <dl className="space-y-2 text-sm text-zinc-600">
             <div className="flex items-center justify-between">
               <dt>Sous-total HT</dt>
-              <dd>{formatCurrency(fromCents(totals.totals.subtotalHTCents))}</dd>
+              <dd>{formatCurrency(fromCents(totals.totals.subtotalHTCents), currency)}</dd>
             </div>
             <div className="flex items-center justify-between">
               <dt>Remises totales</dt>
               <dd>
-                - {formatCurrency(fromCents(totals.totals.totalDiscountCents))}
+                - {formatCurrency(fromCents(totals.totals.totalDiscountCents), currency)}
               </dd>
             </div>
-            {totals.totals.vatEntries.map((entry) => (
-              <div key={entry.rate} className="flex items-center justify-between">
-                <dt>TVA {entry.rate}%</dt>
-                <dd>{formatCurrency(fromCents(entry.totalTVACents))}</dd>
+            {totals.totals.taxSummary.map((entry, index) => (
+              <div key={`${entry.type}-${entry.rate ?? index}`} className="flex flex-col gap-0.5">
+                <div className="flex items-center justify-between">
+                  <dt>
+                    {entry.label}
+                    {entry.rate != null ? ` (${entry.rate}%)` : ""}
+                  </dt>
+                  <dd>{formatCurrency(fromCents(entry.amountCents), currency)}</dd>
+                </div>
+                {entry.baseCents > 0 && (
+                  <p className="text-xs text-zinc-500">
+                    Base: {formatCurrency(fromCents(entry.baseCents), currency)}
+                  </p>
+                )}
               </div>
             ))}
             <div className="flex items-center justify-between border-t border-zinc-200 pt-2 text-base font-semibold text-zinc-900">
               <dt>Total TTC</dt>
-              <dd>{formatCurrency(fromCents(totals.totals.totalTTCCents))}</dd>
+              <dd>{formatCurrency(fromCents(totals.totals.totalTTCCents), currency)}</dd>
             </div>
           </dl>
         </div>
@@ -549,7 +754,10 @@ export function QuoteEditor({
   );
 }
 
-function createEmptyLine(product?: Product): QuoteLineForm {
+function createEmptyLine(
+  product?: Product,
+  defaultFodecRate?: number | null,
+): QuoteLineForm {
   return {
     productId: product?.id ?? null,
     description: product?.name ?? "",
@@ -559,5 +767,6 @@ function createEmptyLine(product?: Product): QuoteLineForm {
     vatRate: product?.vatRate ?? 20,
     discountRate: product?.defaultDiscountRate ?? undefined,
     discountAmount: undefined,
+    fodecRate: defaultFodecRate ?? null,
   };
 }

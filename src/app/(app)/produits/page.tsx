@@ -8,6 +8,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/formatters";
 import { fromCents } from "@/lib/money";
+import { getSettings } from "@/server/settings";
+import type { CurrencyCode } from "@/lib/currency";
 
 function parseBooleanFilter(value: string | undefined): boolean | "all" {
   if (!value || value === "all") return "all";
@@ -52,7 +54,7 @@ export default async function ProduitsPage({
   const page = Number(pageParam ?? "1") || 1;
   const isActive = parseBooleanFilter(statutParam);
 
-  const [products, categories] = await Promise.all([
+  const [products, categories, settings] = await Promise.all([
     listProducts({
       search: search || undefined,
       category: categorieParam,
@@ -65,6 +67,7 @@ export default async function ProduitsPage({
       select: { category: true },
       where: { category: { not: null } },
     }),
+    getSettings(),
   ]);
 
   const categoryOptions = [
@@ -73,6 +76,7 @@ export default async function ProduitsPage({
       .map((item) => item.category)
       .filter((value): value is string => Boolean(value)),
   ];
+  const currencyCode = settings.defaultCurrency as CurrencyCode;
 
   return (
     <div className="space-y-6">
@@ -193,10 +197,10 @@ export default async function ProduitsPage({
                   {product.category ?? "—"}
                 </td>
                 <td className="px-4 py-3 text-right text-zinc-600">
-                  {formatCurrency(fromCents(product.priceHTCents))}
+                  {formatCurrency(fromCents(product.priceHTCents), currencyCode)}
                 </td>
                 <td className="px-4 py-3 text-right text-zinc-800">
-                  {formatCurrency(fromCents(product.priceTTCCents))}
+                  {formatCurrency(fromCents(product.priceTTCCents), currencyCode)}
                 </td>
                 <td className="px-4 py-3 text-zinc-600">{product.vatRate}%</td>
                 <td className="px-4 py-3 text-zinc-600">

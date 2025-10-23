@@ -2,10 +2,12 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { fromCents } from "@/lib/money";
+import type { CurrencyCode } from "@/lib/currency";
 
 type ProductFormProps = {
   action: (formData: FormData) => void;
   submitLabel: string;
+  currencyCode: CurrencyCode;
   defaultValues?: {
     sku?: string;
     name?: string;
@@ -19,7 +21,12 @@ type ProductFormProps = {
   };
 };
 
-export function ProductForm({ action, submitLabel, defaultValues }: ProductFormProps) {
+export function ProductForm({
+  action,
+  submitLabel,
+  defaultValues,
+  currencyCode,
+}: ProductFormProps) {
   return (
     <form action={action} className="card space-y-5 p-6">
       <div className="grid gap-4 sm:grid-cols-3">
@@ -99,7 +106,7 @@ export function ProductForm({ action, submitLabel, defaultValues }: ProductFormP
       <div className="grid gap-4 sm:grid-cols-3">
         <div className="space-y-2">
           <label htmlFor="priceHT" className="text-sm font-medium text-zinc-700">
-            Prix HT (€)
+            {`Prix HT (${currencyCode})`}
           </label>
           <Input
             id="priceHT"
