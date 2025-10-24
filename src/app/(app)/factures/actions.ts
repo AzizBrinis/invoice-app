@@ -16,6 +16,13 @@ import { InvoiceStatus } from "@prisma/client";
 import { toCents } from "@/lib/money";
 import { sendInvoiceEmail } from "@/server/email";
 import { prisma } from "@/lib/prisma";
+import { requireUser } from "@/lib/auth";
+import { ensureCanManageBilling } from "@/lib/authorization";
+
+async function requireBillingAccess() {
+  const user = await requireUser();
+  ensureCanManageBilling(user);
+}
 
 function parsePayload(formData: FormData) {
   const rawPayload = formData.get("payload");
@@ -27,6 +34,7 @@ function parsePayload(formData: FormData) {
 }
 
 export async function createInvoiceAction(formData: FormData) {
+  await requireBillingAccess();
   const payload = parsePayload(formData);
   await createInvoice(payload);
   revalidatePath("/factures");
@@ -34,6 +42,7 @@ export async function createInvoiceAction(formData: FormData) {
 }
 
 export async function updateInvoiceAction(id: string, formData: FormData) {
+  await requireBillingAccess();
   const payload = parsePayload(formData);
   await updateInvoice(id, payload);
   revalidatePath("/factures");
@@ -41,6 +50,7 @@ export async function updateInvoiceAction(id: string, formData: FormData) {
 }
 
 export async function deleteInvoiceAction(id: string) {
+  await requireBillingAccess();
   await deleteInvoice(id);
   revalidatePath("/factures");
   redirect("/factures");
@@ -50,12 +60,14 @@ export async function changeInvoiceStatusAction(
   id: string,
   status: InvoiceStatus,
 ) {
+  await requireBillingAccess();
   await changeInvoiceStatus(id, status);
   await reconcileInvoiceStatus(id);
   revalidatePath("/factures");
 }
 
 export async function recordPaymentAction(formData: FormData) {
+  await requireBillingAccess();
   const invoiceId = formData.get("invoiceId")?.toString();
   const amount = Number(formData.get("amount") ?? 0);
   const method = formData.get("method")?.toString() || null;
@@ -88,12 +100,14 @@ export async function recordPaymentAction(formData: FormData) {
 }
 
 export async function deletePaymentAction(paymentId: string, invoiceId: string) {
+  await requireBillingAccess();
   await deletePayment(paymentId);
   await reconcileInvoiceStatus(invoiceId);
   revalidatePath(`/factures/${invoiceId}`);
 }
 
 export async function sendInvoiceEmailAction(id: string, formData: FormData) {
+  await requireBillingAccess();
   const to = formData.get("email")?.toString();
   const subject = formData.get("subject")?.toString() || undefined;
   const message = formData.get("message")?.toString() || undefined;

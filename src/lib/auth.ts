@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { randomBytes, createHash } from "crypto";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
+import { AuthorizationError } from "@/lib/errors";
+import type { UserRole } from "@prisma/client";
 import {
   extractSignedToken,
   signSessionToken,
@@ -77,10 +79,13 @@ export async function getCurrentUser() {
   return session.user;
 }
 
-export async function requireUser() {
+export async function requireUser(options?: { roles?: readonly UserRole[] }) {
   const user = await getCurrentUser();
   if (!user) {
     redirect("/connexion");
+  }
+  if (options?.roles && !options.roles.includes(user.role)) {
+    throw new AuthorizationError();
   }
   return user;
 }
