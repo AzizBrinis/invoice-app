@@ -5,14 +5,14 @@ import { calculateLineTotals } from "@/lib/documents";
 
 // These tests document the current incorrect behaviour observed during the audit.
 describe("audit regressions", () => {
-  it("loses tunisian millimes when converting amounts", () => {
+  it("preserves tunisian millimes when converting amounts", () => {
     const cents = toCents(1.234, "TND");
-    expect(cents).toBe(123);
+    expect(cents).toBe(1234);
   });
 
-  it("formats percentages as factors instead of rates", () => {
+  it("formats percentages as rates", () => {
     const rendered = formatPercent(7);
-    expect(rendered).toContain("700");
+    expect(rendered).toBe("7,00\u00a0%");
   });
 
   it("accepts negative discounts leading to inflated totals", () => {

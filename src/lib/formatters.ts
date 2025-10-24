@@ -2,17 +2,18 @@ import { getCurrencyInfo } from "@/lib/currency";
 
 export function formatCurrency(value: number, currency?: string) {
   const info = getCurrencyInfo(currency);
+  const fractionDigits = Math.max(info.decimals, 0);
   return new Intl.NumberFormat(info.locale, {
     style: "currency",
     currency: info.code,
-    minimumFractionDigits: info.decimals,
-    maximumFractionDigits: info.decimals,
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
   }).format(value);
 }
 
 export function formatDecimal(value: number, currency?: string) {
   const info = getCurrencyInfo(currency);
-  const fractionDigits = info.decimals === 3 ? 3 : 2;
+  const fractionDigits = Math.max(info.decimals, 0);
   return new Intl.NumberFormat(info.locale, {
     minimumFractionDigits: fractionDigits,
     maximumFractionDigits: fractionDigits,
