@@ -38,6 +38,44 @@ type DocumentWithRelations = InvoiceWithRelations | QuoteWithRelations;
 let browserPromise: Promise<puppeteer.Browser> | null = null;
 let cachedCss: string | null = null;
 
+export class PdfGenerationError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "PdfGenerationError";
+  }
+}
+
+type PdfRendererMode = "auto" | "local" | "remote";
+
+function getRendererMode(): PdfRendererMode {
+  const value = (process.env.PDF_RENDERER ?? "auto").toLowerCase();
+  if (value === "local" || value === "remote") {
+    return value;
+  }
+  return "auto";
+}
+
+function getRemoteRendererUrl() {
+  return process.env.PDF_RENDER_SERVICE_URL;
+}
+
+function logPdfError(context: string, error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`[pdf] ${context}: ${message}`);
+}
+
+function isMissingSystemLibraryError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const message = error.message.toLowerCase();
+  return (
+    message.includes("libatk") ||
+    message.includes("error while loading shared libraries") ||
+    message.includes("no usable sandbox! update your kernel")
+  );
+}
+
 function escapeHtml(value: string | null | undefined) {
   if (!value) return "";
   return value
@@ -71,30 +109,121 @@ async function getBrowser() {
     if (process.env.PUPPETEER_DISABLE_SANDBOX === "true") {
       puppeteerArgs.push("--no-sandbox", "--disable-setuid-sandbox");
     }
-    browserPromise = puppeteer.launch({
-      headless: "new",
-      args: puppeteerArgs,
-    });
+    browserPromise = puppeteer
+      .launch({
+        headless: "new",
+        args: puppeteerArgs,
+      })
+      .catch((error) => {
+        browserPromise = null;
+        throw error;
+      });
   }
   return browserPromise;
 }
 
-async function renderPdfFromHtml(html: string) {
+export async function renderPdfFromHtml(html: string) {
+  const mode = getRendererMode();
+  if (mode === "remote") {
+    return renderPdfRemotely(html);
+  }
+
+  try {
+    return await renderPdfLocally(html);
+  } catch (error) {
+    browserPromise = null;
+    logPdfError("Échec du rendu local", error);
+
+    const remoteUrl = getRemoteRendererUrl();
+    if (remoteUrl && mode !== "local") {
+      try {
+        return await renderPdfRemotely(html, remoteUrl);
+      } catch (remoteError) {
+        logPdfError("Échec du rendu distant", remoteError);
+        throw new PdfGenerationError(
+          "Échec du rendu PDF via le service distant.",
+          { cause: remoteError },
+        );
+      }
+    }
+
+    const message = isMissingSystemLibraryError(error)
+      ? "Échec du rendu PDF : Chrome ne peut pas démarrer. Installez les dépendances système requises (ex : libatk) ou configurez PDF_RENDER_SERVICE_URL."
+      : "Échec du rendu PDF via Puppeteer.";
+
+    throw new PdfGenerationError(message, { cause: error });
+  }
+}
+
+async function renderPdfLocally(html: string) {
   const browser = await getBrowser();
   const page = await browser.newPage();
-  await page.setContent(html, { waitUntil: "networkidle0" });
-  const pdfBuffer = await page.pdf({
-    format: "A4",
-    printBackground: true,
-    margin: {
-      top: "0",
-      right: "0",
-      bottom: "0",
-      left: "0",
-    },
-  });
-  await page.close();
-  return Buffer.from(pdfBuffer);
+  try {
+    await page.setContent(html, { waitUntil: "networkidle0" });
+    const pdfBuffer = await page.pdf({
+      format: "A4",
+      printBackground: true,
+      margin: {
+        top: "0",
+        right: "0",
+        bottom: "0",
+        left: "0",
+      },
+    });
+    return Buffer.from(pdfBuffer);
+  } finally {
+    try {
+      await page.close();
+    } catch (closeError) {
+      logPdfError("Impossible de fermer la page Puppeteer", closeError);
+    }
+  }
+}
+
+async function renderPdfRemotely(html: string, remoteUrl = getRemoteRendererUrl()) {
+  if (!remoteUrl) {
+    throw new PdfGenerationError(
+      "Aucun service distant de rendu PDF n'est configuré (PDF_RENDER_SERVICE_URL).",
+    );
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(remoteUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/pdf",
+      },
+      body: JSON.stringify({ html }),
+    });
+  } catch (error) {
+    logPdfError("Impossible de contacter le service distant", error);
+    throw new PdfGenerationError(
+      "Impossible de contacter le service distant de rendu PDF.",
+      { cause: error },
+    );
+  }
+
+  if (!response.ok) {
+    const errorText = await response
+      .text()
+      .catch(() => "");
+    logPdfError(
+      "Service distant a renvoyé une erreur",
+      new Error(`${response.status} ${errorText}`.trim()),
+    );
+    throw new PdfGenerationError(
+      `Service de rendu PDF indisponible (${response.status}). ${errorText}`.trim(),
+    );
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  return Buffer.from(arrayBuffer);
+}
+
+export function resetPdfRendererForTests() {
+  browserPromise = null;
 }
 
 function getCssContent() {
