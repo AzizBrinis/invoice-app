@@ -572,7 +572,10 @@ export async function deletePayment(paymentId: string) {
   });
 }
 
-export async function reconcileInvoiceStatus(id: string) {
+export async function reconcileInvoiceStatus(
+  id: string,
+  options?: { preserveStatus?: InvoiceStatus },
+) {
   const invoice = await prisma.invoice.findUnique({
     where: { id },
     include: {
@@ -587,6 +590,10 @@ export async function reconcileInvoiceStatus(id: string) {
     0,
   );
 
+  const preserveManualPaid =
+    options?.preserveStatus === InvoiceStatus.PAYEE &&
+    invoice.status === InvoiceStatus.PAYEE;
+
   const newStatus = calculateStatusAfterPayment({
     status: invoice.status,
     totalTTCCents: invoice.totalTTCCents,
@@ -594,11 +601,19 @@ export async function reconcileInvoiceStatus(id: string) {
     dueDate: invoice.dueDate,
   });
 
+  const statusToApply = preserveManualPaid
+    ? InvoiceStatus.PAYEE
+    : newStatus;
+
+  const amountToApply = preserveManualPaid
+    ? Math.max(amountPaidCents, invoice.totalTTCCents)
+    : amountPaidCents;
+
   const updated = await prisma.invoice.update({
     where: { id },
     data: {
-      amountPaidCents,
-      status: newStatus,
+      amountPaidCents: amountToApply,
+      status: statusToApply,
     },
     include: {
       client: true,

@@ -62,8 +62,9 @@ export async function changeInvoiceStatusAction(
 ) {
   await requireBillingAccess();
   await changeInvoiceStatus(id, status);
-  await reconcileInvoiceStatus(id);
+  await reconcileInvoiceStatus(id, { preserveStatus: status });
   revalidatePath("/factures");
+  revalidatePath(`/factures/${id}`);
 }
 
 export async function recordPaymentAction(formData: FormData) {
