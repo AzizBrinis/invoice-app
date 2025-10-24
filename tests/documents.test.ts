@@ -19,6 +19,31 @@ describe("calculations helpers", () => {
     expect(result.fodecAmountCents).toBe(0);
   });
 
+  it("rejects negative discount amounts by clamping to zero", () => {
+    const line = calculateLineTotals({
+      quantity: 1,
+      unitPriceHTCents: 1000,
+      vatRate: 19,
+      discountAmountCents: -100,
+    });
+
+    expect(line.discountAmountCents).toBe(0);
+    expect(line.totalHTCents).toBe(1000);
+  });
+
+  it("ignores negative discount rates when computing totals", () => {
+    const line = calculateLineTotals({
+      quantity: 2,
+      unitPriceHTCents: 500,
+      vatRate: 7,
+      discountRate: -15,
+    });
+
+    expect(line.discountRate).toBe(0);
+    expect(line.discountAmountCents).toBe(0);
+    expect(line.totalHTCents).toBe(1000);
+  });
+
   it("aggregate document totals with global discount", () => {
     const currency = "TND";
     const lines = [

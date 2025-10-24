@@ -3,7 +3,7 @@ import { toCents } from "@/lib/money";
 import { formatPercent } from "@/lib/formatters";
 import { calculateLineTotals } from "@/lib/documents";
 
-// These tests document the current incorrect behaviour observed during the audit.
+// These tests document the audit findings and guard against regressions once fixed.
 describe("audit regressions", () => {
   it("preserves tunisian millimes when converting amounts", () => {
     const cents = toCents(1.234, "TND");
@@ -15,13 +15,14 @@ describe("audit regressions", () => {
     expect(rendered).toBe("7,00\u00a0%");
   });
 
-  it("accepts negative discounts leading to inflated totals", () => {
+  it("rejects negative discounts leading to inflated totals", () => {
     const line = calculateLineTotals({
       quantity: 1,
       unitPriceHTCents: 1000,
       vatRate: 19,
       discountAmountCents: -100,
     });
-    expect(line.totalHTCents).toBe(1100);
+    expect(line.totalHTCents).toBe(1000);
+    expect(line.discountAmountCents).toBe(0);
   });
 });
