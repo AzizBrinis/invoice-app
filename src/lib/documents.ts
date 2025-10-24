@@ -73,12 +73,17 @@ export function calculateLineTotals(
   options?: LineCalculationOptions,
 ): LineComputationResult {
   const baseAmount = Math.round(input.quantity * input.unitPriceHTCents);
+  const normalizedDiscountRate =
+    input.discountRate != null ? Math.max(input.discountRate, 0) : null;
   const computedDiscount =
     input.discountAmountCents ??
-    (input.discountRate
-      ? Math.round(baseAmount * (input.discountRate / 100))
+    (normalizedDiscountRate
+      ? Math.round(baseAmount * (normalizedDiscountRate / 100))
       : 0);
-  const discountAmountCents = Math.min(computedDiscount, baseAmount);
+  const discountAmountCents = Math.min(
+    Math.max(computedDiscount, 0),
+    baseAmount,
+  );
   const totalHTCents = baseAmount - discountAmountCents;
   const roundingMode = options?.roundingMode ?? "nearest-cent";
 
@@ -99,7 +104,7 @@ export function calculateLineTotals(
     quantity: input.quantity,
     unitPriceHTCents: input.unitPriceHTCents,
     vatRate: input.vatRate,
-    discountRate: input.discountRate ?? null,
+    discountRate: normalizedDiscountRate,
     discountAmountCents,
     totalHTCents,
     totalTVACents,
