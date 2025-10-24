@@ -25,11 +25,12 @@ export function formatPercent(
   currency?: string,
 ) {
   const info = getCurrencyInfo(currency);
+  const normalizedValue = Math.abs(value) >= 1 ? value / 100 : value;
   return new Intl.NumberFormat(info.locale, {
     style: "percent",
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  }).format(value / 100);
+  }).format(normalizedValue);
 }
 
 export function formatDate(
