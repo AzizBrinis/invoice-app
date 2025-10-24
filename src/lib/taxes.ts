@@ -18,6 +18,7 @@ export type TaxConfiguration = {
   };
   fodec: {
     enabled: boolean;
+    autoApply: boolean;
     rate: number;
     application: "line" | "document";
     calculationOrder: "BEFORE_TVA" | "AFTER_TVA";
@@ -46,6 +47,7 @@ export const DEFAULT_TAX_CONFIGURATION: TaxConfiguration = {
   },
   fodec: {
     enabled: true,
+    autoApply: false,
     rate: 1,
     application: "line",
     calculationOrder: "BEFORE_TVA",
@@ -53,7 +55,7 @@ export const DEFAULT_TAX_CONFIGURATION: TaxConfiguration = {
   timbre: {
     enabled: true,
     amountCents: 1000,
-    autoApply: true,
+    autoApply: false,
   },
   order: ["FODEC", "TVA", "TIMBRE"],
   rounding: {
@@ -151,6 +153,10 @@ export function normalizeTaxConfiguration(input?: unknown): TaxConfiguration {
         typeof (fodec as Record<string, unknown>).enabled === "boolean"
           ? (fodec as Record<string, unknown>).enabled as boolean
           : DEFAULT_TAX_CONFIGURATION.fodec.enabled,
+      autoApply:
+        typeof (fodec as Record<string, unknown>).autoApply === "boolean"
+          ? (fodec as Record<string, unknown>).autoApply as boolean
+          : DEFAULT_TAX_CONFIGURATION.fodec.autoApply,
       rate:
         typeof (fodec as Record<string, unknown>).rate === "number"
           ? (fodec as Record<string, unknown>).rate as number

@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import type { Client } from "@prisma/client";
 import type { Product } from "@prisma/client";
 import type { CurrencyInfo, CurrencyCode } from "@/lib/currency";
-import type { TaxConfiguration } from "@/lib/taxes";
+import { normalizeTaxConfiguration, type TaxConfiguration } from "@/lib/taxes";
 
 type QuoteLineForm = {
   id?: string;
@@ -66,6 +66,9 @@ export function QuoteEditor({
   defaultQuote,
 }: QuoteEditorProps) {
   const initialCurrency = defaultQuote?.currency ?? defaultCurrency;
+  const quoteTaxConfig = defaultQuote?.taxConfiguration
+    ? normalizeTaxConfiguration(defaultQuote.taxConfiguration)
+    : null;
   const [clientId, setClientId] = useState(defaultQuote?.clientId ?? clients[0]?.id ?? "");
   const [status, setStatus] = useState(defaultQuote?.status ?? "BROUILLON");
   const [issueDate, setIssueDate] = useState(
@@ -88,21 +91,26 @@ export function QuoteEditor({
   const [terms, setTerms] = useState(defaultQuote?.terms ?? "");
   const defaultLineFodecRate =
     taxConfiguration.fodec.enabled && taxConfiguration.fodec.application === "line"
-      ? taxConfiguration.fodec.rate
+      ? quoteTaxConfig?.fodec.rate ?? taxConfiguration.fodec.rate
       : null;
   const [applyFodec, setApplyFodec] = useState(
-    taxConfiguration.fodec.enabled,
+    quoteTaxConfig?.fodec.enabled ??
+      (taxConfiguration.fodec.enabled && taxConfiguration.fodec.autoApply),
   );
   const [documentFodecRate, setDocumentFodecRate] = useState<number | "">(
     taxConfiguration.fodec.application === "document"
-      ? taxConfiguration.fodec.rate
+      ? quoteTaxConfig?.fodec.rate ?? taxConfiguration.fodec.rate
       : "",
   );
   const [applyTimbre, setApplyTimbre] = useState(
-    taxConfiguration.timbre.enabled && taxConfiguration.timbre.autoApply,
+    quoteTaxConfig?.timbre.enabled ??
+      (taxConfiguration.timbre.enabled && taxConfiguration.timbre.autoApply),
   );
   const [timbreAmount, setTimbreAmount] = useState<number>(
-    fromCents(taxConfiguration.timbre.amountCents, initialCurrency),
+    fromCents(
+      quoteTaxConfig?.timbre.amountCents ?? taxConfiguration.timbre.amountCents,
+      initialCurrency,
+    ),
   );
 
   const initialLines: QuoteLineForm[] = defaultQuote

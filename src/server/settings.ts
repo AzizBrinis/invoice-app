@@ -29,6 +29,7 @@ const taxConfigurationSchema = z.object({
   fodec: z
     .object({
       enabled: z.boolean().default(true),
+      autoApply: z.boolean().default(false),
       rate: z.number().min(0).default(DEFAULT_TAX_CONFIGURATION.fodec.rate),
       application: z.enum(["line", "document"]).default("line"),
       calculationOrder: z

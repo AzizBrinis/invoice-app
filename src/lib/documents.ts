@@ -162,11 +162,14 @@ export function calculateDocumentTotals(
 
   const subtotalAfterGlobal = lineNetHT.reduce((sum, value) => sum + value, 0);
 
-  const applyFodec =
+  const fodecToggleEnabled =
     taxConfig.fodec.enabled &&
-    (taxOptions?.applyFodec ?? true) &&
+    (taxOptions?.applyFodec ?? taxConfig.fodec.autoApply);
+
+  const applyFodec =
+    fodecToggleEnabled &&
     (taxConfig.fodec.application === "line"
-      ? (lines.some((line) => (line.fodecRate ?? taxConfig.fodec.rate) > 0))
+      ? lines.some((line) => (line.fodecRate ?? taxConfig.fodec.rate) > 0)
       : (taxOptions?.documentFodecRate ?? taxConfig.fodec.rate) > 0);
 
   const lineFodecAmounts = new Array<number>(lines.length).fill(0);
