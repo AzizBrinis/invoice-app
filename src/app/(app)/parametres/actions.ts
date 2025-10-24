@@ -93,6 +93,7 @@ function parseSettingsForm(formData: FormData) {
       },
       fodec: {
         enabled: formData.get("fodecEnabled")?.toString() === "on",
+        autoApply: formData.get("fodecAutoApply")?.toString() === "on",
         rate: Number(formData.get("fodecRate") ?? DEFAULT_TAX_CONFIGURATION.fodec.rate) || 0,
         application:
           formData.get("fodecApplication")?.toString() === "document"

@@ -80,6 +80,45 @@ describe("calculations helpers", () => {
     expect(totals.vatEntries.length).toBe(2);
   });
 
+  it("does not auto apply FODEC or timbre without explicit toggles", () => {
+    const currency = "TND";
+    const lines = [
+      calculateLineTotals({
+        quantity: 1,
+        unitPriceHTCents: toCents(100, currency),
+        vatRate: 19,
+      }),
+    ];
+
+    const totals = calculateDocumentTotals(lines);
+
+    expect(totals.fodecAmountCents).toBe(0);
+    expect(totals.timbreAmountCents).toBe(0);
+  });
+
+  it("applies FODEC and timbre when explicitly enabled", () => {
+    const currency = "TND";
+    const lines = [
+      calculateLineTotals({
+        quantity: 1,
+        unitPriceHTCents: toCents(200, currency),
+        vatRate: 19,
+      }),
+    ];
+
+    const totals = calculateDocumentTotals(lines, undefined, undefined, {
+      taxConfiguration: DEFAULT_TAX_CONFIGURATION,
+      applyFodec: true,
+      applyTimbre: true,
+      timbreAmountCents: DEFAULT_TAX_CONFIGURATION.timbre.amountCents,
+    });
+
+    expect(totals.fodecAmountCents).toBeGreaterThan(0);
+    expect(totals.timbreAmountCents).toBe(DEFAULT_TAX_CONFIGURATION.timbre.amountCents);
+    expect(totals.taxSummary.some((entry) => entry.type === "FODEC")).toBe(true);
+    expect(totals.taxSummary.some((entry) => entry.type === "TIMBRE")).toBe(true);
+  });
+
   it("handles millimes conversions for Tunisian dinar", () => {
     const amount = 12.345;
     const cents = toCents(amount, "TND");

@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { InvoiceStatus } from "@prisma/client";
 import type { CurrencyInfo, CurrencyCode } from "@/lib/currency";
-import type { TaxConfiguration } from "@/lib/taxes";
+import { normalizeTaxConfiguration, type TaxConfiguration } from "@/lib/taxes";
 
 type InvoiceLineForm = {
   id?: string;
@@ -66,6 +66,9 @@ export function InvoiceEditor({
   defaultInvoice,
 }: InvoiceEditorProps) {
   const initialCurrency = defaultInvoice?.currency ?? defaultCurrency;
+  const invoiceTaxConfig = defaultInvoice?.taxConfiguration
+    ? normalizeTaxConfiguration(defaultInvoice.taxConfiguration)
+    : null;
   const [clientId, setClientId] = useState(defaultInvoice?.clientId ?? clients[0]?.id ?? "");
   const [status, setStatus] = useState<InvoiceStatus>(defaultInvoice?.status ?? "BROUILLON");
   const [reference, setReference] = useState(defaultInvoice?.reference ?? "");
@@ -91,21 +94,26 @@ export function InvoiceEditor({
   const [terms, setTerms] = useState(defaultInvoice?.terms ?? "");
   const defaultLineFodecRate =
     taxConfiguration.fodec.enabled && taxConfiguration.fodec.application === "line"
-      ? taxConfiguration.fodec.rate
+      ? invoiceTaxConfig?.fodec.rate ?? taxConfiguration.fodec.rate
       : null;
   const [applyFodec, setApplyFodec] = useState(
-    taxConfiguration.fodec.enabled,
+    invoiceTaxConfig?.fodec.enabled ??
+      (taxConfiguration.fodec.enabled && taxConfiguration.fodec.autoApply),
   );
   const [documentFodecRate, setDocumentFodecRate] = useState<number | "">(
     taxConfiguration.fodec.application === "document"
-      ? taxConfiguration.fodec.rate
+      ? invoiceTaxConfig?.fodec.rate ?? taxConfiguration.fodec.rate
       : "",
   );
   const [applyTimbre, setApplyTimbre] = useState(
-    taxConfiguration.timbre.enabled && taxConfiguration.timbre.autoApply,
+    invoiceTaxConfig?.timbre.enabled ??
+      (taxConfiguration.timbre.enabled && taxConfiguration.timbre.autoApply),
   );
   const [timbreAmount, setTimbreAmount] = useState<number>(
-    fromCents(taxConfiguration.timbre.amountCents, initialCurrency),
+    fromCents(
+      invoiceTaxConfig?.timbre.amountCents ?? taxConfiguration.timbre.amountCents,
+      initialCurrency,
+    ),
   );
 
   const initialLines: InvoiceLineForm[] = defaultInvoice
