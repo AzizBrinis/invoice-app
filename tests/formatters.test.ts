@@ -5,6 +5,8 @@ describe("formatters", () => {
   it("formats percentage values in Tunisian locale", () => {
     expect(formatPercent(19, "TND")).toBe("19,00\u00a0%");
     expect(formatPercent(7.5, "TND")).toBe("7,50\u00a0%");
+    expect(formatPercent(0.19, "TND")).toBe("19,00\u00a0%");
+    expect(formatPercent(0.075, "TND")).toBe("7,50\u00a0%");
   });
 
   it("renders Tunisian dinar amounts with millimes", () => {
