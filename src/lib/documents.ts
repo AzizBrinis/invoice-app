@@ -164,7 +164,7 @@ export function calculateDocumentTotals(
 
   const applyFodec =
     taxConfig.fodec.enabled &&
-    (taxOptions?.applyFodec ?? true) &&
+    (taxOptions?.applyFodec ?? taxConfig.fodec.autoApply) &&
     (taxConfig.fodec.application === "line"
       ? (lines.some((line) => (line.fodecRate ?? taxConfig.fodec.rate) > 0))
       : (taxOptions?.documentFodecRate ?? taxConfig.fodec.rate) > 0);

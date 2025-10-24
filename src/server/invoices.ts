@@ -163,7 +163,8 @@ function computeInvoiceTotals(
   taxConfig = DEFAULT_TAX_CONFIGURATION,
 ) {
   const applyFodec =
-    taxConfig.fodec.enabled && (payload.taxes?.applyFodec ?? true);
+    taxConfig.fodec.enabled &&
+    (payload.taxes?.applyFodec ?? taxConfig.fodec.autoApply);
   const applyTimbre =
     taxConfig.timbre.enabled &&
     (payload.taxes?.applyTimbre ?? taxConfig.timbre.autoApply);
@@ -215,6 +216,7 @@ function computeInvoiceTotals(
     fodec: {
       ...taxConfig.fodec,
       enabled: applyFodec,
+      autoApply: applyFodec,
       rate:
         taxConfig.fodec.application === "document" && documentFodecRate != null
           ? documentFodecRate

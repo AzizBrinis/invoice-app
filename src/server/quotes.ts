@@ -156,7 +156,9 @@ function computeTotalsFromLines(
   taxConfig = DEFAULT_TAX_CONFIGURATION,
   taxes?: QuoteInput["taxes"],
 ) {
-  const applyFodec = taxConfig.fodec.enabled && (taxes?.applyFodec ?? true);
+  const applyFodec =
+    taxConfig.fodec.enabled &&
+    (taxes?.applyFodec ?? taxConfig.fodec.autoApply);
   const applyTimbre =
     taxConfig.timbre.enabled &&
     (taxes?.applyTimbre ?? taxConfig.timbre.autoApply);
@@ -208,6 +210,7 @@ function computeTotalsFromLines(
     fodec: {
       ...taxConfig.fodec,
       enabled: applyFodec,
+      autoApply: applyFodec,
       rate:
         taxConfig.fodec.application === "document" && documentFodecRate != null
           ? documentFodecRate

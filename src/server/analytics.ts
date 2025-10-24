@@ -1,10 +1,28 @@
 import { prisma } from "@/lib/prisma";
 import { endOfMonth, startOfMonth, subMonths } from "date-fns";
+import { formatInTimeZone, fromZonedTime, toZonedTime } from "date-fns-tz";
+
+const TUNIS_TIMEZONE = "Africa/Tunis";
+
+export function getTunisMonthWindow(date: Date) {
+  const zonedNow = toZonedTime(date, TUNIS_TIMEZONE);
+  const startLocal = startOfMonth(zonedNow);
+  const endLocal = endOfMonth(zonedNow);
+
+  const startUtc = fromZonedTime(startLocal, TUNIS_TIMEZONE);
+  const endUtc = fromZonedTime(endLocal, TUNIS_TIMEZONE);
+
+  return {
+    startUtc,
+    endUtc,
+    label: formatInTimeZone(startUtc, TUNIS_TIMEZONE, "yyyy-MM"),
+  } as const;
+}
 
 export async function getDashboardMetrics(currency?: string) {
-  const now = new Date();
-  const monthStart = startOfMonth(now);
-  const monthEnd = endOfMonth(now);
+  const { startUtc: monthStart, endUtc: monthEnd } = getTunisMonthWindow(
+    new Date(),
+  );
 
   const currencyFilter = currency
     ? {
@@ -77,7 +95,7 @@ export async function getDashboardMetrics(currency?: string) {
 }
 
 async function buildRevenueHistory(currency?: string) {
-  const now = new Date();
+  const now = toZonedTime(new Date(), TUNIS_TIMEZONE);
   const results: {
     month: string;
     amountCents: number;
@@ -90,8 +108,7 @@ async function buildRevenueHistory(currency?: string) {
 
   for (let i = 5; i >= 0; i -= 1) {
     const target = subMonths(now, i);
-    const start = startOfMonth(target);
-    const end = endOfMonth(target);
+    const { startUtc: start, endUtc: end, label } = getTunisMonthWindow(target);
 
     const aggregate = await prisma.invoice.aggregate({
       where: {
@@ -110,7 +127,7 @@ async function buildRevenueHistory(currency?: string) {
     });
 
     results.push({
-      month: `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}`,
+      month: label,
       amountCents: aggregate._sum.amountPaidCents ?? 0,
     });
   }

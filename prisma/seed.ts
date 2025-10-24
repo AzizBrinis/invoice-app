@@ -7,7 +7,9 @@ import { getDefaultCurrencyCode } from "../src/lib/currency";
 const prisma = new PrismaClient();
 const SEED_CURRENCY = getDefaultCurrencyCode();
 
-const APPLY_FODEC_SEED = DEFAULT_TAX_CONFIGURATION.fodec.enabled;
+const APPLY_FODEC_SEED =
+  DEFAULT_TAX_CONFIGURATION.fodec.enabled &&
+  DEFAULT_TAX_CONFIGURATION.fodec.autoApply;
 const APPLY_TIMBRE_SEED =
   DEFAULT_TAX_CONFIGURATION.timbre.enabled &&
   DEFAULT_TAX_CONFIGURATION.timbre.autoApply;

@@ -38,6 +38,131 @@ type DocumentWithRelations = InvoiceWithRelations | QuoteWithRelations;
 let browserPromise: Promise<puppeteer.Browser> | null = null;
 let cachedCss: string | null = null;
 
+export class PdfGenerationError extends Error {
+  constructor(message: string, cause?: unknown) {
+    super(message);
+    this.name = "PdfGenerationError";
+    if (cause !== undefined) {
+      (this as { cause?: unknown }).cause = cause;
+    }
+  }
+}
+
+type ChromiumModule = {
+  args?: string[];
+  defaultViewport?: puppeteer.Viewport | null;
+  headless?: boolean;
+  executablePath: () => Promise<string | null | undefined>;
+};
+
+const BASE_BROWSER_ARGS = ["--allow-file-access-from-files"] as const;
+
+function buildBrowserArgs() {
+  const args = [...BASE_BROWSER_ARGS];
+  if (process.env.PUPPETEER_DISABLE_SANDBOX === "true") {
+    args.push("--no-sandbox", "--disable-setuid-sandbox");
+  }
+  return args;
+}
+
+function shouldForceBundledChromium() {
+  return process.env.PDF_FORCE_BUNDLED_CHROMIUM === "true";
+}
+
+function isMissingDependencyError(error: unknown) {
+  if (!(error instanceof Error) || typeof error.message !== "string") {
+    return false;
+  }
+  const message = error.message.toLowerCase();
+  return (
+    message.includes("libatk") ||
+    message.includes("error while loading shared libraries") ||
+    message.includes("no usable sandbox") ||
+    message.includes("failed to launch the browser")
+  );
+}
+
+async function importChromiumModule(): Promise<ChromiumModule> {
+  const imported = await import("@sparticuz/chromium").catch((error) => {
+    throw new PdfGenerationError(
+      "Bundled Chromium is not available. Install '@sparticuz/chromium' to enable reliable PDF rendering.",
+      error,
+    );
+  });
+  const chromium =
+    (imported as { default?: ChromiumModule }).default ??
+    (imported as ChromiumModule);
+
+  if (typeof chromium.executablePath !== "function") {
+    throw new PdfGenerationError(
+      "Invalid Chromium module detected while preparing the fallback renderer.",
+    );
+  }
+
+  return chromium;
+}
+
+async function launchChromiumBrowser(baseArgs: string[]) {
+  const chromium = await importChromiumModule();
+  const executablePath = await chromium.executablePath();
+  if (!executablePath) {
+    throw new PdfGenerationError(
+      "Chromium executable path could not be resolved for PDF rendering.",
+    );
+  }
+
+  const chromiumArgs = Array.from(
+    new Set([...(chromium.args ?? []), ...baseArgs]),
+  );
+
+  const launchOptions: puppeteer.LaunchOptions = {
+    args: chromiumArgs,
+    defaultViewport: chromium.defaultViewport ?? null,
+    executablePath,
+    headless: chromium.headless ?? true,
+  };
+
+  return puppeteer.launch(launchOptions);
+}
+
+async function launchDefaultBrowser(baseArgs: string[]) {
+  return puppeteer.launch({
+    headless: "new",
+    args: baseArgs,
+  });
+}
+
+async function launchBrowser() {
+  const baseArgs = buildBrowserArgs();
+
+  if (shouldForceBundledChromium()) {
+    return launchChromiumBrowser(baseArgs);
+  }
+
+  try {
+    return await launchDefaultBrowser(baseArgs);
+  } catch (error) {
+    if (!isMissingDependencyError(error)) {
+      throw new PdfGenerationError(
+        "Failed to launch the default headless browser for PDF rendering.",
+        error,
+      );
+    }
+
+    try {
+      return await launchChromiumBrowser(baseArgs);
+    } catch (fallbackError) {
+      if (fallbackError instanceof PdfGenerationError) {
+        throw fallbackError;
+      }
+      throw new PdfGenerationError(
+        "Failed to launch a headless browser for PDF rendering even after attempting the bundled Chromium fallback.",
+        fallbackError,
+      );
+    }
+  }
+}
+
 function escapeHtml(value: string | null | undefined) {
   if (!value) return "";
   return value
@@ -67,14 +192,20 @@ async function fetchCompanySettings() {
 
 async function getBrowser() {
   if (!browserPromise) {
-    const puppeteerArgs = ["--allow-file-access-from-files"];
-    if (process.env.PUPPETEER_DISABLE_SANDBOX === "true") {
-      puppeteerArgs.push("--no-sandbox", "--disable-setuid-sandbox");
-    }
-    browserPromise = puppeteer.launch({
-      headless: "new",
-      args: puppeteerArgs,
-    });
+    browserPromise = (async () => {
+      try {
+        return await launchBrowser();
+      } catch (error) {
+        browserPromise = null;
+        if (error instanceof PdfGenerationError) {
+          throw error;
+        }
+        throw new PdfGenerationError(
+          "Unable to initialize the PDF renderer.",
+          error,
+        );
+      }
+    })();
   }
   return browserPromise;
 }
@@ -82,19 +213,24 @@ async function getBrowser() {
 async function renderPdfFromHtml(html: string) {
   const browser = await getBrowser();
   const page = await browser.newPage();
-  await page.setContent(html, { waitUntil: "networkidle0" });
-  const pdfBuffer = await page.pdf({
-    format: "A4",
-    printBackground: true,
-    margin: {
-      top: "0",
-      right: "0",
-      bottom: "0",
-      left: "0",
-    },
-  });
-  await page.close();
-  return Buffer.from(pdfBuffer);
+  try {
+    await page.setContent(html, { waitUntil: "networkidle0" });
+    const pdfBuffer = await page.pdf({
+      format: "A4",
+      printBackground: true,
+      margin: {
+        top: "0",
+        right: "0",
+        bottom: "0",
+        left: "0",
+      },
+    });
+    return Buffer.from(pdfBuffer);
+  } catch (error) {
+    throw new PdfGenerationError("Failed to render PDF content.", error);
+  } finally {
+    await page.close().catch(() => undefined);
+  }
 }
 
 function getCssContent() {
@@ -586,3 +722,15 @@ export async function generateInvoicePdf(invoiceId: string) {
   const html = buildDocumentHtml("invoice", invoice, settings);
   return renderPdfFromHtml(html);
 }
+
+export const __pdfTesting = {
+  resetBrowser() {
+    browserPromise = null;
+  },
+  getBrowser: () => getBrowser(),
+  buildHtml: (
+    type: DocumentType,
+    document: DocumentWithRelations,
+    settings: CompanySettings | null,
+  ) => buildDocumentHtml(type, document, settings),
+};

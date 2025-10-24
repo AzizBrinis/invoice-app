@@ -28,7 +28,8 @@ const taxConfigurationSchema = z.object({
     .default(DEFAULT_TAX_CONFIGURATION.tva),
   fodec: z
     .object({
-      enabled: z.boolean().default(true),
+      enabled: z.boolean().default(DEFAULT_TAX_CONFIGURATION.fodec.enabled),
+      autoApply: z.boolean().default(DEFAULT_TAX_CONFIGURATION.fodec.autoApply),
       rate: z.number().min(0).default(DEFAULT_TAX_CONFIGURATION.fodec.rate),
       application: z.enum(["line", "document"]).default("line"),
       calculationOrder: z
@@ -38,9 +39,17 @@ const taxConfigurationSchema = z.object({
     .default(DEFAULT_TAX_CONFIGURATION.fodec),
   timbre: z
     .object({
-      enabled: z.boolean().default(false),
-      amountCents: z.number().int().nonnegative().default(0),
-      autoApply: z.boolean().default(true),
+      enabled: z
+        .boolean()
+        .default(DEFAULT_TAX_CONFIGURATION.timbre.enabled),
+      amountCents: z
+        .number()
+        .int()
+        .nonnegative()
+        .default(DEFAULT_TAX_CONFIGURATION.timbre.amountCents),
+      autoApply: z
+        .boolean()
+        .default(DEFAULT_TAX_CONFIGURATION.timbre.autoApply),
     })
     .default(DEFAULT_TAX_CONFIGURATION.timbre),
   order: z

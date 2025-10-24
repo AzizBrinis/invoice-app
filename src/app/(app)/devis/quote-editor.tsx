@@ -91,7 +91,7 @@ export function QuoteEditor({
       ? taxConfiguration.fodec.rate
       : null;
   const [applyFodec, setApplyFodec] = useState(
-    taxConfiguration.fodec.enabled,
+    taxConfiguration.fodec.enabled && taxConfiguration.fodec.autoApply,
   );
   const [documentFodecRate, setDocumentFodecRate] = useState<number | "">(
     taxConfiguration.fodec.application === "document"
