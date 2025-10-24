@@ -90,8 +90,17 @@ export function QuoteEditor({
     taxConfiguration.fodec.enabled && taxConfiguration.fodec.application === "line"
       ? taxConfiguration.fodec.rate
       : null;
+  const quoteHasFodec = defaultQuote
+    ? defaultQuote.fodecAmountCents > 0 ||
+      defaultQuote.lines.some((line) => (line.fodecAmountCents ?? 0) > 0)
+    : false;
+  const configuredFodecAutoApply = (taxConfiguration.fodec as { autoApply?: boolean }).autoApply;
   const [applyFodec, setApplyFodec] = useState(
-    taxConfiguration.fodec.enabled && taxConfiguration.fodec.autoApply,
+    taxConfiguration.fodec.enabled &&
+      (quoteHasFodec ||
+        (typeof configuredFodecAutoApply === "boolean"
+          ? configuredFodecAutoApply
+          : taxConfiguration.fodec.enabled)),
   );
   const [documentFodecRate, setDocumentFodecRate] = useState<number | "">(
     taxConfiguration.fodec.application === "document"

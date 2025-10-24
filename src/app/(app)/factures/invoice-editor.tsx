@@ -93,8 +93,17 @@ export function InvoiceEditor({
     taxConfiguration.fodec.enabled && taxConfiguration.fodec.application === "line"
       ? taxConfiguration.fodec.rate
       : null;
+  const invoiceHasFodec = defaultInvoice
+    ? defaultInvoice.fodecAmountCents > 0 ||
+      defaultInvoice.lines.some((line) => (line.fodecAmountCents ?? 0) > 0)
+    : false;
+  const configuredFodecAutoApply = (taxConfiguration.fodec as { autoApply?: boolean }).autoApply;
   const [applyFodec, setApplyFodec] = useState(
-    taxConfiguration.fodec.enabled && taxConfiguration.fodec.autoApply,
+    taxConfiguration.fodec.enabled &&
+      (invoiceHasFodec ||
+        (typeof configuredFodecAutoApply === "boolean"
+          ? configuredFodecAutoApply
+          : taxConfiguration.fodec.enabled)),
   );
   const [documentFodecRate, setDocumentFodecRate] = useState<number | "">(
     taxConfiguration.fodec.application === "document"
