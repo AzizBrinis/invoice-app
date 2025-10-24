@@ -65,6 +65,7 @@ export function QuoteEditor({
   taxConfiguration,
   defaultQuote,
 }: QuoteEditorProps) {
+  const initialCurrency = defaultQuote?.currency ?? defaultCurrency;
   const [clientId, setClientId] = useState(defaultQuote?.clientId ?? clients[0]?.id ?? "");
   const [status, setStatus] = useState(defaultQuote?.status ?? "BROUILLON");
   const [issueDate, setIssueDate] = useState(
@@ -74,15 +75,13 @@ export function QuoteEditor({
     defaultQuote?.validUntil ? defaultQuote.validUntil.toISOString().slice(0, 10) : "",
   );
   const [reference, setReference] = useState(defaultQuote?.reference ?? "");
-  const [currency, setCurrency] = useState<CurrencyCode>(
-    defaultQuote?.currency ?? defaultCurrency,
-  );
+  const [currency, setCurrency] = useState<CurrencyCode>(initialCurrency);
   const [globalDiscountRate, setGlobalDiscountRate] = useState<number | "">(
     defaultQuote?.globalDiscountRate ?? "",
   );
   const [globalDiscountAmount, setGlobalDiscountAmount] = useState<number | "">(
     defaultQuote?.globalDiscountAmountCents != null
-      ? fromCents(defaultQuote.globalDiscountAmountCents)
+      ? fromCents(defaultQuote.globalDiscountAmountCents, initialCurrency)
       : "",
   );
   const [notes, setNotes] = useState(defaultQuote?.notes ?? "");
@@ -103,7 +102,7 @@ export function QuoteEditor({
     taxConfiguration.timbre.enabled && taxConfiguration.timbre.autoApply,
   );
   const [timbreAmount, setTimbreAmount] = useState<number>(
-    fromCents(taxConfiguration.timbre.amountCents),
+    fromCents(taxConfiguration.timbre.amountCents, initialCurrency),
   );
 
   const initialLines: QuoteLineForm[] = defaultQuote
@@ -115,12 +114,12 @@ export function QuoteEditor({
           description: line.description,
           quantity: line.quantity,
           unit: line.unit,
-          unitPrice: fromCents(line.unitPriceHTCents),
+          unitPrice: fromCents(line.unitPriceHTCents, initialCurrency),
           vatRate: line.vatRate,
           discountRate: line.discountRate ?? undefined,
           discountAmount:
             line.discountAmountCents != null
-              ? fromCents(line.discountAmountCents)
+              ? fromCents(line.discountAmountCents, initialCurrency)
               : undefined,
           fodecRate:
             taxConfiguration.fodec.application === "line" &&
@@ -128,7 +127,7 @@ export function QuoteEditor({
               ? line.fodecRate ?? taxConfiguration.fodec.rate
               : null,
         }))
-    : [createEmptyLine(products[0], defaultLineFodecRate)];
+    : [createEmptyLine(products[0], defaultLineFodecRate, initialCurrency)];
 
   const [lines, setLines] = useState<QuoteLineForm[]>(initialLines);
   const payloadRef = useRef<HTMLInputElement>(null);
@@ -138,11 +137,13 @@ export function QuoteEditor({
       calculateLineTotals(
         {
           quantity: line.quantity,
-          unitPriceHTCents: toCents(line.unitPrice),
+          unitPriceHTCents: toCents(line.unitPrice, currency),
           vatRate: line.vatRate,
           discountRate: line.discountRate ?? undefined,
           discountAmountCents:
-            line.discountAmount != null ? toCents(line.discountAmount) : undefined,
+            line.discountAmount != null
+              ? toCents(line.discountAmount, currency)
+              : undefined,
         },
         {
           fodecRate:
@@ -161,7 +162,7 @@ export function QuoteEditor({
       computedLines,
       typeof globalDiscountRate === "number" ? globalDiscountRate : undefined,
       typeof globalDiscountAmount === "number"
-        ? toCents(globalDiscountAmount)
+        ? toCents(globalDiscountAmount, currency)
         : undefined,
       {
         taxConfiguration,
@@ -173,7 +174,7 @@ export function QuoteEditor({
               ? documentFodecRate
               : taxConfiguration.fodec.rate
             : null,
-        timbreAmountCents: applyTimbre ? toCents(timbreAmount) : 0,
+        timbreAmountCents: applyTimbre ? toCents(timbreAmount, currency) : 0,
       },
     );
 
@@ -190,6 +191,7 @@ export function QuoteEditor({
     applyTimbre,
     documentFodecRate,
     timbreAmount,
+    currency,
   ]);
 
   const handleLineChange = (index: number, updates: Partial<QuoteLineForm>) => {
@@ -209,7 +211,7 @@ export function QuoteEditor({
     handleLineChange(index, {
       productId: product.id,
       description: product.name,
-      unitPrice: fromCents(product.priceHTCents),
+      unitPrice: fromCents(product.priceHTCents, currency),
       vatRate: product.vatRate,
       unit: product.unit,
       discountRate: product.defaultDiscountRate ?? undefined,
@@ -224,7 +226,7 @@ export function QuoteEditor({
   };
 
   const addLine = () => {
-    setLines((prev) => [...prev, createEmptyLine(products[0], defaultLineFodecRate)]);
+    setLines((prev) => [...prev, createEmptyLine(products[0], defaultLineFodecRate, currency)]);
   };
 
   const removeLine = (index: number) => {
@@ -255,7 +257,9 @@ export function QuoteEditor({
       globalDiscountRate:
         globalDiscountRate === "" ? null : Number(globalDiscountRate),
       globalDiscountAmountCents:
-        globalDiscountAmount === "" ? null : toCents(Number(globalDiscountAmount)),
+        globalDiscountAmount === ""
+          ? null
+          : toCents(Number(globalDiscountAmount), currency),
       notes: notes || null,
       terms: terms || null,
       lines: lines.map((line, index) => ({
@@ -263,11 +267,13 @@ export function QuoteEditor({
         description: (line.description ?? "").trim(),
         quantity: line.quantity,
         unit: (line.unit ?? "").trim() || "unité",
-        unitPriceHTCents: toCents(line.unitPrice),
+        unitPriceHTCents: toCents(line.unitPrice, currency),
         vatRate: line.vatRate,
         discountRate: line.discountRate ?? null,
         discountAmountCents:
-          line.discountAmount != null ? toCents(line.discountAmount) : null,
+          line.discountAmount != null
+            ? toCents(line.discountAmount, currency)
+            : null,
         fodecRate:
           taxConfiguration.fodec.application === "line" &&
           taxConfiguration.fodec.enabled &&
@@ -285,7 +291,7 @@ export function QuoteEditor({
               ? null
               : Number(documentFodecRate)
             : null,
-        timbreAmountCents: applyTimbre ? toCents(timbreAmount) : 0,
+        timbreAmountCents: applyTimbre ? toCents(timbreAmount, currency) : 0,
       },
     };
     return payload;
@@ -606,7 +612,7 @@ export function QuoteEditor({
                       />
                     </td>
                     <td className="px-3 py-2 text-right font-medium text-zinc-700">
-                      {formatCurrency(fromCents(computed.totalTTCCents), currency)}
+                      {formatCurrency(fromCents(computed.totalTTCCents, currency), currency)}
                     </td>
                     <td className="px-3 py-2 text-right">
                       <div className="flex justify-end gap-2">
@@ -715,12 +721,12 @@ export function QuoteEditor({
           <dl className="space-y-2 text-sm text-zinc-600">
             <div className="flex items-center justify-between">
               <dt>Sous-total HT</dt>
-              <dd>{formatCurrency(fromCents(totals.totals.subtotalHTCents), currency)}</dd>
+              <dd>{formatCurrency(fromCents(totals.totals.subtotalHTCents, currency), currency)}</dd>
             </div>
             <div className="flex items-center justify-between">
               <dt>Remises totales</dt>
               <dd>
-                - {formatCurrency(fromCents(totals.totals.totalDiscountCents), currency)}
+                - {formatCurrency(fromCents(totals.totals.totalDiscountCents, currency), currency)}
               </dd>
             </div>
             {totals.totals.taxSummary.map((entry, index) => (
@@ -730,18 +736,18 @@ export function QuoteEditor({
                     {entry.label}
                     {entry.rate != null ? ` (${entry.rate}%)` : ""}
                   </dt>
-                  <dd>{formatCurrency(fromCents(entry.amountCents), currency)}</dd>
+                  <dd>{formatCurrency(fromCents(entry.amountCents, currency), currency)}</dd>
                 </div>
                 {entry.baseCents > 0 && (
                   <p className="text-xs text-zinc-500">
-                    Base: {formatCurrency(fromCents(entry.baseCents), currency)}
+                    Base: {formatCurrency(fromCents(entry.baseCents, currency), currency)}
                   </p>
                 )}
               </div>
             ))}
             <div className="flex items-center justify-between border-t border-zinc-200 pt-2 text-base font-semibold text-zinc-900">
               <dt>Total TTC</dt>
-              <dd>{formatCurrency(fromCents(totals.totals.totalTTCCents), currency)}</dd>
+              <dd>{formatCurrency(fromCents(totals.totals.totalTTCCents, currency), currency)}</dd>
             </div>
           </dl>
         </div>
@@ -755,15 +761,16 @@ export function QuoteEditor({
 }
 
 function createEmptyLine(
-  product?: Product,
-  defaultFodecRate?: number | null,
+  product: Product | undefined,
+  defaultFodecRate: number | null | undefined,
+  currency: CurrencyCode,
 ): QuoteLineForm {
   return {
     productId: product?.id ?? null,
     description: product?.name ?? "",
     quantity: 1,
     unit: product?.unit ?? "unité",
-    unitPrice: product ? fromCents(product.priceHTCents) : 0,
+    unitPrice: product ? fromCents(product.priceHTCents, currency) : 0,
     vatRate: product?.vatRate ?? 20,
     discountRate: product?.defaultDiscountRate ?? undefined,
     discountAmount: undefined,

@@ -36,7 +36,15 @@ export async function updateClientAction(id: string, formData: FormData) {
 }
 
 export async function deleteClientAction(id: string) {
-  await deleteClient(id);
-  revalidatePath("/clients");
-  redirect("/clients");
+  try {
+    await deleteClient(id);
+    revalidatePath("/clients");
+    redirect("/clients");
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Impossible de supprimer ce client";
+    redirect(`/clients?error=${encodeURIComponent(message)}`);
+  }
 }

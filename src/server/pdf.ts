@@ -71,13 +71,13 @@ async function fetchCompanySettings() {
 
 async function getBrowser() {
   if (!browserPromise) {
+    const puppeteerArgs = ["--allow-file-access-from-files"];
+    if (process.env.PUPPETEER_DISABLE_SANDBOX === "true") {
+      puppeteerArgs.push("--no-sandbox", "--disable-setuid-sandbox");
+    }
     browserPromise = puppeteer.launch({
       headless: "new",
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--allow-file-access-from-files",
-      ],
+      args: puppeteerArgs,
     });
   }
   return browserPromise;
@@ -207,9 +207,9 @@ function buildLinesHtml(
   const rows = lines
     .map((line, index) => {
       const quantity = Number(line.quantity ?? 0) || 1;
-      const totalHT = fromCents(line.totalHTCents ?? 0);
-      const totalTTC = fromCents(line.totalTTCCents ?? 0);
-      const unitPriceHT = fromCents(line.unitPriceHTCents ?? 0);
+      const totalHT = fromCents(line.totalHTCents ?? 0, currency);
+      const totalTTC = fromCents(line.totalTTCCents ?? 0, currency);
+      const unitPriceHT = fromCents(line.unitPriceHTCents ?? 0, currency);
       const vatRate = Number(line.vatRate ?? 0);
       const vatAmount = totalTTC - totalHT;
       vatTotal += vatAmount;
@@ -254,12 +254,18 @@ function buildDocumentHtml(
     ? formatDate(quoteDoc.validUntil)
     : "";
 
-  const subtotal = fromCents(document.subtotalHTCents ?? 0);
-  const totalTVA = fromCents(document.totalTVACents ?? 0);
-  const totalTTC = fromCents(document.totalTTCCents ?? 0);
-  const discount = fromCents(document.totalDiscountCents ?? 0);
-  const fodecAmount = fromCents((document as { fodecAmountCents?: number }).fodecAmountCents ?? 0);
-  const timbreAmount = fromCents((document as { timbreAmountCents?: number }).timbreAmountCents ?? 0);
+  const subtotal = fromCents(document.subtotalHTCents ?? 0, currency);
+  const totalTVA = fromCents(document.totalTVACents ?? 0, currency);
+  const totalTTC = fromCents(document.totalTTCCents ?? 0, currency);
+  const discount = fromCents(document.totalDiscountCents ?? 0, currency);
+  const fodecAmount = fromCents(
+    (document as { fodecAmountCents?: number }).fodecAmountCents ?? 0,
+    currency,
+  );
+  const timbreAmount = fromCents(
+    (document as { timbreAmountCents?: number }).timbreAmountCents ?? 0,
+    currency,
+  );
   const taxSummaryEntries = Array.isArray((document as { taxSummary?: unknown }).taxSummary)
     ? ((document as { taxSummary?: unknown }).taxSummary as Array<Record<string, unknown>>)
     : [];
@@ -284,7 +290,7 @@ function buildDocumentHtml(
         .map((payment) =>
           [
             payment.method ? `Mode : ${payment.method}` : null,
-            `Montant : ${formatCurrency(fromCents(payment.amountCents), currency)}`,
+            `Montant : ${formatCurrency(fromCents(payment.amountCents, currency), currency)}`,
             payment.date ? `Date : ${formatDate(payment.date)}` : null,
           ]
             .filter(Boolean)
@@ -320,10 +326,10 @@ function buildDocumentHtml(
       const amount = typeof entry.amountCents === "number" ? entry.amountCents : 0;
       return `
         <tr>
-          <td class="px-4 py-2 text-left text-slate-600">${escapeHtml(label)}</td>
-          <td class="px-4 py-2 text-left text-slate-600">${escapeHtml(formatCurrency(fromCents(base), currency))}</td>
-          <td class="px-4 py-2 text-left text-slate-600">${rate}</td>
-          <td class="px-4 py-2 text-right text-slate-700">${escapeHtml(formatCurrency(fromCents(amount), currency))}</td>
+          <td class="px-2 py-1 text-left text-slate-600">${escapeHtml(label)}</td>
+          <td class="px-2 py-1 text-right text-slate-600">${escapeHtml(formatCurrency(fromCents(base, currency), currency))}</td>
+          <td class="px-2 py-1 text-center text-slate-500">${rate}</td>
+          <td class="px-2 py-1 text-right text-slate-700">${escapeHtml(formatCurrency(fromCents(amount, currency), currency))}</td>
         </tr>
       `;
     })
@@ -331,24 +337,104 @@ function buildDocumentHtml(
 
   const taxSummaryHtml = taxSummaryRows.length
     ? `
-      <div class="px-14 pb-6 text-sm text-neutral-700">
-        <h3 class="text-main font-bold">Résumé fiscal</h3>
-        <table class="mt-3 w-full border-collapse border-spacing-0 text-xs">
-          <thead>
-            <tr class="text-slate-500">
-              <th class="px-4 py-2 text-left">Taxe</th>
-              <th class="px-4 py-2 text-left">Base</th>
-              <th class="px-4 py-2 text-left">Taux</th>
-              <th class="px-4 py-2 text-right">Montant</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-200">
-            ${taxSummaryRows}
-          </tbody>
-        </table>
-      </div>
-    `
+        <div class="rounded-lg border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600 shadow-sm">
+          <p class="mb-2 text-sm font-semibold uppercase tracking-wide text-main">Résumé fiscal</p>
+          <table class="w-full border-collapse border-spacing-0 text-xs">
+            <thead>
+              <tr class="text-slate-500">
+                <th class="px-2 py-1 text-left">Taxe</th>
+                <th class="px-2 py-1 text-right">Base</th>
+                <th class="px-2 py-1 text-center">Taux</th>
+                <th class="px-2 py-1 text-right">Montant</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200">
+              ${taxSummaryRows}
+            </tbody>
+          </table>
+        </div>
+      `
     : "";
+
+  const totalsTableHtml = `
+    <table class="w-full border-collapse border-spacing-0">
+      <tbody>
+        <tr>
+          <td class="border-b p-3">
+            <div class="whitespace-nowrap text-slate-400">Total HT:</div>
+          </td>
+          <td class="border-b p-3 text-right">
+            <div class="whitespace-nowrap font-bold text-main">${escapeHtml(formatCurrency(subtotal, currency))}</div>
+          </td>
+        </tr>
+        <tr>
+          <td class="p-3">
+            <div class="whitespace-nowrap text-slate-400">TVA:</div>
+          </td>
+          <td class="p-3 text-right">
+            <div class="whitespace-nowrap font-bold text-main">${escapeHtml(formatCurrency(totalTVA || vatTotal, currency))}</div>
+          </td>
+        </tr>
+        <tr>
+          <td class="p-3">
+            <div class="whitespace-nowrap text-slate-400">Remises:</div>
+          </td>
+          <td class="p-3 text-right">
+            <div class="whitespace-nowrap font-bold text-main">${escapeHtml(formatCurrency(discount, currency))}</div>
+          </td>
+        </tr>
+        ${
+          fodecAmount > 0
+            ? `<tr>
+          <td class="p-3">
+            <div class="whitespace-nowrap text-slate-400">FODEC:</div>
+          </td>
+          <td class="p-3 text-right">
+            <div class="whitespace-nowrap font-bold text-main">${escapeHtml(formatCurrency(fodecAmount, currency))}</div>
+          </td>
+        </tr>`
+            : ""
+        }
+        ${
+          timbreAmount > 0
+            ? `<tr>
+          <td class="p-3">
+            <div class="whitespace-nowrap text-slate-400">Timbre fiscal:</div>
+          </td>
+          <td class="p-3 text-right">
+            <div class="whitespace-nowrap font-bold text-main">${escapeHtml(formatCurrency(timbreAmount, currency))}</div>
+          </td>
+        </tr>`
+            : ""
+        }
+        <tr>
+          <td class="bg-main p-3">
+            <div class="whitespace-nowrap font-bold text-white">Total TTC:</div>
+          </td>
+          <td class="bg-main p-3 text-right">
+            <div class="whitespace-nowrap font-bold text-white">${escapeHtml(formatCurrency(totalTTC, currency))}</div>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  `;
+
+  const totalsLayoutHtml = `
+    <table class="w-full border-collapse border-spacing-0 pbi-a">
+      <tbody>
+        <tr class="align-top">
+          <td class="align-top" style="${taxSummaryHtml ? "width: 45%; padding-right: 24px;" : "width: 100%;"}">
+            ${taxSummaryHtml}
+          </td>
+          <td class="align-top" style="width: 280px;">
+            <div style="margin-left: auto; width: 280px;">
+              ${totalsTableHtml}
+            </div>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  `;
 
   const html = `
     <!DOCTYPE html>
@@ -438,82 +524,12 @@ function buildDocumentHtml(
                 ${rowsHtml}
                 <tr>
                   <td colspan="7">
-                    <table class="w-full border-collapse border-spacing-0 pbi-a">
-                      <tbody>
-                        <tr>
-                          <td class="w-full"></td>
-                          <td>
-                            <table class="w-full border-collapse border-spacing-0">
-                              <tbody>
-                                <tr>
-                                  <td class="border-b p-3">
-                                    <div class="whitespace-nowrap text-slate-400">Total HT:</div>
-                                  </td>
-                                  <td class="border-b p-3 text-right">
-                                    <div class="whitespace-nowrap font-bold text-main">${escapeHtml(formatCurrency(subtotal, currency))}</div>
-                                  </td>
-                                </tr>
-                                <tr>
-                                  <td class="p-3">
-                                    <div class="whitespace-nowrap text-slate-400">TVA:</div>
-                                  </td>
-                                  <td class="p-3 text-right">
-                                    <div class="whitespace-nowrap font-bold text-main">${escapeHtml(formatCurrency(totalTVA || vatTotal, currency))}</div>
-                                  </td>
-                                </tr>
-                                <tr>
-                                  <td class="p-3">
-                                    <div class="whitespace-nowrap text-slate-400">Remises:</div>
-                                  </td>
-                                  <td class="p-3 text-right">
-                                    <div class="whitespace-nowrap font-bold text-main">${escapeHtml(formatCurrency(discount, currency))}</div>
-                                  </td>
-                                </tr>
-                                ${
-                                  fodecAmount > 0
-                                    ? `<tr>
-                                  <td class="p-3">
-                                    <div class="whitespace-nowrap text-slate-400">FODEC:</div>
-                                  </td>
-                                  <td class="p-3 text-right">
-                                    <div class="whitespace-nowrap font-bold text-main">${escapeHtml(formatCurrency(fodecAmount, currency))}</div>
-                                  </td>
-                                </tr>`
-                                    : ""
-                                }
-                                ${
-                                  timbreAmount > 0
-                                    ? `<tr>
-                                  <td class="p-3">
-                                    <div class="whitespace-nowrap text-slate-400">Timbre fiscal:</div>
-                                  </td>
-                                  <td class="p-3 text-right">
-                                    <div class="whitespace-nowrap font-bold text-main">${escapeHtml(formatCurrency(timbreAmount, currency))}</div>
-                                  </td>
-                                </tr>`
-                                    : ""
-                                }
-                                <tr>
-                                  <td class="bg-main p-3">
-                                    <div class="whitespace-nowrap font-bold text-white">Total TTC:</div>
-                                  </td>
-                                  <td class="bg-main p-3 text-right">
-                                    <div class="whitespace-nowrap font-bold text-white">${escapeHtml(formatCurrency(totalTTC, currency))}</div>
-                                  </td>
-                                </tr>
-                              </tbody>
-                            </table>
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
+                    ${totalsLayoutHtml}
                   </td>
                 </tr>
               </tbody>
             </table>
           </div>
-
-          ${taxSummaryHtml}
 
           ${bankInfo ? `<div class="px-14 text-sm text-neutral-700 pbi-a"><p class="text-main font-bold">Coordonnées bancaires</p><div>${bankInfo}</div></div>` : ""}
 

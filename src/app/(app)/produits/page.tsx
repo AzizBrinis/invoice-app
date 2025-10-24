@@ -197,10 +197,10 @@ export default async function ProduitsPage({
                   {product.category ?? "—"}
                 </td>
                 <td className="px-4 py-3 text-right text-zinc-600">
-                  {formatCurrency(fromCents(product.priceHTCents), currencyCode)}
+                  {formatCurrency(fromCents(product.priceHTCents, currencyCode), currencyCode)}
                 </td>
                 <td className="px-4 py-3 text-right text-zinc-800">
-                  {formatCurrency(fromCents(product.priceTTCCents), currencyCode)}
+                  {formatCurrency(fromCents(product.priceTTCCents, currencyCode), currencyCode)}
                 </td>
                 <td className="px-4 py-3 text-zinc-600">{product.vatRate}%</td>
                 <td className="px-4 py-3 text-zinc-600">

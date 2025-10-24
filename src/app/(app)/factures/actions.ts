@@ -15,6 +15,7 @@ import {
 import { InvoiceStatus } from "@prisma/client";
 import { toCents } from "@/lib/money";
 import { sendInvoiceEmail } from "@/server/email";
+import { prisma } from "@/lib/prisma";
 
 function parsePayload(formData: FormData) {
   const rawPayload = formData.get("payload");
@@ -65,9 +66,18 @@ export async function recordPaymentAction(formData: FormData) {
     throw new Error("Informations de paiement incomplètes");
   }
 
+  const invoice = await prisma.invoice.findUnique({
+    where: { id: invoiceId },
+    select: { currency: true },
+  });
+
+  if (!invoice) {
+    throw new Error("Facture introuvable");
+  }
+
   await recordPayment({
     invoiceId,
-    amountCents: toCents(amount),
+    amountCents: toCents(amount, invoice.currency),
     method,
     date: new Date(date),
     note,

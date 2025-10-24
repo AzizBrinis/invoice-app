@@ -342,12 +342,18 @@ export function computeDueStatus(
   return dueDate.getTime() < Date.now() ? "retard" : "a-temps";
 }
 
-export function centsToCurrencyUnit(value: number): number {
-  return fromCents(value);
+export function centsToCurrencyUnit(
+  value: number,
+  currencyCode?: string,
+): number {
+  return fromCents(value, currencyCode);
 }
 
-export function currencyUnitToCents(value: number): number {
-  return toCents(value);
+export function currencyUnitToCents(
+  value: number,
+  currencyCode?: string,
+): number {
+  return toCents(value, currencyCode);
 }
 
 // Deprecated aliases maintained for backwards compatibility

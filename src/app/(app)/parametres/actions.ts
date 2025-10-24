@@ -8,7 +8,7 @@ import {
   TAX_ORDER_ITEMS,
   RoundingMode,
 } from "@/lib/taxes";
-import { toCents } from "@/lib/money";
+import { fromCents, toCents } from "@/lib/money";
 
 function parseSettingsForm(formData: FormData) {
   const tvaRatesRaw = formData.get("tvaRatesJson")?.toString().trim();
@@ -51,6 +51,15 @@ function parseSettingsForm(formData: FormData) {
     }
   });
 
+  const defaultCurrency =
+    formData.get("defaultCurrency")?.toString().toUpperCase() ?? "TND";
+
+  const timbreAmountInput = formData.get("timbreAmount");
+  const timbreAmountValue =
+    timbreAmountInput && timbreAmountInput.toString().length > 0
+      ? Number(timbreAmountInput)
+      : fromCents(DEFAULT_TAX_CONFIGURATION.timbre.amountCents, defaultCurrency);
+
   const data = {
     companyName: formData.get("companyName")?.toString() ?? "",
     logoUrl: formData.get("logoUrl")?.toString() || null,
@@ -60,8 +69,7 @@ function parseSettingsForm(formData: FormData) {
     email: formData.get("email")?.toString() || null,
     phone: formData.get("phone")?.toString() || null,
     iban: formData.get("iban")?.toString() || null,
-    defaultCurrency:
-      formData.get("defaultCurrency")?.toString().toUpperCase() ?? "TND",
+    defaultCurrency,
     defaultVatRate: Number(formData.get("defaultVatRate") ?? 20),
     paymentTerms: formData.get("paymentTerms")?.toString() || null,
     invoiceNumberPrefix: formData.get("invoiceNumberPrefix")?.toString() ?? "FAC",
@@ -98,9 +106,7 @@ function parseSettingsForm(formData: FormData) {
       timbre: {
         enabled: formData.get("timbreEnabled")?.toString() === "on",
         amountCents:
-          toCents(
-            Number(formData.get("timbreAmount") ?? DEFAULT_TAX_CONFIGURATION.timbre.amountCents / 100),
-          ) || 0,
+          toCents(timbreAmountValue, defaultCurrency) || 0,
         autoApply: formData.get("timbreAutoApply")?.toString() === "on",
       },
       order: taxOrder,

@@ -1,33 +1,35 @@
 import { describe, it, expect } from "vitest";
 import { calculateLineTotals, calculateDocumentTotals } from "@/lib/documents";
-import { toCents } from "@/lib/money";
+import { fromCents, toCents } from "@/lib/money";
 import { DEFAULT_TAX_CONFIGURATION } from "@/lib/taxes";
 
 describe("calculations helpers", () => {
   it("compute line totals with discount", () => {
+    const currency = "TND";
     const input = {
       quantity: 3,
-      unitPriceHTCents: toCents(120.5),
+      unitPriceHTCents: toCents(120.5, currency),
       vatRate: 20,
       discountRate: 10,
     } as const;
     const result = calculateLineTotals(input);
-    expect(result.totalHTCents).toBe(32535);
-    expect(result.totalTVACents).toBe(6507);
-    expect(result.totalTTCCents).toBe(39042);
+    expect(fromCents(result.totalHTCents, currency)).toBeCloseTo(325.35);
+    expect(fromCents(result.totalTVACents, currency)).toBeCloseTo(65.07);
+    expect(fromCents(result.totalTTCCents, currency)).toBeCloseTo(390.42);
     expect(result.fodecAmountCents).toBe(0);
   });
 
   it("aggregate document totals with global discount", () => {
+    const currency = "TND";
     const lines = [
       calculateLineTotals({
         quantity: 2,
-        unitPriceHTCents: toCents(100),
+        unitPriceHTCents: toCents(100, currency),
         vatRate: 20,
       }),
       calculateLineTotals({
         quantity: 1,
-        unitPriceHTCents: toCents(50),
+        unitPriceHTCents: toCents(50, currency),
         vatRate: 10,
         discountRate: 5,
       }),
@@ -45,8 +47,8 @@ describe("calculations helpers", () => {
       applyTimbre: false,
     });
 
-    expect(totals.subtotalHTCents).toBe(25000 - 250); // includes line discount
-    expect(totals.totalTVACents).toBeGreaterThan(0);
+    expect(fromCents(totals.subtotalHTCents, currency)).toBeCloseTo(247.5); // includes line discount
+    expect(fromCents(totals.totalTVACents, currency)).toBeGreaterThan(0);
     const netSubtotal =
       totals.subtotalHTCents - totals.globalDiscountAppliedCents;
     expect(totals.totalTTCCents).toBe(netSubtotal + totals.totalTVACents);

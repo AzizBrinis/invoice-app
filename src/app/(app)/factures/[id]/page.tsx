@@ -69,10 +69,10 @@ export default async function FactureDetailPage({
     ? resolvedSearchParams.error[0]
     : resolvedSearchParams?.error ?? null;
 
-  const totalTTC = formatCurrency(fromCents(invoice.totalTTCCents), invoice.currency);
-  const amountPaid = formatCurrency(fromCents(invoice.amountPaidCents), invoice.currency);
+  const totalTTC = formatCurrency(fromCents(invoice.totalTTCCents, invoice.currency), invoice.currency);
+  const amountPaid = formatCurrency(fromCents(invoice.amountPaidCents, invoice.currency), invoice.currency);
   const balance = formatCurrency(
-    fromCents(invoice.totalTTCCents - invoice.amountPaidCents),
+    fromCents(invoice.totalTTCCents - invoice.amountPaidCents, invoice.currency),
     invoice.currency,
   );
   const taxSummary: Array<{
@@ -178,13 +178,13 @@ export default async function FactureDetailPage({
                 <tr key={`${entry.type ?? "tax"}-${entry.rate ?? index}`}>
                   <td className="px-4 py-3 text-zinc-700">{entry.label ?? entry.type ?? "Taxe"}</td>
                   <td className="px-4 py-3 text-zinc-600">
-                    {formatCurrency(fromCents(entry.baseCents ?? 0), invoice.currency)}
+                    {formatCurrency(fromCents(entry.baseCents ?? 0, invoice.currency), invoice.currency)}
                   </td>
                   <td className="px-4 py-3 text-zinc-600">
                     {entry.rate != null ? `${entry.rate}%` : "—"}
                   </td>
                   <td className="px-4 py-3 text-right text-zinc-800">
-                    {formatCurrency(fromCents(entry.amountCents ?? 0), invoice.currency)}
+                    {formatCurrency(fromCents(entry.amountCents ?? 0, invoice.currency), invoice.currency)}
                   </td>
                 </tr>
               ))}
@@ -213,11 +213,11 @@ export default async function FactureDetailPage({
                 <td className="px-4 py-3 text-zinc-700">{line.description}</td>
                 <td className="px-4 py-3 text-right text-zinc-600">{line.quantity}</td>
                 <td className="px-4 py-3 text-right text-zinc-600">
-                  {formatCurrency(fromCents(line.unitPriceHTCents), invoice.currency)}
+                  {formatCurrency(fromCents(line.unitPriceHTCents, invoice.currency), invoice.currency)}
                 </td>
                 <td className="px-4 py-3 text-right text-zinc-600">{line.vatRate}%</td>
                 <td className="px-4 py-3 text-right font-medium text-zinc-900">
-                  {formatCurrency(fromCents(line.totalTTCCents), invoice.currency)}
+                  {formatCurrency(fromCents(line.totalTTCCents, invoice.currency), invoice.currency)}
                 </td>
               </tr>
             ))}
@@ -260,7 +260,7 @@ export default async function FactureDetailPage({
                     <div className="flex items-center justify-between text-sm text-zinc-700">
                       <div>
                         <p className="font-medium text-zinc-900">
-                          {formatCurrency(fromCents(payment.amountCents), invoice.currency)}
+                          {formatCurrency(fromCents(payment.amountCents, invoice.currency), invoice.currency)}
                         </p>
                         <p className="text-xs text-zinc-500">
                           {formatDate(payment.date)} — {payment.method ?? "Paiement"}
@@ -358,7 +358,7 @@ export default async function FactureDetailPage({
               rows={4}
               defaultValue={`Bonjour ${invoice.client.displayName},
 
-Veuillez trouver ci-joint la facture ${invoice.number} d'un montant de ${formatCurrency(fromCents(invoice.totalTTCCents), invoice.currency)}.
+Veuillez trouver ci-joint la facture ${invoice.number} d'un montant de ${formatCurrency(fromCents(invoice.totalTTCCents, invoice.currency), invoice.currency)}.
 
 Cordialement.`}
             />

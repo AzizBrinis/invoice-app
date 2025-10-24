@@ -48,9 +48,19 @@ const currencyMap = new Map<CurrencyCode, CurrencyInfo>(
   SUPPORTED_CURRENCIES.map((info) => [info.code, info]),
 );
 
+function normalizeCode(code?: string): CurrencyCode | undefined {
+  if (!code) return undefined;
+  const upper = code.trim().toUpperCase();
+  if (currencyMap.has(upper as CurrencyCode)) {
+    return upper as CurrencyCode;
+  }
+  return undefined;
+}
+
 export function getCurrencyInfo(code?: string): CurrencyInfo {
-  if (code && currencyMap.has(code as CurrencyCode)) {
-    return currencyMap.get(code as CurrencyCode)!;
+  const normalized = normalizeCode(code);
+  if (normalized) {
+    return currencyMap.get(normalized)!;
   }
   return currencyMap.get(DEFAULT_CURRENCY_CODE)!;
 }

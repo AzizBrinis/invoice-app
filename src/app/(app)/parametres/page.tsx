@@ -270,7 +270,7 @@ export default async function ParametresPage() {
                       type="number"
                       step="0.01"
                       min="0"
-                      defaultValue={fromCents(taxConfig.timbre.amountCents)}
+                      defaultValue={fromCents(taxConfig.timbre.amountCents, settings.defaultCurrency)}
                     />
                   </div>
                   <label className="flex items-center gap-2 text-sm text-zinc-700">

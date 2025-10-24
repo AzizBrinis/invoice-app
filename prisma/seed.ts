@@ -1,10 +1,11 @@
 import { PrismaClient, InvoiceStatus, QuoteStatus } from "@prisma/client";
 import bcrypt from "bcryptjs";
-import { calculateDocumentTotals, calculateLineTotals } from "../src/lib/documents";
-import { currencyUnitToCents } from "../src/lib/documents";
+import { calculateDocumentTotals, calculateLineTotals, currencyUnitToCents } from "../src/lib/documents";
 import { DEFAULT_TAX_CONFIGURATION } from "../src/lib/taxes";
+import { getDefaultCurrencyCode } from "../src/lib/currency";
 
 const prisma = new PrismaClient();
+const SEED_CURRENCY = getDefaultCurrencyCode();
 
 const APPLY_FODEC_SEED = DEFAULT_TAX_CONFIGURATION.fodec.enabled;
 const APPLY_TIMBRE_SEED =
@@ -254,7 +255,7 @@ async function seed() {
 
   const products = await prisma.$transaction(
     productsData.map((product) => {
-    const priceHTCents = currencyUnitToCents(product.priceHT);
+    const priceHTCents = currencyUnitToCents(product.priceHT, SEED_CURRENCY);
       const priceTTCCents = Math.round(
         priceHTCents * (1 + product.vat / 100),
       );

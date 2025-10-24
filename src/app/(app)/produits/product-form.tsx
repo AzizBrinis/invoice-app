@@ -116,7 +116,7 @@ export function ProductForm({
             step="0.01"
             defaultValue={
               defaultValues?.priceHTCents != null
-                ? fromCents(defaultValues.priceHTCents)
+                ? fromCents(defaultValues.priceHTCents, currencyCode)
                 : ""
             }
             required

@@ -5,12 +5,13 @@ import { revalidatePath } from "next/cache";
 import { productSchema, createProduct, updateProduct, deleteProduct } from "@/server/products";
 import { toCents } from "@/lib/money";
 import { prisma } from "@/lib/prisma";
+import { getSettings } from "@/server/settings";
 
-function parseProductForm(formData: FormData) {
+async function parseProductForm(formData: FormData, currency: string) {
   const priceHT = Number(formData.get("priceHT") ?? 0);
   const vatRate = Number(formData.get("vatRate") ?? 0);
   const discountRateRaw = formData.get("defaultDiscountRate");
-  const priceHTCents = toCents(priceHT);
+  const priceHTCents = toCents(priceHT, currency);
   const priceTTCCents = Math.round(priceHTCents * (1 + vatRate / 100));
 
   const payload = {
@@ -35,14 +36,16 @@ function parseProductForm(formData: FormData) {
 }
 
 export async function createProductAction(formData: FormData) {
-  const data = parseProductForm(formData);
+  const settings = await getSettings();
+  const data = await parseProductForm(formData, settings.defaultCurrency);
   await createProduct(data);
   revalidatePath("/produits");
   redirect("/produits");
 }
 
 export async function updateProductAction(id: string, formData: FormData) {
-  const data = parseProductForm(formData);
+  const settings = await getSettings();
+  const data = await parseProductForm(formData, settings.defaultCurrency);
   await updateProduct(id, data);
   revalidatePath("/produits");
   redirect("/produits");
@@ -87,6 +90,9 @@ export async function importProductsAction(formData: FormData) {
     const index = headers.findIndex((header) => header.includes(key));
     return index >= 0 ? row[index]?.trim() ?? "" : "";
   };
+
+  const settings = await getSettings();
+  const currency = settings.defaultCurrency;
 
   const entries: Array<{
     sku: string;
@@ -140,7 +146,7 @@ export async function importProductsAction(formData: FormData) {
       continue;
     }
 
-    const priceHTCents = toCents(priceHT);
+    const priceHTCents = toCents(priceHT, currency);
     const priceTTCCents = Math.round(priceHTCents * (1 + vatRate / 100));
     const description = findValue(row, "description") || null;
     const categoryValue = findValue(row, "cat") || null;

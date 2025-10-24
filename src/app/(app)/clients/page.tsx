@@ -40,6 +40,9 @@ export default async function ClientsPage({
   const pageParam = Array.isArray(resolvedSearchParams?.page)
     ? resolvedSearchParams.page[0]
     : resolvedSearchParams?.page;
+  const errorMessage = Array.isArray(resolvedSearchParams?.error)
+    ? resolvedSearchParams.error[0]
+    : resolvedSearchParams?.error ?? null;
 
   const page = Number(pageParam ?? "1") || 1;
   const isActive = parseBooleanFilter(statutParam);
@@ -52,6 +55,11 @@ export default async function ClientsPage({
 
   return (
     <div className="space-y-6">
+      {errorMessage && (
+        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {errorMessage}
+        </p>
+      )}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl font-semibold text-zinc-900">Clients</h1>

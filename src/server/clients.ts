@@ -100,6 +100,17 @@ export async function updateClient(id: string, input: ClientInput) {
 }
 
 export async function deleteClient(id: string) {
+  const [invoiceCount, quoteCount] = await prisma.$transaction([
+    prisma.invoice.count({ where: { clientId: id } }),
+    prisma.quote.count({ where: { clientId: id } }),
+  ]);
+
+  if (invoiceCount > 0 || quoteCount > 0) {
+    throw new Error(
+      `Impossible de supprimer ce client : ${invoiceCount} facture(s) et ${quoteCount} devis associés.`,
+    );
+  }
+
   await prisma.client.delete({
     where: { id },
   });

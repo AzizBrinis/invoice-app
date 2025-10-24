@@ -126,7 +126,7 @@ export default async function EditDevisPage({
               id="message"
               name="message"
               rows={4}
-              defaultValue={`Bonjour ${quote.client.displayName},\n\nVeuillez trouver ci-joint le devis ${quote.number} d'un montant de ${formatCurrency(fromCents(quote.totalTTCCents), quote.currency)}.\n\nCordialement.`}
+              defaultValue={`Bonjour ${quote.client.displayName},\n\nVeuillez trouver ci-joint le devis ${quote.number} d'un montant de ${formatCurrency(fromCents(quote.totalTTCCents, quote.currency), quote.currency)}.\n\nCordialement.`}
             />
           </div>
           <div className="sm:col-span-2 flex justify-end">

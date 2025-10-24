@@ -57,7 +57,7 @@ export default async function DashboardPage() {
           <div className="card p-5">
             <p className="text-sm text-zinc-500">Chiffre d&apos;affaires ce mois</p>
             <p className="mt-2 text-2xl font-semibold text-zinc-900">
-              {formatCurrency(fromCents(metrics.revenueThisMonthCents), dashboardCurrency)}
+              {formatCurrency(fromCents(metrics.revenueThisMonthCents, dashboardCurrency), dashboardCurrency)}
             </p>
             <p className="mt-1 text-xs text-zinc-500">
               Invoices encaissées sur la période
@@ -66,7 +66,7 @@ export default async function DashboardPage() {
           <div className="card p-5">
             <p className="text-sm text-zinc-500">Montant impayé</p>
             <p className="mt-2 text-2xl font-semibold text-zinc-900">
-              {formatCurrency(fromCents(metrics.outstandingAmountCents), dashboardCurrency)}
+              {formatCurrency(fromCents(metrics.outstandingAmountCents, dashboardCurrency), dashboardCurrency)}
             </p>
             <p className="mt-1 text-xs text-zinc-500">
               Solde restant à percevoir
@@ -106,13 +106,13 @@ export default async function DashboardPage() {
                 <div
                   className="w-full rounded-t-lg bg-blue-500 transition-all"
                   style={{ height: `${height}%` }}
-                  title={formatCurrency(fromCents(item.amountCents), dashboardCurrency)}
+                  title={formatCurrency(fromCents(item.amountCents, dashboardCurrency), dashboardCurrency)}
                 />
                 <span className="mt-2 text-xs font-medium text-zinc-500">
                   {month}/{year.slice(-2)}
                 </span>
                 <span className="text-xs text-zinc-400">
-                  {formatCurrency(fromCents(item.amountCents), dashboardCurrency)}
+                  {formatCurrency(fromCents(item.amountCents, dashboardCurrency), dashboardCurrency)}
                 </span>
               </div>
             );
@@ -151,7 +151,7 @@ export default async function DashboardPage() {
                       {formatDate(invoice.issueDate)}
                     </td>
                     <td className="px-3 py-2 text-right text-zinc-800">
-                      {formatCurrency(fromCents(invoice.totalTTCCents), invoice.currency)}
+                      {formatCurrency(fromCents(invoice.totalTTCCents, invoice.currency), invoice.currency)}
                     </td>
                     <td className="px-3 py-2">
                       <Badge variant={statusVariant(invoice.status)}>
@@ -194,7 +194,7 @@ export default async function DashboardPage() {
                       {formatDate(quote.issueDate)}
                     </td>
                     <td className="px-3 py-2 text-right text-zinc-800">
-                      {formatCurrency(fromCents(quote.totalTTCCents), quote.currency)}
+                      {formatCurrency(fromCents(quote.totalTTCCents, quote.currency), quote.currency)}
                     </td>
                     <td className="px-3 py-2">
                       <Badge variant="info">{quote.status}</Badge>

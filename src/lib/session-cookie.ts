@@ -1,7 +1,29 @@
+const rawSecret =
+  process.env.SESSION_COOKIE_SECRET ?? process.env.SESSION_SECRET;
+
+const devGlobal = globalThis as typeof globalThis & {
+  __sessionFallbackSecret?: string;
+};
+
 const SESSION_COOKIE_SECRET =
-  process.env.SESSION_COOKIE_SECRET ??
-  process.env.SESSION_SECRET ??
-  "dev-insecure-session-secret";
+  rawSecret && rawSecret.trim().length > 0
+    ? rawSecret
+    : (() => {
+        if (process.env.NODE_ENV === "production") {
+          throw new Error(
+            "SESSION_COOKIE_SECRET (or SESSION_SECRET) must be defined in production to sign session cookies.",
+          );
+        }
+        if (!devGlobal.__sessionFallbackSecret) {
+          devGlobal.__sessionFallbackSecret = "__development-session-secret__";
+          if (process.env.NODE_ENV !== "test") {
+            console.warn(
+              "[session-cookie] SESSION_COOKIE_SECRET is not set. Using an insecure development fallback. Configure SESSION_COOKIE_SECRET for consistent sessions.",
+            );
+          }
+        }
+        return devGlobal.__sessionFallbackSecret;
+      })();
 
 const encoder = new TextEncoder();
 
