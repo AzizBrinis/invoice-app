@@ -1,10 +1,27 @@
 import { prisma } from "@/lib/prisma";
 import { endOfMonth, startOfMonth, subMonths } from "date-fns";
+import { formatInTimeZone, fromZonedTime, toZonedTime } from "date-fns-tz";
+
+const TUNIS_TIMEZONE = "Africa/Tunis";
+
+function getCurrentZonedDate() {
+  return toZonedTime(new Date(), TUNIS_TIMEZONE);
+}
+
+function getMonthBoundaries(zonedDate: Date) {
+  const startZoned = startOfMonth(zonedDate);
+  const endZoned = endOfMonth(zonedDate);
+
+  return {
+    startUtc: fromZonedTime(startZoned, TUNIS_TIMEZONE),
+    endUtc: fromZonedTime(endZoned, TUNIS_TIMEZONE),
+    label: formatInTimeZone(startZoned, TUNIS_TIMEZONE, "yyyy-MM"),
+  };
+}
 
 export async function getDashboardMetrics(currency?: string) {
-  const now = new Date();
-  const monthStart = startOfMonth(now);
-  const monthEnd = endOfMonth(now);
+  const zonedNow = getCurrentZonedDate();
+  const { startUtc: monthStart, endUtc: monthEnd } = getMonthBoundaries(zonedNow);
 
   const currencyFilter = currency
     ? {
@@ -65,7 +82,7 @@ export async function getDashboardMetrics(currency?: string) {
     (outstandingAmount._sum.totalTTCCents ?? 0) -
     (outstandingAmount._sum.amountPaidCents ?? 0);
 
-  const chart = await buildRevenueHistory(currency);
+  const chart = await buildRevenueHistory(currency, zonedNow);
 
   return {
     revenueThisMonthCents: revenueThisMonth._sum.amountPaidCents ?? 0,
@@ -76,8 +93,8 @@ export async function getDashboardMetrics(currency?: string) {
   };
 }
 
-async function buildRevenueHistory(currency?: string) {
-  const now = new Date();
+async function buildRevenueHistory(currency?: string, referenceDate?: Date) {
+  const zonedReference = referenceDate ?? getCurrentZonedDate();
   const results: {
     month: string;
     amountCents: number;
@@ -89,15 +106,14 @@ async function buildRevenueHistory(currency?: string) {
     : {};
 
   for (let i = 5; i >= 0; i -= 1) {
-    const target = subMonths(now, i);
-    const start = startOfMonth(target);
-    const end = endOfMonth(target);
+    const target = subMonths(zonedReference, i);
+    const { startUtc, endUtc, label } = getMonthBoundaries(target);
 
     const aggregate = await prisma.invoice.aggregate({
       where: {
         issueDate: {
-          gte: start,
-          lte: end,
+          gte: startUtc,
+          lte: endUtc,
         },
         ...currencyFilter,
         status: {
@@ -110,7 +126,7 @@ async function buildRevenueHistory(currency?: string) {
     });
 
     results.push({
-      month: `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}`,
+      month: label,
       amountCents: aggregate._sum.amountPaidCents ?? 0,
     });
   }
