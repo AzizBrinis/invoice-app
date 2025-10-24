@@ -35,8 +35,157 @@ type QuoteWithRelations = Quote & {
 
 type DocumentWithRelations = InvoiceWithRelations | QuoteWithRelations;
 
+type BundledChromiumModule = {
+  args: string[];
+  defaultViewport?: puppeteer.Viewport | null;
+  executablePath: () => Promise<string | null>;
+  headless?: boolean | "new";
+};
+
+type BrowserLaunchOptions = {
+  preferBundledChromium?: boolean;
+};
+
 let browserPromise: Promise<puppeteer.Browser> | null = null;
 let cachedCss: string | null = null;
+let bundledChromiumPromise: Promise<BundledChromiumModule | null> | null = null;
+
+const BASE_PUPPETEER_ARGS = Object.freeze(["--allow-file-access-from-files"] as const);
+
+function isModuleNotFoundError(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    ((error as { code?: unknown }).code === "MODULE_NOT_FOUND" ||
+      (error as { code?: unknown }).code === "ERR_MODULE_NOT_FOUND")
+  );
+}
+
+async function loadBundledChromium(): Promise<BundledChromiumModule | null> {
+  if (!bundledChromiumPromise) {
+    bundledChromiumPromise = (async () => {
+      const executablePathFromEnv =
+        process.env.BUNDLED_CHROMIUM_PATH || process.env.CHROMIUM_PATH;
+      if (executablePathFromEnv) {
+        return {
+          args: [],
+          defaultViewport: null,
+          async executablePath() {
+            return executablePathFromEnv;
+          },
+          headless: "new",
+        } satisfies BundledChromiumModule;
+      }
+
+      try {
+        const module = (await import("@sparticuz/chromium-min")) as unknown;
+        if (!module) return null;
+        if (typeof module === "object" && module !== null && "default" in module) {
+          return (module as { default: BundledChromiumModule }).default ?? null;
+        }
+        return module as BundledChromiumModule;
+      } catch (error) {
+        if (isModuleNotFoundError(error)) {
+          return null;
+        }
+        throw error;
+      }
+    })();
+  }
+  return bundledChromiumPromise;
+}
+
+function buildLaunchArgs() {
+  const args: string[] = [...BASE_PUPPETEER_ARGS];
+  if (process.env.PUPPETEER_DISABLE_SANDBOX === "true") {
+    args.push("--no-sandbox", "--disable-setuid-sandbox");
+  }
+  if (!args.includes("--disable-dev-shm-usage")) {
+    args.push("--disable-dev-shm-usage");
+  }
+  return args;
+}
+
+function shouldPreferBundledChromium() {
+  if (process.env.PDF_RENDERER === "chromium") {
+    return true;
+  }
+  if (process.env.PDF_RENDERER === "puppeteer") {
+    return false;
+  }
+  return Boolean(
+    process.env.BUNDLED_CHROMIUM_PATH ||
+      process.env.CHROMIUM_PATH ||
+      process.env.AWS_LAMBDA_FUNCTION_NAME ||
+      process.env.AWS_EXECUTION_ENV
+  );
+}
+
+function mergeArgs(base: string[], extras: string[]) {
+  const set = new Set(base);
+  for (const arg of extras) {
+    if (!set.has(arg)) {
+      set.add(arg);
+    }
+  }
+  return Array.from(set);
+}
+
+async function launchWithBundledChromium(baseArgs: string[]) {
+  const chromium = await loadBundledChromium();
+  if (!chromium) {
+    throw new Error("Bundled Chromium is not available");
+  }
+  const executablePath = await chromium.executablePath();
+  if (!executablePath) {
+    throw new Error("Bundled Chromium executable path is undefined");
+  }
+  const args = chromium.args?.length ? mergeArgs(baseArgs, chromium.args) : baseArgs;
+  return puppeteer.launch({
+    args,
+    defaultViewport: chromium.defaultViewport ?? null,
+    executablePath,
+    headless: chromium.headless ?? "new",
+    ignoreHTTPSErrors: true,
+  });
+}
+
+async function launchWithDefaultChromium(baseArgs: string[]) {
+  const launchOptions: Parameters<typeof puppeteer.launch>[0] = {
+    args: baseArgs,
+    headless: "new",
+  };
+
+  const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+  if (executablePath) {
+    launchOptions.executablePath = executablePath;
+  }
+
+  return puppeteer.launch(launchOptions);
+}
+
+async function createBrowser(options?: BrowserLaunchOptions) {
+  const args = buildLaunchArgs();
+  const preferBundled = options?.preferBundledChromium ?? shouldPreferBundledChromium();
+  const attempts = preferBundled
+    ? [launchWithBundledChromium, launchWithDefaultChromium]
+    : [launchWithDefaultChromium, launchWithBundledChromium];
+  const errors: unknown[] = [];
+
+  for (const attempt of attempts) {
+    try {
+      return await attempt(args);
+    } catch (error) {
+      errors.push(error);
+      const message =
+        error instanceof Error ? error.message : "Unknown error launching PDF browser";
+      console.error("[pdf] Browser launch attempt failed:", message);
+    }
+  }
+
+  throw new AggregateError(errors, "Unable to launch a browser for PDF generation");
+}
 
 function escapeHtml(value: string | null | undefined) {
   if (!value) return "";
@@ -67,13 +216,9 @@ async function fetchCompanySettings() {
 
 async function getBrowser() {
   if (!browserPromise) {
-    const puppeteerArgs = ["--allow-file-access-from-files"];
-    if (process.env.PUPPETEER_DISABLE_SANDBOX === "true") {
-      puppeteerArgs.push("--no-sandbox", "--disable-setuid-sandbox");
-    }
-    browserPromise = puppeteer.launch({
-      headless: "new",
-      args: puppeteerArgs,
+    browserPromise = createBrowser().catch((error) => {
+      browserPromise = null;
+      throw error;
     });
   }
   return browserPromise;
@@ -545,6 +690,15 @@ function buildDocumentHtml(
 
   return html;
 }
+
+export const __pdfInternal = {
+  createBrowser,
+  resetCaches() {
+    browserPromise = null;
+    bundledChromiumPromise = null;
+    cachedCss = null;
+  },
+};
 
 export async function generateQuotePdf(quoteId: string) {
   const [quote, settings] = await Promise.all([
