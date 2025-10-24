@@ -1,4 +1,4 @@
-import { PrismaClient, InvoiceStatus, QuoteStatus } from "@prisma/client";
+import { PrismaClient, InvoiceStatus, QuoteStatus, UserRole } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { calculateDocumentTotals, calculateLineTotals, currencyUnitToCents } from "../src/lib/documents";
 import { DEFAULT_TAX_CONFIGURATION } from "../src/lib/taxes";
@@ -56,6 +56,7 @@ async function seed() {
       email: "admin@demo.fr",
       passwordHash,
       name: "Administrateur",
+      role: UserRole.ADMIN,
     },
   });
 

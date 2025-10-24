@@ -12,9 +12,16 @@ model User {
   email        String    @unique
   passwordHash String
   name         String?
+  role         UserRole  @default(VIEWER)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   sessions     Session[]
+}
+
+enum UserRole {
+  ADMIN
+  ACCOUNTANT
+  VIEWER
 }
 
 model Session {
