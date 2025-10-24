@@ -1,0 +1,9 @@
+SKU;Nom;Catégorie;Unité;Prix HT (TND);Prix TTC (TND);TVA (%);Remise (%);Statut
+"SERV-DESIGN";"Atelier design UX";"Design";"jour";"650,000 DT";"780,000 DT";"20";"5";"Actif"
+"AUDIT-SEC";"Audit de sécurité";"Audit";"prestation";"2 800,000 DT";"3 360,000 DT";"20";"";"Actif"
+"FORM-TEAM";"Formation équipe";"Formation";"session";"980,000 DT";"1 176,000 DT";"20";"10";"Actif"
+"SERV-INTEG";"Intégration applicative";"Services";"jour";"580,000 DT";"696,000 DT";"20";"5";"Actif"
+"LIC-PLATEFORME";"Licence plateforme SaaS";"Licences";"unité";"3 200,000 DT";"3 840,000 DT";"20";"";"Actif"
+"MAINT-STD";"Maintenance standard";"Maintenance";"mois";"450,000 DT";"540,000 DT";"20";"";"Actif"
+"SERV-CONSTR";"Prestation de conseil";"Services";"jour";"720,000 DT";"864,000 DT";"20";"";"Actif"
+"SUPPORT-PREM";"Support premium";"Support";"mois";"390,000 DT";"468,000 DT";"20";"";"Actif"

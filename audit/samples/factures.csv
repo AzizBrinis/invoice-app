@@ -1,0 +1,3 @@
+Numéro;Client;Statut;Date émission;Date d'échéance;Total HT;Total TTC;Montant payé;Devise
+"FAC-2025-0001";"Clinique El Amen";"PAYEE";"14/10/2025";"03/11/2025";"4 950,000 DT";"6 009,400 DT";"6 009,400 DT";"TND"
+"FAC-2025-0002";"Maison Dar El Bahri";"ENVOYEE";"13/10/2025";"19/10/2025";"5 140,000 DT";"6 052,790 DT";"2 421,120 DT";"TND"
