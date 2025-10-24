@@ -7,6 +7,7 @@ import {
   type TaxConfiguration,
 } from "@/lib/taxes";
 import {
+  InvoiceAuditAction,
   InvoiceStatus,
   QuoteStatus,
   type Prisma,
@@ -417,8 +418,56 @@ export async function updateInvoice(id: string, input: InvoiceInput) {
 }
 
 export async function deleteInvoice(id: string) {
-  await prisma.invoice.delete({
-    where: { id },
+  await prisma.$transaction(async (tx) => {
+    const invoice = await tx.invoice.findUnique({
+      where: { id },
+      select: { status: true, number: true },
+    });
+
+    if (!invoice) {
+      throw new Error(`Invoice ${id} not found`);
+    }
+
+    if (invoice.status === InvoiceStatus.BROUILLON) {
+      await tx.invoiceAuditLog.create({
+        data: {
+          invoiceId: id,
+          action: InvoiceAuditAction.DELETION,
+          previousStatus: invoice.status,
+          note: `Suppression définitive de la facture ${invoice.number} à l'état brouillon`,
+        },
+      });
+      await tx.invoice.delete({ where: { id } });
+      return;
+    }
+
+    if (invoice.status === InvoiceStatus.ANNULEE) {
+      await tx.invoiceAuditLog.create({
+        data: {
+          invoiceId: id,
+          action: InvoiceAuditAction.CANCELLATION,
+          previousStatus: invoice.status,
+          newStatus: InvoiceStatus.ANNULEE,
+          note: `Tentative supplémentaire de suppression ignorée pour la facture ${invoice.number} déjà annulée`,
+        },
+      });
+      return;
+    }
+
+    await tx.invoice.update({
+      where: { id },
+      data: { status: InvoiceStatus.ANNULEE },
+    });
+
+    await tx.invoiceAuditLog.create({
+      data: {
+        invoiceId: id,
+        action: InvoiceAuditAction.CANCELLATION,
+        previousStatus: invoice.status,
+        newStatus: InvoiceStatus.ANNULEE,
+        note: `Suppression convertie en annulation pour la facture ${invoice.number}`,
+      },
+    });
   });
 }
 

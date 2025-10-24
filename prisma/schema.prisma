@@ -205,6 +205,11 @@ enum InvoiceStatus {
   ANNULEE
 }
 
+enum InvoiceAuditAction {
+  CANCELLATION
+  DELETION
+}
+
 model InvoiceLine {
   id                   String    @id @default(cuid())
   invoiceId            String
@@ -235,6 +240,16 @@ model Payment {
   note           String?
   createdAt      DateTime @default(now())
   invoice        Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+}
+
+model InvoiceAuditLog {
+  id             String               @id @default(cuid())
+  invoiceId      String
+  action         InvoiceAuditAction
+  previousStatus InvoiceStatus?
+  newStatus      InvoiceStatus?
+  note           String?
+  createdAt      DateTime             @default(now())
 }
 
 model NumberingSequence {
