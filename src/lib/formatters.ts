@@ -28,7 +28,7 @@ export function formatPercent(
     style: "percent",
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  }).format(value);
+  }).format(value / 100);
 }
 
 export function formatDate(

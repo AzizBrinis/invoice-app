@@ -54,4 +54,11 @@ describe("calculations helpers", () => {
     expect(totals.totalTTCCents).toBe(netSubtotal + totals.totalTVACents);
     expect(totals.vatEntries.length).toBe(2);
   });
+
+  it("handles millimes conversions for Tunisian dinar", () => {
+    const amount = 12.345;
+    const cents = toCents(amount, "TND");
+    expect(cents).toBe(12345);
+    expect(fromCents(cents, "TND")).toBeCloseTo(amount);
+  });
 });
