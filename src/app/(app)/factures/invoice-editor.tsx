@@ -13,6 +13,20 @@ import { InvoiceStatus } from "@prisma/client";
 import type { CurrencyInfo, CurrencyCode } from "@/lib/currency";
 import type { TaxConfiguration } from "@/lib/taxes";
 
+function readSnapshotFodecAutoApply(snapshot: unknown): boolean | undefined {
+  if (!snapshot || typeof snapshot !== "object") {
+    return undefined;
+  }
+
+  const fodec = (snapshot as { fodec?: unknown }).fodec;
+  if (!fodec || typeof fodec !== "object") {
+    return undefined;
+  }
+
+  const autoApply = (fodec as { autoApply?: unknown }).autoApply;
+  return typeof autoApply === "boolean" ? autoApply : undefined;
+}
+
 type InvoiceLineForm = {
   id?: string;
   productId?: string | null;
@@ -98,12 +112,17 @@ export function InvoiceEditor({
       defaultInvoice.lines.some((line) => (line.fodecAmountCents ?? 0) > 0)
     : false;
   const configuredFodecAutoApply = (taxConfiguration.fodec as { autoApply?: boolean }).autoApply;
+  const snapshotFodecAutoApply = readSnapshotFodecAutoApply(
+    defaultInvoice?.taxConfiguration ?? null,
+  );
   const [applyFodec, setApplyFodec] = useState(
     taxConfiguration.fodec.enabled &&
       (invoiceHasFodec ||
-        (typeof configuredFodecAutoApply === "boolean"
-          ? configuredFodecAutoApply
-          : taxConfiguration.fodec.enabled)),
+        (typeof snapshotFodecAutoApply === "boolean"
+          ? snapshotFodecAutoApply
+          : typeof configuredFodecAutoApply === "boolean"
+            ? configuredFodecAutoApply
+            : taxConfiguration.fodec.enabled)),
   );
   const [documentFodecRate, setDocumentFodecRate] = useState<number | "">(
     taxConfiguration.fodec.application === "document"
