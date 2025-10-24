@@ -2,9 +2,13 @@ import fs from "fs";
 import path from "path";
 import puppeteer from "puppeteer";
 import { prisma } from "@/lib/prisma";
-import { formatCurrency as formatCurrencyIntl, formatDate } from "@/lib/formatters";
+import {
+  formatCurrency as formatCurrencyIntl,
+  formatDate,
+  formatDecimal,
+} from "@/lib/formatters";
 import { fromCents } from "@/lib/money";
-import { getCurrencyInfo, getDefaultCurrencyCode } from "@/lib/currency";
+import { getDefaultCurrencyCode } from "@/lib/currency";
 import type {
   Invoice,
   InvoiceLine,
@@ -53,14 +57,6 @@ function formatLines(lines: string[]) {
 
 function formatCurrency(value: number, currency: string) {
   return formatCurrencyIntl(value, currency);
-}
-
-function formatNumber(value: number, currency: string) {
-  const { locale } = getCurrencyInfo(currency);
-  return new Intl.NumberFormat(locale, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
 }
 
 async function fetchCompanySettings() {
@@ -219,7 +215,7 @@ function buildLinesHtml(
           <td class="border-b py-3 pl-3 text-xs">${index + 1}.</td>
           <td class="border-b py-3 pl-2 text-xs">${escapeHtml(line.description ?? "")}</td>
           <td class="border-b py-3 pl-2 text-right text-xs">${escapeHtml(formatCurrency(unitPriceHT, currency))}</td>
-          <td class="border-b py-3 pl-2 text-center text-xs">${formatNumber(quantity, currency)}</td>
+          <td class="border-b py-3 pl-2 text-center text-xs">${formatDecimal(quantity, currency)}</td>
           <td class="border-b py-3 pl-2 text-center text-xs">${vatRate.toFixed(2)}%</td>
           <td class="border-b py-3 pl-2 text-right text-xs">${escapeHtml(formatCurrency(totalHT, currency))}</td>
           <td class="border-b py-3 pl-2 pr-3 text-right text-xs">${escapeHtml(formatCurrency(totalTTC, currency))}</td>

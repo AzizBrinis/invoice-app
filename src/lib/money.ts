@@ -14,7 +14,7 @@ function resolveCurrency(code?: string) {
 function storageDecimals(code?: string) {
   const currency = resolveCurrency(code);
   const { decimals } = getCurrencyInfo(currency);
-  return Math.min(Math.max(decimals, 0), 2);
+  return Math.max(decimals, 0);
 }
 
 function minorUnitFactor(code?: string) {
