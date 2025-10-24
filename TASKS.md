@@ -6,7 +6,7 @@ The following prioritized tasks consolidate all issues, errors, and recommendati
 | Title | Category | Severity | Description | References |
 | --- | --- | --- | --- | --- |
 | Preserve Tunisian millimes across storage and outputs | Calculation | Critical | Monetary helpers clamp values to 2 decimals, truncating millimes and corrupting downstream totals in storage, exports, and reports. Remove the hard 2-decimal cap and propagate 3-decimal support everywhere amounts are formatted. | 【F:audit/fr-tn-audit.md†L6-L6】【F:audit/fr-tn-audit.md†L27-L27】 |
-| Fix percentage formatter scaling | Calculation/UI | Critical | `formatPercent` interprets `7` as `700%`, overstating VAT in UI, PDFs, and emails. Update the formatter to treat whole-number inputs as percentages. | 【F:audit/fr-tn-audit.md†L7-L7】【F:audit/fr-tn-audit.md†L28-L28】 |
+| ✅ Fix percentage formatter scaling | Calculation/UI | Critical | `formatPercent` interprets `7` as `700%`, overstating VAT in UI, PDFs, and emails. Update the formatter to treat whole-number inputs as percentages. | 【F:audit/fr-tn-audit.md†L7-L7】【F:audit/fr-tn-audit.md†L28-L28】 |
 
 ## High Priority
 | Title | Category | Severity | Description | References |
