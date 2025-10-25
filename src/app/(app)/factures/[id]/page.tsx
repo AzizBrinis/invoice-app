@@ -75,6 +75,17 @@ export default async function FactureDetailPage({
     fromCents(invoice.totalTTCCents - invoice.amountPaidCents, invoice.currency),
     invoice.currency,
   );
+  const percentageFormatter = new Intl.NumberFormat("fr-TN", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
+  const globalDiscountRateLabel =
+    invoice.globalDiscountRate != null ? `${percentageFormatter.format(invoice.globalDiscountRate)}%` : null;
+  const globalDiscountAmount =
+    invoice.globalDiscountAmountCents != null
+      ? formatCurrency(fromCents(invoice.globalDiscountAmountCents, invoice.currency), invoice.currency)
+      : null;
+  const hasGlobalDiscount = globalDiscountRateLabel != null || globalDiscountAmount != null;
   const taxSummary: Array<{
     type?: string;
     label?: string;
@@ -157,6 +168,32 @@ export default async function FactureDetailPage({
             Pénalités : {invoice.lateFeeRate != null ? `${invoice.lateFeeRate}%` : "—"}
           </p>
         </div>
+      </section>
+
+      <section className="card p-4">
+        <div>
+          <h2 className="text-base font-semibold text-zinc-900">Remise globale</h2>
+          <p className="text-sm text-zinc-600">Appliquée sur l&apos;ensemble de la facture</p>
+        </div>
+        <dl className="mt-4 grid gap-4 sm:grid-cols-2 text-sm">
+          <div>
+            <dt className="text-xs uppercase tracking-wide text-zinc-500">Taux (%)</dt>
+            <dd className="text-lg font-medium text-zinc-900">
+              {globalDiscountRateLabel ?? "—"}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs uppercase tracking-wide text-zinc-500">{`Valeur (${invoice.currency})`}</dt>
+            <dd className="text-lg font-medium text-zinc-900">
+              {globalDiscountAmount ?? "—"}
+            </dd>
+          </div>
+        </dl>
+        {!hasGlobalDiscount && (
+          <p className="mt-3 text-xs text-zinc-500">
+            Aucune remise globale n&apos;a été appliquée à cette facture.
+          </p>
+        )}
       </section>
 
       {taxSummary.length > 0 && (

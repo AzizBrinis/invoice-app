@@ -82,11 +82,14 @@ export function QuoteEditor({
   const [globalDiscountRate, setGlobalDiscountRate] = useState<number | "">(
     defaultQuote?.globalDiscountRate ?? "",
   );
-  const [globalDiscountAmount, setGlobalDiscountAmount] = useState<number | "">(
-    defaultQuote?.globalDiscountAmountCents != null
-      ? fromCents(defaultQuote.globalDiscountAmountCents, initialCurrency)
-      : "",
-  );
+  const [globalDiscountAmountManual, setGlobalDiscountAmountManual] =
+    useState<number | "">(
+      defaultQuote &&
+        defaultQuote.globalDiscountRate == null &&
+        defaultQuote.globalDiscountAmountCents != null
+        ? fromCents(defaultQuote.globalDiscountAmountCents, initialCurrency)
+        : "",
+    );
   const [notes, setNotes] = useState(defaultQuote?.notes ?? "");
   const [terms, setTerms] = useState(defaultQuote?.terms ?? "");
   const defaultLineFodecRate =
@@ -169,8 +172,8 @@ export function QuoteEditor({
     const totalsResult = calculateDocumentTotals(
       computedLines,
       typeof globalDiscountRate === "number" ? globalDiscountRate : undefined,
-      typeof globalDiscountAmount === "number"
-        ? toCents(globalDiscountAmount, currency)
+      typeof globalDiscountAmountManual === "number"
+        ? toCents(globalDiscountAmountManual, currency)
         : undefined,
       {
         taxConfiguration,
@@ -193,7 +196,7 @@ export function QuoteEditor({
   }, [
     lines,
     globalDiscountRate,
-    globalDiscountAmount,
+    globalDiscountAmountManual,
     taxConfiguration,
     applyFodec,
     applyTimbre,
@@ -209,6 +212,24 @@ export function QuoteEditor({
       return clone;
     });
   };
+
+  const handleDiscountRateChange = (index: number, rawValue: string) => {
+    if (rawValue === "") {
+      handleLineChange(index, { discountRate: null });
+      return;
+    }
+    const parsed = Number(rawValue);
+    handleLineChange(index, {
+      discountRate: Number.isNaN(parsed) ? null : parsed,
+      discountAmount: undefined,
+    });
+  };
+
+  const globalDiscountAppliedCents = totals.totals.globalDiscountAppliedCents;
+  const globalDiscountAmountDisplay =
+    typeof globalDiscountRate === "number"
+      ? fromCents(globalDiscountAppliedCents, currency)
+      : globalDiscountAmountManual;
 
   const handleProductSelect = (index: number, productId: string) => {
     const product = products.find((p) => p.id === productId);
@@ -264,10 +285,7 @@ export function QuoteEditor({
       currency,
       globalDiscountRate:
         globalDiscountRate === "" ? null : Number(globalDiscountRate),
-      globalDiscountAmountCents:
-        globalDiscountAmount === ""
-          ? null
-          : toCents(Number(globalDiscountAmount), currency),
+      globalDiscountAmountCents: globalDiscountAppliedCents ?? 0,
       notes: notes || null,
       terms: terms || null,
       lines: lines.map((line, index) => ({
@@ -599,14 +617,18 @@ export function QuoteEditor({
                         step="0.1"
                         value={line.discountRate ?? ""}
                         onChange={(event) =>
-                          handleLineChange(index, {
-                            discountRate:
-                              event.target.value === ""
-                                ? null
-                                : Number(event.target.value),
-                          })
+                          handleDiscountRateChange(index, event.target.value)
                         }
                       />
+                      {computed.discountAmountCents > 0 && (
+                        <p className="mt-1 text-right text-xs text-zinc-500">
+                          -
+                          {formatCurrency(
+                            fromCents(computed.discountAmountCents, currency),
+                            currency,
+                          )}
+                        </p>
+                      )}
                     </td>
                     <td className="px-3 py-2">
                       <Input
@@ -666,13 +688,21 @@ export function QuoteEditor({
                 min="0"
                 step="0.1"
                 value={globalDiscountRate}
-                onChange={(event) =>
-                  setGlobalDiscountRate(
-                    event.target.value === ""
-                      ? ""
-                      : Number(event.target.value),
-                  )
-                }
+                onChange={(event) => {
+                  if (event.target.value === "") {
+                    setGlobalDiscountRate("");
+                    setGlobalDiscountAmountManual("");
+                    return;
+                  }
+                  const parsed = Number(event.target.value);
+                  if (Number.isNaN(parsed)) {
+                    setGlobalDiscountRate("");
+                    setGlobalDiscountAmountManual("");
+                    return;
+                  }
+                  setGlobalDiscountRate(parsed);
+                  setGlobalDiscountAmountManual("");
+                }}
               />
             </div>
             <div className="space-y-2">
@@ -685,14 +715,19 @@ export function QuoteEditor({
                 type="number"
                 min="0"
                 step="0.01"
-                value={globalDiscountAmount}
-                onChange={(event) =>
-                  setGlobalDiscountAmount(
-                    event.target.value === ""
-                      ? ""
-                      : Number(event.target.value),
-                  )
-                }
+                value={globalDiscountAmountDisplay}
+                onChange={(event) => {
+                  if (event.target.value === "") {
+                    setGlobalDiscountAmountManual("");
+                    setGlobalDiscountRate("");
+                    return;
+                  }
+                  const parsed = Number(event.target.value);
+                  setGlobalDiscountAmountManual(
+                    Number.isNaN(parsed) ? "" : parsed,
+                  );
+                  setGlobalDiscountRate("");
+                }}
               />
             </div>
           </div>
