@@ -37,11 +37,11 @@ export async function listClients(filters: ClientFilters = {}) {
     ...(search
       ? {
           OR: [
-            { displayName: { contains: search, mode: "insensitive" } },
-            { companyName: { contains: search, mode: "insensitive" } },
-            { email: { contains: search, mode: "insensitive" } },
-            { phone: { contains: search, mode: "insensitive" } },
-            { vatNumber: { contains: search, mode: "insensitive" } },
+            { displayName: { contains: search } },
+            { companyName: { contains: search } },
+            { email: { contains: search } },
+            { phone: { contains: search } },
+            { vatNumber: { contains: search } },
           ],
         }
       : {}),

@@ -142,13 +142,12 @@ function buildInvoiceWhere(
     ...(search
       ? {
           OR: [
-            { number: { contains: search, mode: "insensitive" } },
-            { reference: { contains: search, mode: "insensitive" } },
+            { number: { contains: search } },
+            { reference: { contains: search } },
             {
               client: {
                 displayName: {
                   contains: search,
-                  mode: "insensitive",
                 },
               },
             },
