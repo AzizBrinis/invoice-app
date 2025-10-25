@@ -204,26 +204,83 @@ export default async function FactureDetailPage({
               <th className="px-4 py-3 text-right">Qté</th>
               <th className="px-4 py-3 text-right">PU HT</th>
               <th className="px-4 py-3 text-right">TVA</th>
+              <th className="px-4 py-3 text-right">Remise</th>
               <th className="px-4 py-3 text-right">Total TTC</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-100">
-            {invoice.lines.map((line) => (
-              <tr key={line.id}>
-                <td className="px-4 py-3 text-zinc-700">{line.description}</td>
-                <td className="px-4 py-3 text-right text-zinc-600">{line.quantity}</td>
-                <td className="px-4 py-3 text-right text-zinc-600">
-                  {formatCurrency(fromCents(line.unitPriceHTCents, invoice.currency), invoice.currency)}
-                </td>
-                <td className="px-4 py-3 text-right text-zinc-600">{line.vatRate}%</td>
-                <td className="px-4 py-3 text-right font-medium text-zinc-900">
-                  {formatCurrency(fromCents(line.totalTTCCents, invoice.currency), invoice.currency)}
-                </td>
-              </tr>
-            ))}
+            {invoice.lines.map((line) => {
+              const discountRate =
+                line.discountRate != null ? Number(line.discountRate) : null;
+              const discountAmountCents = line.discountAmountCents ?? 0;
+              const hasDiscount =
+                (discountRate ?? 0) > 0 || discountAmountCents > 0;
+              return (
+                <tr key={line.id}>
+                  <td className="px-4 py-3 text-zinc-700">
+                    <div className="font-medium text-zinc-800">{line.description}</div>
+                    {hasDiscount && (
+                      <p className="mt-1 text-xs text-amber-600">
+                        Remise :
+                        {discountRate != null ? ` ${discountRate}%` : " montant fixe"}
+                        {discountAmountCents > 0
+                          ? ` (${formatCurrency(
+                              fromCents(discountAmountCents, invoice.currency),
+                              invoice.currency,
+                            )})`
+                          : ""}
+                      </p>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-right text-zinc-600">{line.quantity}</td>
+                  <td className="px-4 py-3 text-right text-zinc-600">
+                    {formatCurrency(fromCents(line.unitPriceHTCents, invoice.currency), invoice.currency)}
+                  </td>
+                  <td className="px-4 py-3 text-right text-zinc-600">{line.vatRate}%</td>
+                  <td className="px-4 py-3 text-right text-zinc-600">
+                    {hasDiscount && discountRate != null ? `${discountRate}%` : "—"}
+                    <div className="text-xs text-zinc-500">
+                      {hasDiscount
+                        ? `-${formatCurrency(fromCents(discountAmountCents, invoice.currency), invoice.currency)}`
+                        : "—"}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-right font-medium text-zinc-900">
+                    {formatCurrency(fromCents(line.totalTTCCents, invoice.currency), invoice.currency)}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </section>
+
+      {(invoice.globalDiscountRate != null ||
+        (invoice.globalDiscountAmountCents ?? 0) > 0) && (
+        <section className="card space-y-3 p-4">
+          <h2 className="text-base font-semibold text-zinc-900">Remise globale</h2>
+          <dl className="space-y-2 text-sm text-zinc-600">
+            <div className="flex items-center justify-between">
+              <dt>Taux appliqué</dt>
+              <dd>
+                {invoice.globalDiscountRate != null
+                  ? `${invoice.globalDiscountRate}%`
+                  : "—"}
+              </dd>
+            </div>
+            <div className="flex items-center justify-between">
+              <dt>Montant</dt>
+              <dd>
+                -
+                {formatCurrency(
+                  fromCents(invoice.globalDiscountAmountCents ?? 0, invoice.currency),
+                  invoice.currency,
+                )}
+              </dd>
+            </div>
+          </dl>
+        </section>
+      )}
 
       <section className="grid gap-4 lg:grid-cols-3">
         <div className="card p-4 lg:col-span-1">

@@ -82,7 +82,9 @@ export function InvoiceEditor({
   const [globalDiscountRate, setGlobalDiscountRate] = useState<number | "">(
     defaultInvoice?.globalDiscountRate ?? "",
   );
-  const [globalDiscountAmount, setGlobalDiscountAmount] = useState<number | "">(
+  const [globalDiscountAmountManual, setGlobalDiscountAmountManual] = useState<
+    number | ""
+  >(
     defaultInvoice?.globalDiscountAmountCents != null
       ? fromCents(defaultInvoice.globalDiscountAmountCents, initialCurrency)
       : "",
@@ -119,31 +121,40 @@ export function InvoiceEditor({
   const initialLines: InvoiceLineForm[] = defaultInvoice
     ? defaultInvoice.lines
         .sort((a, b) => a.position - b.position)
-        .map((line) => ({
-          id: line.id,
-          productId: line.productId,
-          description: line.description,
-          quantity: line.quantity,
-          unit: line.unit,
-          unitPrice: fromCents(line.unitPriceHTCents, initialCurrency),
-          vatRate: line.vatRate,
-          discountRate: line.discountRate ?? undefined,
-          discountAmount:
-            line.discountAmountCents != null
-              ? fromCents(line.discountAmountCents, initialCurrency)
+        .map((line) => {
+          const hasExplicitDiscountAmount =
+            line.discountRate == null && line.discountAmountCents != null;
+          return {
+            id: line.id,
+            productId: line.productId,
+            description: line.description,
+            quantity: line.quantity,
+            unit: line.unit,
+            unitPrice: fromCents(line.unitPriceHTCents, initialCurrency),
+            vatRate: line.vatRate,
+            discountRate: line.discountRate ?? undefined,
+            discountAmount: hasExplicitDiscountAmount
+              ? fromCents(line.discountAmountCents ?? 0, initialCurrency)
               : undefined,
-          fodecRate:
-            taxConfiguration.fodec.application === "line" &&
-            taxConfiguration.fodec.enabled
-              ? line.fodecRate ?? taxConfiguration.fodec.rate
-              : null,
-        }))
+            fodecRate:
+              taxConfiguration.fodec.application === "line" &&
+              taxConfiguration.fodec.enabled
+                ? line.fodecRate ?? taxConfiguration.fodec.rate
+                : null,
+          };
+        })
     : [createEmptyLine(products[0], defaultLineFodecRate, initialCurrency)];
 
   const [lines, setLines] = useState<InvoiceLineForm[]>(initialLines);
   const payloadRef = useRef<HTMLInputElement>(null);
 
   const totals = useMemo(() => {
+    const rateValue =
+      typeof globalDiscountRate === "number" ? globalDiscountRate : undefined;
+    const manualAmountCents =
+      typeof globalDiscountAmountManual === "number"
+        ? toCents(globalDiscountAmountManual, currency)
+        : undefined;
     const lineResults = lines.map((line) =>
       calculateLineTotals(
         {
@@ -171,10 +182,8 @@ export function InvoiceEditor({
 
     const totalsResult = calculateDocumentTotals(
       lineResults,
-      typeof globalDiscountRate === "number" ? globalDiscountRate : undefined,
-      typeof globalDiscountAmount === "number"
-        ? toCents(globalDiscountAmount, currency)
-        : undefined,
+      rateValue,
+      rateValue != null ? undefined : manualAmountCents,
       {
         taxConfiguration,
         applyFodec,
@@ -196,7 +205,7 @@ export function InvoiceEditor({
   }, [
     lines,
     globalDiscountRate,
-    globalDiscountAmount,
+    globalDiscountAmountManual,
     taxConfiguration,
     applyFodec,
     applyTimbre,
@@ -205,11 +214,29 @@ export function InvoiceEditor({
     currency,
   ]);
 
+  const globalDiscountAppliedCents = totals.totals.globalDiscountAppliedCents;
+  const globalDiscountAmountDisplay =
+    typeof globalDiscountRate === "number"
+      ? fromCents(globalDiscountAppliedCents, currency)
+      : globalDiscountAmountManual;
+
   const handleLineChange = (index: number, updates: Partial<InvoiceLineForm>) => {
     setLines((prev) => {
       const clone = [...prev];
       clone[index] = { ...clone[index], ...updates };
       return clone;
+    });
+  };
+
+  const handleDiscountRateChange = (index: number, rawValue: string) => {
+    if (rawValue === "") {
+      handleLineChange(index, { discountRate: null });
+      return;
+    }
+    const parsed = Number(rawValue);
+    handleLineChange(index, {
+      discountRate: Number.isNaN(parsed) ? null : parsed,
+      discountAmount: undefined,
     });
   };
 
@@ -266,10 +293,7 @@ export function InvoiceEditor({
     currency,
     globalDiscountRate:
       globalDiscountRate === "" ? null : Number(globalDiscountRate),
-    globalDiscountAmountCents:
-      globalDiscountAmount === ""
-        ? null
-        : toCents(Number(globalDiscountAmount), currency),
+    globalDiscountAmountCents: globalDiscountAppliedCents ?? 0,
     notes: notes || null,
     terms: terms || null,
     lateFeeRate: lateFeeRate === "" ? null : Number(lateFeeRate),
@@ -608,12 +632,7 @@ export function InvoiceEditor({
                         step="0.1"
                         value={line.discountRate ?? ""}
                         onChange={(event) =>
-                          handleLineChange(index, {
-                            discountRate:
-                              event.target.value === ""
-                                ? null
-                                : Number(event.target.value),
-                          })
+                          handleDiscountRateChange(index, event.target.value)
                         }
                       />
                     </td>
@@ -694,13 +713,18 @@ export function InvoiceEditor({
                 min="0"
                 step="0.1"
                 value={globalDiscountRate}
-                onChange={(event) =>
-                  setGlobalDiscountRate(
-                    event.target.value === ""
-                      ? ""
-                      : Number(event.target.value),
-                  )
-                }
+                onChange={(event) => {
+                  if (event.target.value === "") {
+                    setGlobalDiscountRate("");
+                    return;
+                  }
+                  const parsed = Number(event.target.value);
+                  if (Number.isNaN(parsed)) {
+                    setGlobalDiscountRate("");
+                    return;
+                  }
+                  setGlobalDiscountRate(parsed);
+                }}
               />
             </div>
             <div className="space-y-2">
@@ -713,14 +737,19 @@ export function InvoiceEditor({
                 type="number"
                 min="0"
                 step="0.01"
-                value={globalDiscountAmount}
-                onChange={(event) =>
-                  setGlobalDiscountAmount(
-                    event.target.value === ""
-                      ? ""
-                      : Number(event.target.value),
-                  )
-                }
+                value={globalDiscountAmountDisplay}
+                onChange={(event) => {
+                  if (event.target.value === "") {
+                    setGlobalDiscountAmountManual("");
+                    setGlobalDiscountRate("");
+                    return;
+                  }
+                  const parsed = Number(event.target.value);
+                  setGlobalDiscountAmountManual(
+                    Number.isNaN(parsed) ? "" : parsed,
+                  );
+                  setGlobalDiscountRate("");
+                }}
               />
             </div>
           </div>
