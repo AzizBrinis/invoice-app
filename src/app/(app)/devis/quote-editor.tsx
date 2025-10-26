@@ -337,7 +337,7 @@ export function QuoteEditor({
       <section className="card space-y-4 p-6">
         <div className="grid gap-4 sm:grid-cols-3">
           <div className="space-y-2">
-            <label className="text-sm font-medium text-zinc-700" htmlFor="clientId">
+            <label className="label" htmlFor="clientId">
               Client
             </label>
             <select
@@ -356,7 +356,7 @@ export function QuoteEditor({
             </select>
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-medium text-zinc-700" htmlFor="status">
+            <label className="label" htmlFor="status">
               Statut
             </label>
             <select
@@ -374,7 +374,7 @@ export function QuoteEditor({
             </select>
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-medium text-zinc-700" htmlFor="reference">
+            <label className="label" htmlFor="reference">
               Référence interne
             </label>
             <Input
@@ -389,7 +389,7 @@ export function QuoteEditor({
 
         <div className="grid gap-4 sm:grid-cols-4">
           <div className="space-y-2">
-            <label className="text-sm font-medium text-zinc-700" htmlFor="issueDate">
+            <label className="label" htmlFor="issueDate">
               Date d&apos;émission
             </label>
             <Input
@@ -402,7 +402,7 @@ export function QuoteEditor({
             />
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-medium text-zinc-700" htmlFor="validUntil">
+            <label className="label" htmlFor="validUntil">
               Validité jusqu&apos;au
             </label>
             <Input
@@ -414,7 +414,7 @@ export function QuoteEditor({
             />
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-medium text-zinc-700" htmlFor="currency">
+            <label className="label" htmlFor="currency">
               Devise
             </label>
             <select
@@ -436,7 +436,7 @@ export function QuoteEditor({
         </div>
         <div className="grid gap-4 sm:grid-cols-3">
           <div className="space-y-2">
-            <label className="text-sm font-medium text-zinc-700">FODEC</label>
+            <label className="label">FODEC</label>
             <div className="flex items-center gap-3">
               <input
                 id="applyFodec"
@@ -447,14 +447,14 @@ export function QuoteEditor({
                 onChange={(event) => setApplyFodec(event.target.checked)}
                 disabled={!taxConfiguration.fodec.enabled}
               />
-              <label htmlFor="applyFodec" className="text-sm text-zinc-700">
+              <label htmlFor="applyFodec" className="text-sm text-zinc-700 dark:text-zinc-300">
                 Appliquer la FODEC
               </label>
             </div>
           </div>
           {taxConfiguration.fodec.application === "document" ? (
             <div className="space-y-2">
-              <label htmlFor="documentFodecRate" className="text-sm font-medium text-zinc-700">
+              <label htmlFor="documentFodecRate" className="label">
                 Taux FODEC (%)
               </label>
               <Input
@@ -474,12 +474,12 @@ export function QuoteEditor({
             </div>
           ) : (
             <div className="space-y-2">
-              <label className="text-sm font-medium text-zinc-700">Application</label>
-              <p className="text-sm text-zinc-600">Appliquée sur chaque ligne</p>
+              <label className="label">Application</label>
+              <p className="text-sm text-zinc-600 dark:text-zinc-300">Appliquée sur chaque ligne</p>
             </div>
           )}
           <div className="space-y-2">
-            <label className="text-sm font-medium text-zinc-700">Timbre fiscal</label>
+            <label className="label">Timbre fiscal</label>
             <div className="space-y-2">
               <div className="flex items-center gap-3">
                 <input
@@ -491,7 +491,7 @@ export function QuoteEditor({
                   onChange={(event) => setApplyTimbre(event.target.checked)}
                   disabled={!taxConfiguration.timbre.enabled}
                 />
-                <label htmlFor="applyTimbre" className="text-sm text-zinc-700">
+                <label htmlFor="applyTimbre" className="text-sm text-zinc-700 dark:text-zinc-300">
                   Ajouter le timbre fiscal
                 </label>
               </div>
@@ -512,15 +512,15 @@ export function QuoteEditor({
 
       <section className="card space-y-4 p-6">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-zinc-900">Lignes du devis</h2>
+          <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Lignes du devis</h2>
           <Button type="button" variant="secondary" onClick={addLine}>
             Ajouter une ligne
           </Button>
         </div>
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-zinc-200 text-sm">
-            <thead className="bg-zinc-50">
-              <tr className="text-xs uppercase text-zinc-500">
+          <table className="min-w-full divide-y divide-zinc-200 text-sm dark:divide-zinc-800">
+            <thead className="bg-zinc-50 dark:bg-zinc-900">
+              <tr className="text-xs uppercase text-zinc-500 dark:text-zinc-400">
                 <th className="px-3 py-2 text-left">Produit</th>
                 <th className="px-3 py-2 text-left">Description</th>
                 <th className="px-3 py-2 text-left">Qté</th>
@@ -535,11 +535,14 @@ export function QuoteEditor({
                 <th className="px-3 py-2 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-zinc-100">
+            <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
               {lines.map((line, index) => {
                 const computed = totals.computedLines[index];
                 return (
-                  <tr key={index}>
+                  <tr
+                    key={index}
+                    className="transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                  >
                     <td className="px-3 py-2">
                       <select
                         className="input"
@@ -621,7 +624,7 @@ export function QuoteEditor({
                         }
                       />
                       {computed.discountAmountCents > 0 && (
-                        <p className="mt-1 text-right text-xs text-zinc-500">
+                        <p className="mt-1 text-right text-xs text-zinc-500 dark:text-zinc-400">
                           -
                           {formatCurrency(
                             fromCents(computed.discountAmountCents, currency),
@@ -675,10 +678,10 @@ export function QuoteEditor({
 
       <section className="grid gap-4 lg:grid-cols-2">
         <div className="card space-y-4 p-6">
-          <h3 className="text-lg font-semibold text-zinc-900">Remise globale</h3>
+          <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Remise globale</h3>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <label className="text-sm font-medium text-zinc-700" htmlFor="globalDiscountRate">
+              <label className="label" htmlFor="globalDiscountRate">
                 Remise (%)
               </label>
               <Input
@@ -706,7 +709,7 @@ export function QuoteEditor({
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium text-zinc-700" htmlFor="globalDiscountAmount">
+              <label className="label" htmlFor="globalDiscountAmount">
                 {`Remise (${currency})`}
               </label>
               <Input
@@ -733,7 +736,7 @@ export function QuoteEditor({
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium text-zinc-700" htmlFor="notes">
+            <label className="label" htmlFor="notes">
               Notes internes / externes
             </label>
             <Textarea
@@ -746,7 +749,7 @@ export function QuoteEditor({
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium text-zinc-700" htmlFor="terms">
+            <label className="label" htmlFor="terms">
               Conditions particulières
             </label>
             <Textarea
@@ -760,8 +763,8 @@ export function QuoteEditor({
         </div>
 
         <div className="card space-y-4 p-6">
-          <h3 className="text-lg font-semibold text-zinc-900">Récapitulatif</h3>
-          <dl className="space-y-2 text-sm text-zinc-600">
+          <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Récapitulatif</h3>
+          <dl className="space-y-2 text-sm text-zinc-600 dark:text-zinc-300">
             <div className="flex items-center justify-between">
               <dt>Sous-total HT</dt>
               <dd>{formatCurrency(fromCents(totals.totals.subtotalHTCents, currency), currency)}</dd>
@@ -782,13 +785,13 @@ export function QuoteEditor({
                   <dd>{formatCurrency(fromCents(entry.amountCents, currency), currency)}</dd>
                 </div>
                 {entry.baseCents > 0 && (
-                  <p className="text-xs text-zinc-500">
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
                     Base: {formatCurrency(fromCents(entry.baseCents, currency), currency)}
                   </p>
                 )}
               </div>
             ))}
-            <div className="flex items-center justify-between border-t border-zinc-200 pt-2 text-base font-semibold text-zinc-900">
+            <div className="flex items-center justify-between border-t border-zinc-200 pt-2 text-base font-semibold text-zinc-900 dark:border-zinc-800 dark:text-zinc-100">
               <dt>Total TTC</dt>
               <dd>{formatCurrency(fromCents(totals.totals.totalTTCCents, currency), currency)}</dd>
             </div>

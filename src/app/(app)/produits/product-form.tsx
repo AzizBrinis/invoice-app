@@ -31,7 +31,7 @@ export function ProductForm({
     <form action={action} className="card space-y-5 p-6">
       <div className="grid gap-4 sm:grid-cols-3">
         <div className="space-y-2">
-          <label htmlFor="sku" className="text-sm font-medium text-zinc-700">
+          <label htmlFor="sku" className="label">
             SKU / Référence
           </label>
           <Input
@@ -42,7 +42,7 @@ export function ProductForm({
           />
         </div>
         <div className="sm:col-span-2 space-y-2">
-          <label htmlFor="name" className="text-sm font-medium text-zinc-700">
+          <label htmlFor="name" className="label">
             Nom du produit ou service
           </label>
           <Input
@@ -55,7 +55,7 @@ export function ProductForm({
       </div>
 
       <div className="space-y-2">
-        <label htmlFor="description" className="text-sm font-medium text-zinc-700">
+        <label htmlFor="description" className="label">
           Description
         </label>
         <Textarea
@@ -68,7 +68,7 @@ export function ProductForm({
 
       <div className="grid gap-4 sm:grid-cols-3">
         <div className="space-y-2">
-          <label htmlFor="category" className="text-sm font-medium text-zinc-700">
+          <label htmlFor="category" className="label">
             Catégorie
           </label>
           <Input
@@ -78,7 +78,7 @@ export function ProductForm({
           />
         </div>
         <div className="space-y-2">
-          <label htmlFor="unit" className="text-sm font-medium text-zinc-700">
+          <label htmlFor="unit" className="label">
             Unité
           </label>
           <Input
@@ -88,7 +88,7 @@ export function ProductForm({
           />
         </div>
         <div className="space-y-2">
-          <label htmlFor="isActive" className="text-sm font-medium text-zinc-700">
+          <label htmlFor="isActive" className="label">
             Statut
           </label>
           <select
@@ -105,7 +105,7 @@ export function ProductForm({
 
       <div className="grid gap-4 sm:grid-cols-3">
         <div className="space-y-2">
-          <label htmlFor="priceHT" className="text-sm font-medium text-zinc-700">
+          <label htmlFor="priceHT" className="label">
             {`Prix HT (${currencyCode})`}
           </label>
           <Input
@@ -123,7 +123,7 @@ export function ProductForm({
           />
         </div>
         <div className="space-y-2">
-          <label htmlFor="vatRate" className="text-sm font-medium text-zinc-700">
+          <label htmlFor="vatRate" className="label">
             Taux de TVA (%)
           </label>
           <Input
@@ -137,7 +137,7 @@ export function ProductForm({
           />
         </div>
         <div className="space-y-2">
-          <label htmlFor="defaultDiscountRate" className="text-sm font-medium text-zinc-700">
+          <label htmlFor="defaultDiscountRate" className="label">
             Remise par défaut (%)
           </label>
           <Input
