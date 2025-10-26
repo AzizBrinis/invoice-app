@@ -120,6 +120,10 @@
     @apply text-sm font-medium text-zinc-700 dark:text-zinc-300;
   }
 
+  .checkbox {
+    @apply h-4 w-4 rounded border border-zinc-300 bg-white accent-blue-600 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:border-zinc-700 dark:bg-zinc-900 dark:accent-blue-400 dark:focus-visible:ring-blue-400 dark:focus-visible:ring-offset-zinc-900;
+  }
+
   .badge {
     @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors;
   }
