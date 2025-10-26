@@ -62,11 +62,7 @@ export function ThemeProvider({
 }) {
   const [theme, setThemeState] = useState<Theme>(initialTheme);
   const [resolvedTheme, setResolvedTheme] = useState<"light" | "dark">(
-    initialTheme === "dark"
-      ? "dark"
-      : initialTheme === "light"
-      ? "light"
-      : "light",
+    initialTheme === "dark" ? "dark" : "light",
   );
 
   const persistTheme = useCallback((nextTheme: Theme) => {
@@ -97,6 +93,21 @@ export function ThemeProvider({
   );
 
   useEffect(() => {
+    if (typeof document !== "undefined") {
+      const element = document.documentElement;
+      const datasetTheme = element.dataset.theme;
+      const datasetResolved = element.dataset.themeResolved;
+
+      startTransition(() => {
+        if (isTheme(datasetTheme)) {
+          setThemeState(datasetTheme);
+        }
+        if (datasetResolved === "dark" || datasetResolved === "light") {
+          setResolvedTheme(datasetResolved);
+        }
+      });
+    }
+
     if (typeof window === "undefined") {
       return;
     }

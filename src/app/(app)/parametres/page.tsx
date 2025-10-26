@@ -21,18 +21,22 @@ export default async function ParametresPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-semibold text-zinc-900">Paramètres généraux</h1>
-        <p className="text-sm text-zinc-600">
+        <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
+          Paramètres généraux
+        </h1>
+        <p className="text-sm text-zinc-600 dark:text-zinc-400">
           Configurez les informations de votre société, les numérotations et les mentions légales.
         </p>
       </div>
 
       <form action={updateSettingsAction} className="space-y-6">
         <section className="card space-y-4 p-6">
-          <h2 className="text-lg font-semibold text-zinc-900">Société & identité</h2>
+          <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+            Société & identité
+          </h2>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <label htmlFor="companyName" className="text-sm font-medium text-zinc-700">
+              <label htmlFor="companyName" className="label">
                 Dénomination sociale
               </label>
               <Input
@@ -43,7 +47,7 @@ export default async function ParametresPage() {
               />
             </div>
             <div className="space-y-2">
-              <label htmlFor="logoUrl" className="text-sm font-medium text-zinc-700">
+              <label htmlFor="logoUrl" className="label">
                 URL du logo
               </label>
               <Input id="logoUrl" name="logoUrl" defaultValue={settings.logoUrl ?? ""} />
@@ -52,13 +56,13 @@ export default async function ParametresPage() {
 
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="space-y-2">
-              <label htmlFor="siren" className="text-sm font-medium text-zinc-700">
+              <label htmlFor="siren" className="label">
                 SIREN
               </label>
               <Input id="siren" name="siren" defaultValue={settings.siren ?? ""} />
             </div>
             <div className="space-y-2">
-              <label htmlFor="tvaNumber" className="text-sm font-medium text-zinc-700">
+              <label htmlFor="tvaNumber" className="label">
                 Numéro TVA intracommunautaire
               </label>
               <Input
@@ -68,7 +72,7 @@ export default async function ParametresPage() {
               />
             </div>
             <div className="space-y-2">
-              <label htmlFor="iban" className="text-sm font-medium text-zinc-700">
+              <label htmlFor="iban" className="label">
                 IBAN
               </label>
               <Input id="iban" name="iban" defaultValue={settings.iban ?? ""} />
@@ -77,13 +81,13 @@ export default async function ParametresPage() {
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <label htmlFor="email" className="text-sm font-medium text-zinc-700">
+              <label htmlFor="email" className="label">
                 E-mail de contact
               </label>
               <Input id="email" name="email" defaultValue={settings.email ?? ""} />
             </div>
             <div className="space-y-2">
-              <label htmlFor="phone" className="text-sm font-medium text-zinc-700">
+              <label htmlFor="phone" className="label">
                 Téléphone
               </label>
               <Input id="phone" name="phone" defaultValue={settings.phone ?? ""} />
@@ -91,7 +95,7 @@ export default async function ParametresPage() {
           </div>
 
           <div className="space-y-2">
-            <label htmlFor="address" className="text-sm font-medium text-zinc-700">
+            <label htmlFor="address" className="label">
               Adresse complète
             </label>
             <Textarea id="address" name="address" rows={3} defaultValue={settings.address ?? ""} />
@@ -99,10 +103,12 @@ export default async function ParametresPage() {
         </section>
 
         <section className="card space-y-4 p-6">
-          <h2 className="text-lg font-semibold text-zinc-900">Fiscalité & devises</h2>
+          <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+            Fiscalité & devises
+          </h2>
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="space-y-2">
-              <label htmlFor="defaultCurrency" className="text-sm font-medium text-zinc-700">
+              <label htmlFor="defaultCurrency" className="label">
                 Devise par défaut
               </label>
               <select
@@ -119,7 +125,7 @@ export default async function ParametresPage() {
               </select>
             </div>
             <div className="space-y-2">
-              <label htmlFor="defaultVatRate" className="text-sm font-medium text-zinc-700">
+              <label htmlFor="defaultVatRate" className="label">
                 Taux de TVA par défaut (%)
               </label>
               <Input
@@ -132,7 +138,7 @@ export default async function ParametresPage() {
               />
             </div>
             <div className="space-y-2">
-              <label htmlFor="paymentTerms" className="text-sm font-medium text-zinc-700">
+              <label htmlFor="paymentTerms" className="label">
                 Conditions de paiement
               </label>
               <Input
@@ -146,12 +152,16 @@ export default async function ParametresPage() {
         </section>
 
         <section className="card space-y-4 p-6">
-          <h2 className="text-lg font-semibold text-zinc-900">Paramètres fiscaux (Tunisie)</h2>
+          <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+            Paramètres fiscaux (Tunisie)
+          </h2>
           <div className="grid gap-4 lg:grid-cols-2">
             <div className="space-y-3">
-              <h3 className="text-sm font-semibold text-zinc-800">TVA</h3>
+              <h3 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
+                TVA
+              </h3>
               <div className="space-y-2">
-                <label htmlFor="tvaRatesJson" className="text-sm font-medium text-zinc-700">
+                <label htmlFor="tvaRatesJson" className="label">
                   Taux de TVA (JSON)
                 </label>
                 <Textarea
@@ -161,15 +171,15 @@ export default async function ParametresPage() {
                   defaultValue={JSON.stringify(taxConfig.tva.rates, null, 2)}
                   className="font-mono text-xs"
                 />
-                <p className="text-xs text-zinc-500">
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
                   Exemple:&nbsp;
-                  <code>
+                  <code className="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-xs text-zinc-800 dark:bg-zinc-800 dark:text-zinc-100">
                     {'[{"code": "T19", "label": "TVA 19%", "rate": 19}]'}
                   </code>
                 </p>
               </div>
               <div className="space-y-2">
-                <label htmlFor="tvaApplyMode" className="text-sm font-medium text-zinc-700">
+                <label htmlFor="tvaApplyMode" className="label">
                   Mode d&apos;application
                 </label>
                 <select
@@ -182,40 +192,42 @@ export default async function ParametresPage() {
                   <option value="document">Sur le document</option>
                 </select>
               </div>
-              <label className="flex items-center gap-2 text-sm text-zinc-700">
+              <label className="label flex items-center gap-2">
                 <input
                   type="checkbox"
                   name="tvaAllowExemption"
                   defaultChecked={taxConfig.tva.allowExemption}
-                  className="h-4 w-4"
+                  className="checkbox"
                 />
                 Autoriser l&apos;exonération
               </label>
             </div>
 
             <div className="space-y-3">
-              <h3 className="text-sm font-semibold text-zinc-800">FODEC</h3>
-              <label className="flex items-center gap-2 text-sm text-zinc-700">
+              <h3 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
+                FODEC
+              </h3>
+              <label className="label flex items-center gap-2">
                 <input
                   type="checkbox"
                   name="fodecEnabled"
                   defaultChecked={taxConfig.fodec.enabled}
-                  className="h-4 w-4"
+                  className="checkbox"
                 />
                 Activer la FODEC
               </label>
-              <label className="flex items-center gap-2 text-sm text-zinc-700">
+              <label className="label flex items-center gap-2">
                 <input
                   type="checkbox"
                   name="fodecAutoApply"
                   defaultChecked={taxConfig.fodec.autoApply}
-                  className="h-4 w-4"
+                  className="checkbox"
                 />
                 Appliquer automatiquement
               </label>
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <label htmlFor="fodecRate" className="text-sm font-medium text-zinc-700">
+                  <label htmlFor="fodecRate" className="label">
                     Taux (%)
                   </label>
                   <Input
@@ -228,7 +240,7 @@ export default async function ParametresPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <label htmlFor="fodecApplication" className="text-sm font-medium text-zinc-700">
+                  <label htmlFor="fodecApplication" className="label">
                     Application
                   </label>
                   <select
@@ -243,7 +255,7 @@ export default async function ParametresPage() {
                 </div>
               </div>
               <div className="space-y-2">
-                <label htmlFor="fodecOrder" className="text-sm font-medium text-zinc-700">
+                <label htmlFor="fodecOrder" className="label">
                   Ordre de calcul
                 </label>
                 <select
@@ -258,19 +270,21 @@ export default async function ParametresPage() {
               </div>
 
               <div className="space-y-3">
-                <h3 className="text-sm font-semibold text-zinc-800">Timbre fiscal</h3>
-                <label className="flex items-center gap-2 text-sm text-zinc-700">
+                <h3 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
+                  Timbre fiscal
+                </h3>
+                <label className="label flex items-center gap-2">
                   <input
                     type="checkbox"
                     name="timbreEnabled"
                     defaultChecked={taxConfig.timbre.enabled}
-                    className="h-4 w-4"
+                    className="checkbox"
                   />
                   Activer le timbre fiscal
                 </label>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <label htmlFor="timbreAmount" className="text-sm font-medium text-zinc-700">
+                    <label htmlFor="timbreAmount" className="label">
                       Montant (TND)
                     </label>
                     <Input
@@ -282,12 +296,12 @@ export default async function ParametresPage() {
                       defaultValue={fromCents(taxConfig.timbre.amountCents, settings.defaultCurrency)}
                     />
                   </div>
-                  <label className="flex items-center gap-2 text-sm text-zinc-700">
+                  <label className="label flex items-center gap-2">
                     <input
                       type="checkbox"
                       name="timbreAutoApply"
                       defaultChecked={taxConfig.timbre.autoApply}
-                      className="h-4 w-4"
+                      className="checkbox"
                     />
                     Appliquer automatiquement
                   </label>
@@ -298,11 +312,15 @@ export default async function ParametresPage() {
 
           <div className="grid gap-4 lg:grid-cols-2">
             <div className="space-y-2">
-              <h3 className="text-sm font-semibold text-zinc-800">Ordre de calcul</h3>
+              <h3 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
+                Ordre de calcul
+              </h3>
               <div className="grid gap-2 sm:grid-cols-3">
                 {taxConfig.order.map((item, index) => (
                   <div key={index} className="space-y-1">
-                    <label className="text-xs font-medium text-zinc-600">{index + 1}ᵉ position</label>
+                    <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                      {index + 1}ᵉ position
+                    </label>
                     <select
                       name={`taxOrder${index + 1}`}
                       defaultValue={item}
@@ -320,7 +338,7 @@ export default async function ParametresPage() {
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
               <div className="space-y-2">
-                <label htmlFor="roundingLine" className="text-sm font-medium text-zinc-700">
+                <label htmlFor="roundingLine" className="label">
                   Arrondi (ligne)
                 </label>
                 <select
@@ -335,7 +353,7 @@ export default async function ParametresPage() {
                 </select>
               </div>
               <div className="space-y-2">
-                <label htmlFor="roundingTotal" className="text-sm font-medium text-zinc-700">
+                <label htmlFor="roundingTotal" className="label">
                   Arrondi (total)
                 </label>
                 <select
@@ -354,10 +372,12 @@ export default async function ParametresPage() {
         </section>
 
         <section className="card space-y-4 p-6">
-          <h2 className="text-lg font-semibold text-zinc-900">Numérotation</h2>
+          <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+            Numérotation
+          </h2>
           <div className="grid gap-4 sm:grid-cols-3">
             <div className="space-y-2">
-              <label htmlFor="quoteNumberPrefix" className="text-sm font-medium text-zinc-700">
+              <label htmlFor="quoteNumberPrefix" className="label">
                 Préfixe devis
               </label>
               <Input
@@ -367,7 +387,7 @@ export default async function ParametresPage() {
               />
             </div>
             <div className="space-y-2">
-              <label htmlFor="invoiceNumberPrefix" className="text-sm font-medium text-zinc-700">
+              <label htmlFor="invoiceNumberPrefix" className="label">
                 Préfixe factures
               </label>
               <Input
@@ -382,9 +402,9 @@ export default async function ParametresPage() {
                 name="resetNumberingAnnually"
                 type="checkbox"
                 defaultChecked={settings.resetNumberingAnnually}
-                className="h-5 w-5 rounded border border-zinc-300"
+                className="checkbox h-5 w-5"
               />
-              <label htmlFor="resetNumberingAnnually" className="text-sm text-zinc-700">
+              <label htmlFor="resetNumberingAnnually" className="label">
                 Réinitialisation annuelle
               </label>
             </div>
@@ -392,10 +412,12 @@ export default async function ParametresPage() {
         </section>
 
         <section className="card space-y-4 p-6">
-          <h2 className="text-lg font-semibold text-zinc-900">Modèles PDF</h2>
+          <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+            Modèles PDF
+          </h2>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <label htmlFor="quoteTemplateId" className="text-sm font-medium text-zinc-700">
+              <label htmlFor="quoteTemplateId" className="label">
                 Modèle de devis
               </label>
               <select
@@ -413,7 +435,7 @@ export default async function ParametresPage() {
               </select>
             </div>
             <div className="space-y-2">
-              <label htmlFor="invoiceTemplateId" className="text-sm font-medium text-zinc-700">
+              <label htmlFor="invoiceTemplateId" className="label">
                 Modèle de facture
               </label>
               <select
@@ -434,7 +456,7 @@ export default async function ParametresPage() {
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <label htmlFor="defaultQuoteFooter" className="text-sm font-medium text-zinc-700">
+              <label htmlFor="defaultQuoteFooter" className="label">
                 Pied de page des devis
               </label>
               <Textarea
@@ -445,7 +467,7 @@ export default async function ParametresPage() {
               />
             </div>
             <div className="space-y-2">
-              <label htmlFor="defaultInvoiceFooter" className="text-sm font-medium text-zinc-700">
+              <label htmlFor="defaultInvoiceFooter" className="label">
                 Pied de page des factures
               </label>
               <Textarea
@@ -458,7 +480,7 @@ export default async function ParametresPage() {
           </div>
 
           <div className="space-y-2">
-            <label htmlFor="legalFooter" className="text-sm font-medium text-zinc-700">
+            <label htmlFor="legalFooter" className="label">
               Mentions légales
             </label>
             <Textarea
@@ -470,7 +492,7 @@ export default async function ParametresPage() {
           </div>
 
           <div className="space-y-2">
-            <label htmlFor="defaultConditions" className="text-sm font-medium text-zinc-700">
+            <label htmlFor="defaultConditions" className="label">
               Conditions générales de vente
             </label>
             <Textarea

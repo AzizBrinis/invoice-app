@@ -31,13 +31,16 @@ export function ThemeToggle() {
       </span>
       <div className="inline-flex items-center gap-1 rounded-full border border-zinc-300 bg-white p-1 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
         {OPTIONS.map(({ value, label, icon: Icon }) => {
-          const isActive = theme === value;
+          const isChecked = theme === value;
+          const isSystemResolved =
+            theme === "system" && value !== "system" && resolvedTheme === value;
+          const isActive = isChecked || isSystemResolved;
           return (
             <button
               key={value}
               type="button"
               role="radio"
-              aria-checked={isActive}
+              aria-checked={isChecked}
               aria-label={label}
               title={
                 value === "system"
@@ -48,7 +51,11 @@ export function ThemeToggle() {
               className={clsx(
                 "inline-flex h-8 w-8 items-center justify-center rounded-full text-zinc-600 transition hover:bg-zinc-100 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-zinc-300 dark:hover:bg-zinc-700 dark:hover:text-zinc-100",
                 isActive &&
+                  "text-zinc-900 dark:text-zinc-100",
+                isChecked &&
                   "bg-blue-600 text-white hover:bg-blue-600 dark:bg-blue-500 dark:hover:bg-blue-500",
+                isSystemResolved &&
+                  "ring-2 ring-blue-400/60 dark:ring-blue-400/70",
               )}
             >
               <Icon className="h-4 w-4" />
