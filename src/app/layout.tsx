@@ -1,6 +1,12 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import {
+  ThemeProvider,
+  ThemeScript,
+  type Theme,
+} from "@/components/theme/theme-provider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -20,17 +26,31 @@ export const metadata: Metadata = {
     "Gérez vos devis, factures, clients et paiements dans une interface moderne en français.",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const cookieStore = await cookies();
+  const themeCookie = cookieStore.get("theme")?.value;
+  const isTheme = (value: string | undefined): value is Theme =>
+    value === "light" || value === "dark" || value === "system";
+  const initialTheme: Theme = isTheme(themeCookie) ? themeCookie : "system";
+
   return (
-    <html lang="fr">
+    <html
+      lang="fr"
+      data-theme={initialTheme}
+      className={initialTheme === "dark" ? "dark" : undefined}
+      suppressHydrationWarning
+    >
       <body
-        className={`${geistSans.variable} ${geistMono.variable} bg-zinc-50 text-zinc-900 antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} min-h-screen bg-zinc-50 text-zinc-900 antialiased transition-colors dark:bg-zinc-950 dark:text-zinc-100`}
       >
-        {children}
+        <ThemeScript />
+        <ThemeProvider initialTheme={initialTheme}>
+          {children}
+        </ThemeProvider>
       </body>
     </html>
   );

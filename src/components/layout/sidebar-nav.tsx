@@ -40,9 +40,9 @@ export function SidebarNav({ items }: { items: NavItem[] }) {
   const pathname = usePathname();
 
   return (
-    <nav className="hidden w-64 flex-shrink-0 border-r border-zinc-200 bg-white px-4 py-6 lg:flex lg:flex-col">
+    <nav className="hidden w-64 flex-shrink-0 border-r border-zinc-200 bg-white px-4 py-6 transition-colors dark:border-zinc-800 dark:bg-zinc-950 lg:flex lg:flex-col">
       <div className="mb-8 px-2">
-        <span className="text-sm font-semibold uppercase tracking-wide text-blue-600">
+        <span className="text-sm font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-400">
           Menu principal
         </span>
       </div>
@@ -57,8 +57,8 @@ export function SidebarNav({ items }: { items: NavItem[] }) {
                 className={clsx(
                   "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition",
                   active
-                    ? "bg-blue-50 text-blue-600"
-                    : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900",
+                    ? "bg-blue-50 text-blue-600 dark:bg-blue-500/20 dark:text-blue-200"
+                    : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-zinc-100",
                 )}
               >
                 <Icon className="h-4 w-4" />

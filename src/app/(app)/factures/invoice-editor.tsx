@@ -344,7 +344,7 @@ export function InvoiceEditor({
       <section className="card space-y-4 p-6">
         <div className="grid gap-4 sm:grid-cols-3">
           <div className="space-y-2">
-            <label className="text-sm font-medium text-zinc-700" htmlFor="clientId">
+            <label className="label" htmlFor="clientId">
               Client
             </label>
             <select
@@ -363,7 +363,7 @@ export function InvoiceEditor({
             </select>
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-medium text-zinc-700" htmlFor="status">
+            <label className="label" htmlFor="status">
               Statut
             </label>
             <select
@@ -381,7 +381,7 @@ export function InvoiceEditor({
             </select>
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-medium text-zinc-700" htmlFor="reference">
+            <label className="label" htmlFor="reference">
               Référence interne
             </label>
             <Input
@@ -395,7 +395,7 @@ export function InvoiceEditor({
 
         <div className="grid gap-4 sm:grid-cols-4">
           <div className="space-y-2">
-            <label className="text-sm font-medium text-zinc-700" htmlFor="issueDate">
+            <label className="label" htmlFor="issueDate">
               Date d&apos;émission
             </label>
             <Input
@@ -408,7 +408,7 @@ export function InvoiceEditor({
             />
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-medium text-zinc-700" htmlFor="dueDate">
+            <label className="label" htmlFor="dueDate">
               Échéance
             </label>
             <Input
@@ -420,7 +420,7 @@ export function InvoiceEditor({
             />
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-medium text-zinc-700" htmlFor="currency">
+            <label className="label" htmlFor="currency">
               Devise
             </label>
             <select
@@ -440,7 +440,7 @@ export function InvoiceEditor({
             </select>
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-medium text-zinc-700" htmlFor="lateFeeRate">
+            <label className="label" htmlFor="lateFeeRate">
               Pénalités de retard (%)
             </label>
             <Input
@@ -463,7 +463,7 @@ export function InvoiceEditor({
 
         <div className="grid gap-4 sm:grid-cols-3">
           <div className="space-y-2">
-            <label className="text-sm font-medium text-zinc-700">
+            <label className="label">
               FODEC
             </label>
             <div className="flex items-center gap-3">
@@ -471,19 +471,19 @@ export function InvoiceEditor({
                 id="applyFodec"
                 name="applyFodec"
                 type="checkbox"
-                className="h-4 w-4"
+                className="h-4 w-4 rounded border border-zinc-300 text-blue-600 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-blue-400 dark:focus:ring-offset-zinc-900"
                 checked={applyFodec}
                 onChange={(event) => setApplyFodec(event.target.checked)}
                 disabled={!taxConfiguration.fodec.enabled}
               />
-              <label htmlFor="applyFodec" className="text-sm text-zinc-700">
+              <label htmlFor="applyFodec" className="label">
                 Appliquer la FODEC
               </label>
             </div>
           </div>
           {taxConfiguration.fodec.application === "document" ? (
             <div className="space-y-2">
-              <label htmlFor="documentFodecRate" className="text-sm font-medium text-zinc-700">
+              <label htmlFor="documentFodecRate" className="label">
                 Taux FODEC (%)
               </label>
               <Input
@@ -503,13 +503,13 @@ export function InvoiceEditor({
             </div>
           ) : (
             <div className="space-y-2">
-              <label className="text-sm font-medium text-zinc-700">Application</label>
-              <p className="text-sm text-zinc-600">Appliquée sur chaque ligne</p>
+              <label className="label">Application</label>
+              <p className="text-sm text-zinc-600 dark:text-zinc-300">Appliquée sur chaque ligne</p>
             </div>
           )}
 
           <div className="space-y-2">
-            <label className="text-sm font-medium text-zinc-700">
+            <label className="label">
               Timbre fiscal
             </label>
             <div className="space-y-2">
@@ -518,12 +518,12 @@ export function InvoiceEditor({
                   id="applyTimbre"
                   name="applyTimbre"
                   type="checkbox"
-                  className="h-4 w-4"
+                  className="h-4 w-4 rounded border border-zinc-300 text-blue-600 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:border-zinc-700 dark:bg-zinc-900 dark:text-blue-400 dark:focus:ring-offset-zinc-900"
                   checked={applyTimbre}
                   onChange={(event) => setApplyTimbre(event.target.checked)}
                   disabled={!taxConfiguration.timbre.enabled}
                 />
-                <label htmlFor="applyTimbre" className="text-sm text-zinc-700">
+                <label htmlFor="applyTimbre" className="label">
                   Ajouter le timbre fiscal
                 </label>
               </div>
@@ -546,14 +546,14 @@ export function InvoiceEditor({
 
       <section className="card space-y-4 p-6">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-zinc-900">Lignes de facturation</h2>
+          <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Lignes de facturation</h2>
           <Button type="button" variant="secondary" onClick={addLine}>
             Ajouter une ligne
           </Button>
         </div>
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-zinc-200 text-sm">
-            <thead className="bg-zinc-50 text-xs uppercase text-zinc-500">
+          <table className="min-w-full divide-y divide-zinc-200 text-sm dark:divide-zinc-800">
+            <thead className="bg-zinc-50 text-xs uppercase text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
               <tr>
                 <th className="px-3 py-2 text-left">Produit</th>
                 <th className="px-3 py-2 text-left">Description</th>
@@ -569,11 +569,11 @@ export function InvoiceEditor({
                 <th className="px-3 py-2 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-zinc-100">
+            <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
               {lines.map((line, index) => {
                 const computed = totals.computedLines[index];
                 return (
-                  <tr key={index}>
+                  <tr key={index} className="transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800">
                     <td className="px-3 py-2">
                       <select
                         className="input"
@@ -666,7 +666,7 @@ export function InvoiceEditor({
                         }
                       />
                     </td>
-                    <td className="px-3 py-2 text-right font-medium text-zinc-700">
+                    <td className="px-3 py-2 text-right font-medium text-zinc-700 dark:text-zinc-100">
                       {formatCurrency(fromCents(computed.totalTTCCents, currency), currency)}
                     </td>
                     <td className="px-3 py-2 text-right">
@@ -682,7 +682,7 @@ export function InvoiceEditor({
                         <Button
                           type="button"
                           variant="ghost"
-                          className="px-2 py-1 text-xs text-red-600 hover:text-red-700"
+                          className="px-2 py-1 text-xs text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
                           onClick={() => removeLine(index)}
                           disabled={lines.length <= 1}
                         >
@@ -700,10 +700,10 @@ export function InvoiceEditor({
 
       <section className="grid gap-4 lg:grid-cols-2">
         <div className="card space-y-4 p-6">
-          <h3 className="text-lg font-semibold text-zinc-900">Remise & mentions</h3>
+          <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Remise & mentions</h3>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <label className="text-sm font-medium text-zinc-700" htmlFor="globalDiscountRate">
+              <label className="label" htmlFor="globalDiscountRate">
                 Remise (%)
               </label>
               <Input
@@ -728,7 +728,7 @@ export function InvoiceEditor({
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium text-zinc-700" htmlFor="globalDiscountAmount">
+              <label className="label" htmlFor="globalDiscountAmount">
                 {`Remise (${currency})`}
               </label>
               <Input
@@ -755,7 +755,7 @@ export function InvoiceEditor({
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium text-zinc-700" htmlFor="notes">
+            <label className="label" htmlFor="notes">
               Notes (visible client)
             </label>
             <Textarea
@@ -768,7 +768,7 @@ export function InvoiceEditor({
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium text-zinc-700" htmlFor="terms">
+            <label className="label" htmlFor="terms">
               Conditions de paiement
             </label>
             <Textarea
@@ -782,8 +782,8 @@ export function InvoiceEditor({
         </div>
 
         <div className="card space-y-4 p-6">
-          <h3 className="text-lg font-semibold text-zinc-900">Récapitulatif</h3>
-          <dl className="space-y-2 text-sm text-zinc-600">
+          <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Récapitulatif</h3>
+          <dl className="space-y-2 text-sm text-zinc-600 dark:text-zinc-300">
             <div className="flex items-center justify-between">
               <dt>Sous-total HT</dt>
               <dd>{formatCurrency(fromCents(totals.totals.subtotalHTCents, currency), currency)}</dd>
@@ -802,13 +802,13 @@ export function InvoiceEditor({
                   <dd>{formatCurrency(fromCents(entry.amountCents, currency), currency)}</dd>
                 </div>
                 {entry.baseCents > 0 && (
-                  <p className="text-xs text-zinc-500">
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
                     Base: {formatCurrency(fromCents(entry.baseCents, currency), currency)}
                   </p>
                 )}
               </div>
             ))}
-            <div className="flex items-center justify-between border-t border-zinc-200 pt-2 text-base font-semibold text-zinc-900">
+            <div className="flex items-center justify-between border-t border-zinc-200 pt-2 text-base font-semibold text-zinc-900 dark:border-zinc-800 dark:text-zinc-100">
               <dt>Total TTC</dt>
               <dd>{formatCurrency(fromCents(totals.totals.totalTTCCents, currency), currency)}</dd>
             </div>

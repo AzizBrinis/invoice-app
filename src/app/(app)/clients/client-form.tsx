@@ -22,7 +22,7 @@ export function ClientForm({ action, submitLabel, defaultValues }: ClientFormPro
     <form action={action} className="card space-y-5 p-6">
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
-          <label htmlFor="displayName" className="text-sm font-medium text-zinc-700">
+          <label htmlFor="displayName" className="label">
             Nom / Raison sociale
           </label>
           <Input
@@ -33,7 +33,7 @@ export function ClientForm({ action, submitLabel, defaultValues }: ClientFormPro
           />
         </div>
         <div className="space-y-2">
-          <label htmlFor="companyName" className="text-sm font-medium text-zinc-700">
+          <label htmlFor="companyName" className="label">
             Raison sociale secondaire
           </label>
           <Input
@@ -46,7 +46,7 @@ export function ClientForm({ action, submitLabel, defaultValues }: ClientFormPro
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
-          <label htmlFor="email" className="text-sm font-medium text-zinc-700">
+          <label htmlFor="email" className="label">
             E-mail
           </label>
           <Input
@@ -57,7 +57,7 @@ export function ClientForm({ action, submitLabel, defaultValues }: ClientFormPro
           />
         </div>
         <div className="space-y-2">
-          <label htmlFor="phone" className="text-sm font-medium text-zinc-700">
+          <label htmlFor="phone" className="label">
             Téléphone
           </label>
           <Input id="phone" name="phone" defaultValue={defaultValues?.phone ?? ""} />
@@ -66,7 +66,7 @@ export function ClientForm({ action, submitLabel, defaultValues }: ClientFormPro
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
-          <label htmlFor="vatNumber" className="text-sm font-medium text-zinc-700">
+          <label htmlFor="vatNumber" className="label">
             Numéro de TVA
           </label>
           <Input
@@ -76,7 +76,7 @@ export function ClientForm({ action, submitLabel, defaultValues }: ClientFormPro
           />
         </div>
         <div className="space-y-2">
-          <label htmlFor="isActive" className="text-sm font-medium text-zinc-700">
+          <label htmlFor="isActive" className="label">
             Statut
           </label>
           <select
@@ -92,7 +92,7 @@ export function ClientForm({ action, submitLabel, defaultValues }: ClientFormPro
       </div>
 
       <div className="space-y-2">
-        <label htmlFor="address" className="text-sm font-medium text-zinc-700">
+        <label htmlFor="address" className="label">
           Adresse
         </label>
         <Textarea
@@ -104,7 +104,7 @@ export function ClientForm({ action, submitLabel, defaultValues }: ClientFormPro
       </div>
 
       <div className="space-y-2">
-        <label htmlFor="notes" className="text-sm font-medium text-zinc-700">
+        <label htmlFor="notes" className="label">
           Notes internes
         </label>
         <Textarea

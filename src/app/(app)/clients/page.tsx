@@ -56,19 +56,23 @@ export default async function ClientsPage({
   return (
     <div className="space-y-6">
       {errorMessage && (
-        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-200">
           {errorMessage}
         </p>
       )}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-zinc-900">Clients</h1>
-          <p className="text-sm text-zinc-600">
+          <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">Clients</h1>
+          <p className="text-sm text-zinc-600 dark:text-zinc-300">
             Gérez vos clients, coordonnées et notes associées.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button asChild variant="ghost" className="text-sm text-blue-600">
+          <Button
+            asChild
+            variant="ghost"
+            className="text-sm text-blue-600 dark:text-blue-400"
+          >
             <Link href="/api/export/clients" target="_blank">
               Export CSV
             </Link>
@@ -81,7 +85,7 @@ export default async function ClientsPage({
 
       <form className="card flex flex-col gap-4 p-4 sm:flex-row sm:items-end">
         <div className="flex-1">
-          <label className="text-sm font-medium text-zinc-700" htmlFor="recherche">
+          <label className="label" htmlFor="recherche">
             Recherche
           </label>
           <input
@@ -94,7 +98,7 @@ export default async function ClientsPage({
           />
         </div>
         <div>
-          <label className="text-sm font-medium text-zinc-700" htmlFor="statut">
+          <label className="label" htmlFor="statut">
             Statut
           </label>
           <select
@@ -114,8 +118,8 @@ export default async function ClientsPage({
       </form>
 
       <div className="card overflow-hidden">
-        <table className="min-w-full divide-y divide-zinc-200 text-sm">
-          <thead className="bg-zinc-50 text-xs uppercase text-zinc-500">
+        <table className="min-w-full divide-y divide-zinc-200 text-sm dark:divide-zinc-800">
+          <thead className="bg-zinc-50 text-xs uppercase text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
             <tr>
               <th className="px-4 py-3 text-left">Nom / Raison sociale</th>
               <th className="px-4 py-3 text-left">Contact</th>
@@ -125,36 +129,39 @@ export default async function ClientsPage({
               <th className="px-4 py-3 text-right">Actions</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-zinc-100">
+          <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
             {clients.items.map((client) => (
-              <tr key={client.id} className="hover:bg-zinc-50">
+              <tr
+                key={client.id}
+                className="hover:bg-zinc-50 transition-colors dark:hover:bg-zinc-800"
+              >
                 <td className="px-4 py-3">
-                  <div className="font-medium text-zinc-900">
+                  <div className="font-medium text-zinc-900 dark:text-zinc-100">
                     {client.displayName}
                   </div>
                   {client.companyName && (
-                    <div className="text-xs text-zinc-500">
+                    <div className="text-xs text-zinc-500 dark:text-zinc-400">
                       {client.companyName}
                     </div>
                   )}
                 </td>
-                <td className="px-4 py-3 text-zinc-600">
+                <td className="px-4 py-3 text-zinc-600 dark:text-zinc-300">
                   <div>{client.email ?? "—"}</div>
-                  <div className="text-xs text-zinc-500">
+                  <div className="text-xs text-zinc-500 dark:text-zinc-400">
                     {client.phone ?? ""}
                   </div>
                 </td>
-                <td className="px-4 py-3 text-zinc-600">
+                <td className="px-4 py-3 text-zinc-600 dark:text-zinc-300">
                   {client.vatNumber ?? "—"}
                 </td>
                 <td className="px-4 py-3">
                   <span
-                    className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${client.isActive ? "bg-emerald-50 text-emerald-700" : "bg-zinc-100 text-zinc-600"}`}
+                    className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${client.isActive ? "bg-emerald-50 text-emerald-700" : "bg-zinc-100 text-zinc-600 dark:text-zinc-300"}`}
                   >
                     {client.isActive ? "Actif" : "Inactif"}
                   </span>
                 </td>
-                <td className="px-4 py-3 text-zinc-600">
+                <td className="px-4 py-3 text-zinc-600 dark:text-zinc-300">
                   {formatDate(client.updatedAt)}
                 </td>
                 <td className="px-4 py-3">
@@ -166,7 +173,7 @@ export default async function ClientsPage({
                       <Button
                         type="submit"
                         variant="ghost"
-                        className="px-2 py-1 text-xs text-red-600 hover:text-red-700"
+                        className="px-2 py-1 text-xs text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
                       >
                         Supprimer
                       </Button>
@@ -179,7 +186,7 @@ export default async function ClientsPage({
               <tr>
                 <td
                   colSpan={6}
-                  className="px-4 py-8 text-center text-sm text-zinc-500"
+                  className="px-4 py-8 text-center text-sm text-zinc-500 dark:text-zinc-400"
                 >
                   Aucun client trouvé avec ces critères.
                 </td>
@@ -199,7 +206,7 @@ export default async function ClientsPage({
           >
             Précédent
           </PaginationLink>
-          <span className="text-sm text-zinc-600">
+          <span className="text-sm text-zinc-600 dark:text-zinc-300">
             Page {clients.page} / {clients.pageCount}
           </span>
           <PaginationLink
@@ -231,7 +238,7 @@ function PaginationLink({
 }) {
   if (disabled) {
     return (
-      <span className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs text-zinc-400">
+      <span className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs text-zinc-400 dark:border-zinc-800 dark:text-zinc-500">
         {children}
       </span>
     );
@@ -245,7 +252,7 @@ function PaginationLink({
   return (
     <Link
       href={`/clients?${params.toString()}`}
-      className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100"
+      className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-800"
     >
       {children}
     </Link>

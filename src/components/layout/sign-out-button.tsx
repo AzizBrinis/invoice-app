@@ -12,7 +12,7 @@ export function SignOutButton() {
     <Button
       type="button"
       variant="ghost"
-      className="flex items-center gap-2 px-3 py-2 text-sm text-zinc-600 hover:text-red-600"
+      className="flex items-center gap-2 px-3 py-2 text-sm text-zinc-600 hover:text-red-600 dark:text-zinc-300 dark:hover:text-red-400"
       loading={pending}
       onClick={() => startTransition(async () => {
         await signOutAction();

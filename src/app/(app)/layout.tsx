@@ -53,7 +53,7 @@ export default async function AppLayout({
   const settings = await getSettings();
 
   return (
-    <div className="min-h-screen bg-zinc-100">
+    <div className="min-h-screen bg-zinc-100 transition-colors dark:bg-zinc-950">
       <div className="flex min-h-screen">
         <SidebarNav items={NAV_ITEMS} />
         <div className="flex min-h-screen flex-1 flex-col">
