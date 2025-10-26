@@ -7,9 +7,10 @@ import { updateClientAction } from "@/app/(app)/clients/actions";
 export default async function EditClientPage({
   params,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
-  const client = await getClient(params.id);
+  const { id } = await params;
+  const client = await getClient(id);
 
   if (!client) {
     notFound();

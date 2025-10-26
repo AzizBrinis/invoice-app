@@ -39,16 +39,21 @@ const resolveSystemTheme = () => {
 
 const applyThemeToDocument = (theme: Theme) => {
   if (typeof document === "undefined") {
-    return "light";
+    return theme === "system" ? "light" : theme;
   }
 
-  const element = document.documentElement;
   const resolved = theme === "system" ? resolveSystemTheme() : theme;
+  const targets: Array<HTMLElement> = [
+    document.documentElement,
+    document.body,
+  ].filter((el): el is HTMLElement => Boolean(el));
 
-  element.dataset.theme = theme;
-  element.dataset.themeResolved = resolved;
-  element.classList.toggle("dark", resolved === "dark");
-  element.style.colorScheme = resolved;
+  targets.forEach((element) => {
+    element.dataset.theme = theme;
+    element.dataset.themeResolved = resolved;
+    element.classList.toggle("dark", resolved === "dark");
+    element.style.colorScheme = resolved;
+  });
 
   return resolved;
 };
