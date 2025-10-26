@@ -17,12 +17,12 @@ export default async function NouveauDevisPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-zinc-900">Nouveau devis</h1>
-          <p className="text-sm text-zinc-600">
+          <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">Nouveau devis</h1>
+          <p className="text-sm text-zinc-600 dark:text-zinc-300">
             Créez un devis détaillé avec lignes, remises et TVA multiples.
           </p>
         </div>
-        <Link href="/devis" className="text-sm font-medium text-blue-600 hover:underline">
+        <Link href="/devis" className="text-sm font-medium text-blue-600 hover:underline dark:text-blue-400">
           Retour à la liste
         </Link>
       </div>

@@ -59,25 +59,28 @@ export default async function EditDevisPage({
   return (
     <div className="space-y-6">
       {successMessage && (
-        <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+        <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-200">
           {successMessage}
         </p>
       )}
       {errorMessage && (
-        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-200">
           {errorMessage}
         </p>
       )}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-zinc-900">
+          <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
             Modifier le devis {quote.number}
           </h1>
-          <p className="text-sm text-zinc-600">
+          <p className="text-sm text-zinc-600 dark:text-zinc-300">
             Ajustez les lignes, remises et conditions avant envoi.
           </p>
         </div>
-        <Link href="/devis" className="text-sm font-medium text-blue-600 hover:underline">
+        <Link
+          href="/devis"
+          className="text-sm font-medium text-blue-600 hover:underline dark:text-blue-400"
+        >
           Retour à la liste
         </Link>
       </div>
@@ -92,12 +95,12 @@ export default async function EditDevisPage({
         defaultQuote={quote}
       />
       <section className="card space-y-4 p-6">
-        <h2 className="text-base font-semibold text-zinc-900">
+        <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
           Envoyer le devis par e-mail
         </h2>
         <form action={sendQuoteEmailAction.bind(null, quote.id)} className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1">
-            <label htmlFor="email" className="text-sm text-zinc-600">
+            <label htmlFor="email" className="text-sm text-zinc-600 dark:text-zinc-300">
               Destinataire
             </label>
             <Input
@@ -109,7 +112,7 @@ export default async function EditDevisPage({
             />
           </div>
           <div className="space-y-1">
-            <label htmlFor="subject" className="text-sm text-zinc-600">
+            <label htmlFor="subject" className="text-sm text-zinc-600 dark:text-zinc-300">
               Objet
             </label>
             <Input
@@ -119,7 +122,7 @@ export default async function EditDevisPage({
             />
           </div>
           <div className="sm:col-span-2 space-y-1">
-            <label htmlFor="message" className="text-sm text-zinc-600">
+            <label htmlFor="message" className="text-sm text-zinc-600 dark:text-zinc-300">
               Message
             </label>
             <Textarea

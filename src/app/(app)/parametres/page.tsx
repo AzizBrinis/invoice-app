@@ -8,6 +8,13 @@ import { normalizeTaxConfiguration, TAX_ORDER_ITEMS } from "@/lib/taxes";
 import { fromCents } from "@/lib/money";
 import { SUPPORTED_CURRENCIES } from "@/lib/currency";
 
+const POSITION_OPTIONS = [
+  { value: "top-left", label: "Haut gauche" },
+  { value: "top-right", label: "Haut droite" },
+  { value: "bottom-left", label: "Bas gauche" },
+  { value: "bottom-right", label: "Bas droite" },
+];
+
 export default async function ParametresPage() {
   const [settings, templates] = await Promise.all([
     getSettings(),
@@ -17,6 +24,9 @@ export default async function ParametresPage() {
   const devisTemplates = templates.filter((tpl) => tpl.type === "DEVIS");
   const factureTemplates = templates.filter((tpl) => tpl.type === "FACTURE");
   const taxConfig = normalizeTaxConfiguration(settings.taxConfiguration);
+  const hasUploadedLogo = Boolean(settings.logoData);
+  const hasStampImage = Boolean(settings.stampImage);
+  const hasSignatureImage = Boolean(settings.signatureImage);
 
   return (
     <div className="space-y-6">
@@ -34,32 +44,28 @@ export default async function ParametresPage() {
           <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
             Société & identité
           </h2>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <label htmlFor="companyName" className="label">
-                Dénomination sociale
-              </label>
-              <Input
-                id="companyName"
-                name="companyName"
-                defaultValue={settings.companyName}
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <label htmlFor="logoUrl" className="label">
-                URL du logo
-              </label>
-              <Input id="logoUrl" name="logoUrl" defaultValue={settings.logoUrl ?? ""} />
-            </div>
+          <div className="space-y-2">
+            <label htmlFor="companyName" className="label">
+              Dénomination sociale
+            </label>
+            <Input
+              id="companyName"
+              name="companyName"
+              defaultValue={settings.companyName}
+              required
+            />
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <label htmlFor="siren" className="label">
-                SIREN
+              <label htmlFor="matriculeFiscal" className="label">
+                Matricule Fiscal (MF)
               </label>
-              <Input id="siren" name="siren" defaultValue={settings.siren ?? ""} />
+              <Input
+                id="matriculeFiscal"
+                name="matriculeFiscal"
+                defaultValue={settings.matriculeFiscal ?? ""}
+              />
             </div>
             <div className="space-y-2">
               <label htmlFor="tvaNumber" className="label">
@@ -71,12 +77,22 @@ export default async function ParametresPage() {
                 defaultValue={settings.tvaNumber ?? ""}
               />
             </div>
-            <div className="space-y-2">
-              <label htmlFor="iban" className="label">
-                IBAN
-              </label>
-              <Input id="iban" name="iban" defaultValue={settings.iban ?? ""} />
-            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label htmlFor="iban" className="label">
+              Coordonnées bancaires / IBAN
+            </label>
+            <Textarea
+              id="iban"
+              name="iban"
+              rows={3}
+              defaultValue={settings.iban ?? ""}
+              placeholder={"BIAT - TN05...\nAttijari - TN75..."}
+            />
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              Indiquez un IBAN par ligne pour répertorier plusieurs comptes.
+            </p>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
@@ -99,6 +115,121 @@ export default async function ParametresPage() {
               Adresse complète
             </label>
             <Textarea id="address" name="address" rows={3} defaultValue={settings.address ?? ""} />
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <h3 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
+                Identité visuelle
+              </h3>
+              <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                Téléversez vos éléments graphiques pour les afficher automatiquement dans les PDF.
+              </p>
+            </div>
+            <div className="grid gap-4 lg:grid-cols-3">
+              <div className="space-y-2">
+                <label htmlFor="logoFile" className="label">
+                  Logo de la société
+                </label>
+                <Input
+                  id="logoFile"
+                  name="logoFile"
+                  type="file"
+                  accept="image/png,image/jpeg,image/svg+xml"
+                />
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  PNG, JPG ou SVG — taille conseillée 400×200 px.
+                </p>
+                {hasUploadedLogo && (
+                  <label className="label flex items-center gap-2">
+                    <input type="checkbox" name="logoClear" className="checkbox" />
+                    Supprimer le logo importé
+                  </label>
+                )}
+                <label htmlFor="logoUrl" className="label">
+                  Logo via URL
+                </label>
+                <Input
+                  id="logoUrl"
+                  name="logoUrl"
+                  defaultValue={settings.logoUrl ?? ""}
+                  placeholder="https://.../logo.png"
+                />
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  L&apos;image importée est prioritaire sur l&apos;URL.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="stampFile" className="label">
+                  Cachet (cachet humide)
+                </label>
+                <Input
+                  id="stampFile"
+                  name="stampFile"
+                  type="file"
+                  accept="image/png,image/jpeg,image/svg+xml"
+                />
+                {hasStampImage && (
+                  <label className="label flex items-center gap-2">
+                    <input type="checkbox" name="stampClear" className="checkbox" />
+                    Supprimer le cachet
+                  </label>
+                )}
+                <label htmlFor="stampPosition" className="label">
+                  Position dans le PDF
+                </label>
+                <select
+                  id="stampPosition"
+                  name="stampPosition"
+                  className="input"
+                  defaultValue={settings.stampPosition ?? "bottom-right"}
+                >
+                  {POSITION_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Le cachet est apposé sur les devis et factures.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="signatureFile" className="label">
+                  Signature légale
+                </label>
+                <Input
+                  id="signatureFile"
+                  name="signatureFile"
+                  type="file"
+                  accept="image/png,image/jpeg,image/svg+xml"
+                />
+                {hasSignatureImage && (
+                  <label className="label flex items-center gap-2">
+                    <input type="checkbox" name="signatureClear" className="checkbox" />
+                    Supprimer la signature
+                  </label>
+                )}
+                <label htmlFor="signaturePosition" className="label">
+                  Position dans le PDF
+                </label>
+                <select
+                  id="signaturePosition"
+                  name="signaturePosition"
+                  className="input"
+                  defaultValue={settings.signaturePosition ?? "bottom-right"}
+                >
+                  {POSITION_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Ajoutée automatiquement aux PDF générés.
+                </p>
+              </div>
+            </div>
           </div>
         </section>
 

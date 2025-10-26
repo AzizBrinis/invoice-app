@@ -660,7 +660,7 @@ export function QuoteEditor({
                         <Button
                           type="button"
                           variant="ghost"
-                          className="px-2 py-1 text-xs text-red-600 hover:text-red-700"
+                          className="px-2 py-1 text-xs text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
                           onClick={() => removeLine(index)}
                           disabled={lines.length <= 1}
                         >

@@ -10,16 +10,16 @@ export default async function NouveauProduitPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-zinc-900">
+          <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
             Nouveau produit ou service
           </h1>
-          <p className="text-sm text-zinc-600">
+          <p className="text-sm text-zinc-600 dark:text-zinc-300">
             Définissez les tarifs HT/TTC et les informations de catalogue.
           </p>
         </div>
         <Link
           href="/produits"
-          className="text-sm font-medium text-blue-600 hover:underline"
+          className="text-sm font-medium text-blue-600 hover:underline dark:text-blue-400"
         >
           Retour à la liste
         </Link>

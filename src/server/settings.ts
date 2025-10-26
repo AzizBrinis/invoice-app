@@ -56,10 +56,22 @@ const taxConfigurationSchema = z.object({
     .default(DEFAULT_TAX_CONFIGURATION.rounding),
 });
 
+const imagePositionSchema = z.enum([
+  "top-left",
+  "top-right",
+  "bottom-left",
+  "bottom-right",
+]);
+
 export const settingsSchema = z.object({
   companyName: z.string().min(2, "Nom obligatoire"),
   logoUrl: z.string().url("URL invalide").nullable().optional(),
-  siren: z.string().min(3, "SIREN invalide").nullable().optional(),
+  logoData: z.string().nullable().optional(),
+  matriculeFiscal: z
+    .string()
+    .min(3, "Matricule fiscal invalide")
+    .nullable()
+    .optional(),
   tvaNumber: z
     .string()
     .min(3, "Numéro de TVA invalide")
@@ -69,6 +81,10 @@ export const settingsSchema = z.object({
   email: z.string().email("E-mail invalide").nullable().optional(),
   phone: z.string().min(5, "Téléphone invalide").nullable().optional(),
   iban: z.string().min(10, "IBAN invalide").nullable().optional(),
+  stampImage: z.string().nullable().optional(),
+  signatureImage: z.string().nullable().optional(),
+  stampPosition: imagePositionSchema.default("bottom-right"),
+  signaturePosition: imagePositionSchema.default("bottom-right"),
   defaultCurrency: z.enum(CURRENCY_CODES).default(getDefaultCurrencyCode()),
   defaultVatRate: z
     .number({
@@ -115,11 +131,17 @@ export async function getSettings() {
     data: {
       id: 1,
       companyName: "Nouvelle société",
+      logoData: null,
+      matriculeFiscal: null,
       defaultCurrency: "TND",
       defaultVatRate: 20,
       invoiceNumberPrefix: "FAC",
       quoteNumberPrefix: "DEV",
       taxConfiguration: DEFAULT_TAX_CONFIGURATION,
+      stampImage: null,
+      signatureImage: null,
+      stampPosition: "bottom-right",
+      signaturePosition: "bottom-right",
     },
     include: {
       invoiceTemplate: true,

@@ -37,12 +37,17 @@ model CompanySettings {
   id                     Int           @id @default(1)
   companyName            String
   logoUrl                String?
-  siren                  String?
+  logoData               String?
+  matriculeFiscal        String?
   tvaNumber              String?
   address                String?
   email                  String?
   phone                  String?
   iban                   String?
+  stampImage             String?
+  signatureImage         String?
+  stampPosition          String        @default("bottom-right")
+  signaturePosition      String        @default("bottom-right")
   defaultCurrency        String        @default("TND")
   defaultVatRate         Float         @default(0)
   paymentTerms           String?

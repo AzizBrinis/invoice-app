@@ -17,12 +17,12 @@ export default async function NouvelleFacturePage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-zinc-900">Nouvelle facture</h1>
-          <p className="text-sm text-zinc-600">
+          <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">Nouvelle facture</h1>
+          <p className="text-sm text-zinc-600 dark:text-zinc-300">
             Créez une facture avec numérotation automatique et conditions de paiement.
           </p>
         </div>
-        <Link href="/factures" className="text-sm font-medium text-blue-600 hover:underline">
+        <Link href="/factures" className="text-sm font-medium text-blue-600 hover:underline dark:text-blue-400">
           Retour à la liste
         </Link>
       </div>

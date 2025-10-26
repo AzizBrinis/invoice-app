@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import type { CompanySettings } from "@prisma/client";
 import { settingsSchema, updateSettings } from "@/server/settings";
 import {
   DEFAULT_TAX_CONFIGURATION,
@@ -9,8 +10,34 @@ import {
   RoundingMode,
 } from "@/lib/taxes";
 import { fromCents, toCents } from "@/lib/money";
+import { prisma } from "@/lib/prisma";
 
-function parseSettingsForm(formData: FormData) {
+const IMAGE_POSITIONS = [
+  "top-left",
+  "top-right",
+  "bottom-left",
+  "bottom-right",
+] as const;
+
+type ImagePosition = (typeof IMAGE_POSITIONS)[number];
+
+const isImagePosition = (value: string | undefined | null): value is ImagePosition =>
+  !!value && IMAGE_POSITIONS.includes(value as ImagePosition);
+
+async function fileToDataUrl(entry: FormDataEntryValue | null): Promise<string | null> {
+  if (!entry || !(entry instanceof File) || entry.size === 0) {
+    return null;
+  }
+  const arrayBuffer = await entry.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+  const mimeType = entry.type || "application/octet-stream";
+  return `data:${mimeType};base64,${buffer.toString("base64")}`;
+}
+
+async function parseSettingsForm(
+  formData: FormData,
+  currentSettings: CompanySettings | null,
+) {
   const tvaRatesRaw = formData.get("tvaRatesJson")?.toString().trim();
   let tvaRates = DEFAULT_TAX_CONFIGURATION.tva.rates;
   if (tvaRatesRaw && tvaRatesRaw.length > 0) {
@@ -60,15 +87,55 @@ function parseSettingsForm(formData: FormData) {
       ? Number(timbreAmountInput)
       : fromCents(DEFAULT_TAX_CONFIGURATION.timbre.amountCents, defaultCurrency);
 
+  const logoClear = formData.get("logoClear")?.toString() === "on";
+  const stampClear = formData.get("stampClear")?.toString() === "on";
+  const signatureClear = formData.get("signatureClear")?.toString() === "on";
+
+  const [logoFileData, stampFileData, signatureFileData] = await Promise.all([
+    fileToDataUrl(formData.get("logoFile")),
+    fileToDataUrl(formData.get("stampFile")),
+    fileToDataUrl(formData.get("signatureFile")),
+  ]);
+
+  const resolvePosition = (
+    raw: string | undefined,
+    fallback: ImagePosition = "bottom-right",
+  ): ImagePosition => {
+    if (isImagePosition(raw)) {
+      return raw;
+    }
+    if (isImagePosition(fallback)) {
+      return fallback;
+    }
+    return "bottom-right";
+  };
+
   const data = {
     companyName: formData.get("companyName")?.toString() ?? "",
     logoUrl: formData.get("logoUrl")?.toString() || null,
-    siren: formData.get("siren")?.toString() || null,
+    logoData: logoClear
+      ? null
+      : logoFileData ?? currentSettings?.logoData ?? null,
+    matriculeFiscal: formData.get("matriculeFiscal")?.toString() || null,
     tvaNumber: formData.get("tvaNumber")?.toString() || null,
     address: formData.get("address")?.toString() || null,
     email: formData.get("email")?.toString() || null,
     phone: formData.get("phone")?.toString() || null,
     iban: formData.get("iban")?.toString() || null,
+    stampImage: stampClear
+      ? null
+      : stampFileData ?? currentSettings?.stampImage ?? null,
+    signatureImage: signatureClear
+      ? null
+      : signatureFileData ?? currentSettings?.signatureImage ?? null,
+    stampPosition: resolvePosition(
+      formData.get("stampPosition")?.toString(),
+      (currentSettings?.stampPosition as ImagePosition | undefined) ?? "bottom-right",
+    ),
+    signaturePosition: resolvePosition(
+      formData.get("signaturePosition")?.toString(),
+      (currentSettings?.signaturePosition as ImagePosition | undefined) ?? "bottom-right",
+    ),
     defaultCurrency,
     defaultVatRate: Number(formData.get("defaultVatRate") ?? 20),
     paymentTerms: formData.get("paymentTerms")?.toString() || null,
@@ -124,7 +191,10 @@ function parseSettingsForm(formData: FormData) {
 }
 
 export async function updateSettingsAction(formData: FormData) {
-  const parsed = parseSettingsForm(formData);
+  const currentSettings = await prisma.companySettings.findUnique({
+    where: { id: 1 },
+  });
+  const parsed = await parseSettingsForm(formData, currentSettings);
   await updateSettings(parsed);
   revalidatePath("/parametres");
 }

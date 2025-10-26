@@ -20,16 +20,16 @@ export default async function EditClientPage({
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-zinc-900">
+          <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
             Modifier le client
           </h1>
-          <p className="text-sm text-zinc-600">
+          <p className="text-sm text-zinc-600 dark:text-zinc-300">
             Mettez à jour les coordonnées et les préférences.
           </p>
         </div>
         <Link
           href="/clients"
-          className="text-sm font-medium text-blue-600 hover:underline"
+          className="text-sm font-medium text-blue-600 hover:underline dark:text-blue-400"
         >
           Retour à la liste
         </Link>

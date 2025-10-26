@@ -111,6 +111,9 @@ function getCssContent() {
 }
 
 function resolveLogo(settings: CompanySettings | null) {
+  if (settings?.logoData) {
+    return settings.logoData;
+  }
   if (settings?.logoUrl) {
     return settings.logoUrl;
   }
@@ -129,7 +132,9 @@ function resolveLogo(settings: CompanySettings | null) {
 function companyLines(settings: CompanySettings | null) {
   if (!settings) return [] as string[];
   const lines: string[] = [];
-  if (settings.siren) lines.push(`SIREN : ${settings.siren}`);
+  if (settings.matriculeFiscal) {
+    lines.push(`MF : ${settings.matriculeFiscal}`);
+  }
   if (settings.tvaNumber) lines.push(`TVA : ${settings.tvaNumber}`);
   if (settings.address) {
     settings.address
@@ -161,6 +166,67 @@ function clientLines(document: DocumentWithRelations) {
   if (client.phone) lines.push(client.phone);
   if (client.email) lines.push(client.email);
   return lines.filter(Boolean);
+}
+
+type ImagePosition = "top-left" | "top-right" | "bottom-left" | "bottom-right";
+
+const resolveImagePosition = (value: string | null | undefined): ImagePosition => {
+  if (value === "top-left" || value === "top-right" || value === "bottom-left" || value === "bottom-right") {
+    return value;
+  }
+  return "bottom-right";
+};
+
+const horizontalPriority = (position: ImagePosition) =>
+  position === "top-left" || position === "bottom-left" ? 0 : 1;
+
+function buildStampSignatureHtml(settings: CompanySettings | null) {
+  if (!settings) return "";
+  const entries: Array<{ label: string; src: string; position: ImagePosition }> = [];
+  if (settings.stampImage) {
+    entries.push({
+      label: "Cachet",
+      src: settings.stampImage,
+      position: resolveImagePosition(settings.stampPosition),
+    });
+  }
+  if (settings.signatureImage) {
+    entries.push({
+      label: "Signature",
+      src: settings.signatureImage,
+      position: resolveImagePosition(settings.signaturePosition),
+    });
+  }
+  if (entries.length === 0) {
+    return "";
+  }
+
+  const sortedEntries = entries.sort(
+    (a, b) => horizontalPriority(a.position) - horizontalPriority(b.position),
+  );
+
+  const blocksHtml = sortedEntries
+    .map(
+      (entry) => `
+        <div style="flex:1 1 200px; max-width:260px; text-align:center;">
+          <img
+            src="${entry.src}"
+            alt="${escapeHtml(entry.label)}"
+            style="max-height:140px; max-width:240px; width:auto; height:auto; object-fit:contain; display:block; margin:0 auto;"
+          />
+          <p style="font-size:11px; color:#475569; margin-top:6px;">${escapeHtml(entry.label)}</p>
+        </div>
+      `,
+    )
+    .join("");
+
+  return `
+    <div class="px-14 pt-2">
+      <div style="display:flex; gap:40px; justify-content:flex-start; align-items:flex-end; flex-wrap:wrap;">
+        ${blocksHtml}
+      </div>
+    </div>
+  `;
 }
 
 function translateInvoiceStatus(status: InvoiceStatus) {
@@ -273,13 +339,20 @@ function buildDocumentHtml(
   const clientInfo = formatLines(clientLines(document));
 
   const footerText = settings?.legalFooter ?? "";
-  const bankInfo = settings?.iban
-    ? formatLines(
-        [`IBAN : ${settings.iban}`, settings.phone ?? "", settings.email ?? ""].filter(
-          Boolean,
-        ) as string[],
-      )
-    : "";
+  const bankInfoLines = settings?.iban
+    ? settings.iban
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0)
+    : [];
+  if (settings?.phone) {
+    bankInfoLines.push(settings.phone);
+  }
+  if (settings?.email) {
+    bankInfoLines.push(settings.email);
+  }
+  const bankInfo = bankInfoLines.length ? formatLines(bankInfoLines) : "";
+  const stampSignatureHtml = buildStampSignatureHtml(settings);
 
   const paymentMethod = isInvoiceDoc
     ? invoiceDoc?.payments
@@ -526,6 +599,8 @@ function buildDocumentHtml(
               </tbody>
             </table>
           </div>
+
+          ${stampSignatureHtml}
 
           ${bankInfo ? `<div class="px-14 text-sm text-neutral-700 pbi-a"><p class="text-main font-bold">Coordonnées bancaires</p><div>${bankInfo}</div></div>` : ""}
 
