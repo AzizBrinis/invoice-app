@@ -7,7 +7,6 @@ import {
   useEffect,
   useMemo,
   useState,
-  startTransition,
 } from "react";
 
 export type Theme = "light" | "dark" | "system";
@@ -27,6 +26,45 @@ const ThemeContext = createContext<ThemeContextValue | undefined>(
 
 const isTheme = (value: unknown): value is Theme =>
   value === "light" || value === "dark" || value === "system";
+
+const readDatasetTheme = (): Theme | undefined => {
+  if (typeof document === "undefined") {
+    return undefined;
+  }
+  const datasetTheme = document.documentElement.dataset.theme;
+  if (isTheme(datasetTheme)) {
+    return datasetTheme;
+  }
+  return undefined;
+};
+
+const readDatasetResolvedTheme = (): "light" | "dark" | undefined => {
+  if (typeof document === "undefined") {
+    return undefined;
+  }
+  const datasetResolved = document.documentElement.dataset.themeResolved;
+  if (datasetResolved === "light" || datasetResolved === "dark") {
+    return datasetResolved;
+  }
+  return undefined;
+};
+
+const readStoredTheme = (): Theme | undefined => {
+  if (typeof window === "undefined") {
+    return undefined;
+  }
+
+  try {
+    const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
+    if (isTheme(stored)) {
+      return stored;
+    }
+  } catch {
+    // Ignore storage access errors (private browsing, disabled storage, etc.)
+  }
+
+  return undefined;
+};
 
 const resolveSystemTheme = () => {
   if (typeof window === "undefined") {
@@ -65,97 +103,94 @@ export function ThemeProvider({
   initialTheme: Theme;
   children: React.ReactNode;
 }) {
-  const [theme, setThemeState] = useState<Theme>(initialTheme);
+  const initialThemeValue = useMemo<Theme>(() => {
+    const datasetTheme = readDatasetTheme();
+    const storedTheme = readStoredTheme();
+    return datasetTheme ?? storedTheme ?? initialTheme;
+  }, [initialTheme]);
+
+  const initialResolvedValue = useMemo<"light" | "dark">(() => {
+    const datasetResolved = readDatasetResolvedTheme();
+    if (datasetResolved) {
+      return datasetResolved;
+    }
+    return initialThemeValue === "system"
+      ? resolveSystemTheme()
+      : initialThemeValue;
+  }, [initialThemeValue]);
+
+  const [theme, setThemeState] = useState<Theme>(initialThemeValue);
   const [resolvedTheme, setResolvedTheme] = useState<"light" | "dark">(
-    initialTheme === "dark" ? "dark" : "light",
+    initialResolvedValue,
   );
 
   const persistTheme = useCallback((nextTheme: Theme) => {
-    if (typeof window === "undefined") {
-      return;
+    if (typeof window !== "undefined") {
+      try {
+        window.localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
+      } catch {
+        // Ignore write failures (private mode, etc.)
+      }
     }
 
-    try {
-      window.localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
-    } catch {
-      // Ignore write failures (private mode, etc.)
+    if (typeof document !== "undefined") {
+      const maxAge = 60 * 60 * 24 * 365; // 1 year
+      document.cookie = `${THEME_COOKIE}=${nextTheme}; path=/; max-age=${maxAge}; SameSite=Lax`;
     }
-
-    const maxAge = 60 * 60 * 24 * 365; // 1 year
-    document.cookie = `${THEME_COOKIE}=${nextTheme}; path=/; max-age=${maxAge}; SameSite=Lax`;
   }, []);
 
-  const updateTheme = useCallback(
-    (nextTheme: Theme, { persist }: { persist: boolean }) => {
-      setThemeState(nextTheme);
+  const applyTheme = useCallback(
+    (nextTheme: Theme) => {
       const resolved = applyThemeToDocument(nextTheme);
-      setResolvedTheme(resolved);
-      if (persist) {
-        persistTheme(nextTheme);
-      }
+      setResolvedTheme((current) => (current === resolved ? current : resolved));
     },
-    [persistTheme],
+    [],
+  );
+
+  const changeTheme = useCallback(
+    (next: Theme) => {
+      if (!isTheme(next)) {
+        return;
+      }
+
+      setThemeState((current) => (current === next ? current : next));
+      applyTheme(next);
+    },
+    [applyTheme],
   );
 
   useEffect(() => {
-    if (typeof document !== "undefined") {
-      const element = document.documentElement;
-      const datasetTheme = element.dataset.theme;
-      const datasetResolved = element.dataset.themeResolved;
-
-      startTransition(() => {
-        if (isTheme(datasetTheme)) {
-          setThemeState(datasetTheme);
-        }
-        if (datasetResolved === "dark" || datasetResolved === "light") {
-          setResolvedTheme(datasetResolved);
-        }
-      });
-    }
-
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
-    const nextTheme = isTheme(stored) ? stored : initialTheme;
-
-    startTransition(() => {
-      updateTheme(nextTheme, { persist: false });
-    });
-  }, [initialTheme, updateTheme]);
+    persistTheme(theme);
+  }, [persistTheme, theme]);
 
   useEffect(() => {
-    if (typeof window === "undefined") {
+    if (theme !== "system") {
       return;
     }
-    if (theme !== "system") {
+
+    if (typeof window === "undefined") {
       return;
     }
 
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     const listener = () => {
-      const resolved = applyThemeToDocument("system");
-      setResolvedTheme(resolved);
+      applyTheme("system");
     };
+
     media.addEventListener("change", listener);
+
     return () => {
       media.removeEventListener("change", listener);
     };
-  }, [theme]);
+  }, [applyTheme, theme]);
 
   const value = useMemo<ThemeContextValue>(
     () => ({
       theme,
       resolvedTheme,
-      setTheme: (next: Theme) => {
-        if (!isTheme(next)) {
-          return;
-        }
-        updateTheme(next, { persist: true });
-      },
+      setTheme: changeTheme,
     }),
-    [theme, resolvedTheme, updateTheme],
+    [changeTheme, theme, resolvedTheme],
   );
 
   return (
@@ -172,7 +207,7 @@ export function useTheme() {
 }
 
 export function ThemeScript() {
-  const script = `(function(){try{var storageKey="${THEME_STORAGE_KEY}";var cookieKey="${THEME_COOKIE}";var stored;try{stored=localStorage.getItem(storageKey);}catch(e){stored=null;}var cookies=document.cookie?document.cookie.split("; "):[];var cookieTheme=null;for(var i=0;i<cookies.length;i++){var parts=cookies[i].split("=");if(parts[0]===cookieKey){cookieTheme=decodeURIComponent(parts[1]);break;}}var theme=stored||cookieTheme||"system";var isThemeValue=theme==="light"||theme==="dark"||theme==="system";if(!isThemeValue){theme="system";}var resolved=theme==="system"?(window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"):theme;var element=document.documentElement;element.dataset.theme=theme;element.dataset.themeResolved=resolved;element.style.colorScheme=resolved;if(resolved==="dark"){element.classList.add("dark");}else{element.classList.remove("dark");}}catch(e){}})();`;
+  const script = `(function(){try{var storageKey="${THEME_STORAGE_KEY}";var cookieKey="${THEME_COOKIE}";var stored;try{stored=localStorage.getItem(storageKey);}catch(e){stored=null;}var cookies=document.cookie?document.cookie.split("; "):[];var cookieTheme=null;for(var i=0;i<cookies.length;i++){var parts=cookies[i].split("=");if(parts[0]===cookieKey){cookieTheme=decodeURIComponent(parts[1]);break;}}var theme=stored||cookieTheme||"system";var isThemeValue=theme==="light"||theme==="dark"||theme==="system";if(!isThemeValue){theme="system";}var resolved=theme==="system"?(window.matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"):theme;var targets=[document.documentElement,document.body].filter(Boolean);for(var j=0;j<targets.length;j++){var element=targets[j];element.dataset.theme=theme;element.dataset.themeResolved=resolved;element.style.colorScheme=resolved;if(resolved==="dark"){element.classList.add("dark");}else{element.classList.remove("dark");}}}catch(e){}})();`;
 
   return (
     <script
