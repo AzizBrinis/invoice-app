@@ -1,3 +1,4 @@
+import { clsx } from "clsx";
 import Link from "next/link";
 import { listClients } from "@/server/clients";
 import { deleteClientAction } from "@/app/(app)/clients/actions";
@@ -156,7 +157,12 @@ export default async function ClientsPage({
                 </td>
                 <td className="px-4 py-3">
                   <span
-                    className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${client.isActive ? "bg-emerald-50 text-emerald-700" : "bg-zinc-100 text-zinc-600 dark:text-zinc-300"}`}
+                    className={clsx(
+                      "inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors",
+                      client.isActive
+                        ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200"
+                        : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300",
+                    )}
                   >
                     {client.isActive ? "Actif" : "Inactif"}
                   </span>

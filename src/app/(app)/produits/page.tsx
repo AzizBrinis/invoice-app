@@ -1,3 +1,4 @@
+import { clsx } from "clsx";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { listProducts } from "@/server/products";
@@ -82,13 +83,17 @@ export default async function ProduitsPage({
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-zinc-900">Produits & services</h1>
-          <p className="text-sm text-zinc-600">
+          <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">Produits & services</h1>
+          <p className="text-sm text-zinc-600 dark:text-zinc-300">
             Cataloguez vos prestations, prix HT/TTC et taux de TVA.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button asChild variant="ghost" className="text-sm text-blue-600">
+          <Button
+            asChild
+            variant="ghost"
+            className="text-sm text-blue-600 dark:text-blue-400"
+          >
             <Link href="/api/export/produits" target="_blank">
               Export CSV
             </Link>
@@ -104,7 +109,7 @@ export default async function ProduitsPage({
         className="card flex flex-col gap-3 p-4 sm:flex-row sm:items-center"
       >
         <div className="flex flex-1 flex-col gap-1">
-          <label htmlFor="file" className="text-sm font-medium text-zinc-700">
+          <label htmlFor="file" className="label">
             Import CSV (colonnes : sku, nom, prix HT, TVA, etc.)
           </label>
           <input
@@ -113,7 +118,7 @@ export default async function ProduitsPage({
             type="file"
             accept=".csv"
             required
-            className="rounded-lg border border-dashed border-zinc-300 px-3 py-2 text-sm"
+            className="input border-2 border-dashed"
           />
         </div>
         <Button type="submit" variant="secondary">
@@ -123,7 +128,7 @@ export default async function ProduitsPage({
 
       <form className="card grid gap-4 p-4 sm:grid-cols-4 sm:items-end">
         <div className="sm:col-span-2">
-          <label className="text-sm font-medium text-zinc-700" htmlFor="recherche">
+          <label className="label" htmlFor="recherche">
             Recherche
           </label>
           <input
@@ -136,7 +141,7 @@ export default async function ProduitsPage({
           />
         </div>
         <div>
-          <label className="text-sm font-medium text-zinc-700" htmlFor="categorie">
+          <label className="label" htmlFor="categorie">
             Catégorie
           </label>
           <select
@@ -153,7 +158,7 @@ export default async function ProduitsPage({
           </select>
         </div>
         <div>
-          <label className="text-sm font-medium text-zinc-700" htmlFor="statut">
+          <label className="label" htmlFor="statut">
             Statut
           </label>
           <select
@@ -173,8 +178,8 @@ export default async function ProduitsPage({
       </form>
 
       <div className="card overflow-hidden">
-        <table className="min-w-full divide-y divide-zinc-200 text-sm">
-          <thead className="bg-zinc-50 text-xs uppercase text-zinc-500">
+        <table className="min-w-full divide-y divide-zinc-200 text-sm dark:divide-zinc-800">
+          <thead className="bg-zinc-50 text-xs uppercase text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
             <tr>
               <th className="px-4 py-3 text-left">Produit</th>
               <th className="px-4 py-3 text-left">Catégorie</th>
@@ -186,31 +191,39 @@ export default async function ProduitsPage({
               <th className="px-4 py-3 text-right">Actions</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-zinc-100">
+          <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
             {products.items.map((product) => (
-              <tr key={product.id} className="hover:bg-zinc-50">
+              <tr
+                key={product.id}
+                className="transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800"
+              >
                 <td className="px-4 py-3">
-                  <div className="font-medium text-zinc-900">{product.name}</div>
-                  <div className="text-xs text-zinc-500">SKU : {product.sku}</div>
+                  <div className="font-medium text-zinc-900 dark:text-zinc-100">{product.name}</div>
+                  <div className="text-xs text-zinc-500 dark:text-zinc-400">SKU : {product.sku}</div>
                 </td>
-                <td className="px-4 py-3 text-zinc-600">
+                <td className="px-4 py-3 text-zinc-600 dark:text-zinc-300">
                   {product.category ?? "—"}
                 </td>
-                <td className="px-4 py-3 text-right text-zinc-600">
+                <td className="px-4 py-3 text-right text-zinc-600 dark:text-zinc-300">
                   {formatCurrency(fromCents(product.priceHTCents, currencyCode), currencyCode)}
                 </td>
-                <td className="px-4 py-3 text-right text-zinc-800">
+                <td className="px-4 py-3 text-right text-zinc-800 dark:text-zinc-100">
                   {formatCurrency(fromCents(product.priceTTCCents, currencyCode), currencyCode)}
                 </td>
-                <td className="px-4 py-3 text-zinc-600">{product.vatRate}%</td>
-                <td className="px-4 py-3 text-zinc-600">
+                <td className="px-4 py-3 text-zinc-600 dark:text-zinc-300">{product.vatRate}%</td>
+                <td className="px-4 py-3 text-zinc-600 dark:text-zinc-300">
                   {product.defaultDiscountRate != null
                     ? `${product.defaultDiscountRate}%`
                     : "—"}
                 </td>
                 <td className="px-4 py-3">
                   <span
-                    className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${product.isActive ? "bg-emerald-50 text-emerald-700" : "bg-zinc-100 text-zinc-600"}`}
+                    className={clsx(
+                      "inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors",
+                      product.isActive
+                        ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200"
+                        : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300",
+                    )}
                   >
                     {product.isActive ? "Actif" : "Inactif"}
                   </span>
@@ -224,7 +237,7 @@ export default async function ProduitsPage({
                       <Button
                         type="submit"
                         variant="ghost"
-                        className="px-2 py-1 text-xs text-red-600 hover:text-red-700"
+                        className="px-2 py-1 text-xs text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
                       >
                         Supprimer
                       </Button>
@@ -235,7 +248,10 @@ export default async function ProduitsPage({
             ))}
             {products.items.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-sm text-zinc-500">
+                <td
+                  colSpan={8}
+                  className="px-4 py-8 text-center text-sm text-zinc-500 dark:text-zinc-400"
+                >
                   Aucun produit trouvé avec ces critères.
                 </td>
               </tr>
@@ -255,7 +271,7 @@ export default async function ProduitsPage({
           >
             Précédent
           </ProductPaginationLink>
-          <span className="text-sm text-zinc-600">
+          <span className="text-sm text-zinc-600 dark:text-zinc-300">
             Page {products.page} / {products.pageCount}
           </span>
           <ProductPaginationLink
@@ -290,7 +306,7 @@ function ProductPaginationLink({
 }) {
   if (disabled) {
     return (
-      <span className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs text-zinc-400">
+      <span className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs text-zinc-400 dark:border-zinc-800 dark:text-zinc-500">
         {children}
       </span>
     );
@@ -305,7 +321,7 @@ function ProductPaginationLink({
   return (
     <Link
       href={`/produits?${params.toString()}`}
-      className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100"
+      className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-800"
     >
       {children}
     </Link>

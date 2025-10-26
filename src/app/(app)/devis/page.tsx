@@ -95,13 +95,17 @@ export default async function DevisPage({
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-zinc-900">Devis</h1>
-          <p className="text-sm text-zinc-600">
+          <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">Devis</h1>
+          <p className="text-sm text-zinc-600 dark:text-zinc-300">
             Suivez vos devis, leurs statuts et convertissez-les en factures.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button asChild variant="ghost" className="text-sm text-blue-600">
+          <Button
+            asChild
+            variant="ghost"
+            className="text-sm text-blue-600 dark:text-blue-400"
+          >
             <Link href="/api/export/devis" target="_blank">
               Export CSV
             </Link>
@@ -114,7 +118,7 @@ export default async function DevisPage({
 
       <form className="card grid gap-4 p-4 sm:grid-cols-5 sm:items-end">
         <div className="sm:col-span-2">
-          <label className="text-sm font-medium text-zinc-700" htmlFor="recherche">
+          <label className="label" htmlFor="recherche">
             Recherche
           </label>
           <input
@@ -127,7 +131,7 @@ export default async function DevisPage({
           />
         </div>
         <div>
-          <label className="text-sm font-medium text-zinc-700" htmlFor="statut">
+          <label className="label" htmlFor="statut">
             Statut
           </label>
           <select
@@ -145,7 +149,7 @@ export default async function DevisPage({
           </select>
         </div>
         <div>
-          <label className="text-sm font-medium text-zinc-700" htmlFor="client">
+          <label className="label" htmlFor="client">
             Client
           </label>
           <select id="client" name="client" className="input" defaultValue={clientParam ?? ""}>
@@ -158,13 +162,13 @@ export default async function DevisPage({
           </select>
         </div>
         <div className="space-y-2">
-          <label className="text-sm font-medium text-zinc-700" htmlFor="du">
+          <label className="label" htmlFor="du">
             Du
           </label>
           <input className="input" type="date" id="du" name="du" defaultValue={issueFrom ?? ""} />
         </div>
         <div className="space-y-2">
-          <label className="text-sm font-medium text-zinc-700" htmlFor="au">
+          <label className="label" htmlFor="au">
             Au
           </label>
           <input className="input" type="date" id="au" name="au" defaultValue={issueTo ?? ""} />
@@ -175,8 +179,8 @@ export default async function DevisPage({
       </form>
 
       <div className="card overflow-hidden">
-        <table className="min-w-full divide-y divide-zinc-200 text-sm">
-          <thead className="bg-zinc-50 text-xs uppercase text-zinc-500">
+        <table className="min-w-full divide-y divide-zinc-200 text-sm dark:divide-zinc-800">
+          <thead className="bg-zinc-50 text-xs uppercase text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
             <tr>
               <th className="px-4 py-3 text-left">Numéro</th>
               <th className="px-4 py-3 text-left">Client</th>
@@ -187,19 +191,22 @@ export default async function DevisPage({
               <th className="px-4 py-3 text-right">Actions</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-zinc-100">
+          <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
             {quotes.items.map((quote) => (
-              <tr key={quote.id} className="hover:bg-zinc-50">
+              <tr
+                key={quote.id}
+                className="transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800"
+              >
                 <td className="px-4 py-3">
-                  <div className="font-medium text-zinc-900">{quote.number}</div>
-                  <div className="text-xs text-zinc-500">{quote.reference ?? "—"}</div>
+                  <div className="font-medium text-zinc-900 dark:text-zinc-100">{quote.number}</div>
+                  <div className="text-xs text-zinc-500 dark:text-zinc-400">{quote.reference ?? "—"}</div>
                 </td>
-                <td className="px-4 py-3 text-zinc-600">{quote.client?.displayName}</td>
-                <td className="px-4 py-3 text-zinc-600">{formatDate(quote.issueDate)}</td>
-                <td className="px-4 py-3 text-zinc-600">
+                <td className="px-4 py-3 text-zinc-600 dark:text-zinc-300">{quote.client?.displayName}</td>
+                <td className="px-4 py-3 text-zinc-600 dark:text-zinc-300">{formatDate(quote.issueDate)}</td>
+                <td className="px-4 py-3 text-zinc-600 dark:text-zinc-300">
                   {quote.validUntil ? formatDate(quote.validUntil) : "—"}
                 </td>
-                <td className="px-4 py-3 text-right text-zinc-900">
+                <td className="px-4 py-3 text-right text-zinc-900 dark:text-zinc-100">
                   {formatCurrency(fromCents(quote.totalTTCCents, quote.currency), quote.currency)}
                 </td>
                 <td className="px-4 py-3">
@@ -211,27 +218,47 @@ export default async function DevisPage({
                       <Link href={`/devis/${quote.id}/modifier`}>Éditer</Link>
                     </Button>
                     <form action={duplicateQuoteAction.bind(null, quote.id)}>
-                      <Button type="submit" variant="ghost" className="px-2 py-1 text-xs text-zinc-600">
+                      <Button
+                        type="submit"
+                        variant="ghost"
+                        className="px-2 py-1 text-xs text-zinc-600 dark:text-zinc-300"
+                      >
                         Dupliquer
                       </Button>
                     </form>
-                    <Button asChild variant="ghost" className="px-2 py-1 text-xs text-blue-600">
+                    <Button
+                      asChild
+                      variant="ghost"
+                      className="px-2 py-1 text-xs text-blue-600 dark:text-blue-400"
+                    >
                       <Link href={`/api/devis/${quote.id}/pdf`} target="_blank">
                         PDF
                       </Link>
                     </Button>
                     <form action={convertQuoteToInvoiceAction.bind(null, quote.id)}>
-                      <Button type="submit" variant="ghost" className="px-2 py-1 text-xs text-blue-600">
+                      <Button
+                        type="submit"
+                        variant="ghost"
+                        className="px-2 py-1 text-xs text-blue-600 dark:text-blue-400"
+                      >
                         Convertir
                       </Button>
                     </form>
                     <form action={deleteQuoteAction.bind(null, quote.id)}>
-                      <Button type="submit" variant="ghost" className="px-2 py-1 text-xs text-red-600">
+                      <Button
+                        type="submit"
+                        variant="ghost"
+                        className="px-2 py-1 text-xs text-red-600 dark:text-red-400"
+                      >
                         Supprimer
                       </Button>
                     </form>
                     <form action={changeQuoteStatusAction.bind(null, quote.id, QuoteStatus.ACCEPTE)}>
-                      <Button type="submit" variant="ghost" className="px-2 py-1 text-xs text-emerald-600">
+                      <Button
+                        type="submit"
+                        variant="ghost"
+                        className="px-2 py-1 text-xs text-emerald-600 dark:text-emerald-400"
+                      >
                         Marquer accepté
                       </Button>
                     </form>
@@ -241,7 +268,10 @@ export default async function DevisPage({
             ))}
             {quotes.items.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-10 text-center text-sm text-zinc-500">
+                <td
+                  colSpan={7}
+                  className="px-4 py-10 text-center text-sm text-zinc-500 dark:text-zinc-400"
+                >
                   Aucun devis trouvé.
                 </td>
               </tr>
@@ -262,7 +292,7 @@ export default async function DevisPage({
             issueFrom={issueFrom ?? ""}
             issueTo={issueTo ?? ""}
           />
-          <span className="text-sm text-zinc-600">
+          <span className="text-sm text-zinc-600 dark:text-zinc-300">
             Page {quotes.page} / {quotes.pageCount}
           </span>
           <QuotePaginationLink
@@ -302,7 +332,7 @@ function QuotePaginationLink({
 }) {
   if (disabled) {
     return (
-      <span className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs text-zinc-400">
+      <span className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs text-zinc-400 dark:border-zinc-800 dark:text-zinc-500">
         {label}
       </span>
     );
@@ -318,7 +348,7 @@ function QuotePaginationLink({
   return (
     <Link
       href={`/devis?${params.toString()}`}
-      className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100"
+      className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-800"
     >
       {label}
     </Link>
