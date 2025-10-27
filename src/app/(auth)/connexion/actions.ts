@@ -13,7 +13,8 @@ const loginSchema = z.object({
 });
 
 export type LoginFormState = {
-  error?: string;
+  message?: string;
+  fieldErrors?: Partial<Record<"email" | "password", string>>;
 };
 
 export async function authenticate(
@@ -24,13 +25,27 @@ export async function authenticate(
   const parsed = loginSchema.safeParse(raw);
 
   if (!parsed.success) {
-    const message = parsed.error.issues[0]?.message ?? "Identifiants invalides";
-    return { error: message };
+    const { fieldErrors, formErrors } = parsed.error.flatten();
+    return {
+      message: formErrors[0] ?? "Veuillez corriger les champs signalés.",
+      fieldErrors: {
+        email: fieldErrors.email?.[0],
+        password: fieldErrors.password?.[0],
+      },
+    };
   }
 
-  const user = await signIn(parsed.data.email, parsed.data.password);
-  if (!user) {
-    return { error: "Identifiants incorrects" };
+  try {
+    const user = await signIn(parsed.data.email, parsed.data.password);
+    if (!user) {
+      return { message: "Identifiants incorrects" };
+    }
+  } catch (error) {
+    console.error("[authenticate] Échec de la connexion", error);
+    return {
+      message:
+        "Impossible de vous connecter pour le moment. Veuillez réessayer.",
+    };
   }
 
   const safeRedirect = parsed.data.redirectTo.startsWith("/")

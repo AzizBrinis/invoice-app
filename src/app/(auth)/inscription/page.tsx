@@ -2,6 +2,8 @@ import Link from "next/link";
 import { RegisterForm } from "./register-form";
 import { getCurrentUser } from "@/lib/auth";
 import { redirect } from "next/navigation";
+import { Alert } from "@/components/ui/alert";
+import { FlashMessages } from "@/components/ui/flash-messages";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -35,11 +37,16 @@ export default async function InscriptionPage({ searchParams }: PageProps) {
             Renseignez vos informations pour accéder à l&apos;espace d&apos;administration.
           </p>
         </div>
-        {messageParam && (
-          <p className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-200">
-            {messageParam}
-          </p>
-        )}
+        <FlashMessages
+          messages={messageParam ? [{ variant: "success", title: messageParam }] : []}
+        />
+        {messageParam ? (
+          <Alert
+            className="mb-4"
+            variant="success"
+            title={messageParam}
+          />
+        ) : null}
         <RegisterForm />
         <p className="mt-6 text-center text-xs text-zinc-500 dark:text-zinc-400">
           Vous avez déjà un compte ?

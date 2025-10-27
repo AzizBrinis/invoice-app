@@ -3,7 +3,6 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getInvoice } from "@/server/invoices";
 import { InvoiceEditor } from "@/app/(app)/factures/invoice-editor";
-import { updateInvoiceAction } from "@/app/(app)/factures/actions";
 import { getSettings } from "@/server/settings";
 import { SUPPORTED_CURRENCIES, type CurrencyCode } from "@/lib/currency";
 import { normalizeTaxConfiguration } from "@/lib/taxes";
@@ -57,7 +56,6 @@ export default async function EditFacturePage({
         </Link>
       </div>
       <InvoiceEditor
-        action={updateInvoiceAction.bind(null, invoice.id)}
         submitLabel="Mettre à jour la facture"
         clients={clients}
         products={products}
@@ -65,6 +63,7 @@ export default async function EditFacturePage({
         currencyOptions={SUPPORTED_CURRENCIES}
         taxConfiguration={normalizeTaxConfiguration(settings.taxConfiguration)}
         defaultInvoice={invoice}
+        redirectTo="/factures/:id"
       />
     </div>
   );

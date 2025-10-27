@@ -6,6 +6,11 @@ import { Button } from "@/components/ui/button";
 import { ExportButton } from "@/components/export-button";
 import { formatDate } from "@/lib/formatters";
 import { FormSubmitButton } from "@/components/ui/form-submit-button";
+import { Alert } from "@/components/ui/alert";
+import {
+  FlashMessages,
+  type FlashMessage,
+} from "@/components/ui/flash-messages";
 
 function parseBooleanFilter(value: string | undefined): boolean | "all" {
   if (!value || value === "all") return "all";
@@ -56,13 +61,38 @@ export default async function ClientsPage({
     page,
   });
 
+  const successMessage = Array.isArray(resolvedSearchParams?.message)
+    ? resolvedSearchParams.message[0]
+    : resolvedSearchParams?.message ?? null;
+  const warningMessage = Array.isArray(resolvedSearchParams?.warning)
+    ? resolvedSearchParams.warning[0]
+    : resolvedSearchParams?.warning ?? null;
+
+  const flashMessages: FlashMessage[] = [];
+  if (successMessage) {
+    flashMessages.push({ variant: "success", title: successMessage });
+  }
+  if (warningMessage) {
+    flashMessages.push({ variant: "warning", title: warningMessage });
+  }
+  if (errorMessage) {
+    flashMessages.push({ variant: "error", title: errorMessage });
+  }
+
+  const searchQuery = new URLSearchParams();
+  if (search) searchQuery.set("recherche", search);
+  if (statutParam) searchQuery.set("statut", statutParam);
+  if (page > 1) searchQuery.set("page", String(page));
+  const redirectBase = searchQuery.toString()
+    ? `/clients?${searchQuery.toString()}`
+    : "/clients";
+
   return (
     <div className="space-y-6">
-      {errorMessage && (
-        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-200">
-          {errorMessage}
-        </p>
-      )}
+      <FlashMessages messages={flashMessages} />
+      {errorMessage ? <Alert variant="error" title={errorMessage} /> : null}
+      {successMessage ? <Alert variant="success" title={successMessage} /> : null}
+      {warningMessage ? <Alert variant="warning" title={warningMessage} /> : null}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">Clients</h1>
@@ -183,6 +213,7 @@ export default async function ClientsPage({
                       >
                         Supprimer
                       </FormSubmitButton>
+                      <input type="hidden" name="redirectTo" value={redirectBase} />
                     </form>
                   </div>
                 </td>

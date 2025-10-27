@@ -7,6 +7,7 @@ import {
   ThemeScript,
   type Theme,
 } from "@/components/theme/theme-provider";
+import { ToastProvider } from "@/components/ui/toast-provider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -65,9 +66,11 @@ export default async function RootLayout({
         suppressHydrationWarning
       >
         <ThemeScript />
-        <ThemeProvider initialTheme={initialTheme}>
-          {children}
-        </ThemeProvider>
+        <ToastProvider>
+          <ThemeProvider initialTheme={initialTheme}>
+            {children}
+          </ThemeProvider>
+        </ToastProvider>
       </body>
     </html>
   );

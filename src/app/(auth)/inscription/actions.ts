@@ -4,7 +4,6 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { hashPassword, signIn } from "@/lib/auth";
-import type { LoginFormState } from "@/app/(auth)/connexion/actions";
 
 const registerSchema = z
   .object({
@@ -30,7 +29,12 @@ const registerSchema = z
     }
   });
 
-export type RegisterFormState = LoginFormState;
+export type RegisterFormState = {
+  message?: string;
+  fieldErrors?: Partial<
+    Record<"name" | "email" | "password" | "confirmPassword", string>
+  >;
+};
 
 export async function registerAction(
   _prevState: RegisterFormState,
@@ -40,29 +44,54 @@ export async function registerAction(
   const parsed = registerSchema.safeParse(raw);
 
   if (!parsed.success) {
-    const issue = parsed.error.issues[0];
-    return { error: issue?.message ?? "Champs invalides" };
+    const { fieldErrors, formErrors } = parsed.error.flatten();
+    return {
+      message: formErrors[0] ?? "Veuillez corriger les champs signalés.",
+      fieldErrors: {
+        name: fieldErrors.name?.[0],
+        email: fieldErrors.email?.[0],
+        password: fieldErrors.password?.[0],
+        confirmPassword: fieldErrors.confirmPassword?.[0],
+      },
+    };
   }
 
   const { email, password, name } = parsed.data;
 
-  const existing = await prisma.user.findUnique({ where: { email } });
-  if (existing) {
-    return { error: "Un compte existe déjà avec cette adresse" };
-  }
+  try {
+    const existing = await prisma.user.findUnique({ where: { email } });
+    if (existing) {
+      return {
+        message: "Un compte existe déjà avec cette adresse",
+        fieldErrors: {
+          email: "Un compte existe déjà avec cette adresse",
+        },
+      };
+    }
 
-  const passwordHash = await hashPassword(password);
-  await prisma.user.create({
-    data: {
-      email,
-      passwordHash,
-      name: name && name.length > 0 ? name : null,
-    },
-  });
+    const passwordHash = await hashPassword(password);
+    await prisma.user.create({
+      data: {
+        email,
+        passwordHash,
+        name: name && name.length > 0 ? name : null,
+      },
+    });
 
-  const user = await signIn(email, password);
-  if (!user) {
-    return { error: "Impossible de créer la session" };
+    const user = await signIn(email, password);
+    if (!user) {
+      console.error("[registerAction] Session non créée après l'inscription");
+      return {
+        message:
+          "Compte créé, mais la connexion automatique a échoué. Veuillez vous connecter manuellement.",
+      };
+    }
+  } catch (error) {
+    console.error("[registerAction] Erreur lors de l'inscription", error);
+    return {
+      message:
+        "Impossible de finaliser l'inscription pour le moment. Veuillez réessayer.",
+    };
   }
 
   redirect("/tableau-de-bord");

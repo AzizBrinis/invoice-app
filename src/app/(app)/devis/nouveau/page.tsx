@@ -34,6 +34,7 @@ export default async function NouveauDevisPage() {
         defaultCurrency={settings.defaultCurrency as CurrencyCode}
         currencyOptions={SUPPORTED_CURRENCIES}
         taxConfiguration={normalizeTaxConfiguration(settings.taxConfiguration)}
+        redirectTo="/devis"
       />
     </div>
   );

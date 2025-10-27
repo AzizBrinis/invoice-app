@@ -14,6 +14,11 @@ import { InvoiceStatus } from "@prisma/client";
 import { InvoicesPageSkeleton } from "@/components/skeletons";
 import { ExportButton } from "@/components/export-button";
 import { FormSubmitButton } from "@/components/ui/form-submit-button";
+import { Alert } from "@/components/ui/alert";
+import {
+  FlashMessages,
+  type FlashMessage,
+} from "@/components/ui/flash-messages";
 
 const STATUS_LABELS: Record<InvoiceStatus, string> = {
   BROUILLON: "Brouillon",
@@ -92,6 +97,36 @@ async function FacturesPageContent({
 
   const page = Number(pageParam ?? "1") || 1;
 
+  const successMessage = Array.isArray(resolvedSearchParams?.message)
+    ? resolvedSearchParams.message[0]
+    : resolvedSearchParams?.message ?? null;
+  const errorMessage = Array.isArray(resolvedSearchParams?.error)
+    ? resolvedSearchParams.error[0]
+    : resolvedSearchParams?.error ?? null;
+  const warningMessage = Array.isArray(resolvedSearchParams?.warning)
+    ? resolvedSearchParams.warning[0]
+    : resolvedSearchParams?.warning ?? null;
+
+  const flashMessages: FlashMessage[] = [];
+  if (successMessage) {
+    flashMessages.push({
+      variant: "success",
+      title: successMessage,
+    });
+  }
+  if (warningMessage) {
+    flashMessages.push({
+      variant: "warning",
+      title: warningMessage,
+    });
+  }
+  if (errorMessage) {
+    flashMessages.push({
+      variant: "error",
+      title: errorMessage,
+    });
+  }
+
   const [invoices, clients] = await Promise.all([
     listInvoices({
       search: search || undefined,
@@ -107,8 +142,31 @@ async function FacturesPageContent({
     }),
   ]);
 
+  const searchQuery = new URLSearchParams();
+  if (search) searchQuery.set("recherche", search);
+  if (statutParam && statutParam !== "all") {
+    searchQuery.set("statut", statutParam);
+  }
+  if (clientParam) searchQuery.set("client", clientParam);
+  if (issueFrom) searchQuery.set("du", issueFrom);
+  if (issueTo) searchQuery.set("au", issueTo);
+  if (page > 1) searchQuery.set("page", String(page));
+  const redirectBase = searchQuery.toString()
+    ? `/factures?${searchQuery.toString()}`
+    : "/factures";
+
   return (
     <div className="space-y-6">
+      <FlashMessages messages={flashMessages} />
+      {successMessage ? (
+        <Alert variant="success" title={successMessage} />
+      ) : null}
+      {warningMessage ? (
+        <Alert variant="warning" title={warningMessage} />
+      ) : null}
+      {errorMessage ? (
+        <Alert variant="error" title={errorMessage} />
+      ) : null}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
@@ -270,25 +328,27 @@ async function FacturesPageContent({
                       </Link>
                     </Button>
                     <form action={changeInvoiceStatusAction.bind(null, invoice.id, InvoiceStatus.PAYEE)}>
-                      <FormSubmitButton
-                        variant="ghost"
-                        className="px-2 py-1 text-xs text-emerald-600 dark:text-emerald-400"
-                      >
-                        Marquer payée
-                      </FormSubmitButton>
-                    </form>
-                    <form action={deleteInvoiceAction.bind(null, invoice.id)}>
-                      <FormSubmitButton
-                        variant="ghost"
-                        className="px-2 py-1 text-xs text-red-600 dark:text-red-400"
-                      >
-                        Supprimer
-                      </FormSubmitButton>
-                    </form>
-                  </div>
-                </td>
-              </tr>
-            ))}
+                    <FormSubmitButton
+                      variant="ghost"
+                      className="px-2 py-1 text-xs text-emerald-600 dark:text-emerald-400"
+                    >
+                      Marquer payée
+                    </FormSubmitButton>
+                    <input type="hidden" name="redirectTo" value={redirectBase} />
+                  </form>
+                  <form action={deleteInvoiceAction.bind(null, invoice.id)}>
+                    <FormSubmitButton
+                      variant="ghost"
+                      className="px-2 py-1 text-xs text-red-600 dark:text-red-400"
+                    >
+                      Supprimer
+                    </FormSubmitButton>
+                    <input type="hidden" name="redirectTo" value={redirectBase} />
+                  </form>
+                </div>
+              </td>
+            </tr>
+          ))}
             {invoices.items.length === 0 && (
               <tr>
                 <td

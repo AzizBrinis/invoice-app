@@ -12,6 +12,11 @@ import { getSettings } from "@/server/settings";
 import { SUPPORTED_CURRENCIES, type CurrencyCode } from "@/lib/currency";
 import { normalizeTaxConfiguration } from "@/lib/taxes";
 import { FormSubmitButton } from "@/components/ui/form-submit-button";
+import { Alert } from "@/components/ui/alert";
+import {
+  FlashMessages,
+  type FlashMessage,
+} from "@/components/ui/flash-messages";
 
 type PageParams = { id: string };
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -49,6 +54,20 @@ export default async function EditDevisPage({
   const errorMessage = Array.isArray(resolvedSearchParams?.error)
     ? resolvedSearchParams.error[0]
     : resolvedSearchParams?.error ?? null;
+  const warningMessage = Array.isArray(resolvedSearchParams?.warning)
+    ? resolvedSearchParams.warning[0]
+    : resolvedSearchParams?.warning ?? null;
+
+  const flashMessages: FlashMessage[] = [];
+  if (successMessage) {
+    flashMessages.push({ variant: "success", title: successMessage });
+  }
+  if (warningMessage) {
+    flashMessages.push({ variant: "warning", title: warningMessage });
+  }
+  if (errorMessage) {
+    flashMessages.push({ variant: "error", title: errorMessage });
+  }
 
   const [clients, products, settings] = await Promise.all([
     prisma.client.findMany({ orderBy: { displayName: "asc" } }),
@@ -56,18 +75,14 @@ export default async function EditDevisPage({
     getSettings(),
   ]);
 
+  const redirectBase = `/devis/${quote.id}/modifier`;
+
   return (
     <div className="space-y-6">
-      {successMessage && (
-        <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-200">
-          {successMessage}
-        </p>
-      )}
-      {errorMessage && (
-        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-200">
-          {errorMessage}
-        </p>
-      )}
+      <FlashMessages messages={flashMessages} />
+      {successMessage ? <Alert variant="success" title={successMessage} /> : null}
+      {warningMessage ? <Alert variant="warning" title={warningMessage} /> : null}
+      {errorMessage ? <Alert variant="error" title={errorMessage} /> : null}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
@@ -93,12 +108,14 @@ export default async function EditDevisPage({
         currencyOptions={SUPPORTED_CURRENCIES}
         taxConfiguration={normalizeTaxConfiguration(settings.taxConfiguration)}
         defaultQuote={quote}
+        redirectTo="/devis"
       />
       <section className="card space-y-4 p-6">
         <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
           Envoyer le devis par e-mail
         </h2>
         <form action={sendQuoteEmailAction.bind(null, quote.id)} className="grid gap-4 sm:grid-cols-2">
+          <input type="hidden" name="redirectTo" value={redirectBase} />
           <div className="space-y-1">
             <label htmlFor="email" className="text-sm text-zinc-600 dark:text-zinc-300">
               Destinataire

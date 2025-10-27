@@ -21,7 +21,11 @@ export default function NouveauClientPage() {
           Retour à la liste
         </Link>
       </div>
-      <ClientForm action={createClientAction} submitLabel="Créer le client" />
+      <ClientForm
+        action={createClientAction}
+        submitLabel="Créer le client"
+        redirectTo="/clients"
+      />
     </div>
   );
 }

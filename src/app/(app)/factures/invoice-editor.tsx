@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
-import type { Client, Invoice, InvoiceLine, Product } from "@prisma/client";
+import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
+import { useRouter } from "next/navigation";
+import type { Client, Invoice, InvoiceLine, Product } from "@prisma/client";
 import { calculateDocumentTotals, calculateLineTotals } from "@/lib/documents";
 import { toCents, fromCents } from "@/lib/money";
 import { formatCurrency } from "@/lib/formatters";
@@ -12,6 +13,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { InvoiceStatus } from "@prisma/client";
 import type { CurrencyInfo, CurrencyCode } from "@/lib/currency";
 import { normalizeTaxConfiguration, type TaxConfiguration } from "@/lib/taxes";
+import { submitInvoiceFormAction } from "@/app/(app)/factures/actions";
+import {
+  INITIAL_INVOICE_FORM_STATE,
+  type InvoiceFormState,
+} from "@/app/(app)/factures/form-state";
+import { Alert } from "@/components/ui/alert";
+import { useToast } from "@/components/ui/toast-provider";
 
 type InvoiceLineForm = {
   id?: string;
@@ -27,7 +35,6 @@ type InvoiceLineForm = {
 };
 
 type InvoiceEditorProps = {
-  action: (formData: FormData) => void;
   submitLabel: string;
   clients: Client[];
   products: Product[];
@@ -35,6 +42,7 @@ type InvoiceEditorProps = {
   currencyOptions: CurrencyInfo[];
   taxConfiguration: TaxConfiguration;
   defaultInvoice?: Invoice & { lines: InvoiceLine[] };
+  redirectTo?: string;
 };
 
 const STATUS_OPTIONS: { value: InvoiceStatus; label: string }[] = [
@@ -56,7 +64,6 @@ function SubmitButton({ label }: { label: string }) {
 }
 
 export function InvoiceEditor({
-  action,
   submitLabel,
   clients,
   products,
@@ -64,7 +71,14 @@ export function InvoiceEditor({
   currencyOptions,
   taxConfiguration,
   defaultInvoice,
+  redirectTo,
 }: InvoiceEditorProps) {
+  const router = useRouter();
+  const { addToast } = useToast();
+  const [formState, formAction] = useActionState<InvoiceFormState, FormData>(
+    submitInvoiceFormAction,
+    INITIAL_INVOICE_FORM_STATE,
+  );
   const initialCurrency = defaultInvoice?.currency ?? defaultCurrency;
   const invoiceTaxConfig = defaultInvoice?.taxConfiguration
     ? normalizeTaxConfiguration(defaultInvoice.taxConfiguration)
@@ -147,6 +161,58 @@ export function InvoiceEditor({
 
   const [lines, setLines] = useState<InvoiceLineForm[]>(initialLines);
   const payloadRef = useRef<HTMLInputElement>(null);
+  const fieldErrors = formState.fieldErrors ?? {};
+
+  const lineErrors = useMemo(() => {
+    const map = new Map<number, Record<string, string>>();
+    const alias: Record<string, string> = {
+      unitPriceHTCents: "unitPrice",
+      discountAmountCents: "discountAmount",
+    };
+    const source = formState.issueMap ?? {};
+    Object.entries(source).forEach(([path, message]) => {
+      if (!path.startsWith("lines.")) return;
+      const segments = path.split(".");
+      const index = Number(segments[1]);
+      const field = segments[2];
+      if (Number.isNaN(index) || !field) {
+        return;
+      }
+      if (!map.has(index)) {
+        map.set(index, {});
+      }
+      const key = alias[field] ?? field;
+      map.get(index)![key] = message;
+    });
+    return map;
+  }, [formState.issueMap]);
+  const linesErrorMessage = fieldErrors.lines;
+
+  useEffect(() => {
+    if (formState.status === "success" && formState.invoiceId) {
+      addToast({
+        variant: "success",
+        title: formState.message ?? "Facture enregistrée",
+      });
+      const baseDestination =
+        redirectTo && redirectTo.startsWith("/")
+          ? redirectTo
+          : `/factures/${formState.invoiceId}`;
+      const destination = baseDestination.includes(":id")
+        ? baseDestination.replace(":id", formState.invoiceId)
+        : baseDestination === "/factures"
+          ? baseDestination
+          : `/factures/${formState.invoiceId}`;
+      router.push(destination);
+    }
+  }, [
+    addToast,
+    formState.invoiceId,
+    formState.message,
+    formState.status,
+    redirectTo,
+    router,
+  ]);
 
   const totals = useMemo(() => {
     const rateValue =
@@ -330,9 +396,11 @@ export function InvoiceEditor({
     },
   });
 
+  const target = redirectTo ?? "/factures";
+
   return (
     <form
-      action={action}
+      action={formAction}
       onSubmit={() => {
         if (payloadRef.current) {
           payloadRef.current.value = JSON.stringify(buildPayload());
@@ -341,27 +409,43 @@ export function InvoiceEditor({
       className="space-y-6"
     >
       <input ref={payloadRef} type="hidden" name="payload" />
+      <input
+        type="hidden"
+        name="invoiceId"
+        value={defaultInvoice?.id ?? ""}
+      />
+      {formState.status === "error" && formState.message ? (
+        <Alert variant="error" title={formState.message} />
+      ) : null}
+      <input type="hidden" name="redirectTo" value={target} />
       <section className="card space-y-4 p-6">
         <div className="grid gap-4 sm:grid-cols-3">
           <div className="space-y-2">
-            <label className="label" htmlFor="clientId">
-              Client
-            </label>
-            <select
-              id="clientId"
-              name="clientId"
-              className="input"
-              value={clientId}
-              onChange={(event) => setClientId(event.target.value)}
-              required
-            >
-              {clients.map((client) => (
-                <option key={client.id} value={client.id}>
-                  {client.displayName}
-                </option>
-              ))}
-            </select>
-          </div>
+          <label className="label" htmlFor="clientId">
+            Client
+          </label>
+          <select
+            id="clientId"
+            name="clientId"
+            className="input"
+            value={clientId}
+            onChange={(event) => setClientId(event.target.value)}
+            required
+            aria-invalid={Boolean(fieldErrors.clientId) || undefined}
+            data-invalid={fieldErrors.clientId ? "true" : undefined}
+          >
+            {clients.map((client) => (
+              <option key={client.id} value={client.id}>
+                {client.displayName}
+              </option>
+            ))}
+          </select>
+          {fieldErrors.clientId ? (
+            <p className="text-xs text-red-600 dark:text-red-400">
+              {fieldErrors.clientId}
+            </p>
+          ) : null}
+        </div>
           <div className="space-y-2">
             <label className="label" htmlFor="status">
               Statut
@@ -389,7 +473,14 @@ export function InvoiceEditor({
               name="reference"
               value={reference}
               onChange={(event) => setReference(event.target.value)}
+              aria-invalid={Boolean(fieldErrors.reference) || undefined}
+              data-invalid={fieldErrors.reference ? "true" : undefined}
             />
+            {fieldErrors.reference ? (
+              <p className="text-xs text-red-600 dark:text-red-400">
+                {fieldErrors.reference}
+              </p>
+            ) : null}
           </div>
         </div>
 
@@ -405,7 +496,14 @@ export function InvoiceEditor({
               value={issueDate}
               onChange={(event) => setIssueDate(event.target.value)}
               required
+              aria-invalid={Boolean(fieldErrors.issueDate) || undefined}
+              data-invalid={fieldErrors.issueDate ? "true" : undefined}
             />
+            {fieldErrors.issueDate ? (
+              <p className="text-xs text-red-600 dark:text-red-400">
+                {fieldErrors.issueDate}
+              </p>
+            ) : null}
           </div>
           <div className="space-y-2">
             <label className="label" htmlFor="dueDate">
@@ -417,7 +515,14 @@ export function InvoiceEditor({
               type="date"
               value={dueDate}
               onChange={(event) => setDueDate(event.target.value)}
+              aria-invalid={Boolean(fieldErrors.dueDate) || undefined}
+              data-invalid={fieldErrors.dueDate ? "true" : undefined}
             />
+            {fieldErrors.dueDate ? (
+              <p className="text-xs text-red-600 dark:text-red-400">
+                {fieldErrors.dueDate}
+              </p>
+            ) : null}
           </div>
           <div className="space-y-2">
             <label className="label" htmlFor="currency">
@@ -551,6 +656,9 @@ export function InvoiceEditor({
             Ajouter une ligne
           </Button>
         </div>
+        {linesErrorMessage ? (
+          <Alert variant="error" title={linesErrorMessage} />
+        ) : null}
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-zinc-200 text-sm dark:divide-zinc-800">
             <thead className="bg-zinc-50 text-xs uppercase text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
@@ -572,6 +680,7 @@ export function InvoiceEditor({
             <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
               {lines.map((line, index) => {
                 const computed = totals.computedLines[index];
+                const lineError = lineErrors.get(index) ?? {};
                 return (
                   <tr key={index} className="transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800">
                     <td className="px-3 py-2">
@@ -595,7 +704,14 @@ export function InvoiceEditor({
                         onChange={(event) =>
                           handleLineChange(index, { description: event.target.value })
                         }
+                        aria-invalid={Boolean(lineError.description) || undefined}
+                        data-invalid={lineError.description ? "true" : undefined}
                       />
+                      {lineError.description ? (
+                        <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                          {lineError.description}
+                        </p>
+                      ) : null}
                     </td>
                     <td className="px-3 py-2">
                       <Input
@@ -606,13 +722,27 @@ export function InvoiceEditor({
                         onChange={(event) =>
                           handleLineChange(index, { quantity: Number(event.target.value) })
                         }
+                        aria-invalid={Boolean(lineError.quantity) || undefined}
+                        data-invalid={lineError.quantity ? "true" : undefined}
                       />
+                      {lineError.quantity ? (
+                        <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                          {lineError.quantity}
+                        </p>
+                      ) : null}
                     </td>
                     <td className="px-3 py-2">
                       <Input
                         value={line.unit}
                         onChange={(event) => handleLineChange(index, { unit: event.target.value })}
+                        aria-invalid={Boolean(lineError.unit) || undefined}
+                        data-invalid={lineError.unit ? "true" : undefined}
                       />
+                      {lineError.unit ? (
+                        <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                          {lineError.unit}
+                        </p>
+                      ) : null}
                     </td>
                     <td className="px-3 py-2">
                       <Input
@@ -623,7 +753,14 @@ export function InvoiceEditor({
                         onChange={(event) =>
                           handleLineChange(index, { unitPrice: Number(event.target.value) })
                         }
+                        aria-invalid={Boolean(lineError.unitPrice) || undefined}
+                        data-invalid={lineError.unitPrice ? "true" : undefined}
                       />
+                      {lineError.unitPrice ? (
+                        <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                          {lineError.unitPrice}
+                        </p>
+                      ) : null}
                     </td>
                     <td className="px-3 py-2">
                       <Input
@@ -634,7 +771,14 @@ export function InvoiceEditor({
                         onChange={(event) =>
                           handleDiscountRateChange(index, event.target.value)
                         }
+                        aria-invalid={Boolean(lineError.discountRate) || undefined}
+                        data-invalid={lineError.discountRate ? "true" : undefined}
                       />
+                      {lineError.discountRate ? (
+                        <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                          {lineError.discountRate}
+                        </p>
+                      ) : null}
                     </td>
                     {taxConfiguration.fodec.application === "line" && taxConfiguration.fodec.enabled && (
                       <td className="px-3 py-2">
@@ -652,7 +796,14 @@ export function InvoiceEditor({
                             })
                           }
                           disabled={!applyFodec}
+                          aria-invalid={Boolean(lineError.fodecRate) || undefined}
+                          data-invalid={lineError.fodecRate ? "true" : undefined}
                         />
+                        {lineError.fodecRate ? (
+                          <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                            {lineError.fodecRate}
+                          </p>
+                        ) : null}
                       </td>
                     )}
                     <td className="px-3 py-2">
@@ -664,7 +815,14 @@ export function InvoiceEditor({
                         onChange={(event) =>
                           handleLineChange(index, { vatRate: Number(event.target.value) })
                         }
+                        aria-invalid={Boolean(lineError.vatRate) || undefined}
+                        data-invalid={lineError.vatRate ? "true" : undefined}
                       />
+                      {lineError.vatRate ? (
+                        <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                          {lineError.vatRate}
+                        </p>
+                      ) : null}
                     </td>
                     <td className="px-3 py-2 text-right font-medium text-zinc-700 dark:text-zinc-100">
                       {formatCurrency(fromCents(computed.totalTTCCents, currency), currency)}

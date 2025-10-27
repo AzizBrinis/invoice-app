@@ -13,6 +13,11 @@ import { fromCents } from "@/lib/money";
 import { getSettings } from "@/server/settings";
 import type { CurrencyCode } from "@/lib/currency";
 import { FormSubmitButton } from "@/components/ui/form-submit-button";
+import { Alert } from "@/components/ui/alert";
+import {
+  FlashMessages,
+  type FlashMessage,
+} from "@/components/ui/flash-messages";
 
 function parseBooleanFilter(value: string | undefined): boolean | "all" {
   if (!value || value === "all") return "all";
@@ -53,6 +58,9 @@ export default async function ProduitsPage({
   const pageParam = Array.isArray(resolvedSearchParams?.page)
     ? resolvedSearchParams.page[0]
     : resolvedSearchParams?.page;
+  const errorMessage = Array.isArray(resolvedSearchParams?.error)
+    ? resolvedSearchParams.error[0]
+    : resolvedSearchParams?.error ?? null;
 
   const page = Number(pageParam ?? "1") || 1;
   const isActive = parseBooleanFilter(statutParam);
@@ -80,9 +88,56 @@ export default async function ProduitsPage({
       .filter((value): value is string => Boolean(value)),
   ];
   const currencyCode = settings.defaultCurrency as CurrencyCode;
+  const successMessage = Array.isArray(resolvedSearchParams?.message)
+    ? resolvedSearchParams.message[0]
+    : resolvedSearchParams?.message ?? null;
+  const warningMessage = Array.isArray(resolvedSearchParams?.warning)
+    ? resolvedSearchParams.warning[0]
+    : resolvedSearchParams?.warning ?? null;
+  const flashParam = Array.isArray(resolvedSearchParams?.flash)
+    ? resolvedSearchParams.flash[0]
+    : resolvedSearchParams?.flash ?? null;
+
+  const flashMessages: FlashMessage[] = [];
+  if (successMessage) {
+    flashMessages.push({
+      id: flashParam ? `${flashParam}:success` : undefined,
+      variant: "success",
+      title: successMessage,
+    });
+  }
+  if (warningMessage) {
+    flashMessages.push({
+      id: flashParam ? `${flashParam}:warning` : undefined,
+      variant: "warning",
+      title: warningMessage,
+    });
+  }
+  if (errorMessage) {
+    flashMessages.push({
+      id: flashParam ? `${flashParam}:error` : undefined,
+      variant: "error",
+      title: errorMessage,
+    });
+  }
+
+  const searchQuery = new URLSearchParams();
+  if (search) searchQuery.set("recherche", search);
+  if (categorieParam && categorieParam !== "all") {
+    searchQuery.set("categorie", categorieParam);
+  }
+  if (statutParam) searchQuery.set("statut", statutParam);
+  if (page > 1) searchQuery.set("page", String(page));
+  const redirectBase = searchQuery.toString()
+    ? `/produits?${searchQuery.toString()}`
+    : "/produits";
 
   return (
     <div className="space-y-6">
+      <FlashMessages messages={flashMessages} />
+      {successMessage ? <Alert variant="success" title={successMessage} /> : null}
+      {warningMessage ? <Alert variant="warning" title={warningMessage} /> : null}
+      {errorMessage ? <Alert variant="error" title={errorMessage} /> : null}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">Produits & services</h1>
@@ -125,6 +180,7 @@ export default async function ProduitsPage({
         <FormSubmitButton variant="secondary">
           Importer
         </FormSubmitButton>
+        <input type="hidden" name="redirectTo" value={redirectBase} />
       </form>
 
       <form className="card grid gap-4 p-4 sm:grid-cols-4 sm:items-end">
@@ -241,6 +297,7 @@ export default async function ProduitsPage({
                       >
                         Supprimer
                       </FormSubmitButton>
+                      <input type="hidden" name="redirectTo" value={redirectBase} />
                     </form>
                   </div>
                 </td>

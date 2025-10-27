@@ -16,6 +16,11 @@ import { QuoteStatus } from "@prisma/client";
 import { QuotesPageSkeleton } from "@/components/skeletons";
 import { ExportButton } from "@/components/export-button";
 import { FormSubmitButton } from "@/components/ui/form-submit-button";
+import { Alert } from "@/components/ui/alert";
+import {
+  FlashMessages,
+  type FlashMessage,
+} from "@/components/ui/flash-messages";
 
 const STATUS_LABELS: Record<QuoteStatus, string> = {
   BROUILLON: "Brouillon",
@@ -92,6 +97,36 @@ async function DevisPageContent({
 
   const page = Number(pageParam ?? "1") || 1;
 
+  const successMessage = Array.isArray(resolvedSearchParams?.message)
+    ? resolvedSearchParams.message[0]
+    : resolvedSearchParams?.message ?? null;
+  const errorMessage = Array.isArray(resolvedSearchParams?.error)
+    ? resolvedSearchParams.error[0]
+    : resolvedSearchParams?.error ?? null;
+  const warningMessage = Array.isArray(resolvedSearchParams?.warning)
+    ? resolvedSearchParams.warning[0]
+    : resolvedSearchParams?.warning ?? null;
+
+  const flashMessages: FlashMessage[] = [];
+  if (successMessage) {
+    flashMessages.push({
+      variant: "success",
+      title: successMessage,
+    });
+  }
+  if (warningMessage) {
+    flashMessages.push({
+      variant: "warning",
+      title: warningMessage,
+    });
+  }
+  if (errorMessage) {
+    flashMessages.push({
+      variant: "error",
+      title: errorMessage,
+    });
+  }
+
   const [quotes, clients] = await Promise.all([
     listQuotes({
       search: search || undefined,
@@ -107,8 +142,32 @@ async function DevisPageContent({
     }),
   ]);
 
+  const searchQuery = new URLSearchParams();
+  if (search) searchQuery.set("recherche", search);
+  if (statutParam && statutParam !== "all") {
+    searchQuery.set("statut", statutParam);
+  }
+  if (clientParam) searchQuery.set("client", clientParam);
+  if (issueFrom) searchQuery.set("du", issueFrom);
+  if (issueTo) searchQuery.set("au", issueTo);
+  if (page > 1) searchQuery.set("page", String(page));
+
+  const redirectBase = searchQuery.toString()
+    ? `/devis?${searchQuery.toString()}`
+    : "/devis";
+
   return (
     <div className="space-y-6">
+      <FlashMessages messages={flashMessages} />
+      {successMessage ? (
+        <Alert variant="success" title={successMessage} />
+      ) : null}
+      {warningMessage ? (
+        <Alert variant="warning" title={warningMessage} />
+      ) : null}
+      {errorMessage ? (
+        <Alert variant="error" title={errorMessage} />
+      ) : null}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">Devis</h1>
@@ -233,49 +292,53 @@ async function DevisPageContent({
                       <Link href={`/devis/${quote.id}/modifier`}>Éditer</Link>
                     </Button>
                     <form action={duplicateQuoteAction.bind(null, quote.id)}>
-                      <FormSubmitButton
-                        variant="ghost"
-                        className="px-2 py-1 text-xs text-zinc-600 dark:text-zinc-300"
-                      >
-                        Dupliquer
-                      </FormSubmitButton>
-                    </form>
-                    <Button
-                      asChild
+                    <FormSubmitButton
                       variant="ghost"
-                      className="px-2 py-1 text-xs text-blue-600 dark:text-blue-400"
+                      className="px-2 py-1 text-xs text-zinc-600 dark:text-zinc-300"
+                    >
+                      Dupliquer
+                    </FormSubmitButton>
+                    <input type="hidden" name="redirectTo" value={redirectBase} />
+                  </form>
+                  <Button
+                    asChild
+                    variant="ghost"
+                    className="px-2 py-1 text-xs text-blue-600 dark:text-blue-400"
                     >
                       <Link href={`/api/devis/${quote.id}/pdf`} target="_blank">
                         PDF
                       </Link>
                     </Button>
-                    <form action={convertQuoteToInvoiceAction.bind(null, quote.id)}>
-                      <FormSubmitButton
-                        variant="ghost"
-                        className="px-2 py-1 text-xs text-blue-600 dark:text-blue-400"
-                      >
-                        Convertir
-                      </FormSubmitButton>
-                    </form>
-                    <form action={deleteQuoteAction.bind(null, quote.id)}>
-                      <FormSubmitButton
-                        variant="ghost"
-                        className="px-2 py-1 text-xs text-red-600 dark:text-red-400"
-                      >
-                        Supprimer
-                      </FormSubmitButton>
-                    </form>
-                    <form action={changeQuoteStatusAction.bind(null, quote.id, QuoteStatus.ACCEPTE)}>
-                      <FormSubmitButton
-                        variant="ghost"
-                        className="px-2 py-1 text-xs text-emerald-600 dark:text-emerald-400"
-                      >
-                        Marquer accepté
-                      </FormSubmitButton>
-                    </form>
-                  </div>
-                </td>
-              </tr>
+                  <form action={convertQuoteToInvoiceAction.bind(null, quote.id)}>
+                    <FormSubmitButton
+                      variant="ghost"
+                      className="px-2 py-1 text-xs text-blue-600 dark:text-blue-400"
+                    >
+                      Convertir
+                    </FormSubmitButton>
+                    <input type="hidden" name="redirectTo" value={redirectBase} />
+                  </form>
+                  <form action={deleteQuoteAction.bind(null, quote.id)}>
+                    <FormSubmitButton
+                      variant="ghost"
+                      className="px-2 py-1 text-xs text-red-600 dark:text-red-400"
+                    >
+                      Supprimer
+                    </FormSubmitButton>
+                    <input type="hidden" name="redirectTo" value={redirectBase} />
+                  </form>
+                  <form action={changeQuoteStatusAction.bind(null, quote.id, QuoteStatus.ACCEPTE)}>
+                    <FormSubmitButton
+                      variant="ghost"
+                      className="px-2 py-1 text-xs text-emerald-600 dark:text-emerald-400"
+                    >
+                      Marquer accepté
+                    </FormSubmitButton>
+                    <input type="hidden" name="redirectTo" value={redirectBase} />
+                  </form>
+                </div>
+              </td>
+            </tr>
             ))}
             {quotes.items.length === 0 && (
               <tr>

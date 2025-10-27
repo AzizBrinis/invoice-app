@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { clsx } from "clsx";
 import { Monitor, Moon, Sun } from "lucide-react";
 import {
@@ -19,6 +20,12 @@ const OPTIONS: Array<{
 
 export function ThemeToggle() {
   const { theme, resolvedTheme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setMounted(true), 0);
+    return () => window.clearTimeout(timeout);
+  }, []);
 
   return (
     <div
@@ -32,8 +39,12 @@ export function ThemeToggle() {
       <div className="inline-flex items-center gap-1 rounded-full border border-zinc-300 bg-white p-1 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
         {OPTIONS.map(({ value, label, icon: Icon }) => {
           const isChecked = theme === value;
+          const effectiveResolvedTheme = mounted ? resolvedTheme : undefined;
           const isSystemResolved =
-            theme === "system" && value !== "system" && resolvedTheme === value;
+            mounted &&
+            theme === "system" &&
+            value !== "system" &&
+            effectiveResolvedTheme === value;
           const isActive = isChecked || isSystemResolved;
           return (
             <button
@@ -43,8 +54,8 @@ export function ThemeToggle() {
               aria-checked={isChecked}
               aria-label={label}
               title={
-                value === "system"
-                  ? `${label} (${resolvedTheme === "dark" ? "sombre" : "clair"})`
+                value === "system" && mounted && effectiveResolvedTheme
+                  ? `${label} (${effectiveResolvedTheme === "dark" ? "sombre" : "clair"})`
                   : label
               }
               onClick={() => setTheme(value)}

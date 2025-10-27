@@ -1,6 +1,26 @@
+"use client";
+
+import { useState, type FormEvent } from "react";
+import { z } from "zod";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { FormSubmitButton } from "@/components/ui/form-submit-button";
+import { Alert } from "@/components/ui/alert";
+
+const clientFormSchema = z.object({
+  displayName: z
+    .string()
+    .trim()
+    .min(2, "Nom requis"),
+  email: z
+    .string()
+    .optional()
+    .transform((value) => value?.trim() ?? "")
+    .refine(
+      (value) => value.length === 0 || z.string().email().safeParse(value).success,
+      "E-mail invalide",
+    ),
+});
 
 type ClientFormProps = {
   action: (formData: FormData) => void;
@@ -15,11 +35,43 @@ type ClientFormProps = {
     notes?: string | null;
     isActive?: boolean;
   };
+  redirectTo?: string;
 };
 
-export function ClientForm({ action, submitLabel, defaultValues }: ClientFormProps) {
+export function ClientForm({ action, submitLabel, defaultValues, redirectTo }: ClientFormProps) {
+  const [fieldErrors, setFieldErrors] = useState<
+    Partial<Record<"displayName" | "email", string>>
+  >({});
+  const [formMessage, setFormMessage] = useState<string | null>(null);
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    const values = {
+      displayName: formData.get("displayName")?.toString() ?? "",
+      email: formData.get("email")?.toString(),
+    };
+    const parsed = clientFormSchema.safeParse(values);
+    if (!parsed.success) {
+      event.preventDefault();
+      const { fieldErrors: errors } = parsed.error.flatten();
+      setFieldErrors({
+        displayName: errors.displayName?.[0],
+        email: errors.email?.[0],
+      });
+      setFormMessage("Veuillez corriger les champs signalés.");
+      return;
+    }
+    setFieldErrors({});
+    setFormMessage(null);
+  };
+
+  const target = redirectTo ?? "/clients";
+
   return (
-    <form action={action} className="card space-y-5 p-6">
+    <form action={action} className="card space-y-5 p-6" onSubmit={handleSubmit}>
+      <input type="hidden" name="redirectTo" value={target} />
+      {formMessage ? <Alert variant="error" title={formMessage} /> : null}
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <label htmlFor="displayName" className="label">
@@ -30,7 +82,14 @@ export function ClientForm({ action, submitLabel, defaultValues }: ClientFormPro
             name="displayName"
             defaultValue={defaultValues?.displayName ?? ""}
             required
+            aria-invalid={Boolean(fieldErrors.displayName)}
+            data-invalid={fieldErrors.displayName ? "true" : undefined}
           />
+          {fieldErrors.displayName ? (
+            <p className="text-xs text-red-600 dark:text-red-400">
+              {fieldErrors.displayName}
+            </p>
+          ) : null}
         </div>
         <div className="space-y-2">
           <label htmlFor="companyName" className="label">
@@ -54,7 +113,14 @@ export function ClientForm({ action, submitLabel, defaultValues }: ClientFormPro
             name="email"
             type="email"
             defaultValue={defaultValues?.email ?? ""}
+            aria-invalid={Boolean(fieldErrors.email)}
+            data-invalid={fieldErrors.email ? "true" : undefined}
           />
+          {fieldErrors.email ? (
+            <p className="text-xs text-red-600 dark:text-red-400">
+              {fieldErrors.email}
+            </p>
+          ) : null}
         </div>
         <div className="space-y-2">
           <label htmlFor="phone" className="label">

@@ -38,6 +38,7 @@ export default async function EditClientPage({
         action={updateClientAction.bind(null, client.id)}
         submitLabel="Enregistrer"
         defaultValues={client}
+        redirectTo="/clients"
       />
     </div>
   );

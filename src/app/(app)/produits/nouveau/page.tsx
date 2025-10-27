@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { ProductForm } from "@/app/(app)/produits/product-form";
-import { createProductAction } from "@/app/(app)/produits/actions";
 import { getSettings } from "@/server/settings";
 import type { CurrencyCode } from "@/lib/currency";
 
@@ -25,9 +24,9 @@ export default async function NouveauProduitPage() {
         </Link>
       </div>
       <ProductForm
-        action={createProductAction}
         submitLabel="Créer le produit"
         currencyCode={settings.defaultCurrency as CurrencyCode}
+        redirectTo="/produits"
       />
     </div>
   );

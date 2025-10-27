@@ -36,6 +36,7 @@ type QuoteEditorProps = {
   currencyOptions: CurrencyInfo[];
   taxConfiguration: TaxConfiguration;
   defaultQuote?: Quote & { lines: QuoteLine[] };
+  redirectTo?: string;
 };
 
 const STATUS_OPTIONS = [
@@ -64,6 +65,7 @@ export function QuoteEditor({
   currencyOptions,
   taxConfiguration,
   defaultQuote,
+  redirectTo,
 }: QuoteEditorProps) {
   const initialCurrency = defaultQuote?.currency ?? defaultCurrency;
   const quoteTaxConfig = defaultQuote?.taxConfiguration
@@ -323,6 +325,8 @@ export function QuoteEditor({
     return payload;
   };
 
+  const target = redirectTo ?? "/devis";
+
   return (
     <form
       action={action}
@@ -334,6 +338,7 @@ export function QuoteEditor({
       className="space-y-6"
     >
       <input ref={payloadRef} type="hidden" name="payload" />
+      <input type="hidden" name="redirectTo" value={target} />
       <section className="card space-y-4 p-6">
         <div className="grid gap-4 sm:grid-cols-3">
           <div className="space-y-2">

@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { InvoiceEditor } from "@/app/(app)/factures/invoice-editor";
-import { createInvoiceAction } from "@/app/(app)/factures/actions";
 import { getSettings } from "@/server/settings";
 import { SUPPORTED_CURRENCIES, type CurrencyCode } from "@/lib/currency";
 import { normalizeTaxConfiguration } from "@/lib/taxes";
@@ -27,13 +26,13 @@ export default async function NouvelleFacturePage() {
         </Link>
       </div>
       <InvoiceEditor
-        action={createInvoiceAction}
         submitLabel="Enregistrer la facture"
         clients={clients}
         products={products}
         defaultCurrency={settings.defaultCurrency as CurrencyCode}
         currencyOptions={SUPPORTED_CURRENCIES}
         taxConfiguration={normalizeTaxConfiguration(settings.taxConfiguration)}
+        redirectTo="/factures/:id"
       />
     </div>
   );
