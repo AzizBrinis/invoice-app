@@ -1,6 +1,6 @@
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Button } from "@/components/ui/button";
+import { FormSubmitButton } from "@/components/ui/form-submit-button";
 import { fromCents } from "@/lib/money";
 import type { CurrencyCode } from "@/lib/currency";
 
@@ -156,7 +156,7 @@ export function ProductForm({
       </div>
 
       <div className="flex justify-end gap-3">
-        <Button type="submit">{submitLabel}</Button>
+        <FormSubmitButton>{submitLabel}</FormSubmitButton>
       </div>
     </form>
   );

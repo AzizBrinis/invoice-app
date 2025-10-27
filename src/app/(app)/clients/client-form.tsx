@@ -1,6 +1,6 @@
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Button } from "@/components/ui/button";
+import { FormSubmitButton } from "@/components/ui/form-submit-button";
 
 type ClientFormProps = {
   action: (formData: FormData) => void;
@@ -116,7 +116,7 @@ export function ClientForm({ action, submitLabel, defaultValues }: ClientFormPro
       </div>
 
       <div className="flex justify-end gap-3">
-        <Button type="submit">{submitLabel}</Button>
+        <FormSubmitButton>{submitLabel}</FormSubmitButton>
       </div>
     </form>
   );

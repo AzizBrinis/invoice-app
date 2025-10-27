@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { listQuotes } from "@/server/quotes";
@@ -12,6 +13,9 @@ import { Badge } from "@/components/ui/badge";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import { fromCents } from "@/lib/money";
 import { QuoteStatus } from "@prisma/client";
+import { QuotesPageSkeleton } from "@/components/skeletons";
+import { ExportButton } from "@/components/export-button";
+import { FormSubmitButton } from "@/components/ui/form-submit-button";
 
 const STATUS_LABELS: Record<QuoteStatus, string> = {
   BROUILLON: "Brouillon",
@@ -46,7 +50,19 @@ function isPromise<T>(value: unknown): value is Promise<T> {
   );
 }
 
-export default async function DevisPage({
+export default function DevisPage({
+  searchParams,
+}: {
+  searchParams: SearchParams | Promise<SearchParams>;
+}) {
+  return (
+    <Suspense fallback={<QuotesPageSkeleton />}>
+      <DevisPageContent searchParams={searchParams} />
+    </Suspense>
+  );
+}
+
+async function DevisPageContent({
   searchParams,
 }: {
   searchParams: SearchParams | Promise<SearchParams>;
@@ -101,15 +117,14 @@ export default async function DevisPage({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button
-            asChild
+          <ExportButton
             variant="ghost"
             className="text-sm text-blue-600 dark:text-blue-400"
+            href="/api/export/devis"
+            loadingText="Export…"
           >
-            <Link href="/api/export/devis" target="_blank">
-              Export CSV
-            </Link>
-          </Button>
+            Export CSV
+          </ExportButton>
           <Button asChild>
             <Link href="/devis/nouveau">Nouveau devis</Link>
           </Button>
@@ -218,13 +233,12 @@ export default async function DevisPage({
                       <Link href={`/devis/${quote.id}/modifier`}>Éditer</Link>
                     </Button>
                     <form action={duplicateQuoteAction.bind(null, quote.id)}>
-                      <Button
-                        type="submit"
+                      <FormSubmitButton
                         variant="ghost"
                         className="px-2 py-1 text-xs text-zinc-600 dark:text-zinc-300"
                       >
                         Dupliquer
-                      </Button>
+                      </FormSubmitButton>
                     </form>
                     <Button
                       asChild
@@ -236,31 +250,28 @@ export default async function DevisPage({
                       </Link>
                     </Button>
                     <form action={convertQuoteToInvoiceAction.bind(null, quote.id)}>
-                      <Button
-                        type="submit"
+                      <FormSubmitButton
                         variant="ghost"
                         className="px-2 py-1 text-xs text-blue-600 dark:text-blue-400"
                       >
                         Convertir
-                      </Button>
+                      </FormSubmitButton>
                     </form>
                     <form action={deleteQuoteAction.bind(null, quote.id)}>
-                      <Button
-                        type="submit"
+                      <FormSubmitButton
                         variant="ghost"
                         className="px-2 py-1 text-xs text-red-600 dark:text-red-400"
                       >
                         Supprimer
-                      </Button>
+                      </FormSubmitButton>
                     </form>
                     <form action={changeQuoteStatusAction.bind(null, quote.id, QuoteStatus.ACCEPTE)}>
-                      <Button
-                        type="submit"
+                      <FormSubmitButton
                         variant="ghost"
                         className="px-2 py-1 text-xs text-emerald-600 dark:text-emerald-400"
                       >
                         Marquer accepté
-                      </Button>
+                      </FormSubmitButton>
                     </form>
                   </div>
                 </td>

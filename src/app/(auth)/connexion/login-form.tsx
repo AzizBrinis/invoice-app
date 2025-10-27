@@ -3,7 +3,7 @@
 import { useActionState } from "react";
 import { authenticate, type LoginFormState } from "./actions";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
+import { FormSubmitButton } from "@/components/ui/form-submit-button";
 
 export function LoginForm({ redirectTo }: { redirectTo: string }) {
   const [state, formAction] = useActionState<LoginFormState, FormData>(
@@ -45,9 +45,9 @@ export function LoginForm({ redirectTo }: { redirectTo: string }) {
           {state.error}
         </p>
       )}
-      <Button type="submit" className="w-full">
+      <FormSubmitButton className="w-full">
         Se connecter
-      </Button>
+      </FormSubmitButton>
     </form>
   );
 }

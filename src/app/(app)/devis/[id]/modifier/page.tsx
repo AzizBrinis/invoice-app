@@ -4,7 +4,6 @@ import { prisma } from "@/lib/prisma";
 import { getQuote } from "@/server/quotes";
 import { QuoteEditor } from "@/app/(app)/devis/quote-editor";
 import { updateQuoteAction, sendQuoteEmailAction } from "@/app/(app)/devis/actions";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { formatCurrency } from "@/lib/formatters";
@@ -12,6 +11,7 @@ import { fromCents } from "@/lib/money";
 import { getSettings } from "@/server/settings";
 import { SUPPORTED_CURRENCIES, type CurrencyCode } from "@/lib/currency";
 import { normalizeTaxConfiguration } from "@/lib/taxes";
+import { FormSubmitButton } from "@/components/ui/form-submit-button";
 
 type PageParams = { id: string };
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -133,7 +133,7 @@ export default async function EditDevisPage({
             />
           </div>
           <div className="sm:col-span-2 flex justify-end">
-            <Button type="submit">Envoyer le devis</Button>
+            <FormSubmitButton>Envoyer le devis</FormSubmitButton>
           </div>
         </form>
       </section>

@@ -3,7 +3,9 @@ import Link from "next/link";
 import { listClients } from "@/server/clients";
 import { deleteClientAction } from "@/app/(app)/clients/actions";
 import { Button } from "@/components/ui/button";
+import { ExportButton } from "@/components/export-button";
 import { formatDate } from "@/lib/formatters";
+import { FormSubmitButton } from "@/components/ui/form-submit-button";
 
 function parseBooleanFilter(value: string | undefined): boolean | "all" {
   if (!value || value === "all") return "all";
@@ -69,15 +71,14 @@ export default async function ClientsPage({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button
-            asChild
+          <ExportButton
             variant="ghost"
             className="text-sm text-blue-600 dark:text-blue-400"
+            href="/api/export/clients"
+            loadingText="Export…"
           >
-            <Link href="/api/export/clients" target="_blank">
-              Export CSV
-            </Link>
-          </Button>
+            Export CSV
+          </ExportButton>
           <Button asChild>
             <Link href="/clients/nouveau">Nouveau client</Link>
           </Button>
@@ -176,13 +177,12 @@ export default async function ClientsPage({
                       <Link href={`/clients/${client.id}/modifier`}>Modifier</Link>
                     </Button>
                     <form action={deleteClientAction.bind(null, client.id)}>
-                      <Button
-                        type="submit"
+                      <FormSubmitButton
                         variant="ghost"
                         className="px-2 py-1 text-xs text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
                       >
                         Supprimer
-                      </Button>
+                      </FormSubmitButton>
                     </form>
                   </div>
                 </td>

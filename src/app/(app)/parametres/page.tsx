@@ -1,12 +1,14 @@
+import { Suspense } from "react";
 import { getSettings } from "@/server/settings";
 import { prisma } from "@/lib/prisma";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Button } from "@/components/ui/button";
 import { updateSettingsAction } from "@/app/(app)/parametres/actions";
 import { normalizeTaxConfiguration, TAX_ORDER_ITEMS } from "@/lib/taxes";
 import { fromCents } from "@/lib/money";
 import { SUPPORTED_CURRENCIES } from "@/lib/currency";
+import { SettingsSkeleton } from "@/components/skeletons";
+import { FormSubmitButton } from "@/components/ui/form-submit-button";
 
 const POSITION_OPTIONS = [
   { value: "top-left", label: "Haut gauche" },
@@ -15,7 +17,15 @@ const POSITION_OPTIONS = [
   { value: "bottom-right", label: "Bas droite" },
 ];
 
-export default async function ParametresPage() {
+export default function ParametresPage() {
+  return (
+    <Suspense fallback={<SettingsSkeleton />}>
+      <ParametresPageContent />
+    </Suspense>
+  );
+}
+
+async function ParametresPageContent() {
   const [settings, templates] = await Promise.all([
     getSettings(),
     prisma.pdfTemplate.findMany({ orderBy: { name: "asc" } }),
@@ -636,7 +646,7 @@ export default async function ParametresPage() {
         </section>
 
         <div className="flex justify-end">
-          <Button type="submit">Enregistrer les paramètres</Button>
+          <FormSubmitButton>Enregistrer les paramètres</FormSubmitButton>
         </div>
       </form>
     </div>

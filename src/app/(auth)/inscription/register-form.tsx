@@ -3,7 +3,7 @@
 import { useActionState } from "react";
 import { registerAction, type RegisterFormState } from "./actions";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
+import { FormSubmitButton } from "@/components/ui/form-submit-button";
 
 export function RegisterForm() {
   const [state, formAction] = useActionState<RegisterFormState, FormData>(
@@ -69,9 +69,9 @@ export function RegisterForm() {
           {state.error}
         </p>
       )}
-      <Button type="submit" className="w-full">
+      <FormSubmitButton className="w-full">
         Créer le compte
-      </Button>
+      </FormSubmitButton>
     </form>
   );
 }

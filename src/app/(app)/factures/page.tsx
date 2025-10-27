@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { listInvoices } from "@/server/invoices";
@@ -10,6 +11,9 @@ import { Badge } from "@/components/ui/badge";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import { fromCents } from "@/lib/money";
 import { InvoiceStatus } from "@prisma/client";
+import { InvoicesPageSkeleton } from "@/components/skeletons";
+import { ExportButton } from "@/components/export-button";
+import { FormSubmitButton } from "@/components/ui/form-submit-button";
 
 const STATUS_LABELS: Record<InvoiceStatus, string> = {
   BROUILLON: "Brouillon",
@@ -46,7 +50,19 @@ function isPromise<T>(value: unknown): value is Promise<T> {
   );
 }
 
-export default async function FacturesPage({
+export default function FacturesPage({
+  searchParams,
+}: {
+  searchParams: SearchParams | Promise<SearchParams>;
+}) {
+  return (
+    <Suspense fallback={<InvoicesPageSkeleton />}>
+      <FacturesPageContent searchParams={searchParams} />
+    </Suspense>
+  );
+}
+
+async function FacturesPageContent({
   searchParams,
 }: {
   searchParams: SearchParams | Promise<SearchParams>;
@@ -103,24 +119,22 @@ export default async function FacturesPage({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button
-            asChild
+          <ExportButton
             variant="ghost"
             className="text-sm text-blue-600 dark:text-blue-400"
+            href="/api/export/factures"
+            loadingText="Export…"
           >
-            <Link href="/api/export/factures" target="_blank">
-              Export CSV
-            </Link>
-          </Button>
-          <Button
-            asChild
+            Export CSV
+          </ExportButton>
+          <ExportButton
             variant="ghost"
             className="text-sm text-blue-600 dark:text-blue-400"
+            href="/api/export/paiements"
+            loadingText="Export…"
           >
-            <Link href="/api/export/paiements" target="_blank">
-              Export paiements
-            </Link>
-          </Button>
+            Export paiements
+          </ExportButton>
           <Button asChild>
             <Link href="/factures/nouveau">Nouvelle facture</Link>
           </Button>
@@ -256,22 +270,20 @@ export default async function FacturesPage({
                       </Link>
                     </Button>
                     <form action={changeInvoiceStatusAction.bind(null, invoice.id, InvoiceStatus.PAYEE)}>
-                      <Button
-                        type="submit"
+                      <FormSubmitButton
                         variant="ghost"
                         className="px-2 py-1 text-xs text-emerald-600 dark:text-emerald-400"
                       >
                         Marquer payée
-                      </Button>
+                      </FormSubmitButton>
                     </form>
                     <form action={deleteInvoiceAction.bind(null, invoice.id)}>
-                      <Button
-                        type="submit"
+                      <FormSubmitButton
                         variant="ghost"
                         className="px-2 py-1 text-xs text-red-600 dark:text-red-400"
                       >
                         Supprimer
-                      </Button>
+                      </FormSubmitButton>
                     </form>
                   </div>
                 </td>

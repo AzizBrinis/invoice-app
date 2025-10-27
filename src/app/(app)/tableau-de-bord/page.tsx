@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { prisma } from "@/lib/prisma";
 import { getDashboardMetrics } from "@/server/analytics";
 import { formatCurrency, formatDate } from "@/lib/formatters";
@@ -5,6 +6,7 @@ import { fromCents } from "@/lib/money";
 import { Badge } from "@/components/ui/badge";
 import { getSettings } from "@/server/settings";
 import type { CurrencyCode } from "@/lib/currency";
+import { DashboardSkeleton } from "@/components/skeletons";
 
 function statusVariant(status: string) {
   switch (status) {
@@ -20,7 +22,15 @@ function statusVariant(status: string) {
   }
 }
 
-export default async function DashboardPage() {
+export default function DashboardPage() {
+  return (
+    <Suspense fallback={<DashboardSkeleton />}>
+      <DashboardPageContent />
+    </Suspense>
+  );
+}
+
+async function DashboardPageContent() {
   const settings = await getSettings();
   const dashboardCurrency = settings.defaultCurrency as CurrencyCode;
 

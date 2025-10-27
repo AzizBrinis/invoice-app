@@ -14,6 +14,7 @@ import { formatCurrency, formatDate } from "@/lib/formatters";
 import { fromCents } from "@/lib/money";
 import { Badge } from "@/components/ui/badge";
 import { InvoiceStatus } from "@prisma/client";
+import { FormSubmitButton } from "@/components/ui/form-submit-button";
 
 const STATUS_LABELS: Record<InvoiceStatus, string> = {
   BROUILLON: "Brouillon",
@@ -350,13 +351,12 @@ export default async function FactureDetailPage({
           <div className="flex items-center justify-between">
             <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">Paiements</h2>
             <form action={changeInvoiceStatusAction.bind(null, invoice.id, InvoiceStatus.ENVOYEE)}>
-              <Button
-                type="submit"
+              <FormSubmitButton
                 variant="ghost"
                 className="text-xs text-blue-600 dark:text-blue-400"
               >
                 Marquer envoyée
-              </Button>
+              </FormSubmitButton>
             </form>
           </div>
           <div className="space-y-4">
@@ -379,9 +379,9 @@ export default async function FactureDetailPage({
                       <form
                         action={deletePaymentAction.bind(null, payment.id, invoice.id)}
                       >
-                        <Button type="submit" variant="ghost" className="text-xs text-red-600">
+                        <FormSubmitButton variant="ghost" className="text-xs text-red-600">
                           Supprimer
-                        </Button>
+                        </FormSubmitButton>
                       </form>
                     </div>
                     {payment.note && (
@@ -426,9 +426,9 @@ export default async function FactureDetailPage({
               </label>
               <Textarea id="note" name="note" rows={3} placeholder="Référence, conditions, etc." />
             </div>
-            <Button type="submit" className="w-full">
+            <FormSubmitButton className="w-full">
               Ajouter un paiement
-            </Button>
+            </FormSubmitButton>
           </form>
         </div>
       </section>
@@ -474,7 +474,7 @@ Cordialement.`}
             />
           </div>
           <div className="sm:col-span-2 flex justify-end">
-            <Button type="submit">Envoyer la facture</Button>
+            <FormSubmitButton>Envoyer la facture</FormSubmitButton>
           </div>
         </form>
       </section>

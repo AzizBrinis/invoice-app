@@ -7,10 +7,12 @@ import {
   importProductsAction,
 } from "@/app/(app)/produits/actions";
 import { Button } from "@/components/ui/button";
+import { ExportButton } from "@/components/export-button";
 import { formatCurrency } from "@/lib/formatters";
 import { fromCents } from "@/lib/money";
 import { getSettings } from "@/server/settings";
 import type { CurrencyCode } from "@/lib/currency";
+import { FormSubmitButton } from "@/components/ui/form-submit-button";
 
 function parseBooleanFilter(value: string | undefined): boolean | "all" {
   if (!value || value === "all") return "all";
@@ -89,15 +91,14 @@ export default async function ProduitsPage({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button
-            asChild
+          <ExportButton
             variant="ghost"
             className="text-sm text-blue-600 dark:text-blue-400"
+            href="/api/export/produits"
+            loadingText="Export…"
           >
-            <Link href="/api/export/produits" target="_blank">
-              Export CSV
-            </Link>
-          </Button>
+            Export CSV
+          </ExportButton>
           <Button asChild>
             <Link href="/produits/nouveau">Nouveau produit</Link>
           </Button>
@@ -121,9 +122,9 @@ export default async function ProduitsPage({
             className="input border-2 border-dashed"
           />
         </div>
-        <Button type="submit" variant="secondary">
+        <FormSubmitButton variant="secondary">
           Importer
-        </Button>
+        </FormSubmitButton>
       </form>
 
       <form className="card grid gap-4 p-4 sm:grid-cols-4 sm:items-end">
@@ -234,13 +235,12 @@ export default async function ProduitsPage({
                       <Link href={`/produits/${product.id}/modifier`}>Modifier</Link>
                     </Button>
                     <form action={deleteProductAction.bind(null, product.id)}>
-                      <Button
-                        type="submit"
+                      <FormSubmitButton
                         variant="ghost"
                         className="px-2 py-1 text-xs text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
                       >
                         Supprimer
-                      </Button>
+                      </FormSubmitButton>
                     </form>
                   </div>
                 </td>
