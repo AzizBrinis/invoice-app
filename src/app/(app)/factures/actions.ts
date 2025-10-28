@@ -217,10 +217,19 @@ export async function deleteInvoiceAction(id: string, formData?: FormData) {
   await requireBillingAccess();
   const redirectTarget = resolveRedirectTarget(formData, "/factures");
   try {
-    await deleteInvoice(id);
+    const outcome = await deleteInvoice(id);
     revalidatePath("/factures");
+    if (outcome !== "deleted") {
+      revalidatePath(`/factures/${id}`);
+    }
+    const message =
+      outcome === "deleted"
+        ? "Facture supprimée"
+        : outcome === "cancelled"
+          ? "Facture annulée"
+          : "Facture déjà annulée";
     redirectWithFeedback(redirectTarget, {
-      message: "Facture supprimée",
+      message,
     });
   } catch (error) {
     if (isRedirectError(error)) {

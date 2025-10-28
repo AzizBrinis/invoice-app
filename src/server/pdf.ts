@@ -177,11 +177,19 @@ const resolveImagePosition = (value: string | null | undefined): ImagePosition =
   return "bottom-right";
 };
 
+const STAMP_SIGNATURE_IMAGE_MAX_HEIGHT = 120;
+const STAMP_SIGNATURE_TOP_MARGIN = 8;
+const STAMP_SIGNATURE_CONTAINER_MAX_WIDTH_RATIO = 0.55;
+const STAMP_SIGNATURE_BLOCK_MIN_WIDTH = 120;
+const STAMP_SIGNATURE_BLOCK_MAX_WIDTH = 220;
+const STAMP_SIGNATURE_GAP = 20;
 const horizontalPriority = (position: ImagePosition) =>
   position === "top-left" || position === "bottom-left" ? 0 : 1;
 
-function buildStampSignatureHtml(settings: CompanySettings | null) {
-  if (!settings) return "";
+function buildStampSignatureHtml(
+  settings: CompanySettings | null,
+): string | null {
+  if (!settings) return null;
   const entries: Array<{ label: string; src: string; position: ImagePosition }> = [];
   if (settings.stampImage) {
     entries.push({
@@ -198,35 +206,69 @@ function buildStampSignatureHtml(settings: CompanySettings | null) {
     });
   }
   if (entries.length === 0) {
-    return "";
+    return null;
   }
 
   const sortedEntries = entries.sort(
     (a, b) => horizontalPriority(a.position) - horizontalPriority(b.position),
   );
 
+  const flexBasisPercent = sortedEntries.length > 1 ? 50 : 100;
+  const containerMaxWidthPercent = (STAMP_SIGNATURE_CONTAINER_MAX_WIDTH_RATIO * 100).toFixed(2);
+
   const blocksHtml = sortedEntries
     .map(
       (entry) => `
-        <div style="flex:1 1 200px; max-width:260px; text-align:center;">
+        <div
+          style="
+            flex:1 1 ${flexBasisPercent}%;
+            min-width:${STAMP_SIGNATURE_BLOCK_MIN_WIDTH}px;
+            max-width:${STAMP_SIGNATURE_BLOCK_MAX_WIDTH}px;
+            display:flex;
+            flex-direction:column;
+            align-items:center;
+            justify-content:flex-end;
+            text-align:center;
+            gap:8px;
+          "
+        >
           <img
             src="${entry.src}"
             alt="${escapeHtml(entry.label)}"
-            style="max-height:140px; max-width:240px; width:auto; height:auto; object-fit:contain; display:block; margin:0 auto;"
+            style="
+              width:100%;
+              height:auto;
+              max-height:${STAMP_SIGNATURE_IMAGE_MAX_HEIGHT}px;
+              object-fit:contain;
+              display:block;
+            "
           />
-          <p style="font-size:11px; color:#475569; margin-top:6px;">${escapeHtml(entry.label)}</p>
+          <p style="font-size:11px; color:#475569; margin:0;">${escapeHtml(entry.label)}</p>
         </div>
       `,
     )
     .join("");
 
-  return `
-    <div class="px-14 pt-2">
-      <div style="display:flex; gap:40px; justify-content:flex-start; align-items:flex-end; flex-wrap:wrap;">
-        ${blocksHtml}
-      </div>
+  const html = `
+    <div
+      style="
+        margin-top:${STAMP_SIGNATURE_TOP_MARGIN}px;
+        display:flex;
+        gap:${STAMP_SIGNATURE_GAP}px;
+        align-items:flex-end;
+        justify-content:flex-end;
+        flex-wrap:nowrap;
+        width:100%;
+        max-width:${containerMaxWidthPercent}%;
+        margin-left:auto;
+        pointer-events:none;
+      "
+    >
+      ${blocksHtml}
     </div>
   `;
+
+  return html;
 }
 
 function translateInvoiceStatus(status: InvoiceStatus) {
@@ -352,7 +394,7 @@ function buildDocumentHtml(
     bankInfoLines.push(settings.email);
   }
   const bankInfo = bankInfoLines.length ? formatLines(bankInfoLines) : "";
-  const stampSignatureHtml = buildStampSignatureHtml(settings);
+  const stampSignatureHtml = buildStampSignatureHtml(settings) ?? "";
 
   const paymentMethod = isInvoiceDoc
     ? invoiceDoc?.payments
@@ -489,20 +531,23 @@ function buildDocumentHtml(
   `;
 
   const totalsLayoutHtml = `
-    <table class="w-full border-collapse border-spacing-0 pbi-a">
-      <tbody>
-        <tr class="align-top">
-          <td class="align-top" style="${taxSummaryHtml ? "width: 45%; padding-right: 24px;" : "width: 100%;"}">
-            ${taxSummaryHtml}
-          </td>
-          <td class="align-top" style="width: 280px;">
-            <div style="margin-left: auto; width: 280px;">
-              ${totalsTableHtml}
-            </div>
-          </td>
-        </tr>
-      </tbody>
-    </table>
+    <div class="totals-stamp-wrapper" style="position:relative;">
+      <table class="w-full border-collapse border-spacing-0 pbi-a">
+        <tbody>
+          <tr class="align-top">
+            <td class="align-top" style="${taxSummaryHtml ? "width: 45%; padding-right: 24px;" : "width: 100%;"}">
+              ${taxSummaryHtml}
+            </td>
+            <td class="align-top" style="width: 280px;">
+              <div style="margin-left: auto; width: 280px;">
+                ${totalsTableHtml}
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      ${stampSignatureHtml}
+    </div>
   `;
 
   const html = `
@@ -599,8 +644,6 @@ function buildDocumentHtml(
               </tbody>
             </table>
           </div>
-
-          ${stampSignatureHtml}
 
           ${bankInfo ? `<div class="px-14 text-sm text-neutral-700 pbi-a"><p class="text-main font-bold">Coordonnées bancaires</p><div>${bankInfo}</div></div>` : ""}
 

@@ -122,7 +122,13 @@ function buildInvoiceWhere(
     dueDateBefore,
   } = filters;
   return {
-    ...(status === "all" ? {} : { status }),
+    ...(status === "all"
+      ? {
+          status: {
+            not: InvoiceStatus.ANNULEE,
+          },
+        }
+      : { status }),
     ...(clientId ? { clientId } : {}),
     ...(issueDateFrom || issueDateTo
       ? {
@@ -418,8 +424,10 @@ export async function updateInvoice(id: string, input: InvoiceInput) {
   return invoice;
 }
 
-export async function deleteInvoice(id: string) {
-  await prisma.$transaction(async (tx) => {
+export type DeleteInvoiceOutcome = "deleted" | "cancelled" | "already-cancelled";
+
+export async function deleteInvoice(id: string): Promise<DeleteInvoiceOutcome> {
+  return prisma.$transaction(async (tx) => {
     const invoice = await tx.invoice.findUnique({
       where: { id },
       select: { status: true, number: true },
@@ -439,7 +447,7 @@ export async function deleteInvoice(id: string) {
         },
       });
       await tx.invoice.delete({ where: { id } });
-      return;
+      return "deleted";
     }
 
     if (invoice.status === InvoiceStatus.ANNULEE) {
@@ -452,7 +460,7 @@ export async function deleteInvoice(id: string) {
           note: `Tentative supplémentaire de suppression ignorée pour la facture ${invoice.number} déjà annulée`,
         },
       });
-      return;
+      return "already-cancelled";
     }
 
     await tx.invoice.update({
@@ -469,6 +477,7 @@ export async function deleteInvoice(id: string) {
         note: `Suppression convertie en annulation pour la facture ${invoice.number}`,
       },
     });
+    return "cancelled";
   });
 }
 
