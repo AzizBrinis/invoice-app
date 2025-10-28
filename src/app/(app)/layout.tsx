@@ -18,6 +18,11 @@ const NAV_ITEMS: NavItem[] = [
     icon: "dashboard",
   },
   {
+    label: "Messagerie",
+    href: "/messagerie",
+    icon: "mail",
+  },
+  {
     label: "Devis",
     href: "/devis",
     icon: "quotes",

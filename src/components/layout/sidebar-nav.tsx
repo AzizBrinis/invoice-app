@@ -10,11 +10,13 @@ import {
   Package,
   Users,
   Settings,
+  Mail,
   type LucideIcon,
 } from "lucide-react";
 
 export type NavIcon =
   | "dashboard"
+  | "mail"
   | "quotes"
   | "invoices"
   | "products"
@@ -29,6 +31,7 @@ export type NavItem = {
 
 export const NAV_ICON_MAP: Record<NavIcon, LucideIcon> = {
   dashboard: LayoutDashboard,
+  mail: Mail,
   quotes: FileText,
   invoices: Receipt,
   products: Package,
