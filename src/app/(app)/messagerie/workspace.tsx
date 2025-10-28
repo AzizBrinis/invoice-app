@@ -88,6 +88,8 @@ type MailDirection = "incoming" | "outgoing";
 
 type MailStatus = "ENVOYE" | "ECHEC" | "EN_ATTENTE" | "BROUILLON";
 
+type MessagerieTab = "mailbox" | "templates" | "accounts" | "activity";
+
 type RelatedEntity =
   | { type: "client"; id: string }
   | { type: "invoice"; id: string }
@@ -208,6 +210,85 @@ const FOLDERS: { id: MailFolder; label: string; icon: React.ComponentType<{ clas
   { id: "drafts", label: "Brouillons", icon: PenSquare },
   { id: "archived", label: "Archivés", icon: Archive },
   { id: "spam", label: "Spam", icon: Trash2 },
+];
+
+const MESSAGERIE_TABS: {
+  id: MessagerieTab;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  description: string;
+}[] = [
+  {
+    id: "mailbox",
+    label: "Conversations",
+    icon: Inbox,
+    description: "Filtrer, consulter et répondre aux conversations",
+  },
+  {
+    id: "templates",
+    label: "Modèles",
+    icon: FileText,
+    description: "Gérer les modèles prêts à l'envoi",
+  },
+  {
+    id: "accounts",
+    label: "Comptes",
+    icon: Settings,
+    description: "Configurer les boîtes connectées",
+  },
+  {
+    id: "activity",
+    label: "Journal",
+    icon: CalendarClock,
+    description: "Historique des envois et événements",
+  },
+];
+
+const TEMPLATE_CATEGORY_METADATA: Record<TemplateCategory, {
+  label: string;
+  description: string;
+  icon: React.ComponentType<{ className?: string }>;
+}> = {
+  nouveau: {
+    label: "Nouveau message",
+    description: "Premier contact ou accompagnement",
+    icon: Sparkles,
+  },
+  relance: {
+    label: "Relance",
+    description: "Suivi automatique des factures",
+    icon: RefreshCw,
+  },
+  remerciement: {
+    label: "Remerciement",
+    description: "Confirmez la bonne réception d'un règlement",
+    icon: MessageSquare,
+  },
+  reponse: {
+    label: "Réponse rapide",
+    description: "Accusez réception en un clic",
+    icon: Reply,
+  },
+};
+
+const TEMPLATE_CATEGORIES: TemplateCategory[] = [
+  "nouveau",
+  "relance",
+  "remerciement",
+  "reponse",
+];
+
+const STATUS_FILTERS: { id: MailStatus | "all"; label: string }[] = [
+  { id: "all", label: "Tous" },
+  { id: "ENVOYE", label: "Envoyé" },
+  { id: "EN_ATTENTE", label: "En attente" },
+  { id: "ECHEC", label: "Échec" },
+  { id: "BROUILLON", label: "Brouillon" },
+];
+
+const TEMPLATE_CATEGORY_FILTERS: (TemplateCategory | "all")[] = [
+  "all",
+  ...TEMPLATE_CATEGORIES,
 ];
 
 const DEFAULT_PERMISSIONS: PermissionState = {
@@ -508,9 +589,14 @@ export function MessagerieWorkspace({
   const [labels, setLabels] = useState(() => buildInitialLabels());
   const [permissions, setPermissions] = useState(DEFAULT_PERMISSIONS);
   const [folder, setFolder] = useState<MailFolder>("inbox");
-  const [search, setSearch] = useState("");
+  const [activeTab, setActiveTab] = useState<MessagerieTab>("mailbox");
+  const [threadQuery, setThreadQuery] = useState("");
   const [labelFilter, setLabelFilter] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<MailStatus | "all">("all");
+  const [templateCategory, setTemplateCategory] = useState<TemplateCategory | "all">("all");
+  const [templateQuery, setTemplateQuery] = useState("");
+  const [accountQuery, setAccountQuery] = useState("");
+  const [auditQuery, setAuditQuery] = useState("");
   const [threads, setThreads] = useState(() =>
     buildInitialThreads(initialAccounts, clients, invoices, quotes),
   );
@@ -621,8 +707,86 @@ export function MessagerieWorkspace({
     }));
   }, [relatedContext]);
 
+  const visibleAccounts = useMemo(() => {
+    const query = accountQuery.trim().toLowerCase();
+    if (query.length === 0) {
+      return accounts;
+    }
+    return accounts.filter((account) =>
+      [account.label, account.email]
+        .filter(Boolean)
+        .some((value) => value?.toLowerCase().includes(query)),
+    );
+  }, [accountQuery, accounts]);
+
+  const templatesForSelectedAccount = useMemo(() => {
+    if (!selectedAccount) return templates;
+    return templates.filter(
+      (template) => !template.accountId || template.accountId === selectedAccount.id,
+    );
+  }, [selectedAccount, templates]);
+
+  const filteredTemplates = useMemo(() => {
+    const query = templateQuery.trim().toLowerCase();
+    return templatesForSelectedAccount.filter((template) => {
+      const matchesCategory =
+        templateCategory === "all" || template.category === templateCategory;
+      const matchesQuery =
+        query.length === 0 ||
+        [template.name, template.subject, template.body]
+          .join(" ")
+          .toLowerCase()
+          .includes(query);
+      return matchesCategory && matchesQuery;
+    });
+  }, [templateCategory, templateQuery, templatesForSelectedAccount]);
+
+  const quickTemplates = useMemo(
+    () => templatesForSelectedAccount.filter((template) => template.quickReply),
+    [templatesForSelectedAccount],
+  );
+
+  const templatesByCategory = useMemo(() => {
+    const groups: Record<TemplateCategory, MailTemplate[]> = {
+      nouveau: [],
+      relance: [],
+      remerciement: [],
+      reponse: [],
+    };
+    filteredTemplates.forEach((template) => {
+      groups[template.category].push(template);
+    });
+    return groups;
+  }, [filteredTemplates]);
+
+  const filteredAuditLogs = useMemo(() => {
+    const query = auditQuery.trim().toLowerCase();
+    return auditLogs
+      .filter((log) =>
+        query.length === 0
+          ? true
+          : [log.subject, log.to, log.status, log.body ?? ""]
+              .join(" ")
+              .toLowerCase()
+              .includes(query),
+      )
+      .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  }, [auditLogs, auditQuery]);
+
+  const auditStatusSummary = useMemo(() => {
+    return filteredAuditLogs.reduce(
+      (acc, log) => {
+        if (log.status === "ENVOYE" || log.status === "ECHEC" || log.status === "EN_ATTENTE" || log.status === "BROUILLON") {
+          acc[log.status] = (acc[log.status] ?? 0) + 1;
+        }
+        return acc;
+      },
+      { ENVOYE: 0, ECHEC: 0, EN_ATTENTE: 0, BROUILLON: 0 } as Record<MailStatus, number>,
+    );
+  }, [filteredAuditLogs]);
+
   const filteredThreads = useMemo(() => {
-    const lowerSearch = search.trim().toLowerCase();
+    const lowerSearch = threadQuery.trim().toLowerCase();
     return threads
       .filter((thread) =>
         thread.accountId === selectedAccount?.id &&
@@ -642,7 +806,7 @@ export function MessagerieWorkspace({
   }, [
     folder,
     labelFilter,
-    search,
+    threadQuery,
     selectedAccount?.id,
     statusFilter,
     threads,
@@ -656,6 +820,51 @@ export function MessagerieWorkspace({
       (thread) => thread.accountId === accountId && thread.folder === folder,
     );
     setSelectedThreadId(nextThread?.id ?? null);
+  }
+
+  function moveSelectedThread(
+    targetFolder: MailFolder,
+    toastTitle: string,
+    toastDescription: string,
+  ) {
+    if (!selectedThread) {
+      return;
+    }
+
+    setThreads((current) =>
+      current.map((thread) =>
+        thread.id === selectedThread.id
+          ? {
+              ...thread,
+              folder: targetFolder,
+              updatedAt: new Date().toISOString(),
+            }
+          : thread,
+      ),
+    );
+    setFolder(targetFolder);
+    setSelectedThreadId(selectedThread.id);
+    addToast({
+      variant: "info",
+      title: toastTitle,
+      description: toastDescription,
+    });
+  }
+
+  function handleArchiveSelectedThread() {
+    moveSelectedThread(
+      "archived",
+      "Conversation archivée",
+      "Le fil est disponible dans les archives.",
+    );
+  }
+
+  function handleMarkAsSpam() {
+    moveSelectedThread(
+      "spam",
+      "Conversation supprimée",
+      "Le fil a été déplacé dans le dossier spam.",
+    );
   }
   function updateAccountField(accountId: string, field: keyof MailAccount, value: unknown) {
     setAccounts((current) =>
@@ -1026,7 +1235,6 @@ export function MessagerieWorkspace({
     setSelectedThreadId(threadId);
   }
 
-  const quickTemplates = templates.filter((template) => template.quickReply);
   const folderCounts = useMemo(() => {
     const counts: Record<MailFolder, number> = {
       inbox: 0,
@@ -1057,6 +1265,76 @@ export function MessagerieWorkspace({
     }
     return "Lien";
   }, [clients, invoices, linkedEntity, quotes]);
+
+  const searchValue =
+    activeTab === "mailbox"
+      ? threadQuery
+      : activeTab === "templates"
+      ? templateQuery
+      : activeTab === "accounts"
+      ? accountQuery
+      : auditQuery;
+
+  const searchPlaceholder: Record<MessagerieTab, string> = {
+    mailbox: "Rechercher une conversation...",
+    templates: "Rechercher un modèle...",
+    accounts: "Rechercher un compte...",
+    activity: "Rechercher un événement...",
+  };
+
+  const canCompose = !!selectedAccount;
+  const canReply = activeTab === "mailbox" && !!selectedThread;
+  const canArchive = canReply;
+  const canSpam = canReply;
+  const currentTab = MESSAGERIE_TABS.find((tab) => tab.id === activeTab)!;
+  const auditStatusCards: {
+    status: MailStatus;
+    label: string;
+    icon: React.ComponentType<{ className?: string }>;
+    accent: string;
+    description: string;
+  }[] = [
+    {
+      status: "ENVOYE",
+      label: "Envoyés",
+      icon: Send,
+      accent: "text-emerald-600 dark:text-emerald-300",
+      description: "Messages transmis avec succès",
+    },
+    {
+      status: "EN_ATTENTE",
+      label: "En attente",
+      icon: RefreshCw,
+      accent: "text-amber-600 dark:text-amber-300",
+      description: "Notifications en file d'envoi",
+    },
+    {
+      status: "ECHEC",
+      label: "Échecs",
+      icon: ShieldCheck,
+      accent: "text-red-600 dark:text-red-300",
+      description: "Messages nécessitant une action",
+    },
+    {
+      status: "BROUILLON",
+      label: "Brouillons",
+      icon: PenSquare,
+      accent: "text-zinc-600 dark:text-zinc-300",
+      description: "Préparés mais non envoyés",
+    },
+  ];
+
+  function handleSearchChange(value: string) {
+    if (activeTab === "mailbox") {
+      setThreadQuery(value);
+    } else if (activeTab === "templates") {
+      setTemplateQuery(value);
+    } else if (activeTab === "accounts") {
+      setAccountQuery(value);
+    } else {
+      setAuditQuery(value);
+    }
+  }
   return (
     <div className="space-y-6">
       <header className="flex flex-col justify-between gap-4 border-b border-zinc-200 pb-4 dark:border-zinc-800 sm:flex-row sm:items-center">
@@ -1084,789 +1362,871 @@ export function MessagerieWorkspace({
             <RefreshCw className="h-4 w-4" />
             Synchroniser
           </Button>
-          <Button onClick={() => resetComposer()} className="gap-2">
+          <Button
+            onClick={() => {
+              setActiveTab("mailbox");
+              resetComposer();
+            }}
+            className="gap-2"
+          >
             <PenSquare className="h-4 w-4" />
             Nouveau message
           </Button>
         </div>
       </header>
 
-      <section className="grid gap-6 lg:grid-cols-4">
-        <aside className="card lg:col-span-1">
-          <div className="space-y-4 p-4">
-            <div>
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                Comptes
-              </h2>
-              <div className="mt-2 space-y-2">
-                {accounts.map((account) => (
-                  <button
-                    key={account.id}
-                    type="button"
-                    onClick={() => handleAccountChange(account.id)}
-                    className={clsx(
-                      "w-full rounded-lg border px-3 py-2 text-left text-sm transition",
-                      account.id === selectedAccount?.id
-                        ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-400 dark:bg-blue-500/10 dark:text-blue-200"
-                        : "border-zinc-200 hover:border-blue-300 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:border-blue-500 dark:hover:bg-zinc-900",
-                    )}
-                  >
-                    <p className="font-medium">{account.label}</p>
-                    <p className="text-xs text-zinc-500 dark:text-zinc-400">{account.email}</p>
-                  </button>
-                ))}
-              </div>
-            </div>
+      <div className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+        <nav className="flex flex-wrap gap-2 border-b border-zinc-200 bg-zinc-50/60 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900/40">
+          {MESSAGERIE_TABS.map((tab) => {
+            const Icon = tab.icon;
+            const isActive = tab.id === activeTab;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={clsx(
+                  "flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition",
+                  isActive
+                    ? "bg-blue-600 text-white shadow-sm dark:bg-blue-500"
+                    : "bg-white text-zinc-600 shadow-sm hover:bg-zinc-100 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800",
+                )}
+              >
+                <Icon className="h-4 w-4" />
+                {tab.label}
+              </button>
+            );
+          })}
+        </nav>
 
-            <div className="border-t border-dashed border-zinc-200 pt-4 dark:border-zinc-800">
-              <h3 className="flex items-center gap-2 text-sm font-medium text-zinc-700 dark:text-zinc-200">
-                <Settings className="h-4 w-4" /> Configuration IMAP / SMTP
-              </h3>
-              {selectedAccount ? (
-                <div className="mt-3 space-y-4 text-sm">
-                  <div className="space-y-2">
-                    <p className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                      IMAP (réception)
-                    </p>
-                    <label className="block">
-                      <span className="label">Serveur</span>
-                      <input
-                        className="input"
-                        value={selectedAccount.imap.host}
-                        onChange={(event) =>
-                          updateNestedAccountField(selectedAccount.id, "imap", "host", event.target.value)
-                        }
-                        disabled={!canManageAccounts}
-                      />
-                    </label>
-                    <div className="grid grid-cols-2 gap-3">
-                      <label className="block">
-                        <span className="label">Port</span>
-                        <input
-                          className="input"
-                          type="number"
-                          value={selectedAccount.imap.port}
-                          onChange={(event) =>
-                            updateNestedAccountField(
-                              selectedAccount.id,
-                              "imap",
-                              "port",
-                              Number(event.target.value),
-                            )
-                          }
-                          disabled={!canManageAccounts}
-                        />
-                      </label>
-                      <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-300">
-                        <input
-                          type="checkbox"
-                          checked={selectedAccount.imap.secure}
-                          onChange={() =>
-                            updateNestedAccountField(
-                              selectedAccount.id,
-                              "imap",
-                              "secure",
-                              !selectedAccount.imap.secure,
-                            )
-                          }
-                          disabled={!canManageAccounts}
-                        />
-                        SSL / TLS
-                      </label>
-                    </div>
-                    <label className="block">
-                      <span className="label">Identifiant</span>
-                      <input
-                        className="input"
-                        value={selectedAccount.imap.username}
-                        onChange={(event) =>
-                          updateNestedAccountField(selectedAccount.id, "imap", "username", event.target.value)
-                        }
-                        disabled={!canManageAccounts}
-                      />
-                    </label>
-                  </div>
-                  <div className="space-y-2">
-                    <p className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                      SMTP (envoi)
-                    </p>
-                    <label className="block">
-                      <span className="label">Serveur</span>
-                      <input
-                        className="input"
-                        value={selectedAccount.smtp.host}
-                        onChange={(event) =>
-                          updateNestedAccountField(selectedAccount.id, "smtp", "host", event.target.value)
-                        }
-                        disabled={!canManageAccounts}
-                      />
-                    </label>
-                    <div className="grid grid-cols-2 gap-3">
-                      <label className="block">
-                        <span className="label">Port</span>
-                        <input
-                          className="input"
-                          type="number"
-                          value={selectedAccount.smtp.port}
-                          onChange={(event) =>
-                            updateNestedAccountField(
-                              selectedAccount.id,
-                              "smtp",
-                              "port",
-                              Number(event.target.value),
-                            )
-                          }
-                          disabled={!canManageAccounts}
-                        />
-                      </label>
-                      <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-300">
-                        <input
-                          type="checkbox"
-                          checked={selectedAccount.smtp.secure}
-                          onChange={() =>
-                            updateNestedAccountField(
-                              selectedAccount.id,
-                              "smtp",
-                              "secure",
-                              !selectedAccount.smtp.secure,
-                            )
-                          }
-                          disabled={!canManageAccounts}
-                        />
-                        SSL / STARTTLS
-                      </label>
-                    </div>
-                    <label className="block">
-                      <span className="label">Identifiant</span>
-                      <input
-                        className="input"
-                        value={selectedAccount.smtp.username}
-                        onChange={(event) =>
-                          updateNestedAccountField(selectedAccount.id, "smtp", "username", event.target.value)
-                        }
-                        disabled={!canManageAccounts}
-                      />
-                    </label>
-                  </div>
-                  <label className="block">
-                    <span className="label">Signature personnalisée</span>
-                    <textarea
-                      className="input min-h-[80px]"
-                      value={selectedAccount.signature}
-                      onChange={(event) =>
-                        updateAccountField(selectedAccount.id, "signature", event.target.value)
-                      }
-                      disabled={!canManageAccounts}
-                    />
-                  </label>
-                  <div className="space-y-2">
-                    <p className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                      Automatisations
-                    </p>
-                    <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-300">
-                      <input
-                        type="checkbox"
-                        checked={selectedAccount.automations.followUps}
-                        onChange={() => toggleAutomation(selectedAccount.id, "followUps")}
-                        disabled={!canManageAccounts}
-                      />
-                      Relance automatique des retards
-                    </label>
-                    <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-300">
-                      <input
-                        type="checkbox"
-                        checked={selectedAccount.automations.autoArchive}
-                        onChange={() => toggleAutomation(selectedAccount.id, "autoArchive")}
-                        disabled={!canManageAccounts}
-                      />
-                      Archivage après réponse
-                    </label>
-                    <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-300">
-                      <input
-                        type="checkbox"
-                        checked={selectedAccount.automations.linkDocuments}
-                        onChange={() => toggleAutomation(selectedAccount.id, "linkDocuments")}
-                        disabled={!canManageAccounts}
-                      />
-                      Lien automatique avec factures / devis
-                    </label>
-                  </div>
-                </div>
-              ) : (
-                <p className="mt-4 text-sm text-zinc-500 dark:text-zinc-400">
-                  Sélectionnez un compte pour afficher ses paramètres.
-                </p>
-              )}
+        <div className="space-y-6 p-4 sm:p-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                className="gap-2"
+                onClick={() => {
+                  setActiveTab("mailbox");
+                  resetComposer();
+                }}
+                disabled={!canCompose}
+              >
+                <PenSquare className="h-4 w-4" />
+                Composer
+              </Button>
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={() => {
+                  if (!selectedThread) return;
+                  setActiveTab("mailbox");
+                  prepareReply("reply");
+                }}
+                disabled={!canReply}
+              >
+                <Reply className="h-4 w-4" />
+                Répondre
+              </Button>
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={() => {
+                  setActiveTab("mailbox");
+                  handleArchiveSelectedThread();
+                }}
+                disabled={!canArchive}
+              >
+                <Archive className="h-4 w-4" />
+                Archiver
+              </Button>
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={() => {
+                  setActiveTab("mailbox");
+                  handleMarkAsSpam();
+                }}
+                disabled={!canSpam}
+              >
+                <Trash2 className="h-4 w-4" />
+                Supprimer
+              </Button>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">{currentTab.description}</p>
+              <div className="relative w-full sm:w-64">
+                <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-zinc-400 dark:text-zinc-500" />
+                <input
+                  className="h-9 w-full rounded-full border border-zinc-200 bg-white pl-9 pr-3 text-sm text-zinc-700 shadow-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
+                  value={searchValue}
+                  onChange={(event) => handleSearchChange(event.target.value)}
+                  placeholder={searchPlaceholder[activeTab]}
+                />
+              </div>
             </div>
           </div>
-        </aside>
-        <div className="card lg:col-span-3">
-          <div className="grid gap-4 p-4 lg:grid-cols-5">
-            <div className="lg:col-span-2">
-              <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                  Dossiers
-                </h2>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-xs text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
-                  onClick={() => setFolder("inbox")}
-                >
-                  Réinitialiser
-                </Button>
+
+          {activeTab === "mailbox" ? (
+            <div className="flex flex-col gap-6">
+              <div className="grid gap-6 xl:grid-cols-[minmax(0,280px)_minmax(0,1fr)]">
+                <div className="flex flex-col gap-6">
+                  <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+                    <div className="flex items-center justify-between gap-3">
+                      <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
+                        Comptes connectés
+                      </h2>
+                      <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                        {accounts.length} comptes
+                      </span>
+                    </div>
+                    <div className="mt-4 space-y-2">
+                      {accounts.map((account) => (
+                        <button
+                          key={account.id}
+                          type="button"
+                          onClick={() => handleAccountChange(account.id)}
+                          className={clsx(
+                            "w-full rounded-xl border px-3 py-2 text-left text-sm transition",
+                            account.id === selectedAccount?.id
+                              ? "border-blue-500 bg-blue-50 text-blue-700 shadow-sm dark:border-blue-400 dark:bg-blue-500/10 dark:text-blue-200"
+                              : "border-zinc-200 hover:border-blue-300 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:border-blue-500 dark:hover:bg-zinc-900",
+                          )}
+                        >
+                          <p className="font-medium">{account.label}</p>
+                          <p className="text-xs text-zinc-500 dark:text-zinc-400">{account.email}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+                    <div className="flex items-center justify-between gap-3">
+                      <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
+                        Filtres &amp; accès
+                      </h2>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-xs text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+                        onClick={() => {
+                          setFolder("inbox");
+                          setStatusFilter("all");
+                          setLabelFilter(null);
+                          setThreadQuery("");
+                        }}
+                      >
+                        Réinitialiser
+                      </Button>
+                    </div>
+
+                    <div className="mt-4 space-y-4">
+                      <div>
+                        <p className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                          Dossiers
+                        </p>
+                        <div className="mt-2 space-y-2">
+                          {FOLDERS.map((item) => {
+                            const Icon = item.icon;
+                            return (
+                              <button
+                                key={item.id}
+                                type="button"
+                                onClick={() => {
+                                  setFolder(item.id);
+                                  const firstThread = threads.find(
+                                    (thread) =>
+                                      thread.folder === item.id && thread.accountId === selectedAccount?.id,
+                                  );
+                                  setSelectedThreadId(firstThread?.id ?? null);
+                                }}
+                                className={clsx(
+                                  "flex w-full items-center justify-between rounded-xl border px-3 py-2 text-left text-sm transition",
+                                  folder === item.id
+                                    ? "border-blue-500 bg-blue-50 text-blue-700 shadow-sm dark:border-blue-400 dark:bg-blue-500/10 dark:text-blue-200"
+                                    : "border-zinc-200 hover:border-blue-300 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:border-blue-500 dark:hover:bg-zinc-900",
+                                )}
+                              >
+                                <span className="flex items-center gap-2">
+                                  <Icon className="h-4 w-4" />
+                                  {item.label}
+                                </span>
+                                <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                                  {folderCounts[item.id]}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <div>
+                        <p className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                          Statut
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {STATUS_FILTERS.map((status) => (
+                            <button
+                              key={status.id}
+                              type="button"
+                              onClick={() => setStatusFilter(status.id)}
+                              className={clsx(
+                                "rounded-full px-3 py-1 text-xs font-medium transition",
+                                statusFilter === status.id
+                                  ? "bg-blue-600 text-white shadow-sm dark:bg-blue-500"
+                                  : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700",
+                              )}
+                            >
+                              {status.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div>
+                        <p className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                          Étiquettes
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {labels.map((label) => (
+                            <button
+                              key={label.id}
+                              type="button"
+                              onClick={() =>
+                                setLabelFilter((current) => (current === label.id ? null : label.id))
+                              }
+                              className={clsx(
+                                "rounded-full px-3 py-1 text-xs font-medium transition",
+                                label.color,
+                                labelFilter === label.id
+                                  ? "ring-2 ring-offset-2 ring-blue-500 dark:ring-offset-zinc-950"
+                                  : "opacity-85 hover:opacity-100",
+                              )}
+                            >
+                              {label.name}
+                            </button>
+                          ))}
+                          <button
+                            type="button"
+                            className="rounded-full border border-dashed border-zinc-300 px-3 py-1 text-xs text-zinc-500 transition hover:border-zinc-400 hover:text-zinc-700 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:text-zinc-200"
+                            onClick={() => {
+                              const name = prompt("Nom de la nouvelle étiquette");
+                              if (name) addLabel(name);
+                            }}
+                          >
+                            + Nouvelle
+                          </button>
+                        </div>
+                      </div>
+
+                      <div>
+                        <p className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                          Permissions
+                        </p>
+                        <div className="mt-2 space-y-2 text-xs text-zinc-600 dark:text-zinc-300">
+                          <label className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={permissions.view}
+                              onChange={() =>
+                                setPermissions((current) => ({ ...current, view: !current.view }))
+                              }
+                            />
+                            Consulter les messages
+                          </label>
+                          <label className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={permissions.send}
+                              onChange={() =>
+                                setPermissions((current) => ({ ...current, send: !current.send }))
+                              }
+                            />
+                            Envoyer des messages
+                          </label>
+                          <label className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={permissions.manageTemplates}
+                              onChange={() =>
+                                setPermissions((current) => ({
+                                  ...current,
+                                  manageTemplates: !current.manageTemplates,
+                                }))
+                              }
+                            />
+                            Gérer les modèles
+                          </label>
+                          <label className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={permissions.manageAccounts}
+                              onChange={() =>
+                                setPermissions((current) => ({
+                                  ...current,
+                                  manageAccounts: !current.manageAccounts,
+                                }))
+                              }
+                            />
+                            Gérer les comptes
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-6">
+                  {!permissions.view ? (
+                    <div className="rounded-2xl border border-dashed border-zinc-300 p-6 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
+                      L&apos;accès à la messagerie est restreint. Activez l&apos;autorisation « Consulter les messages » pour afficher le contenu.
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+                      <div className="grid gap-4 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm shadow-sm transition focus-within:border-blue-400 dark:border-zinc-800 dark:bg-zinc-950">
+                            <Search className="h-4 w-4 text-zinc-400" />
+                            <input
+                              type="search"
+                              placeholder="Rechercher dans l&apos;objet ou le contenu"
+                              value={threadQuery}
+                              onChange={(event) => setThreadQuery(event.target.value)}
+                              className="w-full bg-transparent outline-none"
+                            />
+                          </div>
+                          <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+                            <div className="border-b border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
+                              Conversations
+                            </div>
+                            <div className="max-h-[420px] divide-y divide-zinc-200 overflow-y-auto text-sm dark:divide-zinc-800">
+                              {filteredThreads.length === 0 ? (
+                                <p className="p-4 text-xs text-zinc-500 dark:text-zinc-400">
+                                  Aucun message dans ce dossier.
+                                </p>
+                              ) : (
+                                filteredThreads.map((thread) => {
+                                  const lastMessage = [...thread.messages].sort((a, b) =>
+                                    a.createdAt > b.createdAt ? -1 : 1,
+                                  )[0];
+                                  return (
+                                    <button
+                                      key={thread.id}
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedThreadId(thread.id);
+                                        setLinkedEntity(thread.relatedEntity);
+                                      }}
+                                      className={clsx(
+                                        "flex w-full flex-col gap-1 px-3 py-2 text-left transition",
+                                        selectedThreadId === thread.id
+                                          ? "bg-blue-50 dark:bg-blue-500/20"
+                                          : "hover:bg-zinc-50 dark:hover:bg-zinc-900",
+                                      )}
+                                    >
+                                      <div className="flex items-center justify-between gap-2">
+                                        <span className="font-medium text-zinc-800 dark:text-zinc-100">
+                                          {thread.subject}
+                                        </span>
+                                        <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                                          {DATE_TIME_FORMATTER.format(new Date(thread.updatedAt))}
+                                        </span>
+                                      </div>
+                                      <p className="line-clamp-2 text-xs text-zinc-500 dark:text-zinc-400">
+                                        {thread.preview}
+                                      </p>
+                                      <div className="flex flex-wrap gap-1">
+                                        {thread.labels.map((labelId) => {
+                                          const label = labels.find((item) => item.id === labelId);
+                                          if (!label) return null;
+                                          return (
+                                            <span
+                                              key={label.id}
+                                              className={clsx("rounded-full px-2 py-0.5 text-[10px]", label.color)}
+                                            >
+                                              {label.name}
+                                            </span>
+                                          );
+                                        })}
+                                        {lastMessage ? (
+                                          <span
+                                            className={clsx(
+                                              "rounded-full px-2 py-0.5 text-[10px] font-medium",
+                                              lastMessage.status === "ENVOYE"
+                                                ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200"
+                                                : lastMessage.status === "ECHEC"
+                                                ? "bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-200"
+                                                : lastMessage.status === "EN_ATTENTE"
+                                                ? "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-200"
+                                                : "bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200",
+                                            )}
+                                          >
+                                            {lastMessage.status === "ENVOYE"
+                                              ? "Envoyé"
+                                              : lastMessage.status === "ECHEC"
+                                              ? "Échec"
+                                              : lastMessage.status === "EN_ATTENTE"
+                                              ? "En attente"
+                                              : "Brouillon"}
+                                          </span>
+                                        ) : null}
+                                      </div>
+                                    </button>
+                                  );
+                                })
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="space-y-4">
+                          {selectedThread ? (
+                            <div className="space-y-4">
+                              <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+                                <div className="flex flex-col gap-3 border-b border-zinc-200 pb-3 text-sm dark:border-zinc-800">
+                                  <div className="flex flex-wrap items-center justify-between gap-3">
+                                    <div>
+                                      <h3 className="font-semibold text-zinc-900 dark:text-zinc-100">
+                                        {selectedThread.subject}
+                                      </h3>
+                                      <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                                        {linkedEntityDescription}
+                                      </p>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="gap-2 text-xs"
+                                        onClick={() => prepareReply("reply")}
+                                      >
+                                        <Reply className="h-3.5 w-3.5" /> Répondre
+                                      </Button>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="gap-2 text-xs"
+                                        onClick={() => prepareReply("forward")}
+                                      >
+                                        <Forward className="h-3.5 w-3.5" /> Transférer
+                                      </Button>
+                                    </div>
+                                  </div>
+                                  <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+                                    <span className="flex items-center gap-1">
+                                      <Sparkles className="h-3 w-3" /> Liens dynamiques
+                                    </span>
+                                    <select
+                                      className="input h-8 text-xs"
+                                      value={linkedEntity ? `${linkedEntity.type}:${linkedEntity.id}` : ""}
+                                      onChange={(event) => {
+                                        const value = event.target.value;
+                                        if (!value) {
+                                          linkThreadToEntity(selectedThread.id, null);
+                                          return;
+                                        }
+                                        const [type, id] = value.split(":");
+                                        if (type === "client" || type === "invoice" || type === "quote") {
+                                          linkThreadToEntity(selectedThread.id, { type, id });
+                                        }
+                                      }}
+                                    >
+                                      <option value="">Aucun lien</option>
+                                      <optgroup label="Clients">
+                                        {clients.map((client) => (
+                                          <option key={client.id} value={`client:${client.id}`}>
+                                            {client.displayName}
+                                          </option>
+                                        ))}
+                                      </optgroup>
+                                      <optgroup label="Factures">
+                                        {invoices.map((invoice) => (
+                                          <option key={invoice.id} value={`invoice:${invoice.id}`}>
+                                            {invoice.number} — {invoice.clientName}
+                                          </option>
+                                        ))}
+                                      </optgroup>
+                                      <optgroup label="Devis">
+                                        {quotes.map((quote) => (
+                                          <option key={quote.id} value={`quote:${quote.id}`}>
+                                            {quote.number} — {quote.clientName}
+                                          </option>
+                                        ))}
+                                      </optgroup>
+                                    </select>
+                                    <div className="flex flex-wrap gap-1">
+                                      {labels.map((label) => (
+                                        <button
+                                          key={label.id}
+                                          type="button"
+                                          className={clsx(
+                                            "rounded-full px-2 py-0.5 text-[10px]",
+                                            label.color,
+                                            selectedThread.labels.includes(label.id)
+                                              ? "ring-1 ring-offset-1 ring-blue-500 dark:ring-offset-zinc-950"
+                                              : "opacity-80 hover:opacity-100",
+                                          )}
+                                          onClick={() => toggleLabelOnThread(selectedThread.id, label.id)}
+                                        >
+                                          {label.name}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="space-y-4 pt-3 text-sm">
+                                  {selectedThread.messages
+                                    .slice()
+                                    .sort((a, b) => (a.createdAt > b.createdAt ? 1 : -1))
+                                    .map((message) => (
+                                      <article
+                                        key={message.id}
+                                        className="rounded-xl border border-zinc-200 bg-white p-3 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
+                                      >
+                                        <header className="flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+                                          <div className="flex items-center gap-1">
+                                            {message.direction === "incoming" ? (
+                                              <ArrowDownLeft className="h-3.5 w-3.5" />
+                                            ) : (
+                                              <ArrowUpRight className="h-3.5 w-3.5" />
+                                            )}
+                                            <span>
+                                              {message.direction === "incoming" ? message.from : selectedAccount?.email}
+                                            </span>
+                                            <ArrowRight className="h-3 w-3" />
+                                            <span>{message.to.join(", ")}</span>
+                                          </div>
+                                          <time>
+                                            {DATE_TIME_FORMATTER.format(new Date(message.createdAt))}
+                                          </time>
+                                        </header>
+                                        <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-700 dark:text-zinc-200">
+                                          {message.body}
+                                        </div>
+                                        {message.attachments.length > 0 ? (
+                                          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+                                            <Paperclip className="h-3.5 w-3.5" />
+                                            {message.attachments.map((attachment) => (
+                                              <span
+                                                key={attachment.id}
+                                                className="rounded border border-zinc-200 px-2 py-1 dark:border-zinc-700"
+                                              >
+                                                {attachment.name}
+                                              </span>
+                                            ))}
+                                          </div>
+                                        ) : null}
+                                        <div className="mt-3 space-y-1">
+                                          {message.auditTrail.map((trace) => (
+                                            <div
+                                              key={trace.id}
+                                              className="flex items-center gap-2 text-[11px] text-zinc-500 dark:text-zinc-400"
+                                            >
+                                              <CalendarClock className="h-3 w-3" />
+                                              <span>{trace.label}</span>
+                                              <span className="text-zinc-400">
+                                                {DATE_TIME_FORMATTER.format(new Date(trace.timestamp))}
+                                              </span>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </article>
+                                    ))}
+                                </div>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="rounded-2xl border border-dashed border-zinc-300 p-6 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
+                              Sélectionnez une conversation pour afficher son contenu.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+                    <h3 className="flex items-center gap-2 text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+                      <MessageSquare className="h-4 w-4" /> Rédaction
+                    </h3>
+                    <div className="mt-3 grid gap-3 text-sm">
+                      <label className="block">
+                        <span className="label">À</span>
+                        <input
+                          className="input"
+                          value={composer.to}
+                          onChange={(event) =>
+                            setComposer((current) => ({ ...current, to: event.target.value }))
+                          }
+                          placeholder="destinataire@example.com"
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="label">Cc</span>
+                        <input
+                          className="input"
+                          value={composer.cc}
+                          onChange={(event) =>
+                            setComposer((current) => ({ ...current, cc: event.target.value }))
+                          }
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="label">Cci</span>
+                        <input
+                          className="input"
+                          value={composer.bcc}
+                          onChange={(event) =>
+                            setComposer((current) => ({ ...current, bcc: event.target.value }))
+                          }
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="label">Sujet</span>
+                        <input
+                          className="input"
+                          value={composer.subject}
+                          onChange={(event) =>
+                            setComposer((current) => ({ ...current, subject: event.target.value }))
+                          }
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="label">Message</span>
+                        <textarea
+                          ref={bodyRef}
+                          className="input min-h-[160px]"
+                          value={composer.body}
+                          onChange={(event) =>
+                            setComposer((current) => ({ ...current, body: event.target.value }))
+                          }
+                          placeholder="Rédigez votre message en utilisant les variables dynamiques..."
+                        />
+                      </label>
+                      <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+                        <label className="flex items-center gap-2">
+                          <input
+                            type="file"
+                            multiple
+                            onChange={(event) => handleAddAttachment(event.target.files)}
+                          />
+                          Ajouter une pièce jointe
+                        </label>
+                        {composer.attachments.map((attachment) => (
+                          <span
+                            key={attachment.id}
+                            className="flex items-center gap-2 rounded-full border border-zinc-200 px-3 py-1 dark:border-zinc-700"
+                          >
+                            <span>{attachment.name}</span>
+                            <span className="text-zinc-400">{formatBytes(attachment.size)}</span>
+                            <button
+                              type="button"
+                              className="text-xs text-red-500 hover:underline"
+                              onClick={() => removeAttachment(attachment.id)}
+                            >
+                              Supprimer
+                            </button>
+                            <button
+                              type="button"
+                              className="text-xs text-blue-500 hover:underline"
+                              onClick={() => toggleAttachmentInline(attachment.id)}
+                            >
+                              {attachment.inline ? "Intégré" : "En pièce jointe"}
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                      {composer.error ? (
+                        <p className="text-xs text-red-500">{composer.error}</p>
+                      ) : null}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button
+                          className="gap-2"
+                          onClick={() => handleSendMessage()}
+                          disabled={composer.sending}
+                        >
+                          <Send className="h-4 w-4" />
+                          Envoyer
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="gap-2"
+                          onClick={() => handleSaveDraft()}
+                          disabled={composer.sending}
+                        >
+                          <Tag className="h-4 w-4" />
+                          Enregistrer le brouillon
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          className="gap-2"
+                          onClick={() => resetComposer()}
+                          disabled={composer.sending}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          Effacer
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div className="mt-3 space-y-2">
-                {FOLDERS.map((item) => {
-                  const Icon = item.icon;
+
+              <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+                <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                      Variables dynamiques
+                    </h2>
+                    <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                      Cliquez pour insérer dans le message
+                    </span>
+                  </div>
+                  <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                    {availableVariables.map((variable) => (
+                      <button
+                        key={variable.key}
+                        type="button"
+                        onClick={() => handleInsertVariable(variable.key)}
+                        className="flex flex-col items-start rounded-xl border border-zinc-200 bg-white p-3 text-left text-xs transition hover:border-blue-400 hover:bg-blue-50 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-blue-400 dark:hover:bg-blue-500/10"
+                      >
+                        <span className="font-semibold text-zinc-700 dark:text-zinc-200">
+                          {"{{"}
+                          {variable.key}
+                          {"}}"}
+                        </span>
+                        <span className="text-zinc-500 dark:text-zinc-400">{variable.value}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+                  <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                    <Sparkles className="h-4 w-4" /> Réponses rapides
+                  </h2>
+                  <div className="mt-3 grid gap-3 text-sm">
+                    {!canManageTemplates ? (
+                      <p className="text-xs text-amber-600 dark:text-amber-300">
+                        Lecture seule : l&apos;insertion est désactivée pour votre rôle.
+                      </p>
+                    ) : null}
+                    {quickTemplates.length === 0 ? (
+                      <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                        Aucun modèle disponible pour ce compte.
+                      </p>
+                    ) : (
+                      quickTemplates.map((template) => (
+                        <div
+                          key={template.id}
+                          className="flex flex-col gap-2 rounded-xl border border-zinc-200 p-3 dark:border-zinc-800"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div>
+                              <p className="font-medium text-zinc-800 dark:text-zinc-200">
+                                {template.name}
+                              </p>
+                              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                                Sujet : {template.subject}
+                              </p>
+                            </div>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              className="text-xs"
+                              onClick={() => handleInsertTemplate(template)}
+                              disabled={!canManageTemplates}
+                            >
+                              Insérer
+                            </Button>
+                          </div>
+                          <p className="whitespace-pre-wrap text-xs text-zinc-500 dark:text-zinc-300">
+                            {template.body}
+                          </p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {activeTab === "templates" ? (
+            <div className="flex flex-col gap-6">
+              <div className="flex flex-wrap items-center gap-2">
+                {TEMPLATE_CATEGORY_FILTERS.map((category) => {
+                  const meta = category === "all" ? null : TEMPLATE_CATEGORY_METADATA[category];
+                  const Icon = category === "all" ? Filter : meta.icon;
+                  const label = category === "all" ? "Toutes les catégories" : meta.label;
                   return (
                     <button
-                      key={item.id}
+                      key={category}
                       type="button"
-                      onClick={() => {
-                        setFolder(item.id);
-                        const firstThread = threads.find(
-                          (thread) =>
-                            thread.folder === item.id && thread.accountId === selectedAccount?.id,
-                        );
-                        setSelectedThreadId(firstThread?.id ?? null);
-                      }}
+                      onClick={() => setTemplateCategory(category)}
                       className={clsx(
-                        "flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition",
-                        folder === item.id
-                          ? "bg-blue-50 text-blue-700 dark:bg-blue-500/20 dark:text-blue-200"
-                          : "hover:bg-zinc-50 dark:hover:bg-zinc-900",
+                        "flex items-center gap-2 rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-wide transition",
+                        templateCategory === category
+                          ? "bg-blue-600 text-white shadow-sm dark:bg-blue-500"
+                          : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700",
                       )}
                     >
-                      <span className="flex items-center gap-2">
-                        <Icon className="h-4 w-4" />
-                        {item.label}
-                      </span>
-                      <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                        {folderCounts[item.id] ?? 0}
-                      </span>
+                      <Icon className="h-3.5 w-3.5" />
+                      {label}
                     </button>
                   );
                 })}
               </div>
-              <div className="mt-4 space-y-2">
-                <div className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
-                  <Tag className="h-3.5 w-3.5" />
-                  Étiquettes
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {labels.map((label) => (
-                    <button
-                      key={label.id}
-                      type="button"
-                      onClick={() =>
-                        setLabelFilter((current) => (current === label.id ? null : label.id))
-                      }
-                      className={clsx(
-                        "rounded-full px-3 py-1 text-xs font-medium transition",
-                        label.color,
-                        labelFilter === label.id
-                          ? "ring-2 ring-offset-2 ring-blue-500 dark:ring-offset-zinc-950"
-                          : "opacity-80 hover:opacity-100",
-                      )}
+
+              <div className="grid gap-6 lg:grid-cols-2">
+                {TEMPLATE_CATEGORIES.map((category) => {
+                  const templates = templatesByCategory[category];
+                  const meta = TEMPLATE_CATEGORY_METADATA[category];
+                  const Icon = meta.icon;
+                  return (
+                    <section
+                      key={category}
+                      className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950"
                     >
-                      {label.name}
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    className="rounded-full border border-dashed border-zinc-300 px-3 py-1 text-xs text-zinc-500 transition hover:border-zinc-400 hover:text-zinc-700 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-500 dark:hover:text-zinc-200"
-                    onClick={() => {
-                      const name = prompt("Nom de la nouvelle étiquette");
-                      if (name) addLabel(name);
-                    }}
-                  >
-                    + Nouvelle
-                  </button>
-                </div>
-              </div>
-              <div className="mt-4 space-y-2">
-                <div className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
-                  <ShieldCheck className="h-3.5 w-3.5" />
-                  Permissions
-                </div>
-                <div className="space-y-2 text-xs text-zinc-600 dark:text-zinc-300">
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={permissions.view}
-                      onChange={() =>
-                        setPermissions((current) => ({ ...current, view: !current.view }))
-                      }
-                    />
-                    Consulter les messages
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={permissions.send}
-                      onChange={() =>
-                        setPermissions((current) => ({ ...current, send: !current.send }))
-                      }
-                    />
-                    Envoyer des messages
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={permissions.manageTemplates}
-                      onChange={() =>
-                        setPermissions((current) => ({
-                          ...current,
-                          manageTemplates: !current.manageTemplates,
-                        }))
-                      }
-                    />
-                    Gérer les modèles
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={permissions.manageAccounts}
-                      onChange={() =>
-                        setPermissions((current) => ({
-                          ...current,
-                          manageAccounts: !current.manageAccounts,
-                        }))
-                      }
-                    />
-                    Gérer les comptes
-                  </label>
-                </div>
-              </div>
-            </div>
-
-            <div className="lg:col-span-3">
-              {!permissions.view ? (
-                <div className="rounded-lg border border-dashed border-zinc-300 p-6 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
-                  L&apos;accès à la messagerie est restreint. Activez l&apos;autorisation « Consulter les messages » pour afficher le contenu.
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                    <div className="flex flex-1 items-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm shadow-sm transition focus-within:border-blue-400 dark:border-zinc-800 dark:bg-zinc-950">
-                      <Search className="h-4 w-4 text-zinc-400" />
-                      <input
-                        type="search"
-                        placeholder="Rechercher dans l&apos;objet ou le contenu"
-                        value={search}
-                        onChange={(event) => setSearch(event.target.value)}
-                        className="w-full bg-transparent outline-none"
-                      />
-                    </div>
-                    <div className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
-                      <Filter className="h-4 w-4" />
-                      <select
-                        className="input h-9 text-xs"
-                        value={statusFilter}
-                        onChange={(event) =>
-                          setStatusFilter(event.target.value as MailStatus | "all")
-                        }
-                      >
-                        <option value="all">Tous les statuts</option>
-                        <option value="ENVOYE">Envoyé</option>
-                        <option value="EN_ATTENTE">En attente</option>
-                        <option value="ECHEC">Échec</option>
-                        <option value="BROUILLON">Brouillon</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="grid gap-4 lg:grid-cols-[minmax(0,280px)_minmax(0,1fr)]">
-                    <div className="space-y-2 overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
-                      <div className="border-b border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
-                        Conversations
-                      </div>
-                      <div className="max-h-[420px] divide-y divide-zinc-200 overflow-y-auto text-sm dark:divide-zinc-800">
-                        {filteredThreads.length === 0 ? (
-                          <p className="p-4 text-xs text-zinc-500 dark:text-zinc-400">
-                            Aucun message dans ce dossier.
+                      <header className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="flex items-center gap-2 text-sm font-semibold text-zinc-800 dark:text-zinc-100">
+                            <Icon className="h-4 w-4" />
+                            {meta.label}
+                          </div>
+                          <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                            {meta.description}
+                          </p>
+                        </div>
+                        <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                          {templates.length} {templates.length > 1 ? "modèles" : "modèle"}
+                        </span>
+                      </header>
+                      <div className="mt-4 space-y-4">
+                        {templates.length === 0 ? (
+                          <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                            Aucun modèle ne correspond à cette recherche.
                           </p>
                         ) : (
-                          filteredThreads.map((thread) => {
-                            const lastMessage = [...thread.messages].sort((a, b) =>
-                              a.createdAt > b.createdAt ? -1 : 1,
-                            )[0];
-                            return (
-                              <button
-                                key={thread.id}
-                                type="button"
-                                onClick={() => {
-                                  setSelectedThreadId(thread.id);
-                                  setLinkedEntity(thread.relatedEntity);
-                                }}
-                                className={clsx(
-                                  "flex w-full flex-col gap-1 px-3 py-2 text-left transition",
-                                  selectedThreadId === thread.id
-                                    ? "bg-blue-50 dark:bg-blue-500/20"
-                                    : "hover:bg-zinc-50 dark:hover:bg-zinc-900",
-                                )}
-                              >
-                                <div className="flex items-center justify-between gap-2">
-                                  <span className="font-medium text-zinc-800 dark:text-zinc-100">
-                                    {thread.subject}
-                                  </span>
-                                  <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                                    {DATE_TIME_FORMATTER.format(new Date(thread.updatedAt))}
-                                  </span>
+                          templates.map((template) => (
+                            <article
+                              key={template.id}
+                              className="space-y-3 rounded-xl border border-zinc-200 p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950/70"
+                            >
+                              <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div>
+                                  <h3 className="font-medium text-zinc-900 dark:text-zinc-100">
+                                    {template.name}
+                                  </h3>
+                                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                                    Sujet : {template.subject}
+                                  </p>
                                 </div>
-                                <p className="line-clamp-2 text-xs text-zinc-500 dark:text-zinc-400">
-                                  {thread.preview}
-                                </p>
-                                <div className="flex flex-wrap gap-1">
-                                  {thread.labels.map((labelId) => {
-                                    const label = labels.find((item) => item.id === labelId);
-                                    if (!label) return null;
-                                    return (
-                                      <span
-                                        key={label.id}
-                                        className={clsx("rounded-full px-2 py-0.5 text-[10px]", label.color)}
-                                      >
-                                        {label.name}
-                                      </span>
-                                    );
-                                  })}
-                                  {lastMessage ? (
-                                    <span
-                                      className={clsx(
-                                        "rounded-full px-2 py-0.5 text-[10px] font-medium",
-                                        lastMessage.status === "ENVOYE"
-                                          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200"
-                                          : lastMessage.status === "ECHEC"
-                                          ? "bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-200"
-                                          : lastMessage.status === "EN_ATTENTE"
-                                          ? "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-200"
-                                          : "bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200",
-                                      )}
-                                    >
-                                      {lastMessage.status === "ENVOYE"
-                                        ? "Envoyé"
-                                        : lastMessage.status === "ECHEC"
-                                        ? "Échec"
-                                        : lastMessage.status === "EN_ATTENTE"
-                                        ? "En attente"
-                                        : "Brouillon"}
+                                <div className="flex items-center gap-2">
+                                  {template.quickReply ? (
+                                    <span className="rounded-full bg-emerald-100 px-3 py-1 text-[11px] font-medium text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200">
+                                      Réponse rapide
                                     </span>
                                   ) : null}
-                                </div>
-                              </button>
-                            );
-                          })
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="space-y-4">
-                      {selectedThread ? (
-                        <div className="rounded-lg border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
-                          <div className="flex flex-col gap-3 border-b border-zinc-200 px-4 py-3 text-sm dark:border-zinc-800">
-                            <div className="flex flex-wrap items-center justify-between gap-3">
-                              <div>
-                                <h3 className="font-semibold text-zinc-900 dark:text-zinc-100">
-                                  {selectedThread.subject}
-                                </h3>
-                                <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                                  {linkedEntityDescription}
-                                </p>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="gap-2 text-xs"
-                                  onClick={() => prepareReply("reply")}
-                                >
-                                  <Reply className="h-3.5 w-3.5" /> Répondre
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="gap-2 text-xs"
-                                  onClick={() => prepareReply("forward")}
-                                >
-                                  <Forward className="h-3.5 w-3.5" /> Transférer
-                                </Button>
-                              </div>
-                            </div>
-                            <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
-                              <span className="flex items-center gap-1">
-                                <Sparkles className="h-3 w-3" /> Liens dynamiques
-                              </span>
-                              <select
-                                className="input h-8 text-xs"
-                                value={linkedEntity ? `${linkedEntity.type}:${linkedEntity.id}` : ""}
-                                onChange={(event) => {
-                                  const value = event.target.value;
-                                  if (!value) {
-                                    linkThreadToEntity(selectedThread.id, null);
-                                    return;
-                                  }
-                                  const [type, id] = value.split(":");
-                                  if (type === "client" || type === "invoice" || type === "quote") {
-                                    linkThreadToEntity(selectedThread.id, { type, id });
-                                  }
-                                }}
-                              >
-                                <option value="">Aucun lien</option>
-                                <optgroup label="Clients">
-                                  {clients.map((client) => (
-                                    <option key={client.id} value={`client:${client.id}`}>
-                                      {client.displayName}
-                                    </option>
-                                  ))}
-                                </optgroup>
-                                <optgroup label="Factures">
-                                  {invoices.map((invoice) => (
-                                    <option key={invoice.id} value={`invoice:${invoice.id}`}>
-                                      {invoice.number} — {invoice.clientName}
-                                    </option>
-                                  ))}
-                                </optgroup>
-                                <optgroup label="Devis">
-                                  {quotes.map((quote) => (
-                                    <option key={quote.id} value={`quote:${quote.id}`}>
-                                      {quote.number} — {quote.clientName}
-                                    </option>
-                                  ))}
-                                </optgroup>
-                              </select>
-                              <div className="flex flex-wrap gap-1">
-                                {labels.map((label) => (
-                                  <button
-                                    key={label.id}
-                                    type="button"
-                                    className={clsx(
-                                      "rounded-full px-2 py-0.5 text-[10px]",
-                                      label.color,
-                                      selectedThread.labels.includes(label.id)
-                                        ? "ring-1 ring-offset-1 ring-blue-500 dark:ring-offset-zinc-950"
-                                        : "opacity-75 hover:opacity-100",
-                                    )}
-                                    onClick={() => toggleLabelOnThread(selectedThread.id, label.id)}
-                                  >
-                                    {label.name}
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-                          </div>
-                          <div className="space-y-4 px-4 py-3 text-sm">
-                            {selectedThread.messages
-                              .slice()
-                              .sort((a, b) => (a.createdAt > b.createdAt ? 1 : -1))
-                              .map((message) => (
-                                <article
-                                  key={message.id}
-                                  className="rounded-lg border border-zinc-200 bg-white p-3 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
-                                >
-                                  <header className="flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-500 dark:text-zinc-400">
-                                    <div className="flex items-center gap-1">
-                                      {message.direction === "incoming" ? (
-                                        <ArrowDownLeft className="h-3.5 w-3.5" />
-                                      ) : (
-                                        <ArrowUpRight className="h-3.5 w-3.5" />
-                                      )}
-                                      <span>
-                                        {message.direction === "incoming" ? message.from : selectedAccount?.email}
-                                      </span>
-                                      <ArrowRight className="h-3 w-3" />
-                                      <span>
-                                        {message.to.join(", ")}
-                                      </span>
-                                    </div>
-                                    <time>
-                                      {DATE_TIME_FORMATTER.format(new Date(message.createdAt))}
-                                    </time>
-                                  </header>
-                                  <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-700 dark:text-zinc-200">
-                                    {message.body}
-                                  </div>
-                                  {message.attachments.length > 0 ? (
-                                    <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
-                                      <Paperclip className="h-3.5 w-3.5" />
-                                      {message.attachments.map((attachment) => (
-                                        <span
-                                          key={attachment.id}
-                                          className="rounded border border-zinc-200 px-2 py-1 dark:border-zinc-700"
-                                        >
-                                          {attachment.name}
-                                        </span>
-                                      ))}
-                                    </div>
-                                  ) : null}
-                                  <div className="mt-3 space-y-1">
-                                    {message.auditTrail.map((trace) => (
-                                      <div
-                                        key={trace.id}
-                                        className="flex items-center gap-2 text-[11px] text-zinc-500 dark:text-zinc-400"
-                                      >
-                                        <CalendarClock className="h-3 w-3" />
-                                        <span>{trace.label}</span>
-                                        <span className="text-zinc-400">
-                                          {DATE_TIME_FORMATTER.format(new Date(trace.timestamp))}
-                                        </span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </article>
-                              ))}
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="rounded-lg border border-dashed border-zinc-300 p-6 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
-                          Sélectionnez une conversation pour afficher son contenu.
-                        </div>
-                      )}
-
-                      <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
-                        <h3 className="flex items-center gap-2 text-sm font-semibold text-zinc-800 dark:text-zinc-200">
-                          <MessageSquare className="h-4 w-4" /> Rédaction
-                        </h3>
-                        <div className="mt-3 grid gap-3 text-sm">
-                          <label className="block">
-                            <span className="label">À</span>
-                            <input
-                              className="input"
-                              value={composer.to}
-                              onChange={(event) =>
-                                setComposer((current) => ({ ...current, to: event.target.value }))
-                              }
-                              placeholder="destinataire@example.com"
-                            />
-                          </label>
-                          <label className="block">
-                            <span className="label">Cc</span>
-                            <input
-                              className="input"
-                              value={composer.cc}
-                              onChange={(event) =>
-                                setComposer((current) => ({ ...current, cc: event.target.value }))
-                              }
-                            />
-                          </label>
-                          <label className="block">
-                            <span className="label">Cci</span>
-                            <input
-                              className="input"
-                              value={composer.bcc}
-                              onChange={(event) =>
-                                setComposer((current) => ({ ...current, bcc: event.target.value }))
-                              }
-                            />
-                          </label>
-                          <label className="block">
-                            <span className="label">Sujet</span>
-                            <input
-                              className="input"
-                              value={composer.subject}
-                              onChange={(event) =>
-                                setComposer((current) => ({ ...current, subject: event.target.value }))
-                              }
-                            />
-                          </label>
-                          <label className="block">
-                            <span className="label">Message</span>
-                            <textarea
-                              ref={bodyRef}
-                              className="input min-h-[160px]"
-                              value={composer.body}
-                              onChange={(event) =>
-                                setComposer((current) => ({ ...current, body: event.target.value }))
-                              }
-                              placeholder="Rédigez votre message en utilisant les variables dynamiques..."
-                            />
-                          </label>
-                          <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
-                            <label className="flex items-center gap-2">
-                              <input
-                                type="file"
-                                multiple
-                                onChange={(event) => handleAddAttachment(event.target.files)}
-                              />
-                            </label>
-                            {composer.attachments.map((attachment) => (
-                              <div
-                                key={attachment.id}
-                                className="flex items-center gap-2 rounded border border-zinc-200 px-2 py-1 text-xs dark:border-zinc-700"
-                              >
-                                <span>{attachment.name}</span>
-                                <span className="text-zinc-400">{formatBytes(attachment.size)}</span>
-                                <button
-                                  type="button"
-                                  className="text-blue-600 transition hover:underline dark:text-blue-300"
-                                  onClick={() => toggleAttachmentInline(attachment.id)}
-                                >
-                                  {attachment.inline ? "Inline" : "En pièce jointe"}
-                                </button>
-                                <button
-                                  type="button"
-                                  className="text-red-500 transition hover:underline"
-                                  onClick={() => removeAttachment(attachment.id)}
-                                >
-                                  Retirer
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                          {composer.error ? (
-                            <p className="text-xs text-red-500">{composer.error}</p>
-                          ) : null}
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Button onClick={handleSendMessage} disabled={composer.sending} className="gap-2">
-                              <Send className="h-4 w-4" />
-                              {composer.sending ? "Envoi..." : "Envoyer"}
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="secondary"
-                              onClick={handleSaveDraft}
-                              className="gap-2"
-                            >
-                              <FileText className="h-4 w-4" />
-                              Enregistrer le brouillon
-                            </Button>
-                            <Button type="button" variant="ghost" onClick={resetComposer} className="gap-2">
-                              <Trash2 className="h-4 w-4" />
-                              Vider
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
-                        <h3 className="flex items-center gap-2 text-sm font-semibold text-zinc-800 dark:text-zinc-200">
-                          <Sparkles className="h-4 w-4" /> Réponses rapides & modèles
-                        </h3>
-                        <div className="mt-3 grid gap-3 text-sm">
-                          {!canManageTemplates ? (
-                            <p className="text-xs text-amber-600 dark:text-amber-300">
-                              Lecture seule : l&apos;insertion est désactivée pour votre rôle.
-                            </p>
-                          ) : null}
-                          {quickTemplates.length === 0 ? (
-                            <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                              Aucun modèle disponible.
-                            </p>
-                          ) : (
-                            quickTemplates.map((template) => (
-                              <div
-                                key={template.id}
-                                className="flex flex-col gap-2 rounded-lg border border-zinc-200 p-3 dark:border-zinc-800"
-                              >
-                                <div className="flex items-center justify-between gap-2">
-                                  <div>
-                                    <p className="font-medium text-zinc-800 dark:text-zinc-200">
-                                      {template.name}
-                                    </p>
-                                    <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                                      Sujet : {template.subject}
-                                    </p>
-                                  </div>
                                   <Button
                                     type="button"
                                     size="sm"
@@ -1878,88 +2238,295 @@ export function MessagerieWorkspace({
                                     Insérer
                                   </Button>
                                 </div>
-                                <p className="whitespace-pre-wrap text-xs text-zinc-500 dark:text-zinc-300">
-                                  {template.body}
-                                </p>
                               </div>
-                            ))
-                          )}
-                        </div>
+                              <div className="whitespace-pre-wrap text-xs text-zinc-600 dark:text-zinc-300">
+                                {template.body}
+                              </div>
+                            </article>
+                          ))
+                        )}
                       </div>
-                    </div>
-                  </div>
-                </div>
-              )}
+                    </section>
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        </div>
-      </section>
+          ) : null}
 
-      <section className="grid gap-6 lg:grid-cols-3">
-        <div className="card lg:col-span-2">
-          <div className="space-y-4 p-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                Variables dynamiques
-              </h2>
-              <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                Cliquez pour insérer dans le message
-              </span>
-            </div>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {availableVariables.map((variable) => (
-                <button
-                  key={variable.key}
-                  type="button"
-                  onClick={() => handleInsertVariable(variable.key)}
-                  className="flex flex-col items-start rounded-lg border border-zinc-200 bg-white p-3 text-left text-xs transition hover:border-blue-400 hover:bg-blue-50 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-blue-400 dark:hover:bg-blue-500/10"
-                >
-                  <span className="font-semibold text-zinc-700 dark:text-zinc-200">
-                    {"{{"}
-                    {variable.key}
-                    {"}}"}
-                  </span>
-                  <span className="text-zinc-500 dark:text-zinc-400">{variable.value}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-        <div className="card">
-          <div className="space-y-4 p-4">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-              Journal d&apos;audit
-            </h2>
-            <div className="space-y-3 text-xs text-zinc-600 dark:text-zinc-300">
-              {auditLogs.length === 0 ? (
-                <p>Aucun événement enregistré.</p>
-              ) : (
-                auditLogs.slice(0, 8).map((log) => (
-                  <div
-                    key={log.id}
-                    className="rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium text-zinc-700 dark:text-zinc-200">
-                        {log.subject}
-                      </span>
-                      <span className="text-[11px] text-zinc-400">
-                        {DATE_TIME_FORMATTER.format(new Date(log.createdAt))}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-zinc-500 dark:text-zinc-400">
-                      Vers {log.to} — {log.status === "ENVOYE" ? "Envoyé" : log.status === "ECHEC" ? "Échec" : "En attente"}
+          {activeTab === "accounts" ? (
+            <div className="grid gap-6 lg:grid-cols-[minmax(0,260px)_minmax(0,1fr)]">
+              <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+                <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">Comptes</h2>
+                <div className="mt-4 space-y-2">
+                  {visibleAccounts.length === 0 ? (
+                    <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                      Aucun compte ne correspond à votre recherche.
                     </p>
-                    {log.error ? (
-                      <p className="mt-1 text-red-500">Erreur : {log.error}</p>
-                    ) : null}
+                  ) : (
+                    visibleAccounts.map((account) => (
+                      <button
+                        key={account.id}
+                        type="button"
+                        onClick={() => handleAccountChange(account.id)}
+                        className={clsx(
+                          "w-full rounded-xl border px-3 py-2 text-left text-sm transition",
+                          account.id === selectedAccount?.id
+                            ? "border-blue-500 bg-blue-50 text-blue-700 shadow-sm dark:border-blue-400 dark:bg-blue-500/10 dark:text-blue-200"
+                            : "border-zinc-200 hover:border-blue-300 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:border-blue-500 dark:hover:bg-zinc-900",
+                        )}
+                      >
+                        <p className="font-medium">{account.label}</p>
+                        <p className="text-xs text-zinc-500 dark:text-zinc-400">{account.email}</p>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+                <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">Configuration</h2>
+                {selectedAccount ? (
+                  <div className="mt-4 space-y-4 text-sm">
+                    <div className="space-y-2">
+                      <p className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                        IMAP (réception)
+                      </p>
+                      <label className="block">
+                        <span className="label">Serveur</span>
+                        <input
+                          className="input"
+                          value={selectedAccount.imap.host}
+                          onChange={(event) =>
+                            updateNestedAccountField(selectedAccount.id, "imap", "host", event.target.value)
+                          }
+                          disabled={!canManageAccounts}
+                        />
+                      </label>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="block">
+                          <span className="label">Port</span>
+                          <input
+                            className="input"
+                            type="number"
+                            value={selectedAccount.imap.port}
+                            onChange={(event) =>
+                              updateNestedAccountField(
+                                selectedAccount.id,
+                                "imap",
+                                "port",
+                                Number(event.target.value),
+                              )
+                            }
+                            disabled={!canManageAccounts}
+                          />
+                        </label>
+                        <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-300">
+                          <input
+                            type="checkbox"
+                            checked={selectedAccount.imap.secure}
+                            onChange={() =>
+                              updateNestedAccountField(
+                                selectedAccount.id,
+                                "imap",
+                                "secure",
+                                !selectedAccount.imap.secure,
+                              )
+                            }
+                            disabled={!canManageAccounts}
+                          />
+                          SSL / TLS
+                        </label>
+                      </div>
+                      <label className="block">
+                        <span className="label">Identifiant</span>
+                        <input
+                          className="input"
+                          value={selectedAccount.imap.username}
+                          onChange={(event) =>
+                            updateNestedAccountField(selectedAccount.id, "imap", "username", event.target.value)
+                          }
+                          disabled={!canManageAccounts}
+                        />
+                      </label>
+                    </div>
+
+                    <div className="space-y-2">
+                      <p className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                        SMTP (envoi)
+                      </p>
+                      <label className="block">
+                        <span className="label">Serveur</span>
+                        <input
+                          className="input"
+                          value={selectedAccount.smtp.host}
+                          onChange={(event) =>
+                            updateNestedAccountField(selectedAccount.id, "smtp", "host", event.target.value)
+                          }
+                          disabled={!canManageAccounts}
+                        />
+                      </label>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="block">
+                          <span className="label">Port</span>
+                          <input
+                            className="input"
+                            type="number"
+                            value={selectedAccount.smtp.port}
+                            onChange={(event) =>
+                              updateNestedAccountField(
+                                selectedAccount.id,
+                                "smtp",
+                                "port",
+                                Number(event.target.value),
+                              )
+                            }
+                            disabled={!canManageAccounts}
+                          />
+                        </label>
+                        <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-300">
+                          <input
+                            type="checkbox"
+                            checked={selectedAccount.smtp.secure}
+                            onChange={() =>
+                              updateNestedAccountField(
+                                selectedAccount.id,
+                                "smtp",
+                                "secure",
+                                !selectedAccount.smtp.secure,
+                              )
+                            }
+                            disabled={!canManageAccounts}
+                          />
+                          SSL / STARTTLS
+                        </label>
+                      </div>
+                      <label className="block">
+                        <span className="label">Identifiant</span>
+                        <input
+                          className="input"
+                          value={selectedAccount.smtp.username}
+                          onChange={(event) =>
+                            updateNestedAccountField(selectedAccount.id, "smtp", "username", event.target.value)
+                          }
+                          disabled={!canManageAccounts}
+                        />
+                      </label>
+                    </div>
+
+                    <label className="block">
+                      <span className="label">Signature personnalisée</span>
+                      <textarea
+                        className="input min-h-[100px]"
+                        value={selectedAccount.signature}
+                        onChange={(event) =>
+                          updateAccountField(selectedAccount.id, "signature", event.target.value)
+                        }
+                        disabled={!canManageAccounts}
+                      />
+                    </label>
+
+                    <div className="space-y-2">
+                      <p className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                        Automatisations
+                      </p>
+                      <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-300">
+                        <input
+                          type="checkbox"
+                          checked={selectedAccount.automations.followUps}
+                          onChange={() => toggleAutomation(selectedAccount.id, "followUps")}
+                          disabled={!canManageAccounts}
+                        />
+                        Relance automatique des retards
+                      </label>
+                      <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-300">
+                        <input
+                          type="checkbox"
+                          checked={selectedAccount.automations.autoArchive}
+                          onChange={() => toggleAutomation(selectedAccount.id, "autoArchive")}
+                          disabled={!canManageAccounts}
+                        />
+                        Archivage après réponse
+                      </label>
+                      <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-300">
+                        <input
+                          type="checkbox"
+                          checked={selectedAccount.automations.linkDocuments}
+                          onChange={() => toggleAutomation(selectedAccount.id, "linkDocuments")}
+                          disabled={!canManageAccounts}
+                        />
+                        Lien automatique avec factures / devis
+                      </label>
+                    </div>
                   </div>
-                ))
-              )}
+                ) : (
+                  <p className="mt-4 text-sm text-zinc-500 dark:text-zinc-400">
+                    Sélectionnez un compte pour afficher ses paramètres.
+                  </p>
+                )}
+              </div>
             </div>
-          </div>
+          ) : null}
+
+          {activeTab === "activity" ? (
+            <div className="flex flex-col gap-6">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                {auditStatusCards.map((card) => {
+                  const Icon = card.icon;
+                  const count = auditStatusSummary[card.status] ?? 0;
+                  return (
+                    <div
+                      key={card.status}
+                      className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950"
+                    >
+                      <div className="flex items-center justify-between">
+                        <Icon className={clsx("h-5 w-5", card.accent)} />
+                        <span className="text-xs text-zinc-500 dark:text-zinc-400">{card.label}</span>
+                      </div>
+                      <p className="mt-3 text-2xl font-semibold text-zinc-900 dark:text-zinc-100">
+                        {count}
+                      </p>
+                      <p className="text-xs text-zinc-500 dark:text-zinc-400">{card.description}</p>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                  Journal d&apos;activité
+                </h2>
+                <div className="mt-4 space-y-3 text-xs text-zinc-600 dark:text-zinc-300">
+                  {filteredAuditLogs.length === 0 ? (
+                    <p>Aucun événement enregistré.</p>
+                  ) : (
+                    filteredAuditLogs.map((log) => (
+                      <div
+                        key={log.id}
+                        className="rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium text-zinc-700 dark:text-zinc-200">
+                            {log.subject}
+                          </span>
+                          <span className="text-[11px] text-zinc-400">
+                            {DATE_TIME_FORMATTER.format(new Date(log.createdAt))}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-zinc-500 dark:text-zinc-400">
+                          Vers {log.to} — {log.status === "ENVOYE" ? "Envoyé" : log.status === "ECHEC" ? "Échec" : log.status === "EN_ATTENTE" ? "En attente" : "Brouillon"}
+                        </p>
+                        {log.error ? (
+                          <p className="mt-1 text-red-500">Erreur : {log.error}</p>
+                        ) : null}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
-      </section>
+      </div>
     </div>
   );
 }
