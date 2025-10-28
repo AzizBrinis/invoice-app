@@ -176,6 +176,17 @@ type MailTemplate = {
   quickReply: boolean;
 };
 
+type MailComposerState = {
+  to: string;
+  cc: string;
+  bcc: string;
+  subject: string;
+  body: string;
+  attachments: MailAttachment[];
+  sending: boolean;
+  error: string | null;
+};
+
 type PermissionState = {
   view: boolean;
   send: boolean;
@@ -510,15 +521,15 @@ export function MessagerieWorkspace({
     threads[0]?.relatedEntity ?? null,
   );
   const bodyRef = useRef<HTMLTextAreaElement | null>(null);
-  const [composer, setComposer] = useState({
+  const [composer, setComposer] = useState<MailComposerState>({
     to: "",
     cc: "",
     bcc: "",
     subject: "",
     body: initialAccounts[0] ? `\n\n${initialAccounts[0].signature}` : "",
-    attachments: [] as MailAttachment[],
+    attachments: [],
     sending: false,
-    error: string | null,
+    error: null,
   });
 
   const selectedAccount = accounts.find((account) => account.id === selectedAccountId) ?? accounts[0];
