@@ -18,11 +18,6 @@ const NAV_ITEMS: NavItem[] = [
     icon: "dashboard",
   },
   {
-    label: "Messagerie",
-    href: "/messagerie",
-    icon: "mail",
-  },
-  {
     label: "Devis",
     href: "/devis",
     icon: "quotes",
@@ -41,6 +36,17 @@ const NAV_ITEMS: NavItem[] = [
     label: "Clients",
     href: "/clients",
     icon: "clients",
+  },
+  {
+    label: "Messagerie",
+    href: "/messagerie",
+    icon: "mail",
+    children: [
+      { label: "Reçus", href: "/messagerie/recus" },
+      { label: "Envoyés", href: "/messagerie/envoyes" },
+      { label: "Nouveau message", href: "/messagerie/nouveau-message" },
+      { label: "Paramètres", href: "/messagerie/parametres" },
+    ],
   },
   {
     label: "Paramètres",

@@ -79,23 +79,33 @@ function ToastItem({
   return (
     <div
       className={clsx(
-        "rounded-lg border px-4 py-3 shadow-lg backdrop-blur transition-opacity",
+        "min-w-[240px] rounded-lg border px-4 py-3 shadow-lg backdrop-blur transition-opacity",
         variantStyles[toast.variant].container,
       )}
       role="status"
     >
-      <div className="space-y-1">
-        <p className="text-sm font-medium">{toast.title}</p>
-        {toast.description ? (
-          <p
-            className={clsx(
-              "text-xs",
-              variantStyles[toast.variant].description,
-            )}
-          >
-            {toast.description}
-          </p>
-        ) : null}
+      <div className="flex items-start gap-3">
+        <div className="flex-1 space-y-1">
+          <p className="text-sm font-medium">{toast.title}</p>
+          {toast.description ? (
+            <p
+              className={clsx(
+                "text-xs",
+                variantStyles[toast.variant].description,
+              )}
+            >
+              {toast.description}
+            </p>
+          ) : null}
+        </div>
+        <button
+          type="button"
+          onClick={() => onDismiss(toast.id)}
+          className="text-xs text-zinc-500 transition hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+          aria-label="Fermer la notification"
+        >
+          ✕
+        </button>
       </div>
     </div>
   );

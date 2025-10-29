@@ -67,6 +67,25 @@ model CompanySettings {
   quoteTemplate          PdfTemplate?  @relation("QuoteTemplate", fields: [quoteTemplateId], references: [id])
 }
 
+model MessagingSettings {
+  id           Int      @id @default(1)
+  fromEmail    String?
+  senderName   String?
+  senderLogoUrl String?
+  imapHost     String?
+  imapPort     Int?
+  imapSecure   Boolean  @default(true)
+  imapUser     String?
+  imapPassword String?
+  smtpHost     String?
+  smtpPort     Int?
+  smtpSecure   Boolean  @default(true)
+  smtpUser     String?
+  smtpPassword String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
 model PdfTemplate {
   id        String            @id @default(cuid())
   type      PdfTemplateType

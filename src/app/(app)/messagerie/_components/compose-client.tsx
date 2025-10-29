@@ -1,0 +1,424 @@
+"use client";
+
+import { useCallback, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Paperclip, UploadCloud, Trash2 } from "lucide-react";
+import { useToast } from "@/components/ui/toast-provider";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { sendEmailAction, type ActionResult } from "@/app/(app)/messagerie/actions";
+
+const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024; // 10 Mo
+const ALLOWED_ATTACHMENT_TYPES = new Set<string>([
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/zip",
+  "application/json",
+  "text/plain",
+]);
+const ALLOWED_ATTACHMENT_PREFIXES = ["image/", "audio/"];
+
+function isAllowedAttachmentType(mime: string | undefined | null): boolean {
+  if (!mime) return true;
+  if (ALLOWED_ATTACHMENT_TYPES.has(mime)) return true;
+  return ALLOWED_ATTACHMENT_PREFIXES.some((prefix) => mime.startsWith(prefix));
+}
+
+function formatFileSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    return "0 ko";
+  }
+  const units = ["octets", "ko", "Mo", "Go"] as const;
+  const exponent = Math.min(
+    Math.floor(Math.log(bytes) / Math.log(1024)),
+    units.length - 1,
+  );
+  const value = bytes / 1024 ** exponent;
+  const display = exponent === 0 ? value : value.toFixed(1);
+  return `${display} ${units[exponent]}`;
+}
+
+type ComposeInitialDraft = {
+  to?: string[];
+  cc?: string[];
+  bcc?: string[];
+  subject?: string;
+  body?: string;
+  quotedHtml?: string;
+  quotedText?: string;
+};
+
+type ComposeClientProps = {
+  fromEmail: string | null;
+  senderName: string;
+  smtpConfigured: boolean;
+  initialDraft?: ComposeInitialDraft | null;
+};
+
+export function ComposeClient({
+  fromEmail,
+  senderName,
+  smtpConfigured,
+  initialDraft,
+}: ComposeClientProps) {
+  const router = useRouter();
+  const { addToast } = useToast();
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const quotedHtml = useMemo(
+    () => initialDraft?.quotedHtml ?? "",
+    [initialDraft],
+  );
+  const quotedText = useMemo(
+    () => initialDraft?.quotedText ?? "",
+    [initialDraft],
+  );
+
+  const [to, setTo] = useState(initialDraft?.to?.join(", ") ?? "");
+  const [cc, setCc] = useState(initialDraft?.cc?.join(", ") ?? "");
+  const [bcc, setBcc] = useState(initialDraft?.bcc?.join(", ") ?? "");
+  const [subject, setSubject] = useState(initialDraft?.subject ?? "");
+  const [body, setBody] = useState(initialDraft?.body ?? "");
+  const [attachments, setAttachments] = useState<File[]>([]);
+  const [sending, setSending] = useState(false);
+
+  const senderDisplay = useMemo(() => {
+    const email = fromEmail ?? "non configuré";
+    const name = senderName.trim();
+    return name ? `${name} <${email}>` : email;
+  }, [fromEmail, senderName]);
+
+  const addFiles = useCallback(
+    (files: FileList | File[]) => {
+      const incoming = Array.from(files ?? []);
+      if (incoming.length === 0) return;
+
+      setAttachments((current) => {
+        const existingFingerprints = new Set(
+          current.map((file) => `${file.name}__${file.size}`),
+        );
+        const next = [...current];
+
+        for (const file of incoming) {
+          if (file.size > MAX_ATTACHMENT_SIZE) {
+            addToast({
+              variant: "error",
+              title: "Pièce jointe trop volumineuse.",
+            });
+            continue;
+          }
+          if (!isAllowedAttachmentType(file.type)) {
+            addToast({
+              variant: "error",
+              title: "Type de fichier non supporté.",
+            });
+            continue;
+          }
+          const fingerprint = `${file.name}__${file.size}`;
+          if (existingFingerprints.has(fingerprint)) {
+            continue;
+          }
+          existingFingerprints.add(fingerprint);
+          next.push(file);
+        }
+
+        return next;
+      });
+    },
+    [addToast],
+  );
+
+  const handleFileInputChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      if (event.target.files) {
+        addFiles(event.target.files);
+        event.target.value = "";
+      }
+    },
+    [addFiles],
+  );
+
+  const handleDrop = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      if (event.dataTransfer?.files) {
+        addFiles(event.dataTransfer.files);
+      }
+    },
+    [addFiles],
+  );
+
+  const handleDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+  }, []);
+
+  const handleRemoveAttachment = useCallback((index: number) => {
+    setAttachments((current) => current.filter((_, idx) => idx !== index));
+  }, []);
+
+  async function safeSubmit(formData: FormData): Promise<ActionResult | null> {
+    try {
+      return await sendEmailAction(formData);
+    } catch (error) {
+      console.error("Erreur réseau lors de l'envoi :", error);
+      addToast({
+        variant: "error",
+        title: "Erreur réseau.",
+      });
+      return null;
+    }
+  }
+
+  const resetToInitialDraft = useCallback(() => {
+    setTo(initialDraft?.to?.join(", ") ?? "");
+    setCc(initialDraft?.cc?.join(", ") ?? "");
+    setBcc(initialDraft?.bcc?.join(", ") ?? "");
+    setSubject(initialDraft?.subject ?? "");
+    setBody(initialDraft?.body ?? "");
+    setAttachments([]);
+  }, [initialDraft]);
+
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!smtpConfigured) {
+      addToast({
+        variant: "warning",
+        title: "Configurez votre SMTP pour envoyer un message.",
+      });
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("to", to);
+    formData.append("cc", cc);
+    formData.append("bcc", bcc);
+    formData.append("subject", subject);
+    formData.append("body", body);
+    formData.append("quotedHtml", quotedHtml);
+    formData.append("quotedText", quotedText);
+    attachments.forEach((file) => {
+      formData.append("attachments", file);
+    });
+
+    setSending(true);
+    const result = await safeSubmit(formData);
+    setSending(false);
+
+    if (!result) {
+      return;
+    }
+
+    if (result.success) {
+      resetToInitialDraft();
+      addToast({
+        variant: "success",
+        title: result.message ?? "Message envoyé.",
+      });
+      router.push("/messagerie/envoyes");
+    } else {
+      addToast({
+        variant: "error",
+        title: result.message,
+      });
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+          Composer un nouveau message
+        </h2>
+        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          Rédigez votre e-mail, nous gérons l&apos;envoi via vos paramètres SMTP.
+        </p>
+      </div>
+
+      <div className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="mb-4 text-xs text-zinc-500 dark:text-zinc-400">
+          <span className="font-medium text-zinc-600 dark:text-zinc-300">
+            Expéditeur :
+          </span>{" "}
+          {senderDisplay}
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5 sm:col-span-2">
+              <label
+                htmlFor="compose-to"
+                className="text-sm font-medium text-zinc-800 dark:text-zinc-200"
+              >
+                Destinataires (séparés par des virgules)
+              </label>
+              <Input
+                id="compose-to"
+                value={to}
+                onChange={(event) => setTo(event.target.value)}
+                placeholder="contact@example.com, autre@example.com"
+                required
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label
+                htmlFor="compose-cc"
+                className="text-sm font-medium text-zinc-800 dark:text-zinc-200"
+              >
+                Cc
+              </label>
+              <Input
+                id="compose-cc"
+                value={cc}
+                onChange={(event) => setCc(event.target.value)}
+                placeholder="adresse@example.com"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label
+                htmlFor="compose-bcc"
+                className="text-sm font-medium text-zinc-800 dark:text-zinc-200"
+              >
+                Cci
+              </label>
+              <Input
+                id="compose-bcc"
+                value={bcc}
+                onChange={(event) => setBcc(event.target.value)}
+                placeholder="adresse@example.com"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label
+              htmlFor="compose-subject"
+              className="text-sm font-medium text-zinc-800 dark:text-zinc-200"
+            >
+              Sujet
+            </label>
+            <Input
+              id="compose-subject"
+              value={subject}
+              onChange={(event) => setSubject(event.target.value)}
+              placeholder="Sujet du message"
+              required
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label
+              htmlFor="compose-body"
+              className="text-sm font-medium text-zinc-800 dark:text-zinc-200"
+            >
+              Message
+            </label>
+            <Textarea
+              id="compose-body"
+              value={body}
+              onChange={(event) => setBody(event.target.value)}
+              rows={10}
+              placeholder="Bonjour..."
+              required
+            />
+          </div>
+
+          <div
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            className="rounded-lg border-2 border-dashed border-zinc-300 bg-zinc-50 p-4 text-sm text-zinc-600 transition hover:border-blue-300 hover:text-blue-600 dark:border-zinc-700 dark:bg-zinc-950/40 dark:text-zinc-400"
+          >
+            <div className="flex flex-col items-center justify-center gap-2 text-center">
+              <UploadCloud className="h-6 w-6" />
+              <p>Glissez-déposez vos fichiers ou</p>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                Joindre un fichier
+              </Button>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                Formats acceptés : images, PDF, documents, audio. Taille max : 10 Mo par fichier.
+              </p>
+            </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={handleFileInputChange}
+            />
+          </div>
+
+          {attachments.length > 0 ? (
+            <ul className="space-y-2">
+              {attachments.map((file, index) => (
+                <li
+                  key={`${file.name}-${file.size}-${index}`}
+                  className="flex items-center justify-between rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-900"
+                >
+                  <div className="flex items-center gap-2">
+                    <Paperclip className="h-4 w-4 text-zinc-500" />
+                    <div className="flex flex-col">
+                      <span className="font-medium text-zinc-800 dark:text-zinc-100">
+                        {file.name}
+                      </span>
+                      <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                        {formatFileSize(file.size)}
+                      </span>
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="text-xs text-zinc-500 hover:text-red-500 dark:text-zinc-400"
+                    onClick={() => handleRemoveAttachment(index)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    <span className="sr-only">Supprimer la pièce jointe</span>
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+
+          {(quotedHtml || quotedText) && (
+            <div className="space-y-2 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-950/40">
+              <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                Message original
+              </p>
+              {quotedHtml ? (
+                <div
+                  className="prose prose-sm max-w-none text-zinc-700 dark:prose-invert"
+                  dangerouslySetInnerHTML={{ __html: quotedHtml }}
+                />
+              ) : (
+                <pre className="whitespace-pre-wrap text-xs text-zinc-600 dark:text-zinc-400">
+                  {quotedText}
+                </pre>
+              )}
+            </div>
+          )}
+
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <Button
+              type="submit"
+              loading={sending}
+              disabled={!smtpConfigured || sending || to.trim().length === 0}
+            >
+              Envoyer
+            </Button>
+            {!smtpConfigured ? (
+              <p className="text-xs text-amber-600 dark:text-amber-300">
+                Configurez le SMTP pour activer l&apos;envoi.
+              </p>
+            ) : null}
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
