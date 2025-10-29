@@ -1,6 +1,7 @@
 import {
   fetchMailboxMessages,
   getMessagingSettingsSummary,
+  listMessagingClients,
 } from "@/server/messaging";
 import { MailboxClient } from "@/app/(app)/messagerie/_components/mailbox-client";
 
@@ -8,6 +9,7 @@ export const dynamic = "force-dynamic";
 
 export default async function EnvoyesPage() {
   const summary = await getMessagingSettingsSummary();
+  const clients = await listMessagingClients();
 
   let initialError: string | null = null;
   let initialPage = null;
@@ -35,6 +37,7 @@ export default async function EnvoyesPage() {
       initialPage={initialPage}
       initialError={initialError}
       emptyStateMessage="Aucun e-mail envoyé trouvé."
+      clients={clients}
     />
   );
 }

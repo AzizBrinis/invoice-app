@@ -11,6 +11,8 @@ import {
   Reply,
   ReplyAll,
   Forward,
+  Search,
+  Filter,
 } from "lucide-react";
 import type {
   Mailbox,
@@ -25,6 +27,7 @@ import {
 } from "@/app/(app)/messagerie/actions";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { useToast } from "@/components/ui/toast-provider";
 import { MailboxSkeleton } from "@/app/(app)/messagerie/_components/mailbox-skeleton";
@@ -37,6 +40,17 @@ type MailboxClientProps = {
   initialPage: MailboxPageResult | null;
   initialError: string | null;
   emptyStateMessage: string;
+  clients: Array<{ id: string; displayName: string; email: string | null }>;
+};
+
+const STATUS_BADGES: Record<
+  string,
+  { label: string; variant: "info" | "success" | "warning" | "danger" | "neutral" }
+> = {
+  ENREGISTRE: { label: "Enregistré", variant: "neutral" },
+  ENVOYE: { label: "Envoyé", variant: "info" },
+  LECTURE: { label: "Lu", variant: "success" },
+  ECHEC: { label: "Échec", variant: "danger" },
 };
 
 function formatDate(value: string): string {
@@ -71,12 +85,14 @@ export function MailboxClient({
   initialPage,
   initialError,
   emptyStateMessage,
+  clients,
 }: MailboxClientProps) {
   const { addToast } = useToast();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const listRef = useRef<HTMLDivElement | null>(null);
+  const filtersInitializedRef = useRef(false);
 
   const [messages, setMessages] = useState<MailboxListItem[]>(
     initialPage?.messages ?? [],
@@ -87,6 +103,11 @@ export function MailboxClient({
   const [listError, setListError] = useState(initialError);
   const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [unreadOnly, setUnreadOnly] = useState(false);
+  const [hasAttachmentsOnly, setHasAttachmentsOnly] = useState(false);
+  const [selectedClientFilter, setSelectedClientFilter] = useState<string>("");
 
   const [detail, setDetail] = useState<MessageDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -113,6 +134,21 @@ export function MailboxClient({
     [addToast],
   );
 
+  const fetchPage = useCallback(
+    async (pageNumber: number) =>
+      safeActionCall(() =>
+        fetchMailboxPageAction({
+          mailbox,
+          page: pageNumber,
+          pageSize,
+          search: debouncedSearch.length ? debouncedSearch : undefined,
+          filters:
+            Object.keys(activeFilters).length > 0 ? activeFilters : undefined,
+        }),
+      ),
+    [activeFilters, debouncedSearch, mailbox, pageSize, safeActionCall],
+  );
+
   useEffect(() => {
     setMessages(initialPage?.messages ?? []);
     setPage(initialPage?.page ?? 1);
@@ -120,12 +156,37 @@ export function MailboxClient({
     setListError(initialError);
   }, [initialError, initialPage]);
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search.trim());
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  useEffect(() => {
+    if (!isConfigured) return;
+    if (!filtersInitializedRef.current) {
+      filtersInitializedRef.current = true;
+      return;
+    }
+    void handleRefresh({ silent: true, scroll: false });
+  }, [activeFilters, debouncedSearch, handleRefresh, isConfigured]);
+
   const selectedUid = useMemo(() => {
     const raw = searchParams.get("message");
     if (!raw) return null;
     const parsed = Number.parseInt(raw, 10);
     return Number.isNaN(parsed) ? null : parsed;
   }, [searchParams]);
+
+  const activeFilters = useMemo(
+    () => ({
+      ...(unreadOnly ? { unreadOnly: true } : {}),
+      ...(hasAttachmentsOnly ? { hasAttachments: true } : {}),
+      ...(selectedClientFilter ? { clientId: selectedClientFilter } : {}),
+    }),
+    [hasAttachmentsOnly, selectedClientFilter, unreadOnly],
+  );
 
   useEffect(() => {
     if (!selectedUid) {
@@ -225,13 +286,7 @@ export function MailboxClient({
 
   const handleLoadMore = async () => {
     setLoadingMore(true);
-    const result = await safeActionCall(() =>
-      fetchMailboxPageAction({
-        mailbox,
-        page: page + 1,
-        pageSize,
-      }),
-    );
+    const result = await fetchPage(page + 1);
     setLoadingMore(false);
     if (!result) return;
     if (!result.success) {
@@ -248,42 +303,44 @@ export function MailboxClient({
     setHasMore(result.data.hasMore);
   };
 
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    const result = await safeActionCall(() =>
-      fetchMailboxPageAction({
-        mailbox,
-        page: 1,
-        pageSize,
-      }),
-    );
-    setRefreshing(false);
-    if (!result) return;
-    if (!result.success) {
-      addToast({
-        variant: "error",
-        title: result.message,
-      });
-      return;
-    }
-    setMessages(result.data.messages);
-    setPage(result.data.page);
-    setHasMore(result.data.hasMore);
-    setListError(null);
-    addToast({
-      variant: "success",
-      title: "Messages actualisés.",
-    });
-    if (listRef.current) {
-      listRef.current.scrollTo({ top: 0, behavior: "smooth" });
-    }
-  };
+  const handleRefresh = useCallback(
+    async (options?: { silent?: boolean; scroll?: boolean }) => {
+      setRefreshing(true);
+      const result = await fetchPage(1);
+      setRefreshing(false);
+      if (!result) return;
+      if (!result.success) {
+        addToast({
+          variant: "error",
+          title: result.message,
+        });
+        return;
+      }
+      setMessages(result.data.messages);
+      setPage(result.data.page);
+      setHasMore(result.data.hasMore);
+      setListError(null);
+      if (!options?.silent) {
+        addToast({
+          variant: "success",
+          title: "Messages actualisés.",
+        });
+      }
+      if (listRef.current) {
+        listRef.current.scrollTo({
+          top: 0,
+          behavior: options?.scroll === false ? "auto" : "smooth",
+        });
+      }
+    },
+    [addToast, fetchPage],
+  );
 
   const hasMessages = messages.length > 0;
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
             {title}
@@ -292,17 +349,77 @@ export function MailboxClient({
             {description}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={handleRefresh}
-            loading={refreshing}
-            disabled={!isConfigured}
-          >
-            <RefreshCw className="h-4 w-4" />
-            Actualiser
-          </Button>
+        <div className="flex w-full flex-col gap-2 lg:w-auto lg:items-end">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="relative w-full sm:w-64">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Rechercher (sujet, contact, client)"
+                className="pl-9"
+                disabled={!isConfigured}
+              />
+            </div>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => void handleRefresh()}
+              loading={refreshing}
+              disabled={!isConfigured}
+            >
+              <RefreshCw className="h-4 w-4" />
+              Actualiser
+            </Button>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+            <span className="flex items-center gap-1 uppercase tracking-wide">
+              <Filter className="h-3 w-3" />
+              Filtres
+            </span>
+            <Button
+              type="button"
+              variant={unreadOnly ? "secondary" : "ghost"}
+              className={clsx(
+                "px-3 py-1 text-xs",
+                unreadOnly
+                  ? "bg-blue-50 text-blue-700 dark:bg-blue-500/20 dark:text-blue-100"
+                  : "text-zinc-600 dark:text-zinc-300",
+              )}
+              onClick={() => setUnreadOnly((value) => !value)}
+              disabled={!isConfigured}
+            >
+              Non lus
+            </Button>
+            <Button
+              type="button"
+              variant={hasAttachmentsOnly ? "secondary" : "ghost"}
+              className={clsx(
+                "px-3 py-1 text-xs",
+                hasAttachmentsOnly
+                  ? "bg-blue-50 text-blue-700 dark:bg-blue-500/20 dark:text-blue-100"
+                  : "text-zinc-600 dark:text-zinc-300",
+              )}
+              onClick={() => setHasAttachmentsOnly((value) => !value)}
+              disabled={!isConfigured}
+            >
+              Avec pièces jointes
+            </Button>
+            <select
+              value={selectedClientFilter}
+              onChange={(event) => setSelectedClientFilter(event.target.value)}
+              className="input h-9 w-full text-xs sm:w-60"
+              disabled={!isConfigured}
+            >
+              <option value="">Tous les clients</option>
+              {clients.map((client) => (
+                <option key={client.id} value={client.id}>
+                  {client.displayName}
+                  {client.email ? ` (${client.email})` : ""}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
@@ -378,6 +495,18 @@ export function MailboxClient({
                                 </span>
                               </Badge>
                             ) : null}
+                            <div className="flex flex-wrap items-center gap-2">
+                              {message.client ? (
+                                <Badge variant="neutral" className="bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-200">
+                                  {message.client.displayName}
+                                </Badge>
+                              ) : null}
+                              {message.status ? (
+                                <Badge variant={STATUS_BADGES[message.status]?.variant ?? "neutral"}>
+                                  {STATUS_BADGES[message.status]?.label ?? message.status}
+                                </Badge>
+                              ) : null}
+                            </div>
                           </div>
                         </button>
                       </li>
@@ -460,13 +589,29 @@ export function MailboxClient({
                   </Button>
                 </div>
                 <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
-                      {detail.subject}
-                    </p>
+                  <div className="flex flex-col gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+                        {detail.subject}
+                      </p>
+                      {detail.status ? (
+                        <Badge variant={STATUS_BADGES[detail.status]?.variant ?? "neutral"}>
+                          {STATUS_BADGES[detail.status]?.label ?? detail.status}
+                        </Badge>
+                      ) : null}
+                    </div>
                     <p className="text-xs text-zinc-500 dark:text-zinc-400">
                       {formatDate(detail.date)}
                     </p>
+                    {detail.client ? (
+                      <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                        Client associé : {" "}
+                        <span className="font-medium text-zinc-700 dark:text-zinc-200">
+                          {detail.client.displayName}
+                        </span>
+                        {detail.client.email ? ` (${detail.client.email})` : ""}
+                      </p>
+                    ) : null}
                   </div>
                   <Button
                     type="button"

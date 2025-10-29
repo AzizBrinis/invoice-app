@@ -2,6 +2,7 @@ import sanitizeHtml from "sanitize-html";
 import {
   fetchMessageDetail,
   getMessagingSettingsSummary,
+  listAttachableDocuments,
   type MessageDetail,
   type Mailbox,
 } from "@/server/messaging";
@@ -193,6 +194,7 @@ export default async function NouveauMessagePage({
   searchParams,
 }: NouveauMessagePageProps) {
   const summary = await getMessagingSettingsSummary();
+  const documents = await listAttachableDocuments();
 
   const resolvedSearchParams =
     searchParams && typeof (searchParams as Promise<unknown>).then === "function"
@@ -233,6 +235,11 @@ export default async function NouveauMessagePage({
       senderName={summary.senderName}
       smtpConfigured={summary.smtpConfigured}
       initialDraft={initialDraft}
+      quickReplies={summary.quickReplies}
+      responseTemplates={summary.responseTemplates}
+      documents={documents}
+      signature={summary.signature}
+      signatureHtml={summary.signatureHtml}
     />
   );
 }

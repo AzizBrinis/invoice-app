@@ -8,12 +8,15 @@ import {
   fetchMessageDetail,
   saveMessagingSettings,
   sendEmailMessage,
+  buildDocumentAttachments,
   testImapConnection,
   testSmtpConnection,
   type Mailbox,
   type MailboxPageResult,
   type MessageDetail,
   type MessagingSettingsInput,
+  type MessagingQuickReply,
+  type MessagingResponseTemplate,
   type EmailAttachment,
 } from "@/server/messaging";
 
@@ -44,6 +47,24 @@ function isAllowedAttachmentType(mime: string | undefined | null): boolean {
   return ALLOWED_ATTACHMENT_PREFIXES.some((prefix) => mime.startsWith(prefix));
 }
 
+function parseJsonArray<T>(value: unknown): T[] {
+  if (!value) return [];
+  if (typeof value === "string") {
+    if (value.trim().length === 0) return [];
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? (parsed as T[]) : [];
+    } catch (error) {
+      console.error("Impossible d'analyser une valeur JSON", error);
+      return [];
+    }
+  }
+  if (Array.isArray(value)) {
+    return value as T[];
+  }
+  return [];
+}
+
 const MAILBOX_VALUES = ["inbox", "sent"] as const satisfies ReadonlyArray<Mailbox>;
 
 const messagingSettingsSchema = z.object({
@@ -53,6 +74,8 @@ const messagingSettingsSchema = z.object({
     .email("Adresse e-mail invalide"),
   senderName: z.string().optional().transform((value) => value ?? ""),
   senderLogoUrl: z.string().optional().transform((value) => value ?? ""),
+  signature: z.string().optional().transform((value) => value ?? ""),
+  signatureHtml: z.string().optional().transform((value) => value ?? ""),
   imapHost: z.string().min(1),
   imapPort: z.coerce.number().int().min(1).max(65535),
   imapSecure: booleanSchema,
@@ -79,6 +102,14 @@ const mailboxSchema = z.object({
   mailbox: z.enum(MAILBOX_VALUES),
   page: z.number().int().min(1).optional(),
   pageSize: z.number().int().min(1).max(100).optional(),
+  search: z.string().optional(),
+  filters: z
+    .object({
+      unreadOnly: z.boolean().optional(),
+      hasAttachments: z.boolean().optional(),
+      clientId: z.string().optional(),
+    })
+    .optional(),
 });
 
 const mailboxDetailSchema = z.object({
@@ -127,14 +158,16 @@ function mapConnectionError(error: unknown, fallback: string): string {
   if (isAuthError(error)) {
     return "Échec d'authentification.";
   }
-  if (error instanceof Error) {
-    if (/fetch failed|network/i.test(error.message)) {
-      return "Erreur réseau.";
+    if (error instanceof Error) {
+      if (/fetch failed|network/i.test(error.message)) {
+        return "Erreur réseau.";
+      }
+      return error.message;
     }
-    return error.message;
+    return fallback;
   }
-  return fallback;
-}function parseAddressList(value: string): string[] {
+
+  function parseAddressList(value: string): string[] {
   return value
     .split(/[;,]/)
     .map((entry) => entry.trim())
@@ -180,14 +213,39 @@ function buildHtmlContent(
 function extractSettingsInput(
   formData: FormData,
 ): MessagingSettingsInput {
-  const parsed = messagingSettingsSchema.parse(
-    Object.fromEntries(formData),
+  const parsed = messagingSettingsSchema.parse({
+    fromEmail: formData.get("fromEmail"),
+    senderName: formData.get("senderName"),
+    senderLogoUrl: formData.get("senderLogoUrl"),
+    signature: formData.get("signature"),
+    signatureHtml: formData.get("signatureHtml"),
+    imapHost: formData.get("imapHost"),
+    imapPort: formData.get("imapPort"),
+    imapSecure: formData.get("imapSecure"),
+    imapUser: formData.get("imapUser"),
+    imapPassword: formData.get("imapPassword"),
+    smtpHost: formData.get("smtpHost"),
+    smtpPort: formData.get("smtpPort"),
+    smtpSecure: formData.get("smtpSecure"),
+    smtpUser: formData.get("smtpUser"),
+    smtpPassword: formData.get("smtpPassword"),
+  });
+
+  const quickReplies = parseJsonArray<MessagingQuickReply>(
+    formData.get("quickReplies"),
+  );
+  const responseTemplates = parseJsonArray<MessagingResponseTemplate>(
+    formData.get("responseTemplates"),
   );
 
   return {
     fromEmail: parsed.fromEmail,
     senderName: parsed.senderName,
     senderLogoUrl: parsed.senderLogoUrl,
+    signature: parsed.signature,
+    signatureHtml: parsed.signatureHtml,
+    quickReplies,
+    responseTemplates,
     imapHost: parsed.imapHost,
     imapPort: parsed.imapPort,
     imapSecure: parsed.imapSecure,
@@ -389,6 +447,21 @@ export async function sendEmailAction(
         content: buffer,
         contentType: file.type || undefined,
       });
+    }
+
+    const invoiceIds = formData
+      .getAll("invoiceIds")
+      .filter((value): value is string => typeof value === "string");
+    const quoteIds = formData
+      .getAll("quoteIds")
+      .filter((value): value is string => typeof value === "string");
+
+    if (invoiceIds.length || quoteIds.length) {
+      const documentAttachments = await buildDocumentAttachments({
+        invoiceIds,
+        quoteIds,
+      });
+      attachments.push(...documentAttachments);
     }
 
     const htmlContent = buildHtmlContent(

@@ -72,6 +72,10 @@ model MessagingSettings {
   fromEmail    String?
   senderName   String?
   senderLogoUrl String?
+  signature     String?
+  signatureHtml String?
+  quickReplies  Json?
+  responseTemplates Json?
   imapHost     String?
   imapPort     Int?
   imapSecure   Boolean  @default(true)
@@ -84,6 +88,43 @@ model MessagingSettings {
   smtpPassword String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+}
+
+model MessagingEmailLog {
+  id         String                 @id @default(cuid())
+  direction  MessagingEmailDirection
+  mailbox    MessagingMailbox?
+  uid        Int?
+  messageId  String?
+  subject    String
+  participants Json
+  status     MessagingEmailStatus   @default(ENREGISTRE)
+  error      String?
+  sentAt     DateTime?
+  readAt     DateTime?
+  failedAt   DateTime?
+  clientId   String?
+  createdAt  DateTime               @default(now())
+  updatedAt  DateTime               @updatedAt
+
+  client     Client?                @relation("ClientMessagingEmails", fields: [clientId], references: [id])
+}
+
+enum MessagingEmailDirection {
+  ENTRANT
+  SORTANT
+}
+
+enum MessagingMailbox {
+  INBOX
+  SENT
+}
+
+enum MessagingEmailStatus {
+  ENREGISTRE
+  ENVOYE
+  LECTURE
+  ECHEC
 }
 
 model PdfTemplate {
@@ -116,6 +157,7 @@ model Client {
   updatedAt    DateTime  @updatedAt
   quotes       Quote[]
   invoices     Invoice[]
+  messagingEmails MessagingEmailLog[] @relation("ClientMessagingEmails")
 }
 
 model Product {
