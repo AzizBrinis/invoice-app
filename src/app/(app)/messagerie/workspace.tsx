@@ -1303,6 +1303,36 @@ export function MessagerieWorkspace({
       return;
     }
 
+    const wantsScheduling = composer.scheduleSend;
+    let scheduleDate: Date | null = null;
+
+    if (wantsScheduling) {
+      const scheduleInput = composer.scheduleAt.trim();
+
+      if (!scheduleInput) {
+        addToast({ variant: "error", title: "Date de planification requise" });
+        setComposer((current) => ({
+          ...current,
+          sending: false,
+          error: "Veuillez indiquer une date et une heure pour planifier l'envoi.",
+        }));
+        return;
+      }
+
+      const parsedScheduleDate = new Date(scheduleInput);
+      if (Number.isNaN(parsedScheduleDate.getTime())) {
+        addToast({ variant: "error", title: "Date de planification invalide" });
+        setComposer((current) => ({
+          ...current,
+          sending: false,
+          error: "La date de planification saisie est invalide. Vérifiez le format.",
+        }));
+        return;
+      }
+
+      scheduleDate = parsedScheduleDate;
+    }
+
     const currentComposer = composer;
     setComposer((current) => ({ ...current, sending: true, error: null }));
     const attachments = currentComposer.attachments.map((attachment) => ({ ...attachment }));
@@ -1310,11 +1340,7 @@ export function MessagerieWorkspace({
     const rawBody = renderTemplate(currentComposer.body, relatedContext, signature);
     const previewText = rawBody.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
     const now = new Date();
-    const scheduleDate =
-      currentComposer.scheduleSend && currentComposer.scheduleAt
-        ? new Date(currentComposer.scheduleAt)
-        : null;
-    const hasSchedule = !!scheduleDate && !Number.isNaN(scheduleDate.getTime());
+    const hasSchedule = !!scheduleDate;
     const scheduledFor = hasSchedule ? scheduleDate.toISOString() : null;
     const status: MailStatus = scheduledFor ? "EN_ATTENTE" : "ENVOYE";
     const createdAt = now.toISOString();
