@@ -4,7 +4,7 @@ import {
   type MessageAddressObject,
 } from "imapflow";
 import nodemailer from "nodemailer";
-import { simpleParser } from "mailparser";
+import { simpleParser, type Attachment } from "mailparser";
 import sanitizeHtml from "sanitize-html";
 import { prisma } from "@/lib/prisma";
 import { decryptSecret, encryptSecret } from "@/server/secure-credentials";
@@ -12,20 +12,23 @@ import { decryptSecret, encryptSecret } from "@/server/secure-credentials";
 const SETTINGS_ID = 1;
 const DEFAULT_PAGE_SIZE = 20;
 
-export type MessagingSettingsInput = {
-  fromEmail: string;
+export type MessagingIdentityInput = {
   senderName: string;
-  senderLogoUrl: string;
+  senderLogoUrl?: string | null;
+};
+
+export type MessagingConnectionsInput = {
+  fromEmail: string;
   imapHost: string;
   imapPort: number;
   imapSecure: boolean;
-  imapUser: string;
-  imapPassword: string;
+  imapUser?: string | null;
+  imapPassword?: string | null;
   smtpHost: string;
   smtpPort: number;
   smtpSecure: boolean;
-  smtpUser: string;
-  smtpPassword: string;
+  smtpUser?: string | null;
+  smtpPassword?: string | null;
 };
 
 export type MessagingSettingsSummary = {
@@ -54,6 +57,11 @@ export type MailboxListItem = {
   hasAttachments: boolean;
 };
 
+export type MessageParticipant = {
+  name: string | null;
+  address: string | null;
+};
+
 export type MailboxPageResult = {
   mailbox: Mailbox;
   page: number;
@@ -63,11 +71,48 @@ export type MailboxPageResult = {
   messages: MailboxListItem[];
 };
 
+function createMailboxListItem(message: {
+  uid: number;
+  envelope?: {
+    subject?: string | null;
+    from?: Array<Pick<MessageAddressObject, "name" | "mailbox" | "host">>;
+    to?: Array<Pick<MessageAddressObject, "name" | "mailbox" | "host">>;
+  };
+  internalDate?: Date;
+  flags?: Set<string>;
+  bodyStructure?:
+    | MessageStructureObject
+    | MessageStructureObject[]
+    | null;
+}): MailboxListItem {
+  const envelope = message.envelope;
+  const from =
+    formatAddress(envelope?.from?.[0]) ?? "Expéditeur inconnu";
+  const to = formatAddressList(envelope?.to) ?? [];
+  return {
+    uid: message.uid,
+    subject: envelope?.subject ?? "(Sans objet)",
+    from,
+    to,
+    date: (message.internalDate ?? new Date()).toISOString(),
+    seen: message.flags?.has("\\Seen") ?? false,
+    hasAttachments: hasAttachments(message.bodyStructure),
+  };
+}
+
 export type MessageDetailAttachment = {
   id: string;
   filename: string;
   contentType: string;
   size: number;
+};
+
+type AttachmentDescriptor = {
+  id: string;
+  filename: string;
+  contentType: string;
+  size: number;
+  raw: Attachment;
 };
 
 export type MessageDetail = {
@@ -78,11 +123,17 @@ export type MessageDetail = {
   to: string[];
   cc: string[];
   bcc: string[];
+  replyTo: string[];
   date: string;
   seen: boolean;
   html: string | null;
   text: string | null;
   attachments: MessageDetailAttachment[];
+  fromAddress: MessageParticipant | null;
+  toAddresses: MessageParticipant[];
+  ccAddresses: MessageParticipant[];
+  bccAddresses: MessageParticipant[];
+  replyToAddresses: MessageParticipant[];
 };
 
 export type ComposeEmailInput = {
@@ -232,6 +283,55 @@ function wrapEmailHtml(
 </html>`;
 }
 
+function buildAttachmentDescriptors(
+  mailbox: Mailbox,
+  uid: number,
+  attachments: Attachment[] | undefined,
+): AttachmentDescriptor[] {
+  if (!attachments?.length) {
+    return [];
+  }
+
+  return attachments.map((attachment, index) => {
+    const id = attachment.checksum ?? `${mailbox}-${uid}-${index}`;
+    const filename =
+      attachment.filename ?? `pièce-jointe-${index + 1}.bin`;
+    const contentType =
+      attachment.contentType ?? "application/octet-stream";
+    const size =
+      typeof attachment.size === "number" && Number.isFinite(attachment.size)
+        ? attachment.size
+        : Buffer.isBuffer(attachment.content)
+          ? attachment.content.length
+          : 0;
+
+    return {
+      id,
+      filename,
+      contentType,
+      size,
+      raw: attachment,
+    } satisfies AttachmentDescriptor;
+  });
+}
+
+async function readAttachmentContent(attachment: Attachment): Promise<Buffer> {
+  const { content } = attachment;
+  if (!content) {
+    return Buffer.alloc(0);
+  }
+
+  if (Buffer.isBuffer(content)) {
+    return content;
+  }
+
+  const chunks: Buffer[] = [];
+  for await (const chunk of content) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
 function formatError(prefix: string, error: unknown): Error {
   if (error instanceof Error) {
     return new Error(`${prefix}: ${error.message}`);
@@ -273,6 +373,67 @@ function formatAddressList(
   return list
     .map((entry) => formatAddress(entry))
     .filter((value): value is string => Boolean(value));
+}
+
+type AddressLike = {
+  name?: string | null;
+  mailbox?: string | null;
+  host?: string | null;
+  address?: string | null;
+};
+
+function toParticipant(entry?: AddressLike | null): MessageParticipant | null {
+  if (!entry) {
+    return null;
+  }
+  const rawName = typeof entry.name === "string" ? entry.name.trim() : "";
+  const rawAddress = typeof entry.address === "string"
+    ? entry.address.trim()
+    : entry.mailbox && entry.host
+      ? `${entry.mailbox}@${entry.host}`
+      : "";
+  const name = rawName.length ? rawName : null;
+  const address = rawAddress.length ? rawAddress : null;
+  if (!name && !address) {
+    return null;
+  }
+  return { name, address };
+}
+
+function mergeParticipants(
+  ...sources: Array<readonly AddressLike[] | undefined>
+): MessageParticipant[] {
+  const results: MessageParticipant[] = [];
+  const byAddress = new Map<string, MessageParticipant>();
+
+  const addParticipant = (entry?: AddressLike | null) => {
+    const participant = toParticipant(entry);
+    if (!participant) {
+      return;
+    }
+    if (participant.address) {
+      const key = participant.address.toLowerCase();
+      const existing = byAddress.get(key);
+      if (existing) {
+        if (!existing.name && participant.name) {
+          existing.name = participant.name;
+        }
+        return;
+      }
+      byAddress.set(key, participant);
+      results.push(participant);
+      return;
+    }
+    results.push(participant);
+  };
+
+  for (const list of sources) {
+    for (const entry of list ?? []) {
+      addParticipant(entry);
+    }
+  }
+
+  return results;
 }
 
 function hasAttachments(
@@ -453,77 +614,115 @@ export async function getMessagingSettingsSummary(): Promise<MessagingSettingsSu
   };
 }
 
-export async function saveMessagingSettings(
-  input: MessagingSettingsInput,
+export async function updateMessagingSenderIdentity(
+  input: MessagingIdentityInput,
 ): Promise<void> {
-  const {
-    fromEmail,
-    senderName,
-    senderLogoUrl,
-    imapHost,
-    imapPort,
-    imapSecure,
-    imapUser,
-    imapPassword,
-    smtpHost,
-    smtpPort,
-    smtpSecure,
-    smtpUser,
-    smtpPassword,
-  } = input;
+  const normalizedName = (input.senderName ?? "").trim();
+  const normalizedLogo = toOptionalString(input.senderLogoUrl ?? null);
 
-  const sanitizedFromEmail = ensureNonEmpty(fromEmail, "Adresse e-mail");
-  const sanitizedImapHost = ensureNonEmpty(imapHost, "Serveur IMAP");
-  const sanitizedImapUser = ensureNonEmpty(imapUser, "Identifiant IMAP");
-  const sanitizedImapPassword = ensureNonEmpty(
-    imapPassword,
-    "Mot de passe IMAP",
-  );
-  const sanitizedSmtpHost = ensureNonEmpty(smtpHost, "Serveur SMTP");
-  const sanitizedSmtpUser = ensureNonEmpty(smtpUser, "Identifiant SMTP");
-  const sanitizedSmtpPassword = ensureNonEmpty(
-    smtpPassword,
-    "Mot de passe SMTP",
-  );
-  const validatedImapPort = ensurePort(imapPort, "IMAP");
-  const validatedSmtpPort = ensurePort(smtpPort, "SMTP");
-  const normalizedSenderName = senderName.trim();
-  const normalizedSenderLogoUrl = toOptionalString(senderLogoUrl);
-
-  await prisma.messagingSettings.upsert({
+  const existing = await prisma.messagingSettings.findUnique({
     where: { id: SETTINGS_ID },
-    update: {
-      fromEmail: sanitizedFromEmail,
-      senderName: normalizedSenderName,
-      senderLogoUrl: normalizedSenderLogoUrl,
-      imapHost: sanitizedImapHost,
-      imapPort: validatedImapPort,
-      imapSecure,
-      imapUser: encryptSecret(sanitizedImapUser),
-      imapPassword: encryptSecret(sanitizedImapPassword),
-      smtpHost: sanitizedSmtpHost,
-      smtpPort: validatedSmtpPort,
-      smtpSecure,
-      smtpUser: encryptSecret(sanitizedSmtpUser),
-      smtpPassword: encryptSecret(sanitizedSmtpPassword),
-    },
-    create: {
-      id: SETTINGS_ID,
-      fromEmail: sanitizedFromEmail,
-      senderName: normalizedSenderName,
-      senderLogoUrl: normalizedSenderLogoUrl,
-      imapHost: sanitizedImapHost,
-      imapPort: validatedImapPort,
-      imapSecure,
-      imapUser: encryptSecret(sanitizedImapUser),
-      imapPassword: encryptSecret(sanitizedImapPassword),
-      smtpHost: sanitizedSmtpHost,
-      smtpPort: validatedSmtpPort,
-      smtpSecure,
-      smtpUser: encryptSecret(sanitizedSmtpUser),
-      smtpPassword: encryptSecret(sanitizedSmtpPassword),
-    },
   });
+
+  const data = {
+    senderName: normalizedName,
+    senderLogoUrl: normalizedLogo,
+  };
+
+  if (existing) {
+    await prisma.messagingSettings.update({
+      where: { id: SETTINGS_ID },
+      data,
+    });
+  } else {
+    await prisma.messagingSettings.create({
+      data: {
+        id: SETTINGS_ID,
+        ...data,
+      },
+    });
+  }
+}
+
+export async function updateMessagingConnections(
+  input: MessagingConnectionsInput,
+): Promise<void> {
+  const existing = await prisma.messagingSettings.findUnique({
+    where: { id: SETTINGS_ID },
+  });
+
+  const sanitizedFromEmail = ensureNonEmpty(input.fromEmail, "Adresse e-mail");
+  const sanitizedImapHost = ensureNonEmpty(input.imapHost, "Serveur IMAP");
+  const sanitizedSmtpHost = ensureNonEmpty(input.smtpHost, "Serveur SMTP");
+  const validatedImapPort = ensurePort(input.imapPort, "IMAP");
+  const validatedSmtpPort = ensurePort(input.smtpPort, "SMTP");
+
+  const trimmedImapUser = input.imapUser?.trim() ?? "";
+  const trimmedImapPassword = input.imapPassword?.trim() ?? "";
+  const trimmedSmtpUser = input.smtpUser?.trim() ?? "";
+  const trimmedSmtpPassword = input.smtpPassword?.trim() ?? "";
+
+  const encryptedImapUser =
+    trimmedImapUser.length > 0
+      ? encryptSecret(trimmedImapUser)
+      : existing?.imapUser ?? null;
+  if (!encryptedImapUser) {
+    throw new Error("Identifiant IMAP requis.");
+  }
+
+  const encryptedImapPassword =
+    trimmedImapPassword.length > 0
+      ? encryptSecret(trimmedImapPassword)
+      : existing?.imapPassword ?? null;
+  if (!encryptedImapPassword) {
+    throw new Error("Mot de passe IMAP requis.");
+  }
+
+  const encryptedSmtpUser =
+    trimmedSmtpUser.length > 0
+      ? encryptSecret(trimmedSmtpUser)
+      : existing?.smtpUser ?? null;
+  if (!encryptedSmtpUser) {
+    throw new Error("Identifiant SMTP requis.");
+  }
+
+  const encryptedSmtpPassword =
+    trimmedSmtpPassword.length > 0
+      ? encryptSecret(trimmedSmtpPassword)
+      : existing?.smtpPassword ?? null;
+  if (!encryptedSmtpPassword) {
+    throw new Error("Mot de passe SMTP requis.");
+  }
+
+  const connectionData = {
+    fromEmail: sanitizedFromEmail,
+    imapHost: sanitizedImapHost,
+    imapPort: validatedImapPort,
+    imapSecure: input.imapSecure,
+    imapUser: encryptedImapUser,
+    imapPassword: encryptedImapPassword,
+    smtpHost: sanitizedSmtpHost,
+    smtpPort: validatedSmtpPort,
+    smtpSecure: input.smtpSecure,
+    smtpUser: encryptedSmtpUser,
+    smtpPassword: encryptedSmtpPassword,
+  };
+
+  if (existing) {
+    await prisma.messagingSettings.update({
+      where: { id: SETTINGS_ID },
+      data: connectionData,
+    });
+  } else {
+    await prisma.messagingSettings.create({
+      data: {
+        id: SETTINGS_ID,
+        senderName: "",
+        senderLogoUrl: null,
+        ...connectionData,
+      },
+    });
+  }
 }
 
 export async function fetchMailboxMessages(params: {
@@ -589,19 +788,13 @@ export async function fetchMailboxMessages(params: {
         flags: true,
         bodyStructure: true,
       })) {
-        const envelope = message.envelope;
-        const from =
-          formatAddress(envelope?.from?.[0]) ?? "Expéditeur inconnu";
-        const to = formatAddressList(envelope?.to) ?? [];
-        items.push({
-          uid: message.uid,
-          subject: envelope?.subject ?? "(Sans objet)",
-          from,
-          to,
-          date: (message.internalDate ?? new Date()).toISOString(),
-          seen: message.flags?.has("\\Seen") ?? false,
-          hasAttachments: hasAttachments(message.bodyStructure),
-        });
+        items.push(
+          createMailboxListItem(
+            message as unknown as Parameters<
+              typeof createMailboxListItem
+            >[0],
+          ),
+        );
       }
 
       items.sort(
@@ -614,6 +807,79 @@ export async function fetchMailboxMessages(params: {
         pageSize,
         totalMessages,
         hasMore: startSeq > 1,
+        messages: items,
+      };
+    } finally {
+      await client.mailboxClose().catch(() => undefined);
+      opened.release();
+    }
+  });
+}
+
+export async function fetchMailboxUpdates(params: {
+  mailbox: Mailbox;
+  sinceUid: number;
+}): Promise<{
+  totalMessages: number | null;
+  messages: MailboxListItem[];
+}> {
+  const credentials = await getMessagingCredentials();
+  if (!credentials.imap) {
+    throw new Error(
+      "Le serveur IMAP n'est pas configuré. Complétez les paramètres.",
+    );
+  }
+
+  if (params.sinceUid <= 0) {
+    return {
+      totalMessages: null,
+      messages: [],
+    };
+  }
+
+  return withImapClient(credentials.imap, async (client) => {
+    const opened = await openMailbox(client, params.mailbox, true);
+    if (!opened) {
+      throw new Error("Boîte aux lettres introuvable.");
+    }
+
+    try {
+      const totalMessages = opened.info.exists ?? null;
+      const nextUid = opened.info.uidNext ?? null;
+      if (nextUid !== null && params.sinceUid >= nextUid - 1) {
+        return {
+          totalMessages,
+          messages: [],
+        };
+      }
+
+      const range = `${params.sinceUid + 1}:*`;
+      const items: MailboxListItem[] = [];
+      for await (const message of client.fetch(
+        { uid: range },
+        {
+          envelope: true,
+          internalDate: true,
+          flags: true,
+          bodyStructure: true,
+        },
+      )) {
+        items.push(
+          createMailboxListItem(
+            message as unknown as Parameters<
+              typeof createMailboxListItem
+            >[0],
+          ),
+        );
+      }
+
+      items.sort(
+        (a, b) =>
+          new Date(b.date).getTime() - new Date(a.date).getTime(),
+      );
+
+      return {
+        totalMessages,
         messages: items,
       };
     } finally {
@@ -658,6 +924,33 @@ export async function fetchMessageDetail(params: {
 
       const parsed = await simpleParser(message.source);
 
+      const parsedFrom = parsed.from?.value ?? [];
+      const parsedTo = parsed.to?.value ?? [];
+      const parsedCc = parsed.cc?.value ?? [];
+      const parsedBcc = parsed.bcc?.value ?? [];
+      const parsedReplyTo = parsed.replyTo?.value ?? [];
+
+      const fromParticipants = mergeParticipants(
+        message.envelope.from,
+        parsedFrom,
+      );
+      const replyToParticipants = mergeParticipants(
+        message.envelope.replyTo,
+        parsedReplyTo,
+      );
+      const toParticipants = mergeParticipants(
+        message.envelope.to,
+        parsedTo,
+      );
+      const ccParticipants = mergeParticipants(
+        message.envelope.cc,
+        parsedCc,
+      );
+      const bccParticipants = mergeParticipants(
+        message.envelope.bcc,
+        parsedBcc,
+      );
+
       const sanitizedHtml = parsed.html
         ? sanitizeHtml(parsed.html, {
             allowedTags: [
@@ -689,6 +982,12 @@ export async function fetchMessageDetail(params: {
           })
         : null;
 
+      const attachmentDescriptors = buildAttachmentDescriptors(
+        params.mailbox,
+        params.uid,
+        parsed.attachments,
+      );
+
       return {
         mailbox: params.mailbox,
         uid: params.uid,
@@ -697,20 +996,85 @@ export async function fetchMessageDetail(params: {
         to: formatAddressList(message.envelope.to),
         cc: formatAddressList(message.envelope.cc),
         bcc: formatAddressList(message.envelope.bcc),
+        replyTo: formatAddressList(message.envelope.replyTo),
         date: (message.internalDate ?? new Date()).toISOString(),
         seen: message.flags?.has("\\Seen") ?? false,
         html: sanitizedHtml,
         text: parsed.text ?? parsed.textAsHtml ?? null,
-        attachments: parsed.attachments.map((attachment, index) => ({
-          id:
-            attachment.checksum ??
-            `${params.mailbox}-${params.uid}-${index}`,
-          filename:
-            attachment.filename ?? `pièce-jointe-${index + 1}.bin`,
-          contentType:
-            attachment.contentType ?? "application/octet-stream",
-          size: attachment.size ?? 0,
-        })),
+        attachments: attachmentDescriptors.map(
+          ({ id, filename, contentType, size }) => ({
+            id,
+            filename,
+            contentType,
+            size,
+          }),
+        ),
+        fromAddress: fromParticipants[0] ?? null,
+        toAddresses: toParticipants,
+        ccAddresses: ccParticipants,
+        bccAddresses: bccParticipants,
+        replyToAddresses: replyToParticipants,
+      };
+    } finally {
+      await client.mailboxClose().catch(() => undefined);
+      opened.release();
+    }
+  });
+}
+
+export async function fetchMessageAttachment(params: {
+  mailbox: Mailbox;
+  uid: number;
+  attachmentId: string;
+}): Promise<{ filename: string; contentType: string; content: Buffer }> {
+  const credentials = await getMessagingCredentials();
+  if (!credentials.imap) {
+    throw new Error(
+      "Le serveur IMAP n'est pas configuré. Complétez les paramètres.",
+    );
+  }
+
+  return withImapClient(credentials.imap, async (client) => {
+    const opened = await openMailbox(client, params.mailbox, true);
+    if (!opened) {
+      throw new Error("Boîte aux lettres introuvable.");
+    }
+
+    try {
+      const message = await client.fetchOne(
+        params.uid,
+        {
+          envelope: true,
+          source: true,
+        },
+        { uid: true },
+      );
+
+      if (!message?.source) {
+        throw new Error("Message introuvable.");
+      }
+
+      const parsed = await simpleParser(message.source);
+      const attachmentDescriptors = buildAttachmentDescriptors(
+        params.mailbox,
+        params.uid,
+        parsed.attachments,
+      );
+
+      const descriptor = attachmentDescriptors.find(
+        (entry) => entry.id === params.attachmentId,
+      );
+
+      if (!descriptor) {
+        throw new Error("Pièce jointe introuvable.");
+      }
+
+      const content = await readAttachmentContent(descriptor.raw);
+
+      return {
+        filename: descriptor.filename,
+        contentType: descriptor.contentType,
+        content,
       };
     } finally {
       await client.mailboxClose().catch(() => undefined);

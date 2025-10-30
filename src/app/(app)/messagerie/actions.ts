@@ -6,15 +6,19 @@ import { Buffer } from "node:buffer";
 import {
   fetchMailboxMessages,
   fetchMessageDetail,
-  saveMessagingSettings,
   sendEmailMessage,
   testImapConnection,
   testSmtpConnection,
+  updateMessagingConnections,
+  updateMessagingSenderIdentity,
   type Mailbox,
   type MailboxPageResult,
   type MessageDetail,
-  type MessagingSettingsInput,
+  type MailboxListItem,
+  type MessagingConnectionsInput,
+  type MessagingIdentityInput,
   type EmailAttachment,
+  fetchMailboxUpdates,
 } from "@/server/messaging";
 
 export type ActionResult<T = unknown> =
@@ -46,13 +50,42 @@ function isAllowedAttachmentType(mime: string | undefined | null): boolean {
 
 const MAILBOX_VALUES = ["inbox", "sent"] as const satisfies ReadonlyArray<Mailbox>;
 
-const messagingSettingsSchema = z.object({
+const messagingIdentitySchema = z.object({
+  senderName: z.string().optional().transform((value) => value?.trim() ?? ""),
+  senderLogoUrl: z
+    .string()
+    .optional()
+    .transform((value) => value?.trim() ?? ""),
+});
+
+const messagingConnectionsUpdateSchema = z.object({
   fromEmail: z
     .string()
     .min(1, "Adresse e-mail requise")
     .email("Adresse e-mail invalide"),
-  senderName: z.string().optional().transform((value) => value ?? ""),
-  senderLogoUrl: z.string().optional().transform((value) => value ?? ""),
+  imapHost: z.string().min(1),
+  imapPort: z.coerce.number().int().min(1).max(65535),
+  imapSecure: booleanSchema,
+  imapUser: z.string().optional().transform((value) => value?.trim() ?? ""),
+  imapPassword: z
+    .string()
+    .optional()
+    .transform((value) => value?.trim() ?? ""),
+  smtpHost: z.string().min(1),
+  smtpPort: z.coerce.number().int().min(1).max(65535),
+  smtpSecure: booleanSchema,
+  smtpUser: z.string().optional().transform((value) => value?.trim() ?? ""),
+  smtpPassword: z
+    .string()
+    .optional()
+    .transform((value) => value?.trim() ?? ""),
+});
+
+const messagingConnectionsTestSchema = z.object({
+  fromEmail: z
+    .string()
+    .min(1, "Adresse e-mail requise")
+    .email("Adresse e-mail invalide"),
   imapHost: z.string().min(1),
   imapPort: z.coerce.number().int().min(1).max(65535),
   imapSecure: booleanSchema,
@@ -84,6 +117,11 @@ const mailboxSchema = z.object({
 const mailboxDetailSchema = z.object({
   mailbox: z.enum(MAILBOX_VALUES),
   uid: z.number().int().min(1),
+});
+
+const mailboxUpdatesSchema = z.object({
+  mailbox: z.enum(MAILBOX_VALUES),
+  sinceUid: z.number().int().min(0),
 });
 
 function mapSettingsValidationError(error: z.ZodError): string {
@@ -177,42 +215,93 @@ function buildHtmlContent(
 
 
 
-function extractSettingsInput(
+function parseIdentityInput(formData: FormData): MessagingIdentityInput {
+  const parsed = messagingIdentitySchema.parse(
+    Object.fromEntries(formData),
+  );
+
+  return {
+    senderName: parsed.senderName,
+    senderLogoUrl: parsed.senderLogoUrl.length
+      ? parsed.senderLogoUrl
+      : null,
+  };
+}
+
+function parseConnectionsUpdateInput(
   formData: FormData,
-): MessagingSettingsInput {
-  const parsed = messagingSettingsSchema.parse(
+): MessagingConnectionsInput {
+  const parsed = messagingConnectionsUpdateSchema.parse(
     Object.fromEntries(formData),
   );
 
   return {
     fromEmail: parsed.fromEmail,
-    senderName: parsed.senderName,
-    senderLogoUrl: parsed.senderLogoUrl,
     imapHost: parsed.imapHost,
     imapPort: parsed.imapPort,
     imapSecure: parsed.imapSecure,
-    imapUser: parsed.imapUser,
-    imapPassword: parsed.imapPassword,
+    imapUser: parsed.imapUser.length ? parsed.imapUser : undefined,
+    imapPassword: parsed.imapPassword.length
+      ? parsed.imapPassword
+      : undefined,
     smtpHost: parsed.smtpHost,
     smtpPort: parsed.smtpPort,
     smtpSecure: parsed.smtpSecure,
-    smtpUser: parsed.smtpUser,
-    smtpPassword: parsed.smtpPassword,
+    smtpUser: parsed.smtpUser.length ? parsed.smtpUser : undefined,
+    smtpPassword: parsed.smtpPassword.length
+      ? parsed.smtpPassword
+      : undefined,
   };
 }
 
-export async function saveMessagingSettingsAction(
+function parseConnectionsTestInput(formData: FormData) {
+  return messagingConnectionsTestSchema.parse(
+    Object.fromEntries(formData),
+  );
+}
+
+export async function updateMessagingIdentityAction(
   formData: FormData,
 ): Promise<ActionResult> {
   try {
-    const input = extractSettingsInput(formData);
-    await saveMessagingSettings(input);
+    const input = parseIdentityInput(formData);
+    await updateMessagingSenderIdentity(input);
     revalidatePath("/messagerie/recus");
     revalidatePath("/messagerie/envoyes");
     revalidatePath("/messagerie/parametres");
     return {
       success: true,
-      message: "Paramètres enregistrés avec succès.",
+      message: "Identité mise à jour.",
+    };
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return {
+        success: false,
+        message: "Champs invalides.",
+      };
+    }
+    return {
+      success: false,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Impossible de mettre à jour l'identité de l'expéditeur.",
+    };
+  }
+}
+
+export async function updateMessagingConnectionsAction(
+  formData: FormData,
+): Promise<ActionResult> {
+  try {
+    const input = parseConnectionsUpdateInput(formData);
+    await updateMessagingConnections(input);
+    revalidatePath("/messagerie/recus");
+    revalidatePath("/messagerie/envoyes");
+    revalidatePath("/messagerie/parametres");
+    return {
+      success: true,
+      message: "Paramètres mis à jour.",
     };
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -226,7 +315,7 @@ export async function saveMessagingSettingsAction(
       message:
         error instanceof Error
           ? error.message
-          : "Impossible d'enregistrer les paramètres.",
+          : "Impossible de mettre à jour les paramètres.",
     };
   }
 }
@@ -235,13 +324,13 @@ export async function testImapConnectionAction(
   formData: FormData,
 ): Promise<ActionResult> {
   try {
-    const input = extractSettingsInput(formData);
+    const parsed = parseConnectionsTestInput(formData);
     await testImapConnection({
-      host: input.imapHost,
-      port: input.imapPort,
-      secure: input.imapSecure,
-      user: input.imapUser,
-      password: input.imapPassword,
+      host: parsed.imapHost,
+      port: parsed.imapPort,
+      secure: parsed.imapSecure,
+      user: parsed.imapUser,
+      password: parsed.imapPassword,
     });
     return {
       success: true,
@@ -265,14 +354,14 @@ export async function testSmtpConnectionAction(
   formData: FormData,
 ): Promise<ActionResult> {
   try {
-    const input = extractSettingsInput(formData);
+    const parsed = parseConnectionsTestInput(formData);
     await testSmtpConnection({
-      host: input.smtpHost,
-      port: input.smtpPort,
-      secure: input.smtpSecure,
-      user: input.smtpUser,
-      password: input.smtpPassword,
-      fromEmail: input.fromEmail,
+      host: parsed.smtpHost,
+      port: parsed.smtpPort,
+      secure: parsed.smtpSecure,
+      user: parsed.smtpUser,
+      password: parsed.smtpPassword,
+      fromEmail: parsed.fromEmail,
     });
     return {
       success: true,
@@ -314,6 +403,33 @@ export async function fetchMailboxPageAction(
       message: mapConnectionError(
         error,
         "Échec de chargement des messages.",
+      ),
+    };
+  }
+}
+
+export async function fetchMailboxUpdatesAction(
+  input: unknown,
+): Promise<ActionResult<{ messages: MailboxListItem[]; totalMessages: number | null }>> {
+  try {
+    const parsed = mailboxUpdatesSchema.parse(input);
+    const data = await fetchMailboxUpdates(parsed);
+    return {
+      success: true,
+      data,
+    };
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return {
+        success: false,
+        message: "Champs invalides.",
+      };
+    }
+    return {
+      success: false,
+      message: mapConnectionError(
+        error,
+        "Échec de la synchronisation des messages.",
       ),
     };
   }

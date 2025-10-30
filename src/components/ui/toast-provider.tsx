@@ -18,6 +18,7 @@ export type Toast = {
   title: string;
   description?: string;
   duration?: number;
+  onClick?: () => void;
 };
 
 type ToastContextValue = {
@@ -76,13 +77,38 @@ function ToastItem({
     };
   }, [onDismiss, toast.duration, toast.id]);
 
+  const clickable = typeof toast.onClick === "function";
+
+  const handleClick = () => {
+    if (!clickable) {
+      return;
+    }
+    try {
+      toast.onClick?.();
+    } finally {
+      onDismiss(toast.id);
+    }
+  };
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!clickable) return;
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      handleClick();
+    }
+  };
+
   return (
     <div
       className={clsx(
         "min-w-[240px] rounded-lg border px-4 py-3 shadow-lg backdrop-blur transition-opacity",
         variantStyles[toast.variant].container,
+        clickable ? "cursor-pointer" : "",
       )}
       role="status"
+      tabIndex={clickable ? 0 : undefined}
+      onClick={handleClick}
+      onKeyDown={handleKeyDown}
     >
       <div className="flex items-start gap-3">
         <div className="flex-1 space-y-1">
@@ -100,7 +126,10 @@ function ToastItem({
         </div>
         <button
           type="button"
-          onClick={() => onDismiss(toast.id)}
+          onClick={(event) => {
+            event.stopPropagation();
+            onDismiss(toast.id);
+          }}
           className="text-xs text-zinc-500 transition hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
           aria-label="Fermer la notification"
         >
@@ -144,11 +173,9 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       {children}
       <div className="pointer-events-none fixed inset-x-0 top-4 z-50 flex flex-col items-center gap-3 sm:items-end sm:pr-4">
         {toasts.map((toast) => (
-          <ToastItem
-            key={toast.id}
-            toast={toast}
-            onDismiss={removeToast}
-          />
+          <div key={toast.id} className="pointer-events-auto">
+            <ToastItem toast={toast} onDismiss={removeToast} />
+          </div>
         ))}
       </div>
     </ToastContext.Provider>

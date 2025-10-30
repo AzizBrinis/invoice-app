@@ -4,8 +4,13 @@ import {
   getMessagingSettingsSummary,
   type MessageDetail,
   type Mailbox,
+  type MessageParticipant,
 } from "@/server/messaging";
 import { ComposeClient } from "@/app/(app)/messagerie/_components/compose-client";
+import {
+  parseRecipientHeaders,
+  type RecipientDraft,
+} from "@/lib/messaging/recipients";
 
 export const dynamic = "force-dynamic";
 
@@ -16,9 +21,9 @@ type NouveauMessagePageProps = {
 };
 
 type ComposeInitialDraft = {
-  to?: string[];
-  cc?: string[];
-  bcc?: string[];
+  to?: RecipientDraft[];
+  cc?: RecipientDraft[];
+  bcc?: RecipientDraft[];
   subject?: string;
   body?: string;
   quotedHtml?: string;
@@ -95,47 +100,75 @@ function prefixSubject(original: string, prefix: string): string {
   return `${prefix} ${normalized}`;
 }
 
-function extractAddressIdentifier(value: string): string {
-  const match = value.match(/<([^>]+)>/);
-  return (match ? match[1] : value).trim().toLowerCase();
+function toRecipientDraftsFromStrings(
+  values: Array<string | null | undefined>,
+): RecipientDraft[] {
+  return parseRecipientHeaders(
+    values.filter(
+      (value): value is string =>
+        typeof value === "string" && value.trim().length > 0,
+    ),
+  );
 }
 
-function buildReplyAllRecipients(
-  detail: MessageDetail,
+function participantsToRecipients(
+  participants: Array<MessageParticipant | null | undefined>,
+  fallback: Array<string | null | undefined>,
+): RecipientDraft[] {
+  const normalized = participants
+    .map((participant) => {
+      if (!participant?.address) {
+        return null;
+      }
+      const address = participant.address.trim();
+      if (!address) {
+        return null;
+      }
+      const display = participant.name?.trim() ?? address;
+      return {
+        display,
+        address,
+      } satisfies RecipientDraft;
+    })
+    .filter((value): value is RecipientDraft => Boolean(value));
+
+  if (normalized.length > 0) {
+    return normalized;
+  }
+
+  return toRecipientDraftsFromStrings(fallback);
+}
+
+function collectRecipients(
+  groups: RecipientDraft[][],
   senderEmail?: string,
-): { to: string[]; cc: string[] } {
-  const participants = [detail.from, ...detail.to, ...detail.cc].filter(
-    (entry): entry is string => Boolean(entry && entry.trim().length > 0),
-  );
-  if (participants.length === 0) {
-    return { to: [], cc: [] };
-  }
-
-  const unique: string[] = [];
+): RecipientDraft[] {
+  const normalizedSender = senderEmail?.trim().toLowerCase() ?? null;
   const seen = new Set<string>();
+  const result: RecipientDraft[] = [];
 
-  for (const participant of participants) {
-    const identifier = extractAddressIdentifier(participant);
-    if (identifier && identifier === senderEmail?.toLowerCase()) {
-      continue;
-    }
-    if (!seen.has(identifier)) {
-      seen.add(identifier);
-      unique.push(participant);
+  for (const group of groups) {
+    for (const recipient of group) {
+      const address = recipient.address.trim();
+      if (!address) {
+        continue;
+      }
+      const normalized = address.toLowerCase();
+      if (normalizedSender && normalized === normalizedSender) {
+        continue;
+      }
+      if (seen.has(normalized)) {
+        continue;
+      }
+      seen.add(normalized);
+      result.push({
+        display: recipient.display.trim() || address,
+        address,
+      });
     }
   }
 
-  if (unique.length === 0) {
-    return { to: [], cc: [] };
-  }
-
-  const primary = detail.from && unique.includes(detail.from)
-    ? detail.from
-    : unique[0];
-  const to = [primary];
-  const cc = unique.filter((entry) => entry !== primary);
-
-  return { to, cc };
+  return result;
 }
 
 function buildInitialDraft(
@@ -150,26 +183,52 @@ function buildInitialDraft(
     quotedText,
   };
 
+  const replyRecipients = participantsToRecipients(
+    detail.replyToAddresses,
+    detail.replyTo,
+  );
+  const fromRecipients = participantsToRecipients(
+    [detail.fromAddress],
+    [detail.from],
+  );
+  const toRecipients = participantsToRecipients(detail.toAddresses, detail.to);
+  const ccRecipients = participantsToRecipients(detail.ccAddresses, detail.cc);
+
   switch (mode) {
     case "reply": {
-      const to = detail.from
-        ? [detail.from]
-        : detail.to.length
-          ? detail.to
-          : [];
+      const to = collectRecipients(
+        [replyRecipients, fromRecipients, toRecipients, ccRecipients],
+        senderEmail,
+      );
       return {
         ...baseDraft,
-        to,
+        to: to.length
+          ? to
+          : toRecipients.length
+            ? toRecipients.slice(0, 1)
+            : fromRecipients.slice(0, 1),
         cc: [],
         bcc: [],
         subject: prefixSubject(detail.subject, "Re:"),
       };
     }
     case "reply_all": {
-      const { to, cc } = buildReplyAllRecipients(detail, senderEmail);
+      const primaryPool = replyRecipients.length
+        ? replyRecipients
+        : fromRecipients;
+      const combined = collectRecipients(
+        [primaryPool, toRecipients, ccRecipients],
+        senderEmail,
+      );
+      const to = combined.slice(0, 1);
+      const cc = combined.slice(1);
       return {
         ...baseDraft,
-        to: to.length ? to : detail.from ? [detail.from] : [],
+        to: to.length
+          ? to
+          : fromRecipients.length
+            ? fromRecipients.slice(0, 1)
+            : toRecipients.slice(0, 1),
         cc,
         bcc: [],
         subject: prefixSubject(detail.subject, "Re:"),

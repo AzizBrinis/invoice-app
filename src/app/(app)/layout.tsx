@@ -1,11 +1,13 @@
 import type { Metadata } from "next";
 import { requireUser } from "@/lib/auth";
 import { getSettings } from "@/server/settings";
+import { getMessagingSettingsSummary } from "@/server/messaging";
 import {
   SidebarNav,
   type NavItem,
 } from "@/components/layout/sidebar-nav";
 import { Topbar } from "@/components/layout/topbar";
+import { MailboxSyncProvider } from "@/app/(app)/messagerie/_components/mailbox-sync-provider";
 
 export const metadata: Metadata = {
   title: "Espace administrateur — Application de facturation",
@@ -62,6 +64,7 @@ export default async function AppLayout({
 }) {
   const user = await requireUser();
   const settings = await getSettings();
+  const messagingSummary = await getMessagingSettingsSummary();
 
   return (
     <div className="min-h-screen bg-zinc-100 transition-colors dark:bg-zinc-950">
@@ -74,6 +77,7 @@ export default async function AppLayout({
             user={{ name: user.name, email: user.email }}
           />
           <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
+            <MailboxSyncProvider enabled={messagingSummary.imapConfigured} />
             <div className="mx-auto w-full max-w-7xl space-y-6">
               {children}
             </div>

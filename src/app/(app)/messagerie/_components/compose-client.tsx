@@ -1,13 +1,31 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type Dispatch,
+  type KeyboardEvent,
+  type MutableRefObject,
+  type SetStateAction,
+} from "react";
 import { useRouter } from "next/navigation";
-import { Paperclip, UploadCloud, Trash2 } from "lucide-react";
+import { Paperclip, UploadCloud, Trash2, X } from "lucide-react";
 import { useToast } from "@/components/ui/toast-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { sendEmailAction, type ActionResult } from "@/app/(app)/messagerie/actions";
+import {
+  formatRecipientAddresses,
+  mergeRecipientLists,
+  parseRecipientHeader,
+  splitRecipientInput,
+  type RecipientDraft,
+} from "@/lib/messaging/recipients";
 
 const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024; // 10 Mo
 const ALLOWED_ATTACHMENT_TYPES = new Set<string>([
@@ -43,14 +61,83 @@ function formatFileSize(bytes: number): string {
 }
 
 type ComposeInitialDraft = {
-  to?: string[];
-  cc?: string[];
-  bcc?: string[];
+  to?: RecipientDraft[];
+  cc?: RecipientDraft[];
+  bcc?: RecipientDraft[];
   subject?: string;
   body?: string;
   quotedHtml?: string;
   quotedText?: string;
 };
+
+type RecipientFieldState = {
+  input: string;
+  recipients: RecipientDraft[];
+};
+
+function cloneRecipients(
+  recipients?: RecipientDraft[] | null,
+): RecipientDraft[] {
+  return recipients ? recipients.map((recipient) => ({ ...recipient })) : [];
+}
+
+function createRecipientFieldState(
+  recipients?: RecipientDraft[] | null,
+): RecipientFieldState {
+  const cloned = cloneRecipients(recipients);
+  return {
+    input: "",
+    recipients: cloned,
+  };
+}
+
+function deriveRecipientsFromInput(
+  rawValue: string,
+  previous: RecipientDraft[],
+  fallback: RecipientDraft[],
+): RecipientDraft[] {
+  const tokens = splitRecipientInput(rawValue);
+  if (tokens.length === 0) {
+    return [];
+  }
+
+  const lookup = new Map<string, RecipientDraft>();
+  const register = (entry: RecipientDraft) => {
+    const emailKey = entry.address.trim().toLowerCase();
+    if (emailKey && !lookup.has(emailKey)) {
+      lookup.set(emailKey, entry);
+    }
+    const displayKey = entry.display.trim().toLowerCase();
+    if (displayKey && !lookup.has(displayKey)) {
+      lookup.set(displayKey, entry);
+    }
+  };
+
+  previous.forEach(register);
+  fallback.forEach(register);
+
+  const next: RecipientDraft[] = [];
+  for (const token of tokens) {
+    const parsed = parseRecipientHeader(token);
+    const emailKey = parsed.address.trim().toLowerCase();
+    const displayKey = parsed.display.trim().toLowerCase();
+    const existing =
+      (emailKey && lookup.get(emailKey)) ||
+      (displayKey && lookup.get(displayKey));
+    if (existing) {
+      next.push(existing);
+      continue;
+    }
+    const normalized: RecipientDraft = {
+      display: parsed.display.trim() || parsed.address.trim(),
+      address: parsed.address.trim() || parsed.display.trim(),
+    };
+    next.push(normalized);
+    register(normalized);
+  }
+
+  return next;
+}
 
 type ComposeClientProps = {
   fromEmail: string | null;
@@ -78,19 +165,61 @@ export function ComposeClient({
     [initialDraft],
   );
 
-  const [to, setTo] = useState(initialDraft?.to?.join(", ") ?? "");
-  const [cc, setCc] = useState(initialDraft?.cc?.join(", ") ?? "");
-  const [bcc, setBcc] = useState(initialDraft?.bcc?.join(", ") ?? "");
+  const [toField, setToField] = useState<RecipientFieldState>(() =>
+    createRecipientFieldState(initialDraft?.to),
+  );
+  const [ccField, setCcField] = useState<RecipientFieldState>(() =>
+    createRecipientFieldState(initialDraft?.cc),
+  );
+  const [bccField, setBccField] = useState<RecipientFieldState>(() =>
+    createRecipientFieldState(initialDraft?.bcc),
+  );
   const [subject, setSubject] = useState(initialDraft?.subject ?? "");
   const [body, setBody] = useState(initialDraft?.body ?? "");
   const [attachments, setAttachments] = useState<File[]>([]);
   const [sending, setSending] = useState(false);
+  const toInputRef = useRef<HTMLInputElement | null>(null);
+  const ccInputRef = useRef<HTMLInputElement | null>(null);
+  const bccInputRef = useRef<HTMLInputElement | null>(null);
+
+  const initialDraftRef = useRef(initialDraft ?? null);
+  const initialToRef = useRef<RecipientDraft[]>(cloneRecipients(initialDraft?.to));
+  const initialCcRef = useRef<RecipientDraft[]>(cloneRecipients(initialDraft?.cc));
+  const initialBccRef = useRef<RecipientDraft[]>(cloneRecipients(initialDraft?.bcc));
+
+  useEffect(() => {
+    if (initialDraftRef.current === initialDraft) {
+      return;
+    }
+    initialDraftRef.current = initialDraft ?? null;
+    initialToRef.current = cloneRecipients(initialDraft?.to);
+    initialCcRef.current = cloneRecipients(initialDraft?.cc);
+    initialBccRef.current = cloneRecipients(initialDraft?.bcc);
+
+    const nextTo = createRecipientFieldState(initialDraft?.to);
+    const nextCc = createRecipientFieldState(initialDraft?.cc);
+    const nextBcc = createRecipientFieldState(initialDraft?.bcc);
+    const nextSubject = initialDraft?.subject ?? "";
+    const nextBody = initialDraft?.body ?? "";
+
+    queueMicrotask(() => {
+      setToField(nextTo);
+      setCcField(nextCc);
+      setBccField(nextBcc);
+      setSubject(nextSubject);
+      setBody(nextBody);
+    });
+  }, [initialDraft]);
 
   const senderDisplay = useMemo(() => {
     const email = fromEmail ?? "non configuré";
     const name = senderName.trim();
     return name ? `${name} <${email}>` : email;
   }, [fromEmail, senderName]);
+
+  const hasPrimaryRecipient = useMemo(() => {
+    return formatRecipientAddresses(toField.recipients).trim().length > 0;
+  }, [toField.recipients]);
 
   const addFiles = useCallback(
     (files: FileList | File[]) => {
@@ -160,6 +289,156 @@ export function ComposeClient({
     setAttachments((current) => current.filter((_, idx) => idx !== index));
   }, []);
 
+  const commitRecipientInput = useCallback(
+    (
+      rawValue: string,
+      setField: Dispatch<SetStateAction<RecipientFieldState>>,
+      fallback: MutableRefObject<RecipientDraft[]>,
+    ) => {
+      const replaced = rawValue.replace(/\n/g, ",");
+      const trimmed = replaced.trim();
+      setField((prev) => {
+        if (trimmed.length === 0) {
+          return prev.input.length > 0
+            ? { ...prev, input: "" }
+            : prev;
+        }
+        const additions = deriveRecipientsFromInput(
+          replaced,
+          prev.recipients,
+          fallback.current,
+        );
+        if (additions.length === 0) {
+          return {
+            input: "",
+            recipients: prev.recipients,
+          };
+        }
+        const merged = mergeRecipientLists(prev.recipients, additions);
+        return {
+          input: "",
+          recipients: merged,
+        };
+      });
+    },
+    [],
+  );
+
+  const handleRecipientInputChange = useCallback(
+    (
+      value: string,
+      setField: Dispatch<SetStateAction<RecipientFieldState>>,
+      fallback: MutableRefObject<RecipientDraft[]>,
+    ) => {
+      const replaced = value.replace(/\n/g, ",");
+      const tokens = splitRecipientInput(replaced);
+      const shouldCommit =
+        tokens.length > 1 || /[;,]\s*$/.test(replaced);
+      if (shouldCommit) {
+        commitRecipientInput(replaced, setField, fallback);
+        return;
+      }
+      setField((prev) => ({
+        ...prev,
+        input: replaced,
+      }));
+    },
+    [commitRecipientInput],
+  );
+
+  const handleRecipientKeyDown = useCallback(
+    (
+      event: KeyboardEvent<HTMLInputElement>,
+      fieldState: RecipientFieldState,
+      setField: Dispatch<SetStateAction<RecipientFieldState>>,
+      fallback: MutableRefObject<RecipientDraft[]>,
+    ) => {
+      if (event.key === "Tab") {
+        if (fieldState.input.trim().length > 0) {
+          commitRecipientInput(fieldState.input, setField, fallback);
+        }
+        return;
+      }
+      if (
+        event.key === "Enter" ||
+        event.key === "," ||
+        event.key === ";"
+      ) {
+        event.preventDefault();
+        commitRecipientInput(fieldState.input, setField, fallback);
+        return;
+      }
+      if (event.key === "Backspace" && fieldState.input.length === 0) {
+        setField((prev) => {
+          if (prev.recipients.length === 0) {
+            return prev;
+          }
+          const nextRecipients = prev.recipients.slice(0, -1);
+          return {
+            ...prev,
+            recipients: nextRecipients,
+          };
+        });
+      }
+    },
+    [commitRecipientInput],
+  );
+
+  const handleRecipientPaste = useCallback(
+    (
+      event: ClipboardEvent<HTMLInputElement>,
+      fieldState: RecipientFieldState,
+      setField: Dispatch<SetStateAction<RecipientFieldState>>,
+      fallback: MutableRefObject<RecipientDraft[]>,
+    ) => {
+      event.preventDefault();
+      const pasted = event.clipboardData?.getData("text") ?? "";
+      const combined = `${fieldState.input}${pasted}`;
+      commitRecipientInput(combined, setField, fallback);
+    },
+    [commitRecipientInput],
+  );
+
+  const handleRecipientRemove = useCallback(
+    (
+      index: number,
+      setField: Dispatch<SetStateAction<RecipientFieldState>>,
+    ) => {
+      setField((prev) => {
+        if (index < 0 || index >= prev.recipients.length) {
+          return prev;
+        }
+        const nextRecipients = prev.recipients.filter((_, idx) => idx !== index);
+        return {
+          ...prev,
+          recipients: nextRecipients,
+        };
+      });
+    },
+    [],
+  );
+
+  const handleToInputChange = useCallback(
+    (value: string) => {
+      handleRecipientInputChange(value, setToField, initialToRef);
+    },
+    [handleRecipientInputChange],
+  );
+
+  const handleCcInputChange = useCallback(
+    (value: string) => {
+      handleRecipientInputChange(value, setCcField, initialCcRef);
+    },
+    [handleRecipientInputChange],
+  );
+
+  const handleBccInputChange = useCallback(
+    (value: string) => {
+      handleRecipientInputChange(value, setBccField, initialBccRef);
+    },
+    [handleRecipientInputChange],
+  );
+
   async function safeSubmit(formData: FormData): Promise<ActionResult | null> {
     try {
       return await sendEmailAction(formData);
@@ -174,13 +453,14 @@ export function ComposeClient({
   }
 
   const resetToInitialDraft = useCallback(() => {
-    setTo(initialDraft?.to?.join(", ") ?? "");
-    setCc(initialDraft?.cc?.join(", ") ?? "");
-    setBcc(initialDraft?.bcc?.join(", ") ?? "");
-    setSubject(initialDraft?.subject ?? "");
-    setBody(initialDraft?.body ?? "");
+    setToField(createRecipientFieldState(initialToRef.current));
+    setCcField(createRecipientFieldState(initialCcRef.current));
+    setBccField(createRecipientFieldState(initialBccRef.current));
+    const draft = initialDraftRef.current;
+    setSubject(draft?.subject ?? "");
+    setBody(draft?.body ?? "");
     setAttachments([]);
-  }, [initialDraft]);
+  }, []);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -192,10 +472,61 @@ export function ComposeClient({
       return;
     }
 
+    const pendingToInput = toField.input;
+    const pendingCcInput = ccField.input;
+    const pendingBccInput = bccField.input;
+
+    if (pendingToInput.trim().length > 0) {
+      commitRecipientInput(pendingToInput, setToField, initialToRef);
+    }
+    if (pendingCcInput.trim().length > 0) {
+      commitRecipientInput(pendingCcInput, setCcField, initialCcRef);
+    }
+    if (pendingBccInput.trim().length > 0) {
+      commitRecipientInput(pendingBccInput, setBccField, initialBccRef);
+    }
+
+    const resolvedToRecipients = pendingToInput.trim().length > 0
+      ? mergeRecipientLists(
+          toField.recipients,
+          deriveRecipientsFromInput(
+            pendingToInput,
+            toField.recipients,
+            initialToRef.current,
+          ),
+        )
+      : toField.recipients;
+
+    const resolvedCcRecipients = pendingCcInput.trim().length > 0
+      ? mergeRecipientLists(
+          ccField.recipients,
+          deriveRecipientsFromInput(
+            pendingCcInput,
+            ccField.recipients,
+            initialCcRef.current,
+          ),
+        )
+      : ccField.recipients;
+
+    const resolvedBccRecipients = pendingBccInput.trim().length > 0
+      ? mergeRecipientLists(
+          bccField.recipients,
+          deriveRecipientsFromInput(
+            pendingBccInput,
+            bccField.recipients,
+            initialBccRef.current,
+          ),
+        )
+      : bccField.recipients;
+
+    const toAddresses = formatRecipientAddresses(resolvedToRecipients);
+    const ccAddresses = formatRecipientAddresses(resolvedCcRecipients);
+    const bccAddresses = formatRecipientAddresses(resolvedBccRecipients);
+
     const formData = new FormData();
-    formData.append("to", to);
-    formData.append("cc", cc);
-    formData.append("bcc", bcc);
+    formData.append("to", toAddresses);
+    formData.append("cc", ccAddresses);
+    formData.append("bcc", bccAddresses);
     formData.append("subject", subject);
     formData.append("body", body);
     formData.append("quotedHtml", quotedHtml);
@@ -252,15 +583,58 @@ export function ComposeClient({
                 htmlFor="compose-to"
                 className="text-sm font-medium text-zinc-800 dark:text-zinc-200"
               >
-                Destinataires (séparés par des virgules)
+                Destinataires
               </label>
-              <Input
-                id="compose-to"
-                value={to}
-                onChange={(event) => setTo(event.target.value)}
-                placeholder="contact@example.com, autre@example.com"
-                required
-              />
+              <div
+                className="flex min-h-[2.75rem] w-full flex-wrap items-center gap-2 rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900"
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  toInputRef.current?.focus();
+                }}
+              >
+                {toField.recipients.map((recipient, index) => (
+                  <span
+                    key={`${recipient.address || recipient.display}-${index}`}
+                    className="flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-1 text-sm font-medium text-blue-700 dark:bg-blue-500/20 dark:text-blue-100"
+                  >
+                    <span>{recipient.display}</span>
+                    <button
+                      type="button"
+                      className="rounded-full p-0.5 text-blue-700 transition hover:bg-blue-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-blue-100 dark:hover:bg-blue-500/30"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        handleRecipientRemove(index, setToField);
+                      }}
+                    >
+                      <X className="h-3.5 w-3.5" aria-hidden="true" />
+                      <span className="sr-only">Supprimer {recipient.display}</span>
+                    </button>
+                  </span>
+                ))}
+                <input
+                  ref={toInputRef}
+                  id="compose-to"
+                  value={toField.input}
+                  onChange={(event) => handleToInputChange(event.target.value)}
+                  onKeyDown={(event) =>
+                    handleRecipientKeyDown(event, toField, setToField, initialToRef)
+                  }
+                  onPaste={(event) =>
+                    handleRecipientPaste(event, toField, setToField, initialToRef)
+                  }
+                  onBlur={() =>
+                    commitRecipientInput(toField.input, setToField, initialToRef)
+                  }
+                  placeholder={
+                    toField.recipients.length === 0
+                      ? "contact@example.com"
+                      : ""
+                  }
+                  autoComplete="off"
+                  className="flex-1 min-w-[160px] border-none bg-transparent px-1 py-1 text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none dark:text-zinc-100"
+                />
+              </div>
             </div>
             <div className="space-y-1.5">
               <label
@@ -269,12 +643,54 @@ export function ComposeClient({
               >
                 Cc
               </label>
-              <Input
-                id="compose-cc"
-                value={cc}
-                onChange={(event) => setCc(event.target.value)}
-                placeholder="adresse@example.com"
-              />
+              <div
+                className="flex min-h-[2.75rem] w-full flex-wrap items-center gap-2 rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900"
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  ccInputRef.current?.focus();
+                }}
+              >
+                {ccField.recipients.map((recipient, index) => (
+                  <span
+                    key={`${recipient.address || recipient.display}-${index}`}
+                    className="flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-1 text-sm font-medium text-blue-700 dark:bg-blue-500/20 dark:text-blue-100"
+                  >
+                    <span>{recipient.display}</span>
+                    <button
+                      type="button"
+                      className="rounded-full p-0.5 text-blue-700 transition hover:bg-blue-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-blue-100 dark:hover:bg-blue-500/30"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        handleRecipientRemove(index, setCcField);
+                      }}
+                    >
+                      <X className="h-3.5 w-3.5" aria-hidden="true" />
+                      <span className="sr-only">Supprimer {recipient.display}</span>
+                    </button>
+                  </span>
+                ))}
+                <input
+                  ref={ccInputRef}
+                  id="compose-cc"
+                  value={ccField.input}
+                  onChange={(event) => handleCcInputChange(event.target.value)}
+                  onKeyDown={(event) =>
+                    handleRecipientKeyDown(event, ccField, setCcField, initialCcRef)
+                  }
+                  onPaste={(event) =>
+                    handleRecipientPaste(event, ccField, setCcField, initialCcRef)
+                  }
+                  onBlur={() =>
+                    commitRecipientInput(ccField.input, setCcField, initialCcRef)
+                  }
+                  placeholder={
+                    ccField.recipients.length === 0 ? "adresse@example.com" : ""
+                  }
+                  autoComplete="off"
+                  className="flex-1 min-w-[140px] border-none bg-transparent px-1 py-1 text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none dark:text-zinc-100"
+                />
+              </div>
             </div>
             <div className="space-y-1.5">
               <label
@@ -283,12 +699,54 @@ export function ComposeClient({
               >
                 Cci
               </label>
-              <Input
-                id="compose-bcc"
-                value={bcc}
-                onChange={(event) => setBcc(event.target.value)}
-                placeholder="adresse@example.com"
-              />
+              <div
+                className="flex min-h-[2.75rem] w-full flex-wrap items-center gap-2 rounded-md border border-zinc-300 bg-white px-2 py-1 text-sm focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900"
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  bccInputRef.current?.focus();
+                }}
+              >
+                {bccField.recipients.map((recipient, index) => (
+                  <span
+                    key={`${recipient.address || recipient.display}-${index}`}
+                    className="flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-1 text-sm font-medium text-blue-700 dark:bg-blue-500/20 dark:text-blue-100"
+                  >
+                    <span>{recipient.display}</span>
+                    <button
+                      type="button"
+                      className="rounded-full p-0.5 text-blue-700 transition hover:bg-blue-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-blue-100 dark:hover:bg-blue-500/30"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        handleRecipientRemove(index, setBccField);
+                      }}
+                    >
+                      <X className="h-3.5 w-3.5" aria-hidden="true" />
+                      <span className="sr-only">Supprimer {recipient.display}</span>
+                    </button>
+                  </span>
+                ))}
+                <input
+                  ref={bccInputRef}
+                  id="compose-bcc"
+                  value={bccField.input}
+                  onChange={(event) => handleBccInputChange(event.target.value)}
+                  onKeyDown={(event) =>
+                    handleRecipientKeyDown(event, bccField, setBccField, initialBccRef)
+                  }
+                  onPaste={(event) =>
+                    handleRecipientPaste(event, bccField, setBccField, initialBccRef)
+                  }
+                  onBlur={() =>
+                    commitRecipientInput(bccField.input, setBccField, initialBccRef)
+                  }
+                  placeholder={
+                    bccField.recipients.length === 0 ? "adresse@example.com" : ""
+                  }
+                  autoComplete="off"
+                  className="flex-1 min-w-[140px] border-none bg-transparent px-1 py-1 text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none dark:text-zinc-100"
+                />
+              </div>
             </div>
           </div>
 
@@ -407,7 +865,7 @@ export function ComposeClient({
             <Button
               type="submit"
               loading={sending}
-              disabled={!smtpConfigured || sending || to.trim().length === 0}
+              disabled={!smtpConfigured || sending || !hasPrimaryRecipient}
             >
               Envoyer
             </Button>

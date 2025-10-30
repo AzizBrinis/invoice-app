@@ -3,7 +3,8 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import type { MessagingSettingsSummary } from "@/server/messaging";
 import {
-  saveMessagingSettingsAction,
+  updateMessagingConnectionsAction,
+  updateMessagingIdentityAction,
   testImapConnectionAction,
   testSmtpConnectionAction,
   type ActionResult,
@@ -18,9 +19,11 @@ type ParametersClientProps = {
 };
 
 export function ParametersClient({ summary }: ParametersClientProps) {
-  const formRef = useRef<HTMLFormElement | null>(null);
+  const identityFormRef = useRef<HTMLFormElement | null>(null);
+  const connectionFormRef = useRef<HTMLFormElement | null>(null);
   const { addToast } = useToast();
-  const [saving, setSaving] = useState(false);
+  const [savingIdentity, setSavingIdentity] = useState(false);
+  const [savingConnections, setSavingConnections] = useState(false);
   const [testingImap, setTestingImap] = useState(false);
   const [testingSmtp, setTestingSmtp] = useState(false);
 
@@ -42,15 +45,16 @@ export function ParametersClient({ summary }: ParametersClientProps) {
     [summary.smtpConfigured],
   );
 
-  const safeActionCall = useCallback(
+  const callFormAction = useCallback(
     async <T,>(
+      form: HTMLFormElement | null,
       action: (formData: FormData) => Promise<ActionResult<T>>,
     ): Promise<ActionResult<T> | null> => {
-      if (!formRef.current) {
+      if (!form) {
         return null;
       }
       try {
-        return await action(new FormData(formRef.current));
+        return await action(new FormData(form));
       } catch (error) {
         console.error("Erreur réseau lors d'une action paramètres:", error);
         addToast({
@@ -63,29 +67,58 @@ export function ParametersClient({ summary }: ParametersClientProps) {
     [addToast],
   );
 
-  const handleSave = async (event: React.FormEvent<HTMLFormElement>) => {
+  const handleIdentitySave = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!formRef.current) return;
-    setSaving(true);
-    const result = await safeActionCall(saveMessagingSettingsAction);
-    setSaving(false);
+    setSavingIdentity(true);
+    const result = await callFormAction(
+      identityFormRef.current,
+      updateMessagingIdentityAction,
+    );
+    setSavingIdentity(false);
     if (!result) return;
     if (result.success) {
       addToast({
         variant: "success",
-        title: result.message ?? "Paramètres enregistrés.",
+        title: "✅ Paramètres mis à jour avec succès.",
       });
     } else {
       addToast({
         variant: "error",
-        title: result.message,
+        title: "❌ Échec de la mise à jour des paramètres.",
+        description: result.message,
+      });
+    }
+  };
+
+  const handleConnectionsSave = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSavingConnections(true);
+    const result = await callFormAction(
+      connectionFormRef.current,
+      updateMessagingConnectionsAction,
+    );
+    setSavingConnections(false);
+    if (!result) return;
+    if (result.success) {
+      addToast({
+        variant: "success",
+        title: "✅ Paramètres mis à jour avec succès.",
+      });
+    } else {
+      addToast({
+        variant: "error",
+        title: "❌ Échec de la mise à jour des paramètres.",
+        description: result.message,
       });
     }
   };
 
   const handleTestImap = async () => {
     setTestingImap(true);
-    const result = await safeActionCall(testImapConnectionAction);
+    const result = await callFormAction(
+      connectionFormRef.current,
+      testImapConnectionAction,
+    );
     setTestingImap(false);
     if (!result) return;
     addToast({
@@ -96,7 +129,10 @@ export function ParametersClient({ summary }: ParametersClientProps) {
 
   const handleTestSmtp = async () => {
     setTestingSmtp(true);
-    const result = await safeActionCall(testSmtpConnectionAction);
+    const result = await callFormAction(
+      connectionFormRef.current,
+      testSmtpConnectionAction,
+    );
     setTestingSmtp(false);
     if (!result) return;
     addToast({
@@ -124,31 +160,18 @@ export function ParametersClient({ summary }: ParametersClientProps) {
       </div>
 
       <form
-        ref={formRef}
-        onSubmit={handleSave}
+        ref={identityFormRef}
+        onSubmit={handleIdentitySave}
         className="space-y-6 rounded-lg border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
       >
         <section className="space-y-3">
           <h3 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-            Adresse d&apos;envoi
+            Identité de l&apos;expéditeur
           </h3>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            Mettez à jour le nom affiché et le logo sans toucher aux identifiants IMAP/SMTP.
+          </p>
           <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5 sm:col-span-2">
-              <label
-                htmlFor="from-email"
-                className="text-sm font-medium text-zinc-800 dark:text-zinc-200"
-              >
-                Adresse e-mail
-              </label>
-              <Input
-                id="from-email"
-                name="fromEmail"
-                type="email"
-                defaultValue={summary.fromEmail}
-                placeholder="expediteur@example.com"
-                required
-              />
-            </div>
             <div className="space-y-1.5 sm:col-span-2">
               <label
                 htmlFor="sender-name"
@@ -184,6 +207,41 @@ export function ParametersClient({ summary }: ParametersClientProps) {
             </div>
           </div>
         </section>
+        <div className="flex justify-end">
+          <Button type="submit" loading={savingIdentity}>
+            Enregistrer
+          </Button>
+        </div>
+      </form>
+
+      <form
+        ref={connectionFormRef}
+        onSubmit={handleConnectionsSave}
+        className="space-y-6 rounded-lg border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
+      >
+        <section className="space-y-3">
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+            Adresse d&apos;envoi
+          </h3>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5 sm:col-span-2">
+              <label
+                htmlFor="from-email"
+                className="text-sm font-medium text-zinc-800 dark:text-zinc-200"
+              >
+                Adresse e-mail
+              </label>
+              <Input
+                id="from-email"
+                name="fromEmail"
+                type="email"
+                defaultValue={summary.fromEmail}
+                placeholder="expediteur@example.com"
+                required
+              />
+            </div>
+          </div>
+        </section>
 
         <section className="space-y-3">
           <div>
@@ -191,8 +249,7 @@ export function ParametersClient({ summary }: ParametersClientProps) {
               Boîte de réception (IMAP)
             </h3>
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              Pour préserver la sécurité, saisissez l&apos;identifiant et le
-              mot de passe à chaque modification.
+              Renseignez l&apos;identifiant et le mot de passe uniquement si vous souhaitez les modifier.
             </p>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
@@ -239,7 +296,7 @@ export function ParametersClient({ summary }: ParametersClientProps) {
                 id="imap-secure"
                 name="imapSecure"
                 defaultValue={summary.imapSecure ? "true" : "false"}
-                className="input"
+                className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
               >
                 <option value="true">SSL/TLS (recommandé)</option>
                 <option value="false">STARTTLS / Non chiffré</option>
@@ -256,8 +313,10 @@ export function ParametersClient({ summary }: ParametersClientProps) {
                 id="imap-user"
                 name="imapUser"
                 placeholder="Identifiant IMAP"
-                required
               />
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                Laissez vide pour conserver l&apos;identifiant actuel.
+              </p>
             </div>
             <div className="space-y-1.5 sm:col-span-2">
               <label
@@ -271,8 +330,10 @@ export function ParametersClient({ summary }: ParametersClientProps) {
                 name="imapPassword"
                 type="password"
                 placeholder="••••••••"
-                required
               />
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                Laissez vide pour conserver le mot de passe actuel.
+              </p>
             </div>
           </div>
         </section>
@@ -325,7 +386,7 @@ export function ParametersClient({ summary }: ParametersClientProps) {
                 id="smtp-secure"
                 name="smtpSecure"
                 defaultValue={summary.smtpSecure ? "true" : "false"}
-                className="input"
+                className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
               >
                 <option value="true">SSL/TLS (recommandé)</option>
                 <option value="false">STARTTLS / Non chiffré</option>
@@ -342,8 +403,10 @@ export function ParametersClient({ summary }: ParametersClientProps) {
                 id="smtp-user"
                 name="smtpUser"
                 placeholder="Identifiant SMTP"
-                required
               />
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                Laissez vide pour conserver l&apos;identifiant actuel.
+              </p>
             </div>
             <div className="space-y-1.5 sm:col-span-2">
               <label
@@ -357,8 +420,10 @@ export function ParametersClient({ summary }: ParametersClientProps) {
                 name="smtpPassword"
                 type="password"
                 placeholder="••••••••"
-                required
               />
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                Laissez vide pour conserver le mot de passe actuel.
+              </p>
             </div>
           </div>
         </section>
@@ -382,7 +447,7 @@ export function ParametersClient({ summary }: ParametersClientProps) {
               Tester SMTP
             </Button>
           </div>
-          <Button type="submit" loading={saving}>
+          <Button type="submit" loading={savingConnections}>
             Enregistrer
           </Button>
         </div>
