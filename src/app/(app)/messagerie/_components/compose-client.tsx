@@ -26,6 +26,11 @@ import {
   splitRecipientInput,
   type RecipientDraft,
 } from "@/lib/messaging/recipients";
+import {
+  appendMailboxMessages,
+  updateMailboxMetadata,
+} from "@/app/(app)/messagerie/_state/mailbox-store";
+import type { SentMailboxAppendResult } from "@/server/messaging";
 
 const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024; // 10 Mo
 const ALLOWED_ATTACHMENT_TYPES = new Set<string>([
@@ -439,7 +444,9 @@ export function ComposeClient({
     [handleRecipientInputChange],
   );
 
-  async function safeSubmit(formData: FormData): Promise<ActionResult | null> {
+  async function safeSubmit(
+    formData: FormData,
+  ): Promise<ActionResult<SentMailboxAppendResult> | null> {
     try {
       return await sendEmailAction(formData);
     } catch (error) {
@@ -544,6 +551,23 @@ export function ComposeClient({
     }
 
     if (result.success) {
+      if (result.data?.message) {
+        appendMailboxMessages("sent", [result.data.message], {
+          totalMessages:
+            typeof result.data.totalMessages === "number"
+              ? result.data.totalMessages
+              : undefined,
+          lastSync: Date.now(),
+        });
+      } else if (
+        result.data &&
+        typeof result.data.totalMessages === "number"
+      ) {
+        updateMailboxMetadata("sent", {
+          totalMessages: result.data.totalMessages,
+          lastSync: Date.now(),
+        });
+      }
       resetToInitialDraft();
       addToast({
         variant: "success",

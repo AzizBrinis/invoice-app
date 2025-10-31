@@ -11,6 +11,7 @@ import {
   testSmtpConnection,
   updateMessagingConnections,
   updateMessagingSenderIdentity,
+  moveMailboxMessage,
   type Mailbox,
   type MailboxPageResult,
   type MessageDetail,
@@ -19,7 +20,9 @@ import {
   type MessagingIdentityInput,
   type EmailAttachment,
   fetchMailboxUpdates,
+  type SentMailboxAppendResult,
 } from "@/server/messaging";
+import { recordManualSpamFeedback } from "@/server/spam-detection";
 
 export type ActionResult<T = unknown> =
   | { success: true; message?: string; data?: T }
@@ -48,7 +51,7 @@ function isAllowedAttachmentType(mime: string | undefined | null): boolean {
   return ALLOWED_ATTACHMENT_PREFIXES.some((prefix) => mime.startsWith(prefix));
 }
 
-const MAILBOX_VALUES = ["inbox", "sent"] as const satisfies ReadonlyArray<Mailbox>;
+const MAILBOX_VALUES = ["inbox", "sent", "drafts", "trash", "spam"] as const satisfies ReadonlyArray<Mailbox>;
 
 const messagingIdentitySchema = z.object({
   senderName: z.string().optional().transform((value) => value?.trim() ?? ""),
@@ -122,6 +125,14 @@ const mailboxDetailSchema = z.object({
 const mailboxUpdatesSchema = z.object({
   mailbox: z.enum(MAILBOX_VALUES),
   sinceUid: z.number().int().min(0),
+});
+
+const mailboxMoveSchema = z.object({
+  mailbox: z.enum(MAILBOX_VALUES),
+  target: z.enum(MAILBOX_VALUES),
+  uid: z.number().int().min(1),
+  subject: z.string().optional(),
+  sender: z.string().optional(),
 });
 
 function mapSettingsValidationError(error: z.ZodError): string {
@@ -384,26 +395,30 @@ export async function testSmtpConnectionAction(
 export async function fetchMailboxPageAction(
   input: unknown,
 ): Promise<ActionResult<MailboxPageResult>> {
+  const parsed = mailboxSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      success: false,
+      message: "Champs invalides.",
+    };
+  }
+
+  const { mailbox } = parsed.data;
+
   try {
-    const parsed = mailboxSchema.parse(input);
-    const data = await fetchMailboxMessages(parsed);
+    const data = await fetchMailboxMessages(parsed.data);
     return {
       success: true,
       data,
     };
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      return {
-        success: false,
-        message: "Champs invalides.",
-      };
-    }
+    const fallback =
+      mailbox === "sent"
+        ? "Erreur lors du chargement des messages envoyés."
+        : "Échec de chargement des messages.";
     return {
       success: false,
-      message: mapConnectionError(
-        error,
-        "Échec de chargement des messages.",
-      ),
+      message: mapConnectionError(error, fallback),
     };
   }
 }
@@ -411,26 +426,30 @@ export async function fetchMailboxPageAction(
 export async function fetchMailboxUpdatesAction(
   input: unknown,
 ): Promise<ActionResult<{ messages: MailboxListItem[]; totalMessages: number | null }>> {
+  const parsed = mailboxUpdatesSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      success: false,
+      message: "Champs invalides.",
+    };
+  }
+
+  const { mailbox } = parsed.data;
+
   try {
-    const parsed = mailboxUpdatesSchema.parse(input);
-    const data = await fetchMailboxUpdates(parsed);
+    const data = await fetchMailboxUpdates(parsed.data);
     return {
       success: true,
       data,
     };
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      return {
-        success: false,
-        message: "Champs invalides.",
-      };
-    }
+    const fallback =
+      mailbox === "sent"
+        ? "Erreur lors de la synchronisation des messages envoyés."
+        : "Échec de la synchronisation des messages.";
     return {
       success: false,
-      message: mapConnectionError(
-        error,
-        "Échec de la synchronisation des messages.",
-      ),
+      message: mapConnectionError(error, fallback),
     };
   }
 }
@@ -457,6 +476,50 @@ export async function fetchMessageDetailAction(
       message: mapConnectionError(
         error,
         "Échec de chargement du message.",
+      ),
+    };
+  }
+}
+
+export async function moveMailboxMessageAction(
+  input: unknown,
+): Promise<ActionResult> {
+  const parsed = mailboxMoveSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      success: false,
+      message: "Champs invalides.",
+    };
+  }
+
+  try {
+    await moveMailboxMessage(parsed.data);
+
+    const isManualSpam =
+      parsed.data.target === "spam" && parsed.data.mailbox !== "spam";
+    const isManualHam =
+      parsed.data.mailbox === "spam" && parsed.data.target !== "spam";
+
+    if (isManualSpam || isManualHam) {
+      await recordManualSpamFeedback({
+        mailbox: parsed.data.mailbox,
+        target: parsed.data.target,
+        uid: parsed.data.uid,
+        subject: parsed.data.subject,
+        sender: parsed.data.sender,
+      });
+    }
+
+    return {
+      success: true,
+      message: "Message déplacé.",
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: mapConnectionError(
+        error,
+        "Échec du déplacement du message.",
       ),
     };
   }
@@ -518,7 +581,7 @@ export async function sendEmailAction(
       textParts.push("", "----- Message d'origine -----", parsed.quotedText.trim());
     }
 
-    await sendEmailMessage({
+    const sentResult = await sendEmailMessage({
       to: toList,
       cc: ccList.length ? ccList : undefined,
       bcc: bccList.length ? bccList : undefined,
@@ -531,6 +594,7 @@ export async function sendEmailAction(
     return {
       success: true,
       message: "Message envoyé.",
+      data: sentResult satisfies SentMailboxAppendResult,
     };
   } catch (error) {
     if (error instanceof z.ZodError) {

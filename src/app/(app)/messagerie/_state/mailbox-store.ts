@@ -1,6 +1,14 @@
 import { useSyncExternalStore } from "react";
 import type { Mailbox, MailboxListItem } from "@/server/messaging";
 
+export const MAILBOX_KEYS: Mailbox[] = [
+  "inbox",
+  "sent",
+  "drafts",
+  "trash",
+  "spam",
+];
+
 type MailboxCache = {
   messages: MailboxListItem[];
   page: number;
@@ -35,14 +43,20 @@ const defaultMailboxCache = (): MailboxCache => ({
   totalMessages: null,
 });
 
-const STORAGE_KEY = "mailbox-cache-v1";
+const STORAGE_KEY = "mailbox-cache-v2";
 
-const initialState: StoreState = {
-  mailboxes: {
-    inbox: defaultMailboxCache(),
-    sent: defaultMailboxCache(),
-  },
-};
+function createInitialState(): StoreState {
+  const entries = MAILBOX_KEYS.reduce<Record<Mailbox, MailboxCache>>(
+    (acc, key) => {
+      acc[key] = defaultMailboxCache();
+      return acc;
+    },
+    {} as Record<Mailbox, MailboxCache>,
+  );
+  return { mailboxes: entries };
+}
+
+const initialState: StoreState = createInitialState();
 
 type Listener = () => void;
 
@@ -86,18 +100,17 @@ function hydrateFromStorage() {
     if (!raw) return;
     const parsed = JSON.parse(raw) as Partial<StoreState>;
     if (!parsed?.mailboxes) return;
-    store.state = {
-      mailboxes: {
-        inbox: {
+    const mailboxes = MAILBOX_KEYS.reduce<Record<Mailbox, MailboxCache>>(
+      (acc, key) => {
+        acc[key] = {
           ...defaultMailboxCache(),
-          ...(parsed.mailboxes.inbox ?? {}),
-        },
-        sent: {
-          ...defaultMailboxCache(),
-          ...(parsed.mailboxes.sent ?? {}),
-        },
+          ...(parsed.mailboxes?.[key] ?? {}),
+        };
+        return acc;
       },
-    };
+      {} as Record<Mailbox, MailboxCache>,
+    );
+    store.state = { mailboxes };
   } catch (error) {
     console.error("Impossible de restaurer le cache de messagerie:", error);
   }
@@ -303,8 +316,33 @@ export function updateMailboxMetadata(
   applyMetadata(mailbox, metadata);
 }
 
+export function removeMailboxMessage(mailbox: Mailbox, uid: number) {
+  updateMailbox(mailbox, (current) => {
+    const filtered = current.messages.filter((item) => item.uid !== uid);
+    if (filtered.length === current.messages.length) {
+      return current;
+    }
+    return {
+      ...current,
+      messages: filtered,
+      latestUid: computeLatestUid(filtered),
+      totalMessages:
+        typeof current.totalMessages === "number"
+          ? Math.max(0, current.totalMessages - 1)
+          : current.totalMessages,
+    } satisfies MailboxCache;
+  });
+}
+
 export function resetMailboxCache(mailbox: Mailbox) {
   updateMailbox(mailbox, () => defaultMailboxCache());
+}
+
+export function invalidateMailboxCache(mailbox: Mailbox) {
+  updateMailbox(mailbox, (current) => ({
+    ...current,
+    initialized: false,
+  }));
 }
 
 export function getMailboxStoreSnapshot() {

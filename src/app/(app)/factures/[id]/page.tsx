@@ -7,6 +7,7 @@ import {
   changeInvoiceStatusAction,
   sendInvoiceEmailAction,
 } from "@/app/(app)/factures/actions";
+import { getMessagingSettingsSummary } from "@/server/messaging";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -67,6 +68,8 @@ export default async function FactureDetailPage({
   if (!invoice) {
     notFound();
   }
+  const messagingSummary = await getMessagingSettingsSummary();
+  const emailDisabled = !messagingSummary.smtpConfigured;
 
   const successMessage = Array.isArray(resolvedSearchParams?.message)
     ? resolvedSearchParams.message[0]
@@ -453,6 +456,13 @@ export default async function FactureDetailPage({
 
       <section className="card space-y-4 p-4">
         <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">Envoyer la facture par e-mail</h2>
+        {emailDisabled ? (
+          <Alert
+            variant="warning"
+            title="Messagerie non configurée"
+            description="Veuillez configurer votre messagerie (SMTP/IMAP) avant d'envoyer des emails."
+          />
+        ) : null}
         <form action={sendInvoiceEmailAction.bind(null, invoice.id)} className="grid gap-4 sm:grid-cols-2">
           <input type="hidden" name="redirectTo" value={redirectBase} />
           <div className="space-y-1 sm:col-span-1">
@@ -465,6 +475,7 @@ export default async function FactureDetailPage({
               type="email"
               defaultValue={invoice.client.email ?? ""}
               required
+              disabled={emailDisabled}
             />
           </div>
           <div className="space-y-1 sm:col-span-1">
@@ -475,6 +486,7 @@ export default async function FactureDetailPage({
               id="subject"
               name="subject"
               defaultValue={`Facture ${invoice.number}`}
+              disabled={emailDisabled}
             />
           </div>
           <div className="sm:col-span-2 space-y-1">
@@ -490,10 +502,13 @@ export default async function FactureDetailPage({
 Veuillez trouver ci-joint la facture ${invoice.number} d'un montant de ${formatCurrency(fromCents(invoice.totalTTCCents, invoice.currency), invoice.currency)}.
 
 Cordialement.`}
+              disabled={emailDisabled}
             />
           </div>
           <div className="sm:col-span-2 flex justify-end">
-            <FormSubmitButton>Envoyer la facture</FormSubmitButton>
+            <FormSubmitButton disabled={emailDisabled}>
+              Envoyer la facture
+            </FormSubmitButton>
           </div>
         </form>
       </section>

@@ -2,12 +2,16 @@ import {
   ImapFlow,
   type MessageStructureObject,
   type MessageAddressObject,
+  type MailboxObject,
 } from "imapflow";
 import nodemailer from "nodemailer";
+import MailComposer from "nodemailer/lib/mail-composer";
 import { simpleParser, type Attachment } from "mailparser";
 import sanitizeHtml from "sanitize-html";
+import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { decryptSecret, encryptSecret } from "@/server/secure-credentials";
+import { analyzeAndHandleSpam } from "@/server/spam-detection";
 
 const SETTINGS_ID = 1;
 const DEFAULT_PAGE_SIZE = 20;
@@ -45,7 +49,7 @@ export type MessagingSettingsSummary = {
   smtpConfigured: boolean;
 };
 
-export type Mailbox = "inbox" | "sent";
+export type Mailbox = "inbox" | "sent" | "drafts" | "trash" | "spam";
 
 export type MailboxListItem = {
   uid: number;
@@ -69,6 +73,20 @@ export type MailboxPageResult = {
   totalMessages: number;
   hasMore: boolean;
   messages: MailboxListItem[];
+  autoMoved?: AutoMovedSummary[];
+};
+
+export type AutoMovedSummary = {
+  uid: number;
+  subject: string;
+  from: string | null;
+  score: number;
+  target: Mailbox;
+};
+
+export type SentMailboxAppendResult = {
+  message: MailboxListItem | null;
+  totalMessages: number | null;
 };
 
 function createMailboxListItem(message: {
@@ -189,11 +207,235 @@ const MAILBOX_CANDIDATES: Record<Mailbox, string[]> = {
     "Sent",
     "Sent Messages",
     "Sent Items",
+    "Sent Mail",
+    "Sent Email",
     "Envoyés",
+    "Envoyées",
+    "Envoyees",
+    "Envoyes",
+    "Messages envoyés",
+    "Messages envoyes",
+    "Courrier envoyé",
+    "Courrier envoye",
     "[Gmail]/Sent Mail",
+    "[Gmail]/Messages envoyés",
+    "[Gmail]/Messages envoyes",
+    "[Gmail]/Courrier envoyé",
+    "[Gmail]/Courrier envoye",
     "INBOX.Sent",
+    "INBOX/Sent",
+    "INBOX.Sent Mail",
+    "INBOX/Sent Mail",
+    "INBOX.Sent Items",
+    "INBOX/Sent Items",
+    "INBOX.Envoyes",
+    "INBOX/Envoyes",
+  ],
+  drafts: [
+    "Drafts",
+    "Draft",
+    "Brouillons",
+    "Brouillon",
+    "INBOX.Drafts",
+    "INBOX/Drafts",
+    "[Gmail]/Drafts",
+  ],
+  trash: [
+    "Trash",
+    "Deleted Items",
+    "Deleted Messages",
+    "Corbeille",
+    "INBOX.Trash",
+    "INBOX/Trash",
+    "[Gmail]/Trash",
+    "[Gmail]/Corbeille",
+  ],
+  spam: [
+    "Spam",
+    "Junk",
+    "Junk Mail",
+    "Courrier indésirable",
+    "Courrier indesirable",
+    "Spam Messages",
+    "INBOX.Spam",
+    "INBOX/Spam",
+    "[Gmail]/Spam",
+    "[Gmail]/Junk",
   ],
 };
+
+const MAILBOX_SPECIAL_USE: Partial<Record<Mailbox, string>> = {
+  inbox: "\\Inbox",
+  sent: "\\Sent",
+  drafts: "\\Drafts",
+  trash: "\\Trash",
+  spam: "\\Junk",
+};
+
+const mailboxNameCache = new Map<Mailbox, string>();
+
+function normalizeMailboxName(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function mailboxNameVariants(entry: MailboxObject): string[] {
+  const variants = new Set<string>();
+  variants.add(entry.path);
+  const delimiter = entry.delimiter || "/";
+  const segments = entry.path.split(delimiter).filter(Boolean);
+  if (segments.length) {
+    variants.add(segments[segments.length - 1] ?? entry.path);
+  }
+  return Array.from(variants);
+}
+
+function computeSentMailboxWeight(normalizedVariants: string[]): number {
+  let best = Number.POSITIVE_INFINITY;
+
+  for (const variant of normalizedVariants) {
+    if (!variant) continue;
+    const tokens = variant.split(" ").filter(Boolean);
+    if (!tokens.length) continue;
+    const has = (value: string) => tokens.includes(value);
+    const hasAll = (...values: string[]) => values.every(has);
+    const hasAny = (...values: string[]) => values.some(has);
+
+    if (
+      hasAll("gmail", "sent", "mail") ||
+      hasAll("gmail", "messages", "envoyes") ||
+      hasAll("gmail", "courrier", "envoye")
+    ) {
+      best = Math.min(best, 0);
+      continue;
+    }
+
+    if (
+      hasAll("sent", "mail") ||
+      hasAll("messages", "envoyes") ||
+      hasAll("courrier", "envoye")
+    ) {
+      best = Math.min(best, 1);
+      continue;
+    }
+
+    if (hasAll("sent", "items") || hasAll("sent", "messages")) {
+      best = Math.min(best, 2);
+      continue;
+    }
+
+    if (hasAny("envoye", "envoyes", "envoyee", "envoyees")) {
+      best = Math.min(best, 3);
+      continue;
+    }
+
+    if (has("sent")) {
+      best = Math.min(best, 4);
+      continue;
+    }
+  }
+
+  return Number.isFinite(best) ? best : 12;
+}
+
+async function listMailboxes(client: ImapFlow): Promise<MailboxObject[]> {
+  const seen = new Map<string, MailboxObject>();
+  try {
+    const folders = await client.list();
+    for (const mailbox of folders ?? []) {
+      if (mailbox && typeof mailbox.path === "string") {
+        if (!seen.has(mailbox.path)) {
+          seen.set(mailbox.path, mailbox);
+        }
+      }
+    }
+  } catch (error) {
+    console.warn("Impossible de lister les boîtes aux lettres IMAP:", error);
+  }
+  return Array.from(seen.values());
+}
+
+async function getMailboxPathCandidates(
+  client: ImapFlow,
+  mailbox: Mailbox,
+): Promise<string[]> {
+  const candidateWeights = new Map<string, number>();
+
+  const recordCandidate = (
+    path: string | null | undefined,
+    weight: number,
+  ) => {
+    if (!path) {
+      return;
+    }
+    const existing = candidateWeights.get(path);
+    if (existing === undefined || weight < existing) {
+      candidateWeights.set(path, weight);
+    }
+  };
+
+  const cached = mailboxNameCache.get(mailbox);
+  if (cached) {
+    recordCandidate(cached, -10);
+  }
+
+  if (mailbox === "inbox") {
+    recordCandidate("INBOX", 0);
+    return [...candidateWeights.entries()]
+      .sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]))
+      .map(([path]) => path);
+  }
+
+  const allMailboxes = await listMailboxes(client);
+  const specialUse = MAILBOX_SPECIAL_USE[mailbox]?.toLowerCase() ?? null;
+
+  for (const entry of allMailboxes) {
+    const variants = mailboxNameVariants(entry);
+    const normalizedVariants = variants.map((variant) =>
+      normalizeMailboxName(variant),
+    );
+
+    let weight = Number.POSITIVE_INFINITY;
+
+    if (
+      specialUse &&
+      entry.specialUse?.toLowerCase() === specialUse
+    ) {
+      weight = -5;
+    }
+
+    if (mailbox === "sent") {
+      weight = Math.min(weight, computeSentMailboxWeight(normalizedVariants));
+    }
+
+    if (!Number.isFinite(weight)) {
+      weight = 5;
+    }
+    recordCandidate(entry.path, weight);
+  }
+
+  for (const candidate of MAILBOX_CANDIDATES[mailbox] ?? []) {
+    recordCandidate(candidate, 20);
+  }
+
+  const sortedCandidates = [...candidateWeights.entries()].sort(
+    (a, b) => a[1] - b[1] || a[0].localeCompare(b[0]),
+  );
+
+  if (!sortedCandidates.length) {
+    throw new Error(
+      mailbox === "sent"
+        ? "Aucun dossier 'Envoyés' trouvé sur le serveur IMAP."
+        : "Boîte aux lettres introuvable.",
+    );
+  }
+
+  return sortedCandidates.map(([path]) => path);
+}
 
 function ensureNonEmpty(value: string, field: string): string {
   const trimmed = value.trim();
@@ -345,6 +587,27 @@ function isAuthError(error: unknown): boolean {
   return /auth|login failed|invalid credentials/i.test(message);
 }
 
+function isConnectionError(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const code = (error as { code?: unknown }).code;
+  if (typeof code === "string") {
+    if (
+      /no.?connection|econn|enotfound|etimedout|socket|ehost/i.test(code)
+    ) {
+      return true;
+    }
+  }
+
+  const message =
+    error instanceof Error ? error.message : String(error ?? "");
+  return /connection (?:not )?available|econn|timed out|socket|refused/i.test(
+    message,
+  );
+}
+
 function formatAddress(
   entry?: Pick<MessageAddressObject, "name" | "mailbox" | "host"> | null,
 ): string | null {
@@ -474,6 +737,10 @@ async function withImapClient<T>(
     logger: false,
   });
 
+  client.on("error", (error: unknown) => {
+    console.warn("Erreur du client IMAP:", error);
+  });
+
   try {
     await client.connect();
     return await fn(client);
@@ -486,25 +753,184 @@ async function openMailbox(
   client: ImapFlow,
   mailbox: Mailbox,
   readOnly: boolean,
-): Promise<MailboxOpenResult | null> {
-  const candidates = MAILBOX_CANDIDATES[mailbox];
+): Promise<MailboxOpenResult> {
+  const candidates = await getMailboxPathCandidates(client, mailbox);
+  const attempted = new Set<string>();
+
+  const buildVariants = (path: string): Array<string | string[]> => {
+    const variants: Array<string | string[]> = [];
+
+    const slashSegments = path.split("/").map((segment) => segment.trim()).filter(Boolean);
+    if (slashSegments.length > 1) {
+      variants.push(slashSegments);
+    }
+
+    const dotSegments = path.split(".").map((segment) => segment.trim()).filter(Boolean);
+    if (dotSegments.length > 1) {
+      variants.push(dotSegments);
+    }
+
+    variants.push(path);
+    return variants;
+  };
+
   for (const name of candidates) {
-    const lock = await client.getMailboxLock(name);
-    try {
-      const info = await client.mailboxOpen(name, { readOnly });
-      return {
-        name,
-        info,
-        release: () => lock.release(),
-      };
-    } catch (error) {
-      lock.release();
-      if (mailbox === "sent" && isAuthError(error)) {
-        throw error;
+    for (const variant of buildVariants(name)) {
+      const attemptKey = Array.isArray(variant)
+        ? variant.join("::")
+        : variant;
+      if (attempted.has(attemptKey)) {
+        continue;
+      }
+      attempted.add(attemptKey);
+
+      let lock: Awaited<ReturnType<ImapFlow["getMailboxLock"]>> | null = null;
+      try {
+        lock = await client.getMailboxLock(variant);
+        const info = await client.mailboxOpen(variant, { readOnly });
+        mailboxNameCache.set(mailbox, info.path ?? name);
+        return {
+          name: info.path ?? name,
+          info,
+          release: () => lock.release(),
+        };
+      } catch (error) {
+        if (lock) {
+          lock.release();
+          lock = null;
+        }
+        if (mailboxNameCache.get(mailbox) === name) {
+          mailboxNameCache.delete(mailbox);
+        }
+        if (isConnectionError(error)) {
+          throw formatError("Connexion IMAP indisponible", error);
+        }
+        console.warn(
+          `Impossible d'ouvrir la boîte "${Array.isArray(variant) ? variant.join(" / ") : variant}" (${mailbox}):`,
+          error,
+        );
+        if (mailbox === "sent" && isAuthError(error)) {
+          throw error;
+        }
       }
     }
   }
-  return null;
+  throw new Error(
+    mailbox === "sent"
+      ? "Dossier 'Envoyés' introuvable sur le serveur IMAP."
+      : "Boîte aux lettres introuvable.",
+  );
+}
+
+async function appendMessageToSentMailbox(params: {
+  imap: ImapConnectionConfig | null;
+  rawMessage: Buffer;
+  messageId: string;
+  sentAt: Date;
+}): Promise<SentMailboxAppendResult> {
+  if (!params.imap) {
+    return {
+      message: null,
+      totalMessages: null,
+    };
+  }
+
+  return withImapClient(params.imap, async (client) => {
+    let opened: MailboxOpenResult;
+    try {
+      opened = await openMailbox(client, "sent", false);
+    } catch (error) {
+      console.warn(
+        "Impossible d'enregistrer le message dans le dossier 'Envoyés':",
+        error,
+      );
+      return {
+        message: null,
+        totalMessages: null,
+      };
+    }
+
+    try {
+      const appendResponse = await client.append(
+        opened.name,
+        params.rawMessage,
+        ["\\Seen"],
+        params.sentAt,
+      );
+
+      const fetchQuery = {
+        envelope: true,
+        internalDate: true,
+        flags: true,
+        bodyStructure: true,
+      } satisfies Parameters<ImapFlow["fetchOne"]>[1];
+
+      let fetched:
+        | Awaited<ReturnType<ImapFlow["fetchOne"]>>
+        | false = false;
+
+      if (appendResponse && appendResponse.uid) {
+        fetched = await client.fetchOne(
+          appendResponse.uid,
+          fetchQuery,
+          { uid: true },
+        );
+      }
+
+      if (!fetched && appendResponse && appendResponse.seq) {
+        fetched = await client.fetchOne(appendResponse.seq, fetchQuery);
+      }
+
+      if (!fetched) {
+        try {
+          const searchResult = await client.search(
+            {
+              header: {
+                "message-id": params.messageId,
+              },
+            },
+            { uid: true },
+          );
+          if (Array.isArray(searchResult) && searchResult.length > 0) {
+            const targetUid = searchResult[searchResult.length - 1];
+            fetched = await client.fetchOne(
+              targetUid,
+              fetchQuery,
+              { uid: true },
+            );
+          }
+        } catch (searchError) {
+          console.warn(
+            "Recherche du message envoyé échouée:",
+            searchError,
+          );
+        }
+      }
+
+      const status = await client
+        .status(opened.name, { messages: true })
+        .catch(() => null);
+      const totalMessages =
+        status?.messages ?? opened.info.exists ?? null;
+
+      const mailboxItem =
+        fetched && typeof fetched === "object"
+          ? createMailboxListItem(
+              fetched as unknown as Parameters<
+                typeof createMailboxListItem
+              >[0],
+            )
+          : null;
+
+      return {
+        message: mailboxItem,
+        totalMessages,
+      };
+    } finally {
+      await client.mailboxClose().catch(() => undefined);
+      opened.release();
+    }
+  });
 }
 
 async function getMessagingCredentials(): Promise<MessagingCredentials> {
@@ -742,16 +1168,6 @@ export async function fetchMailboxMessages(params: {
 
   return withImapClient(credentials.imap, async (client) => {
     const opened = await openMailbox(client, params.mailbox, true);
-    if (!opened) {
-      return {
-        mailbox: params.mailbox,
-        page,
-        pageSize,
-        totalMessages: 0,
-        hasMore: false,
-        messages: [],
-      };
-    }
 
     try {
       const totalMessages = opened.info.exists ?? 0;
@@ -801,13 +1217,43 @@ export async function fetchMailboxMessages(params: {
         (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
       );
 
+      let filteredItems = items;
+      const autoMoved: AutoMovedSummary[] = [];
+
+      if (params.mailbox === "inbox" && items.length) {
+        for (const entry of [...items]) {
+          try {
+            const analysis = await analyzeAndHandleSpam({
+              client,
+              mailbox: params.mailbox,
+              uid: entry.uid,
+            });
+            if (analysis.movedToSpam && !analysis.alreadyLogged) {
+              autoMoved.push({
+                uid: entry.uid,
+                subject: entry.subject,
+                from: entry.from,
+                score: analysis.score,
+                target: "spam",
+              });
+              filteredItems = filteredItems.filter((item) => item.uid !== entry.uid);
+            }
+          } catch (error) {
+            console.warn("Analyse de spam impossible:", error);
+          }
+        }
+      }
+
+      const adjustedTotal = Math.max(0, totalMessages - autoMoved.length);
+
       return {
         mailbox: params.mailbox,
         page,
         pageSize,
-        totalMessages,
+        totalMessages: adjustedTotal,
         hasMore: startSeq > 1,
-        messages: items,
+        messages: filteredItems,
+        autoMoved: autoMoved.length ? autoMoved : undefined,
       };
     } finally {
       await client.mailboxClose().catch(() => undefined);
@@ -822,6 +1268,7 @@ export async function fetchMailboxUpdates(params: {
 }): Promise<{
   totalMessages: number | null;
   messages: MailboxListItem[];
+  autoMoved?: AutoMovedSummary[];
 }> {
   const credentials = await getMessagingCredentials();
   if (!credentials.imap) {
@@ -839,9 +1286,6 @@ export async function fetchMailboxUpdates(params: {
 
   return withImapClient(credentials.imap, async (client) => {
     const opened = await openMailbox(client, params.mailbox, true);
-    if (!opened) {
-      throw new Error("Boîte aux lettres introuvable.");
-    }
 
     try {
       const totalMessages = opened.info.exists ?? null;
@@ -878,9 +1322,42 @@ export async function fetchMailboxUpdates(params: {
           new Date(b.date).getTime() - new Date(a.date).getTime(),
       );
 
+      let filteredItems = items;
+      const autoMoved: AutoMovedSummary[] = [];
+
+      if (params.mailbox === "inbox" && items.length) {
+        for (const entry of [...items]) {
+          try {
+            const analysis = await analyzeAndHandleSpam({
+              client,
+              mailbox: params.mailbox,
+              uid: entry.uid,
+            });
+            if (analysis.movedToSpam && !analysis.alreadyLogged) {
+              autoMoved.push({
+                uid: entry.uid,
+                subject: entry.subject,
+                from: entry.from,
+                score: analysis.score,
+                target: "spam",
+              });
+              filteredItems = filteredItems.filter((item) => item.uid !== entry.uid);
+            }
+          } catch (error) {
+            console.warn("Analyse de spam impossible:", error);
+          }
+        }
+      }
+
+      const adjustedTotal =
+        typeof totalMessages === "number"
+          ? Math.max(0, totalMessages - autoMoved.length)
+          : totalMessages;
+
       return {
-        totalMessages,
-        messages: items,
+        totalMessages: adjustedTotal,
+        messages: filteredItems,
+        autoMoved: autoMoved.length ? autoMoved : undefined,
       };
     } finally {
       await client.mailboxClose().catch(() => undefined);
@@ -902,9 +1379,6 @@ export async function fetchMessageDetail(params: {
 
   return withImapClient(credentials.imap, async (client) => {
     const opened = await openMailbox(client, params.mailbox, true);
-    if (!opened) {
-      throw new Error("Boîte aux lettres introuvable.");
-    }
 
     try {
       const message = await client.fetchOne(
@@ -1036,9 +1510,6 @@ export async function fetchMessageAttachment(params: {
 
   return withImapClient(credentials.imap, async (client) => {
     const opened = await openMailbox(client, params.mailbox, true);
-    if (!opened) {
-      throw new Error("Boîte aux lettres introuvable.");
-    }
 
     try {
       const message = await client.fetchOne(
@@ -1083,9 +1554,52 @@ export async function fetchMessageAttachment(params: {
   });
 }
 
+export async function moveMailboxMessage(params: {
+  mailbox: Mailbox;
+  uid: number;
+  target: Mailbox;
+}): Promise<void> {
+  if (params.mailbox === params.target) {
+    return;
+  }
+
+  const credentials = await getMessagingCredentials();
+  if (!credentials.imap) {
+    throw new Error(
+      "Le serveur IMAP n'est pas configuré. Complétez les paramètres.",
+    );
+  }
+
+  return withImapClient(credentials.imap, async (client) => {
+    const destinationCandidates = await getMailboxPathCandidates(
+      client,
+      params.target,
+    );
+    if (!destinationCandidates.length) {
+      throw new Error("Dossier de destination introuvable.");
+    }
+    const destinationPath = destinationCandidates[0];
+    const opened = await openMailbox(client, params.mailbox, false);
+
+    try {
+      const moved = await client.messageMove(
+        String(params.uid),
+        destinationPath,
+        { uid: true },
+      );
+      if (!moved) {
+        throw new Error("Déplacement du message impossible.");
+      }
+    } finally {
+      await client.mailboxClose().catch(() => undefined);
+      opened.release();
+    }
+  });
+}
+
 export async function sendEmailMessage(
   params: ComposeEmailInput,
-): Promise<void> {
+): Promise<SentMailboxAppendResult> {
   const credentials = await getMessagingCredentials();
   if (!credentials.smtp) {
     throw new Error(
@@ -1104,6 +1618,10 @@ export async function sendEmailMessage(
   });
 
   const fromAddress = credentials.smtp.fromEmail ?? credentials.smtp.user;
+  const messageDomain = fromAddress.includes("@")
+    ? fromAddress.split("@").pop() ?? "local"
+    : "local";
+  const messageId = `<${randomUUID()}@${messageDomain}>`;
   const senderName = credentials.senderName?.trim() ?? "";
   const fromField = senderName
     ? { name: senderName, address: fromAddress }
@@ -1115,12 +1633,16 @@ export async function sendEmailMessage(
     fromEmail: fromAddress,
   });
 
+  const sentAt = new Date();
+
   const mailOptions: nodemailer.SendMailOptions = {
     from: fromField,
     to: params.to,
     subject: params.subject,
     text: params.text,
     html,
+    messageId,
+    date: sentAt,
   };
 
   if (params.cc?.length) {
@@ -1137,10 +1659,34 @@ export async function sendEmailMessage(
     }));
   }
 
+  const composer = new MailComposer({
+    ...mailOptions,
+    keepBcc: true,
+  });
+
+  const rawMessage = await composer.compile().build();
+
   try {
     await transporter.sendMail(mailOptions);
   } catch (error) {
     throw formatError("Échec de l'envoi du message", error);
+  }
+
+  try {
+    return await appendMessageToSentMailbox({
+      imap: credentials.imap,
+      rawMessage: Buffer.isBuffer(rawMessage)
+        ? rawMessage
+        : Buffer.from(rawMessage),
+      messageId,
+      sentAt,
+    });
+  } catch (error) {
+    console.warn("Impossible d'enregistrer le message dans 'Envoyés':", error);
+    return {
+      message: null,
+      totalMessages: null,
+    };
   }
 }
 
@@ -1158,9 +1704,6 @@ export async function testImapConnection(
     async (client) => {
       try {
         const opened = await openMailbox(client, "inbox", true);
-        if (!opened) {
-          throw new Error("Boîte de réception introuvable.");
-        }
 
         try {
           // L'ouverture suffit pour vérifier la connexion IMAP

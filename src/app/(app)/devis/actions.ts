@@ -14,6 +14,7 @@ import {
 } from "@/server/quotes";
 import { QuoteStatus } from "@prisma/client";
 import { sendQuoteEmail } from "@/server/email";
+import { getMessagingSettingsSummary } from "@/server/messaging";
 import { isRedirectError } from "@/lib/next";
 
 function parsePayload(formData: FormData) {
@@ -184,10 +185,16 @@ export async function sendQuoteEmailAction(id: string, formData: FormData) {
   const to = formData.get("email")?.toString();
   const subject = formData.get("subject")?.toString() || undefined;
   const message = formData.get("message")?.toString() || undefined;
+  const messagingSummary = await getMessagingSettingsSummary();
   const redirectTarget = resolveRedirectTarget(
     formData,
     `/devis/${id}/modifier`,
   );
+  if (!messagingSummary.smtpConfigured) {
+    redirectWithFeedback(redirectTarget, {
+      warning: "Veuillez configurer votre messagerie (SMTP/IMAP) avant d'envoyer des emails.",
+    });
+  }
   if (!to) {
     redirectWithFeedback(redirectTarget, {
       error: "Adresse e-mail requise",
@@ -204,9 +211,13 @@ export async function sendQuoteEmailAction(id: string, formData: FormData) {
       throw error;
     }
     console.error("[sendQuoteEmailAction] Échec d'envoi", error);
+    const rawMessage =
+      error instanceof Error ? error.message : "Échec de l'envoi de l'e-mail. Veuillez réessayer.";
+    const needsConfig = /smtp|messagerie/i.test(rawMessage);
+    const feedbackMessage = needsConfig
+      ? "Veuillez configurer votre messagerie (SMTP/IMAP) avant d'envoyer des emails."
+      : "Échec de l'envoi de l'e-mail. Veuillez réessayer.";
     revalidatePath(`/devis/${id}/modifier`);
-    redirectWithFeedback(redirectTarget, {
-      error: "Échec de l'envoi de l'e-mail. Veuillez réessayer.",
-    });
+    redirectWithFeedback(redirectTarget, needsConfig ? { warning: feedbackMessage } : { error: feedbackMessage });
   }
 }

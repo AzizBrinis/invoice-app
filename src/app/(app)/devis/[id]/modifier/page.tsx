@@ -13,6 +13,7 @@ import { SUPPORTED_CURRENCIES, type CurrencyCode } from "@/lib/currency";
 import { normalizeTaxConfiguration } from "@/lib/taxes";
 import { FormSubmitButton } from "@/components/ui/form-submit-button";
 import { Alert } from "@/components/ui/alert";
+import { getMessagingSettingsSummary } from "@/server/messaging";
 import {
   FlashMessages,
   type FlashMessage,
@@ -69,13 +70,15 @@ export default async function EditDevisPage({
     flashMessages.push({ variant: "error", title: errorMessage });
   }
 
-  const [clients, products, settings] = await Promise.all([
+  const [clients, products, settings, messagingSummary] = await Promise.all([
     prisma.client.findMany({ orderBy: { displayName: "asc" } }),
     prisma.product.findMany({ orderBy: { name: "asc" } }),
     getSettings(),
+    getMessagingSettingsSummary(),
   ]);
 
   const redirectBase = `/devis/${quote.id}/modifier`;
+  const emailDisabled = !messagingSummary.smtpConfigured;
 
   return (
     <div className="space-y-6">
@@ -114,6 +117,13 @@ export default async function EditDevisPage({
         <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
           Envoyer le devis par e-mail
         </h2>
+        {emailDisabled ? (
+          <Alert
+            variant="warning"
+            title="Messagerie non configurée"
+            description="Veuillez configurer votre messagerie (SMTP/IMAP) avant d'envoyer des emails."
+          />
+        ) : null}
         <form action={sendQuoteEmailAction.bind(null, quote.id)} className="grid gap-4 sm:grid-cols-2">
           <input type="hidden" name="redirectTo" value={redirectBase} />
           <div className="space-y-1">
@@ -126,6 +136,7 @@ export default async function EditDevisPage({
               type="email"
               defaultValue={quote.client.email ?? ""}
               required
+              disabled={emailDisabled}
             />
           </div>
           <div className="space-y-1">
@@ -136,6 +147,7 @@ export default async function EditDevisPage({
               id="subject"
               name="subject"
               defaultValue={`Devis ${quote.number}`}
+              disabled={emailDisabled}
             />
           </div>
           <div className="sm:col-span-2 space-y-1">
@@ -147,10 +159,13 @@ export default async function EditDevisPage({
               name="message"
               rows={4}
               defaultValue={`Bonjour ${quote.client.displayName},\n\nVeuillez trouver ci-joint le devis ${quote.number} d'un montant de ${formatCurrency(fromCents(quote.totalTTCCents, quote.currency), quote.currency)}.\n\nCordialement.`}
+              disabled={emailDisabled}
             />
           </div>
           <div className="sm:col-span-2 flex justify-end">
-            <FormSubmitButton>Envoyer le devis</FormSubmitButton>
+            <FormSubmitButton disabled={emailDisabled}>
+              Envoyer le devis
+            </FormSubmitButton>
           </div>
         </form>
       </section>

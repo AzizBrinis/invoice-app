@@ -13,6 +13,10 @@ import {
   Download,
   Eye,
   EyeOff,
+  Trash2,
+  ShieldAlert,
+  Undo2,
+  FolderSymlink,
 } from "lucide-react";
 import type {
   Mailbox,
@@ -22,9 +26,10 @@ import type {
 import {
   fetchMailboxPageAction,
   fetchMessageDetailAction,
+  moveMailboxMessageAction,
   type ActionResult,
 } from "@/app/(app)/messagerie/actions";
-import { Button } from "@/components/ui/button";
+import { Button, type ButtonProps } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { useToast } from "@/components/ui/toast-provider";
@@ -35,7 +40,10 @@ import {
   appendMailboxMessages,
   replaceMailboxMessages,
   markMailboxMessageSeen,
+  removeMailboxMessage,
+  invalidateMailboxCache,
 } from "@/app/(app)/messagerie/_state/mailbox-store";
+import type { LucideIcon } from "lucide-react";
 
 type MailboxClientProps = {
   mailbox: Mailbox;
@@ -75,6 +83,99 @@ function formatFileSize(bytes: number): string {
   return `${display} ${units[exponent]}`;
 }
 
+type MoveOption = {
+  target: Mailbox;
+  label: string;
+  variant: ButtonProps["variant"];
+  icon?: LucideIcon;
+  className?: string;
+  size?: ButtonProps["size"];
+};
+
+const MAILBOX_MOVE_OPTIONS: Record<Mailbox, MoveOption[]> = {
+  inbox: [
+    {
+      target: "trash",
+      label: "Corbeille",
+      variant: "ghost",
+      icon: Trash2,
+      className:
+        "border border-red-500 text-red-600 hover:bg-red-50 dark:border-red-600 dark:text-red-300 dark:hover:bg-red-500/10",
+      size: "sm",
+    },
+    {
+      target: "spam",
+      label: "Spam",
+      variant: "ghost",
+      icon: ShieldAlert,
+      className:
+        "border border-red-500 text-red-600 hover:bg-red-50 dark:border-red-600 dark:text-red-300 dark:hover:bg-red-500/10",
+      size: "sm",
+    },
+  ],
+  sent: [
+    {
+      target: "trash",
+      label: "Corbeille",
+      variant: "ghost",
+      icon: Trash2,
+      className:
+        "border border-red-500 text-red-600 hover:bg-red-50 dark:border-red-600 dark:text-red-300 dark:hover:bg-red-500/10",
+      size: "sm",
+    },
+  ],
+  drafts: [
+    {
+      target: "trash",
+      label: "Corbeille",
+      variant: "ghost",
+      icon: Trash2,
+      className:
+        "border border-red-500 text-red-600 hover:bg-red-50 dark:border-red-600 dark:text-red-300 dark:hover:bg-red-500/10",
+      size: "sm",
+    },
+  ],
+  trash: [
+    {
+      target: "inbox",
+      label: "Restaurer dans Reçus",
+      variant: "secondary",
+      icon: Undo2,
+    },
+    {
+      target: "spam",
+      label: "Marquer comme spam",
+      variant: "secondary",
+      icon: ShieldAlert,
+      size: "sm",
+    },
+  ],
+  spam: [
+    {
+      target: "inbox",
+      label: "Déplacer vers Reçus",
+      variant: "secondary",
+      icon: Undo2,
+      size: "sm",
+    },
+    {
+      target: "trash",
+      label: "Corbeille",
+      variant: "ghost",
+      icon: Trash2,
+      className:
+        "border border-red-500 text-red-600 hover:bg-red-50 dark:border-red-600 dark:text-red-300 dark:hover:bg-red-500/10",
+      size: "sm",
+    },
+  ],
+};
+
+const MOVE_SUCCESS_MESSAGES: Partial<Record<Mailbox, string>> = {
+  trash: "Message déplacé vers la corbeille.",
+  spam: "Message marqué comme spam.",
+  inbox: "Message restauré dans Reçus.",
+};
+
 export function MailboxClient({
   mailbox,
   title,
@@ -112,6 +213,7 @@ export function MailboxClient({
   const [openPreviewId, setOpenPreviewId] = useState<string | null>(null);
   const [downloadingAttachmentId, setDownloadingAttachmentId] =
     useState<string | null>(null);
+  const [movingTarget, setMovingTarget] = useState<Mailbox | null>(null);
   const previewUrlRef = useRef<Record<string, string>>({});
 
   const pageSizeFromStore =
@@ -171,6 +273,48 @@ export function MailboxClient({
     return Number.isNaN(parsed) ? null : parsed;
   }, [searchParams]);
 
+  const moveOptions = useMemo(
+    () => MAILBOX_MOVE_OPTIONS[mailbox] ?? [],
+    [mailbox],
+  );
+
+  const processAutoMoved = useCallback(
+    (
+      entries?: Array<{
+        uid: number;
+        subject: string;
+        from: string | null;
+        target?: Mailbox;
+        score?: number;
+      }>,
+    ) => {
+      if (!entries?.length) {
+        return;
+      }
+      let hasInvalidatedSpam = false;
+      entries.forEach((entry) => {
+        removeMailboxMessage(mailbox, entry.uid);
+        const details: string[] = [];
+        if (entry.subject) {
+          details.push(`Objet : ${entry.subject}`);
+        }
+        if (entry.score !== undefined) {
+          details.push(`Score spam : ${Math.round(entry.score)}`);
+        }
+        addToast({
+          variant: "warning",
+          title: "Déplacé dans les indésirables",
+          description: details.length ? details.join(" · ") : undefined,
+        });
+        if (!hasInvalidatedSpam) {
+          invalidateMailboxCache("spam");
+          hasInvalidatedSpam = true;
+        }
+      });
+    },
+    [addToast, mailbox],
+  );
+
   useEffect(() => {
     if (mailboxState.initialized) {
       return;
@@ -218,9 +362,14 @@ export function MailboxClient({
           hasMore: result.data.hasMore,
           totalMessages: result.data.totalMessages,
         });
+        processAutoMoved(result.data.autoMoved);
         setListError(null);
       } else {
         setListError(result.message);
+        addToast({
+          variant: "error",
+          title: result.message,
+        });
       }
       setInitialLoading(false);
     };
@@ -237,6 +386,8 @@ export function MailboxClient({
     initialError,
     pageSizeFromStore,
     safeActionCall,
+    addToast,
+    processAutoMoved,
   ]);
 
   useEffect(() => {
@@ -358,6 +509,7 @@ export function MailboxClient({
       totalMessages: result.data.totalMessages,
       lastSync: Date.now(),
     });
+    processAutoMoved(result.data.autoMoved);
   };
 
   const handleRefresh = async () => {
@@ -386,6 +538,7 @@ export function MailboxClient({
       hasMore: result.data.hasMore,
       totalMessages: result.data.totalMessages,
     });
+    processAutoMoved(result.data.autoMoved);
     setListError(null);
     addToast({
       variant: "success",
@@ -395,6 +548,53 @@ export function MailboxClient({
       listRef.current.scrollTo({ top: 0, behavior: "smooth" });
     }
   };
+
+  const handleMoveMessage = useCallback(
+    async (targetMailbox: Mailbox) => {
+      if (!detail) {
+        return;
+      }
+      setMovingTarget(targetMailbox);
+      const result = await safeActionCall(() =>
+        moveMailboxMessageAction({
+          mailbox,
+          target: targetMailbox,
+          uid: detail.uid,
+          subject: detail.subject,
+          sender: detail.from ?? undefined,
+        }),
+      );
+      setMovingTarget(null);
+      if (!result) {
+        return;
+      }
+      if (result.success) {
+        removeMailboxMessage(mailbox, detail.uid);
+        invalidateMailboxCache(targetMailbox);
+        setDetail(null);
+        setDetailError(null);
+        handleClearSelection();
+        addToast({
+          variant: "success",
+          title:
+            MOVE_SUCCESS_MESSAGES[targetMailbox] ?? "Message déplacé.",
+        });
+      } else {
+        addToast({
+          variant: "error",
+          title: result.message,
+        });
+      }
+    },
+    [
+      addToast,
+      detail,
+      handleClearSelection,
+      mailbox,
+      safeActionCall,
+      setDetailError,
+    ],
+  );
 
   const showInitialSkeleton =
     !mailboxState.initialized && !initialPage && (initialLoading || !hasMessages);
@@ -683,6 +883,33 @@ export function MailboxClient({
                     </Button>
                   </div>
                 </div>
+                {moveOptions.length ? (
+                  <div className="flex flex-wrap gap-1.5">
+                    {moveOptions.map(({ target, label, variant, icon: Icon, className, size }) => {
+                      const IconComponent = Icon ?? FolderSymlink;
+                      const isLoading = movingTarget === target;
+                      return (
+                        <Button
+                          key={target}
+                          type="button"
+                          variant={variant}
+                          onClick={() => void handleMoveMessage(target)}
+                          loading={isLoading}
+                          disabled={
+                            movingTarget !== null && movingTarget !== target
+                          }
+                          size={size ?? "sm"}
+                          className={className}
+                        >
+                          <IconComponent className="h-3.5 w-3.5" />
+                          <span className="text-xs font-medium uppercase tracking-wide">
+                            {label}
+                          </span>
+                        </Button>
+                      );
+                    })}
+                  </div>
+                ) : null}
                 <div className="space-y-2 text-xs text-zinc-600 dark:text-zinc-400">
                   {detail.from ? (
                     <p>

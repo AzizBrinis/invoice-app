@@ -14,9 +14,12 @@ import {
   appendMailboxMessages,
   replaceMailboxMessages,
   getMailboxStoreSnapshot,
+  MAILBOX_KEYS,
+  removeMailboxMessage,
+  invalidateMailboxCache,
 } from "@/app/(app)/messagerie/_state/mailbox-store";
 
-const MAILBOXES: Mailbox[] = ["inbox", "sent"];
+const MAILBOXES = MAILBOX_KEYS;
 const BACKGROUND_SYNC_INTERVAL = 3 * 60 * 1000;
 const VISIBILITY_SYNC_DELAY = 2000;
 
@@ -28,10 +31,14 @@ export function MailboxSyncProvider({ enabled }: MailboxSyncProviderProps) {
   useMailboxStore(() => null);
   const { addToast } = useToast();
   const router = useRouter();
-  const syncStatusRef = useRef<Record<Mailbox, boolean>>({
-    inbox: false,
-    sent: false,
-  });
+  const initialSyncStatus = MAILBOXES.reduce<Record<Mailbox, boolean>>(
+    (acc, mailbox) => {
+      acc[mailbox] = false;
+      return acc;
+    },
+    {} as Record<Mailbox, boolean>,
+  );
+  const syncStatusRef = useRef<Record<Mailbox, boolean>>(initialSyncStatus);
   const visibilityTimeoutRef = useRef<number | null>(null);
 
   const safeActionCall = useCallback(
@@ -46,6 +53,28 @@ export function MailboxSyncProvider({ enabled }: MailboxSyncProviderProps) {
         });
         return null;
       }
+    },
+    [addToast],
+  );
+
+  const handleAutoMoved = useCallback(
+    (mailbox: Mailbox, entries?: Array<{ uid: number; subject: string; from: string | null }>) => {
+      if (!entries?.length) {
+        return;
+      }
+      let invalidated = false;
+      entries.forEach((entry) => {
+        removeMailboxMessage(mailbox, entry.uid);
+        addToast({
+          variant: "warning",
+          title: "Déplacé dans les indésirables",
+          description: entry.subject ? `Objet : ${entry.subject}` : undefined,
+        });
+        if (!invalidated) {
+          invalidateMailboxCache("spam");
+          invalidated = true;
+        }
+      });
     },
     [addToast],
   );
@@ -68,8 +97,9 @@ export function MailboxSyncProvider({ enabled }: MailboxSyncProviderProps) {
         hasMore: result.data.hasMore,
         totalMessages: result.data.totalMessages,
       });
+      handleAutoMoved(mailbox, result.data.autoMoved);
     },
-    [safeActionCall],
+    [handleAutoMoved, safeActionCall],
   );
 
   const synchronizeMailbox = useCallback(
@@ -104,6 +134,7 @@ export function MailboxSyncProvider({ enabled }: MailboxSyncProviderProps) {
             totalMessages: result.data.totalMessages ?? undefined,
             lastSync: Date.now(),
           });
+          handleAutoMoved(mailbox, result.data.autoMoved);
           if (mailbox === "inbox" && newMessages.length) {
             newMessages.forEach((message) => {
               addToast({
@@ -125,6 +156,7 @@ export function MailboxSyncProvider({ enabled }: MailboxSyncProviderProps) {
             hasMore: cached.hasMore,
             totalMessages: result.data.totalMessages,
           });
+          handleAutoMoved(mailbox, result.data.autoMoved);
         }
         if (
           typeof result.data.totalMessages === "number" &&
@@ -137,7 +169,7 @@ export function MailboxSyncProvider({ enabled }: MailboxSyncProviderProps) {
         syncStatusRef.current[mailbox] = false;
       }
     },
-    [addToast, enabled, router, safeActionCall, synchronizeSnapshot],
+    [addToast, enabled, handleAutoMoved, router, safeActionCall, synchronizeSnapshot],
   );
 
   useEffect(() => {

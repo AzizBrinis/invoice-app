@@ -17,6 +17,7 @@ import {
 import { InvoiceStatus } from "@prisma/client";
 import { toCents } from "@/lib/money";
 import { sendInvoiceEmail } from "@/server/email";
+import { getMessagingSettingsSummary } from "@/server/messaging";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { ensureCanManageBilling } from "@/lib/authorization";
@@ -354,10 +355,16 @@ export async function deletePaymentAction(
 
 export async function sendInvoiceEmailAction(id: string, formData: FormData) {
   await requireBillingAccess();
+  const messagingSummary = await getMessagingSettingsSummary();
   const to = formData.get("email")?.toString();
   const subject = formData.get("subject")?.toString() || undefined;
   const message = formData.get("message")?.toString() || undefined;
   const redirectTarget = resolveRedirectTarget(formData, `/factures/${id}`);
+  if (!messagingSummary.smtpConfigured) {
+    redirectWithFeedback(redirectTarget, {
+      warning: "Veuillez configurer votre messagerie (SMTP/IMAP) avant d'envoyer des emails.",
+    });
+  }
   if (!to) {
     redirectWithFeedback(redirectTarget, {
       error: "Adresse e-mail requise",
@@ -374,9 +381,13 @@ export async function sendInvoiceEmailAction(id: string, formData: FormData) {
       throw error;
     }
     console.error("[sendInvoiceEmailAction] Erreur d'envoi", error);
+    const rawMessage =
+      error instanceof Error ? error.message : "Échec de l'envoi de l'e-mail. Veuillez réessayer.";
+    const needsConfig = /smtp|messagerie/i.test(rawMessage);
+    const feedbackMessage = needsConfig
+      ? "Veuillez configurer votre messagerie (SMTP/IMAP) avant d'envoyer des emails."
+      : "Échec de l'envoi de l'e-mail. Veuillez réessayer.";
     revalidatePath(`/factures/${id}`);
-    redirectWithFeedback(redirectTarget, {
-      error: "Échec de l'envoi de l'e-mail. Veuillez réessayer.",
-    });
+    redirectWithFeedback(redirectTarget, needsConfig ? { warning: feedbackMessage } : { error: feedbackMessage });
   }
 }
