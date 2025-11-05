@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { getCurrentUser } from "@/lib/auth";
 import { LoginForm } from "./login-form";
 
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -8,6 +10,11 @@ export default async function ConnexionPage({
 }: {
   searchParams: Promise<SearchParams> | SearchParams;
 }) {
+  const user = await getCurrentUser();
+  if (user) {
+    redirect("/tableau-de-bord");
+  }
+
   const resolvedParams =
     typeof (searchParams as Promise<SearchParams>)?.then === "function"
       ? await (searchParams as Promise<SearchParams>)

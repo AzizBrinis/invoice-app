@@ -1,10 +1,14 @@
 import Link from "next/link";
+import { requireUser } from "@/lib/auth";
 import { ProductForm } from "@/app/(app)/produits/product-form";
 import { getSettings } from "@/server/settings";
 import type { CurrencyCode } from "@/lib/currency";
 
+export const dynamic = "force-dynamic";
+
 export default async function NouveauProduitPage() {
-  const settings = await getSettings();
+  const user = await requireUser();
+  const settings = await getSettings(user.id);
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">

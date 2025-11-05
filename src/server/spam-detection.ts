@@ -1,6 +1,7 @@
 import { simpleParser, type ParsedMail } from "mailparser";
 import type { ImapFlow } from "imapflow";
 import { prisma } from "@/lib/prisma";
+import { requireUser } from "@/lib/auth";
 
 export type SpamMailbox = "inbox" | "sent" | "drafts" | "trash" | "spam";
 
@@ -39,6 +40,39 @@ const BLACKLISTED_DOMAINS = [
   "scam-token.com",
 ];
 
+const SUSPICIOUS_ATTACHMENT_EXTENSIONS = [
+  ".exe",
+  ".scr",
+  ".js",
+  ".bat",
+  ".cmd",
+  ".com",
+  ".pif",
+  ".jar",
+];
+
+const SUSPICIOUS_ARCHIVE_EXTENSIONS = [".zip", ".rar", ".7z"];
+
+const SUSPICIOUS_MIME_KEYWORDS = [
+  "application/x-msdownload",
+  "application/x-msdos-program",
+  "application/x-executable",
+  "application/java-archive",
+  "application/x-sh",
+  "application/x-dosexec",
+  "application/vnd.microsoft.portable-executable",
+  "application/zip",
+  "application/x-zip-compressed",
+];
+
+async function resolveUserId(provided?: string) {
+  if (provided) {
+    return provided;
+  }
+  const user = await requireUser();
+  return user.id;
+}
+
 export type SpamAnalysisResult = {
   score: number;
   reasons: string[];
@@ -72,6 +106,43 @@ function countLinks(text: string): number {
   return matches ? matches.length : 0;
 }
 
+function isDomainBlacklisted(domain: string | null): boolean {
+  if (!domain) return false;
+  const normalizedDomain = normalize(domain);
+  return BLACKLISTED_DOMAINS.some((entry) => {
+    const normalizedEntry = normalize(entry);
+    return (
+      normalizedDomain === normalizedEntry ||
+      normalizedDomain.endsWith(`.${normalizedEntry}`)
+    );
+  });
+}
+
+function hasSuspiciousAttachments(
+  attachments: ParsedMail["attachments"] | null | undefined,
+): boolean {
+  if (!attachments?.length) {
+    return false;
+  }
+  return attachments.some((attachment) => {
+    const normalizedFilename = normalize(attachment.filename ?? "");
+    if (
+      SUSPICIOUS_ATTACHMENT_EXTENSIONS.some((ext) =>
+        normalizedFilename.endsWith(ext),
+      ) ||
+      SUSPICIOUS_ARCHIVE_EXTENSIONS.some((ext) =>
+        normalizedFilename.endsWith(ext),
+      )
+    ) {
+      return true;
+    }
+    const normalizedContentType = normalize(attachment.contentType ?? "");
+    return SUSPICIOUS_MIME_KEYWORDS.some((keyword) =>
+      normalizedContentType.includes(keyword),
+    );
+  });
+}
+
 function uppercaseRatio(text: string): number {
   if (!text) return 0;
   const letters = text.replace(/[^a-zA-Z]/g, "");
@@ -80,35 +151,39 @@ function uppercaseRatio(text: string): number {
   return uppercase.length / letters.length;
 }
 
-function getRepos() {
-  const spamDetectionLog = (prisma as any).spamDetectionLog;
-  const spamSenderReputation = (prisma as any).spamSenderReputation;
-  return { spamDetectionLog, spamSenderReputation };
-}
-
-async function getSenderReputation(domain: string | null): Promise<number> {
+async function getSenderReputation(
+  domain: string | null,
+  userId: string,
+): Promise<number> {
   if (!domain) return 0;
-  const { spamSenderReputation } = getRepos();
-  if (!spamSenderReputation?.findUnique) {
-    return 0;
-  }
-  const entry = await spamSenderReputation.findUnique({
-    where: { domain },
+  const entry = await prisma.spamSenderReputation.findUnique({
+    where: {
+      userId_domain: {
+        userId,
+        domain,
+      },
+    },
   });
   if (!entry) return 0;
   const diff = entry.spamCount - entry.hamCount;
   return Math.max(-20, Math.min(30, diff * 5));
 }
 
-export async function updateSenderReputation(domain: string | null, isSpam: boolean) {
+export async function updateSenderReputation(
+  domain: string | null,
+  isSpam: boolean,
+  userId: string,
+) {
   if (!domain) return;
-  const { spamSenderReputation } = getRepos();
-  if (!spamSenderReputation?.upsert) {
-    return;
-  }
-  await spamSenderReputation.upsert({
-    where: { domain },
+  await prisma.spamSenderReputation.upsert({
+    where: {
+      userId_domain: {
+        userId,
+        domain,
+      },
+    },
     create: {
+      userId,
       domain,
       spamCount: isSpam ? 1 : 0,
       hamCount: isSpam ? 0 : 1,
@@ -133,13 +208,11 @@ async function logDetection(options: {
   autoMoved: boolean;
   manual: boolean;
   messageId?: string | null;
+  userId: string;
 }) {
-  const { spamDetectionLog } = getRepos();
-  if (!spamDetectionLog?.create) {
-    return;
-  }
-  await spamDetectionLog.create({
+  await prisma.spamDetectionLog.create({
     data: {
+      userId: options.userId,
       mailbox: options.mailbox,
       targetMailbox: options.targetMailbox,
       uid: options.uid,
@@ -210,8 +283,7 @@ function calculateScore(parsed: ParsedMail, options: {
       score += options.domainReputation;
       reasons.push("Mauvaise réputation du domaine expéditeur");
     } else {
-      score += options.domainReputation; // négatif
-      reasons.push("Réputation positive du domaine expéditeur");
+      score += options.domainReputation; // négatif, récompense le domaine
     }
   }
 
@@ -222,8 +294,7 @@ function calculateScore(parsed: ParsedMail, options: {
     reasons.push("Adresse Reply-To différente de l'expéditeur");
   }
 
-  const attachmentTypes = (parsed.attachments ?? []).map((attachment) => normalize(attachment.contentType));
-  if (attachmentTypes.some((type) => type.includes(".exe") || type.includes(".scr") || type.includes(".zip"))) {
+  if (hasSuspiciousAttachments(parsed.attachments)) {
     score += 20;
     reasons.push("Pièce jointe potentiellement dangereuse");
   }
@@ -232,17 +303,29 @@ function calculateScore(parsed: ParsedMail, options: {
 }
 
 export async function analyzeAndHandleSpam(options: {
+  userId?: string;
   client: ImapFlow;
   mailbox: SpamMailbox;
   uid: number;
+  spamFilteringEnabled?: boolean;
 }): Promise<SpamAnalysisResult> {
-  const { client, mailbox, uid } = options;
-  const { spamDetectionLog } = getRepos();
-  if (!spamDetectionLog?.findFirst) {
-    return { score: 0, reasons: [], movedToSpam: false, alreadyLogged: true };
+  const {
+    userId: providedUserId,
+    client,
+    mailbox,
+    uid,
+    spamFilteringEnabled = true,
+  } = options;
+
+  if (!spamFilteringEnabled) {
+    return { score: 0, reasons: [], movedToSpam: false, alreadyLogged: false };
   }
-  const previousLog = await spamDetectionLog.findFirst({
+
+  const userId = await resolveUserId(providedUserId);
+
+  const previousLog = await prisma.spamDetectionLog.findFirst({
     where: {
+      userId,
       mailbox,
       uid,
       manual: false,
@@ -289,8 +372,8 @@ export async function analyzeAndHandleSpam(options: {
 
   const textContent = parsed.text || parsed.textAsHtml || parsed.html || "";
   const domain = extractDomain(fromAddress);
-  const domainReputation = await getSenderReputation(domain);
-  const hasBlacklistedDomain = domain ? BLACKLISTED_DOMAINS.includes(domain) : false;
+  const domainReputation = await getSenderReputation(domain, userId);
+  const hasBlacklistedDomain = isDomainBlacklisted(domain);
 
   const { score, reasons } = calculateScore(parsed, {
     subject,
@@ -317,13 +400,31 @@ export async function analyzeAndHandleSpam(options: {
       );
     });
     if (spamFolder) {
-      await client.messageMove(String(uid), spamFolder.path, { uid: true });
-      movedToSpam = true;
-      await updateSenderReputation(domain, true);
+      const currentMailboxPath = client.mailbox?.path ?? null;
+      const wasReadOnly = Boolean(client.mailbox?.readOnly);
+      if (wasReadOnly && currentMailboxPath) {
+        try {
+          await client.mailboxOpen(currentMailboxPath, { readOnly: false });
+        } catch (error) {
+          console.warn("Impossible de ré-ouvrir la boîte aux lettres en écriture pour déplacer le spam:", error);
+        }
+      }
+      try {
+        await client.messageMove(String(uid), spamFolder.path, { uid: true });
+        movedToSpam = true;
+        await updateSenderReputation(domain, true, userId);
+      } catch (error) {
+        console.warn("Déplacement automatique vers le dossier Spam impossible:", error);
+      } finally {
+        if (wasReadOnly && currentMailboxPath) {
+          await client.mailboxOpen(currentMailboxPath, { readOnly: true }).catch(() => undefined);
+        }
+      }
     }
   }
 
   await logDetection({
+    userId,
     mailbox,
     targetMailbox: movedToSpam ? "spam" : undefined,
     uid,
@@ -346,15 +447,14 @@ export async function recordManualSpamFeedback(options: {
   subject?: string;
   sender?: string;
   messageId?: string | null;
+  userId?: string;
 }) {
-  const { spamDetectionLog } = getRepos();
-  if (!spamDetectionLog?.create) {
-    return;
-  }
+  const userId = await resolveUserId(options.userId);
   const isSpam = options.target === "spam";
   const domain = extractDomain(options.sender ?? null);
-  await updateSenderReputation(domain, isSpam);
+  await updateSenderReputation(domain, isSpam, userId);
   await logDetection({
+    userId,
     mailbox: options.mailbox,
     targetMailbox: options.target,
     uid: options.uid,
@@ -367,3 +467,12 @@ export async function recordManualSpamFeedback(options: {
     messageId: options.messageId,
   });
 }
+
+export const __testables = {
+  calculateScore,
+  countOccurrences,
+  extractDomain,
+  hasSuspiciousAttachments,
+  isDomainBlacklisted,
+  normalize,
+};

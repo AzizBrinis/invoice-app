@@ -22,6 +22,8 @@ import {
   type FlashMessage,
 } from "@/components/ui/flash-messages";
 
+export const dynamic = "force-dynamic";
+
 const STATUS_LABELS: Record<InvoiceStatus, string> = {
   BROUILLON: "Brouillon",
   ENVOYEE: "Envoyée",
@@ -460,7 +462,7 @@ export default async function FactureDetailPage({
           <Alert
             variant="warning"
             title="Messagerie non configurée"
-            description="Veuillez configurer votre messagerie (SMTP/IMAP) avant d'envoyer des emails."
+            description="Veuillez configurer la messagerie (SMTP/IMAP) avant d'envoyer des factures."
           />
         ) : null}
         <form action={sendInvoiceEmailAction.bind(null, invoice.id)} className="grid gap-4 sm:grid-cols-2">
@@ -489,22 +491,9 @@ export default async function FactureDetailPage({
               disabled={emailDisabled}
             />
           </div>
-          <div className="sm:col-span-2 space-y-1">
-            <label htmlFor="message" className="label">
-              Message
-            </label>
-            <Textarea
-              id="message"
-              name="message"
-              rows={4}
-              defaultValue={`Bonjour ${invoice.client.displayName},
-
-Veuillez trouver ci-joint la facture ${invoice.number} d'un montant de ${formatCurrency(fromCents(invoice.totalTTCCents, invoice.currency), invoice.currency)}.
-
-Cordialement.`}
-              disabled={emailDisabled}
-            />
-          </div>
+          <p className="sm:col-span-2 text-sm text-zinc-500 dark:text-zinc-400">
+            Le message sera généré automatiquement à partir de votre modèle HTML enregistré.
+          </p>
           <div className="sm:col-span-2 flex justify-end">
             <FormSubmitButton disabled={emailDisabled}>
               Envoyer la facture

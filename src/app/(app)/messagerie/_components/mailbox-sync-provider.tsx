@@ -17,29 +17,57 @@ import {
   MAILBOX_KEYS,
   removeMailboxMessage,
   invalidateMailboxCache,
+  setMailboxCacheUser,
+  clearMailboxCache,
 } from "@/app/(app)/messagerie/_state/mailbox-store";
 
 const MAILBOXES = MAILBOX_KEYS;
 const BACKGROUND_SYNC_INTERVAL = 3 * 60 * 1000;
 const VISIBILITY_SYNC_DELAY = 2000;
 
-export type MailboxSyncProviderProps = {
-  enabled: boolean;
-};
-
-export function MailboxSyncProvider({ enabled }: MailboxSyncProviderProps) {
-  useMailboxStore(() => null);
-  const { addToast } = useToast();
-  const router = useRouter();
-  const initialSyncStatus = MAILBOXES.reduce<Record<Mailbox, boolean>>(
+function createInitialSyncStatus(): Record<Mailbox, boolean> {
+  return MAILBOXES.reduce<Record<Mailbox, boolean>>(
     (acc, mailbox) => {
       acc[mailbox] = false;
       return acc;
     },
     {} as Record<Mailbox, boolean>,
   );
-  const syncStatusRef = useRef<Record<Mailbox, boolean>>(initialSyncStatus);
+}
+
+export type MailboxSyncProviderProps = {
+  enabled: boolean;
+  userId: string;
+};
+
+export function MailboxSyncProvider({
+  enabled,
+  userId,
+}: MailboxSyncProviderProps) {
+  const syncStatusRef = useRef<Record<Mailbox, boolean>>(createInitialSyncStatus());
   const visibilityTimeoutRef = useRef<number | null>(null);
+  const primedUserIdRef = useRef<string | null>(null);
+
+  if (primedUserIdRef.current !== userId) {
+    const previousUserId = primedUserIdRef.current;
+    if (previousUserId && previousUserId !== userId) {
+      clearMailboxCache(previousUserId);
+    }
+    setMailboxCacheUser(userId);
+    syncStatusRef.current = createInitialSyncStatus();
+    primedUserIdRef.current = userId;
+  }
+
+  useMailboxStore(() => null);
+  const { addToast } = useToast();
+  const router = useRouter();
+
+  useEffect(() => {
+    clearMailboxCache();
+    return () => {
+      clearMailboxCache(userId);
+    };
+  }, [userId]);
 
   const safeActionCall = useCallback(
     async <T,>(action: () => Promise<ActionResult<T>>): Promise<ActionResult<T> | null> => {

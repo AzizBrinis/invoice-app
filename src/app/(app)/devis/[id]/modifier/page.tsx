@@ -1,13 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { requireUser } from "@/lib/auth";
 import { getQuote } from "@/server/quotes";
 import { QuoteEditor } from "@/app/(app)/devis/quote-editor";
 import { updateQuoteAction, sendQuoteEmailAction } from "@/app/(app)/devis/actions";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { formatCurrency } from "@/lib/formatters";
-import { fromCents } from "@/lib/money";
 import { getSettings } from "@/server/settings";
 import { SUPPORTED_CURRENCIES, type CurrencyCode } from "@/lib/currency";
 import { normalizeTaxConfiguration } from "@/lib/taxes";
@@ -18,6 +16,8 @@ import {
   FlashMessages,
   type FlashMessage,
 } from "@/components/ui/flash-messages";
+
+export const dynamic = "force-dynamic";
 
 type PageParams = { id: string };
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -70,15 +70,29 @@ export default async function EditDevisPage({
     flashMessages.push({ variant: "error", title: errorMessage });
   }
 
+  const user = await requireUser();
   const [clients, products, settings, messagingSummary] = await Promise.all([
-    prisma.client.findMany({ orderBy: { displayName: "asc" } }),
-    prisma.product.findMany({ orderBy: { name: "asc" } }),
-    getSettings(),
-    getMessagingSettingsSummary(),
+    prisma.client.findMany({
+      where: { userId: user.id },
+      orderBy: { displayName: "asc" },
+    }),
+    prisma.product.findMany({
+      where: { userId: user.id },
+      orderBy: { name: "asc" },
+    }),
+    getSettings(user.id),
+    getMessagingSettingsSummary(user.id),
   ]);
 
   const redirectBase = `/devis/${quote.id}/modifier`;
   const emailDisabled = !messagingSummary.smtpConfigured;
+  if (emailDisabled && !warningMessage) {
+    flashMessages.push({
+      variant: "warning",
+      title:
+        "Veuillez configurer la messagerie (SMTP/IMAP) avant d'envoyer des devis.",
+    });
+  }
 
   return (
     <div className="space-y-6">
@@ -121,7 +135,7 @@ export default async function EditDevisPage({
           <Alert
             variant="warning"
             title="Messagerie non configurée"
-            description="Veuillez configurer votre messagerie (SMTP/IMAP) avant d'envoyer des emails."
+            description="Veuillez configurer la messagerie (SMTP/IMAP) avant d'envoyer des devis."
           />
         ) : null}
         <form action={sendQuoteEmailAction.bind(null, quote.id)} className="grid gap-4 sm:grid-cols-2">
@@ -147,18 +161,6 @@ export default async function EditDevisPage({
               id="subject"
               name="subject"
               defaultValue={`Devis ${quote.number}`}
-              disabled={emailDisabled}
-            />
-          </div>
-          <div className="sm:col-span-2 space-y-1">
-            <label htmlFor="message" className="text-sm text-zinc-600 dark:text-zinc-300">
-              Message
-            </label>
-            <Textarea
-              id="message"
-              name="message"
-              rows={4}
-              defaultValue={`Bonjour ${quote.client.displayName},\n\nVeuillez trouver ci-joint le devis ${quote.number} d'un montant de ${formatCurrency(fromCents(quote.totalTTCCents, quote.currency), quote.currency)}.\n\nCordialement.`}
               disabled={emailDisabled}
             />
           </div>

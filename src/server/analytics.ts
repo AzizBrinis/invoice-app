@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { requireUser } from "@/lib/auth";
 import { endOfMonth, startOfMonth, subMonths } from "date-fns";
 import { formatInTimeZone, fromZonedTime, toZonedTime } from "date-fns-tz";
 
@@ -20,6 +21,7 @@ function getMonthBoundaries(zonedDate: Date) {
 }
 
 export async function getDashboardMetrics(currency?: string) {
+  const { id: userId } = await requireUser();
   const zonedNow = getCurrentZonedDate();
   const { startUtc: monthStart, endUtc: monthEnd } = getMonthBoundaries(zonedNow);
 
@@ -37,6 +39,7 @@ export async function getDashboardMetrics(currency?: string) {
   ] = await prisma.$transaction([
     prisma.invoice.aggregate({
       where: {
+        userId,
         issueDate: {
           gte: monthStart,
           lte: monthEnd,
@@ -52,12 +55,14 @@ export async function getDashboardMetrics(currency?: string) {
     }),
     prisma.invoice.count({
       where: {
+        userId,
         ...currencyFilter,
         status: "RETARD",
       },
     }),
     prisma.invoice.aggregate({
       where: {
+        userId,
         ...currencyFilter,
         status: {
           in: ["ENVOYEE", "PARTIELLE", "RETARD"],
@@ -70,6 +75,7 @@ export async function getDashboardMetrics(currency?: string) {
     }),
     prisma.quote.count({
       where: {
+        userId,
         ...currencyFilter,
         status: {
           in: ["ENVOYE", "BROUILLON"],
@@ -82,7 +88,7 @@ export async function getDashboardMetrics(currency?: string) {
     (outstandingAmount._sum.totalTTCCents ?? 0) -
     (outstandingAmount._sum.amountPaidCents ?? 0);
 
-  const chart = await buildRevenueHistory(currency, zonedNow);
+  const chart = await buildRevenueHistory(userId, currency, zonedNow);
 
   return {
     revenueThisMonthCents: revenueThisMonth._sum.amountPaidCents ?? 0,
@@ -93,7 +99,7 @@ export async function getDashboardMetrics(currency?: string) {
   };
 }
 
-async function buildRevenueHistory(currency?: string, referenceDate?: Date) {
+async function buildRevenueHistory(userId: string, currency?: string, referenceDate?: Date) {
   const zonedReference = referenceDate ?? getCurrentZonedDate();
   const results: {
     month: string;
@@ -111,6 +117,7 @@ async function buildRevenueHistory(currency?: string, referenceDate?: Date) {
 
     const aggregate = await prisma.invoice.aggregate({
       where: {
+        userId,
         issueDate: {
           gte: startUtc,
           lte: endUtc,

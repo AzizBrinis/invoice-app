@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { requireUser } from "@/lib/auth";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import { fromCents } from "@/lib/money";
 import { getSettings } from "@/server/settings";
@@ -25,7 +26,9 @@ function toCsv<T extends Record<string, string | number | null | undefined>>(
 }
 
 export async function exportClientsCsv() {
+  const { id: userId } = await requireUser();
   const clients = await prisma.client.findMany({
+    where: { userId },
     orderBy: { displayName: "asc" },
   });
 
@@ -56,10 +59,12 @@ export async function exportClientsCsv() {
 }
 
 export async function exportProductsCsv() {
+  const { id: userId } = await requireUser();
   const products = await prisma.product.findMany({
+    where: { userId },
     orderBy: { name: "asc" },
   });
-  const settings = await getSettings();
+  const settings = await getSettings(userId);
   const currencyCode = settings.defaultCurrency as CurrencyCode;
 
   return toCsv(
@@ -89,7 +94,9 @@ export async function exportProductsCsv() {
 }
 
 export async function exportQuotesCsv() {
+  const { id: userId } = await requireUser();
   const quotes = await prisma.quote.findMany({
+    where: { userId },
     orderBy: { issueDate: "desc" },
     include: { client: true },
   });
@@ -119,7 +126,9 @@ export async function exportQuotesCsv() {
 }
 
 export async function exportInvoicesCsv() {
+  const { id: userId } = await requireUser();
   const invoices = await prisma.invoice.findMany({
+    where: { userId },
     orderBy: { issueDate: "desc" },
     include: { client: true },
   });
@@ -151,7 +160,9 @@ export async function exportInvoicesCsv() {
 }
 
 export async function exportPaymentsCsv() {
+  const { id: userId } = await requireUser();
   const payments = await prisma.payment.findMany({
+    where: { userId },
     orderBy: { date: "desc" },
     include: { invoice: true },
   });

@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+} from "react";
 import type { MessagingSettingsSummary } from "@/server/messaging";
 import {
   updateMessagingConnectionsAction,
@@ -13,19 +20,116 @@ import { useToast } from "@/components/ui/toast-provider";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import type { SavedResponse } from "@/lib/messaging/saved-responses";
+import { SavedResponsesManager } from "@/app/(app)/messagerie/_components/saved-responses-manager";
 
 type ParametersClientProps = {
   summary: MessagingSettingsSummary;
+  savedResponses: SavedResponse[];
 };
 
-export function ParametersClient({ summary }: ParametersClientProps) {
+export function ParametersClient({ summary, savedResponses }: ParametersClientProps) {
   const identityFormRef = useRef<HTMLFormElement | null>(null);
   const connectionFormRef = useRef<HTMLFormElement | null>(null);
+  const logoFileInputRef = useRef<HTMLInputElement | null>(null);
+  const logoUrlInputRef = useRef<HTMLInputElement | null>(null);
   const { addToast } = useToast();
+  const initialLogoUrl = summary.senderLogoUrl ?? "";
+  const [logoPreview, setLogoPreview] = useState(initialLogoUrl);
+  const [logoRemoved, setLogoRemoved] = useState(false);
+  const [logoObjectUrl, setLogoObjectUrl] = useState<string | null>(null);
   const [savingIdentity, setSavingIdentity] = useState(false);
   const [savingConnections, setSavingConnections] = useState(false);
   const [testingImap, setTestingImap] = useState(false);
   const [testingSmtp, setTestingSmtp] = useState(false);
+
+  useEffect(() => {
+    return () => {
+      if (logoObjectUrl) {
+        URL.revokeObjectURL(logoObjectUrl);
+      }
+    };
+  }, [logoObjectUrl]);
+
+  useEffect(() => {
+    setLogoObjectUrl((previous) => {
+      if (previous) {
+        URL.revokeObjectURL(previous);
+      }
+      return null;
+    });
+    const nextLogo = summary.senderLogoUrl ?? "";
+    setLogoPreview(nextLogo);
+    setLogoRemoved(false);
+    if (logoUrlInputRef.current) {
+      logoUrlInputRef.current.value = nextLogo;
+    }
+    if (logoFileInputRef.current) {
+      logoFileInputRef.current.value = "";
+    }
+  }, [summary.senderLogoUrl]);
+
+  const handleLogoFileChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (!file) {
+        return;
+      }
+      if (logoUrlInputRef.current) {
+        logoUrlInputRef.current.value = "";
+      }
+      setLogoRemoved(false);
+      const nextUrl = URL.createObjectURL(file);
+      setLogoObjectUrl((previous) => {
+        if (previous) {
+          URL.revokeObjectURL(previous);
+        }
+        return nextUrl;
+      });
+      setLogoPreview(nextUrl);
+    },
+    [],
+  );
+
+  const handleLogoRemove = useCallback(() => {
+    if (logoFileInputRef.current) {
+      logoFileInputRef.current.value = "";
+    }
+    if (logoUrlInputRef.current) {
+      logoUrlInputRef.current.value = "";
+    }
+    setLogoPreview("");
+    setLogoRemoved(true);
+    setLogoObjectUrl((previous) => {
+      if (previous) {
+        URL.revokeObjectURL(previous);
+      }
+      return null;
+    });
+  }, []);
+
+  const handleLogoUrlChange = useCallback(() => {
+    setLogoRemoved(false);
+    if (logoFileInputRef.current) {
+      logoFileInputRef.current.value = "";
+    }
+    setLogoObjectUrl((previous) => {
+      if (previous) {
+        URL.revokeObjectURL(previous);
+      }
+      return null;
+    });
+    setLogoPreview("");
+  }, []);
+
+  const handleLogoUrlBlur = useCallback(() => {
+    const value = logoUrlInputRef.current?.value?.trim() ?? "";
+    if (!value.length) {
+      setLogoPreview("");
+      return;
+    }
+    setLogoPreview(value);
+  }, []);
 
   const imapConfiguredBadge = useMemo(
     () => (
@@ -141,6 +245,11 @@ export function ParametersClient({ summary }: ParametersClientProps) {
     });
   };
 
+  const hasStoredLogo = (summary.senderLogoUrl ?? "").length > 0;
+  const hasPreview = logoPreview.length > 0;
+  const canRemoveLogo =
+    hasPreview || (!logoRemoved && hasStoredLogo) || Boolean(logoObjectUrl);
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -172,6 +281,7 @@ export function ParametersClient({ summary }: ParametersClientProps) {
             Mettez à jour le nom affiché et le logo sans toucher aux identifiants IMAP/SMTP.
           </p>
           <div className="grid gap-4 sm:grid-cols-2">
+            <input type="hidden" name="removeLogo" value={logoRemoved ? "true" : "false"} />
             <div className="space-y-1.5 sm:col-span-2">
               <label
                 htmlFor="sender-name"
@@ -186,23 +296,84 @@ export function ParametersClient({ summary }: ParametersClientProps) {
                 placeholder="Nom de votre entreprise"
               />
             </div>
+            <div className="space-y-2 sm:col-span-2">
+              <label
+                htmlFor="sender-logo-file"
+                className="text-sm font-medium text-zinc-800 dark:text-zinc-200"
+              >
+                Logo d&apos;expéditeur
+              </label>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
+                <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-md border border-dashed border-blue-200 bg-blue-50/60 dark:border-blue-400/40 dark:bg-blue-500/10 sm:h-24 sm:w-24">
+                  {hasPreview ? (
+                    <img
+                      src={logoPreview}
+                      alt="Logo d'expéditeur"
+                      className="h-full w-full object-contain"
+                      style={{ maxWidth: "120px" }}
+                    />
+                  ) : (
+                    <span className="px-2 text-center text-[11px] font-semibold uppercase tracking-wide text-blue-500/70 dark:text-blue-200/70">
+                      Aucun logo
+                    </span>
+                  )}
+                </div>
+                <div className="flex flex-1 flex-col gap-2">
+                  <Input
+                    ref={logoFileInputRef}
+                    id="sender-logo-file"
+                    name="senderLogoFile"
+                    type="file"
+                    accept="image/png,image/jpeg,image/gif,image/svg+xml"
+                    className="hidden"
+                    onChange={handleLogoFileChange}
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="px-3 py-1.5 text-xs"
+                      onClick={() => logoFileInputRef.current?.click()}
+                    >
+                      Importer un logo
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="px-3 py-1.5 text-xs"
+                      onClick={handleLogoRemove}
+                      disabled={!canRemoveLogo}
+                    >
+                      Supprimer
+                    </Button>
+                  </div>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    PNG, JPG, GIF ou SVG - 2 Mo max. Affichage recommandé : 120 px de large
+                    (redimensionnement automatique dans les e-mails).
+                  </p>
+                </div>
+              </div>
+            </div>
             <div className="space-y-1.5 sm:col-span-2">
               <label
-                htmlFor="sender-logo"
+                htmlFor="sender-logo-url"
                 className="text-sm font-medium text-zinc-800 dark:text-zinc-200"
               >
                 Logo d&apos;expéditeur (URL)
               </label>
               <Input
-                id="sender-logo"
+                ref={logoUrlInputRef}
+                id="sender-logo-url"
                 name="senderLogoUrl"
                 type="url"
                 defaultValue={summary.senderLogoUrl ?? ""}
                 placeholder="https://exemple.com/logo.png"
+                onChange={handleLogoUrlChange}
+                onBlur={handleLogoUrlBlur}
               />
               <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                Fournissez une URL vers une image (PNG, JPG ou SVG) affichée
-                dans l&apos;en-tête des e-mails.
+                Fournissez une URL si votre logo est déjà hébergé en ligne. Laissez ce champ vide
+                pour utiliser le fichier importé ou masquer le logo.
               </p>
             </div>
           </div>
@@ -452,6 +623,8 @@ export function ParametersClient({ summary }: ParametersClientProps) {
           </Button>
         </div>
       </form>
+
+      <SavedResponsesManager initialResponses={savedResponses} />
     </div>
   );
 }

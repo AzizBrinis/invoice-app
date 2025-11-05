@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { requireUser } from "@/lib/auth";
 import { z } from "zod";
 
 export const productSchema = z.object({
@@ -28,6 +29,7 @@ export type ProductFilters = {
 const DEFAULT_PAGE_SIZE = 10;
 
 export async function listProducts(filters: ProductFilters = {}) {
+  const { id: userId } = await requireUser();
   const {
     search,
     category = "all",
@@ -37,6 +39,7 @@ export async function listProducts(filters: ProductFilters = {}) {
   } = filters;
 
   const where = {
+    userId,
     ...(search
       ? {
           OR: [
@@ -77,17 +80,22 @@ export async function listProducts(filters: ProductFilters = {}) {
 }
 
 export async function getProduct(id: string) {
-  return prisma.product.findUnique({
-    where: { id },
+  const { id: userId } = await requireUser();
+  return prisma.product.findFirst({
+    where: { id, userId },
   });
 }
 
 export async function createProduct(input: ProductInput) {
+  const { id: userId } = await requireUser();
   const payload = productSchema.parse(input);
   const { id: _id, ...data } = payload;
   void _id;
   return prisma.product.create({
-    data,
+    data: {
+      userId,
+      ...data,
+    },
   });
 }
 
@@ -95,16 +103,33 @@ export async function updateProduct(
   id: string,
   input: ProductInput,
 ) {
+  const { id: userId } = await requireUser();
+  const existing = await prisma.product.findFirst({
+    where: { id, userId },
+  });
+  if (!existing) {
+    throw new Error("Produit introuvable");
+  }
   const payload = productSchema.parse({ ...input, id });
   const { id: _id, ...data } = payload;
   void _id;
   return prisma.product.update({
     where: { id },
-    data,
+    data: {
+      ...data,
+      userId,
+    },
   });
 }
 
 export async function deleteProduct(id: string) {
+  const { id: userId } = await requireUser();
+  const existing = await prisma.product.findFirst({
+    where: { id, userId },
+  });
+  if (!existing) {
+    throw new Error("Produit introuvable");
+  }
   await prisma.product.delete({
     where: { id },
   });

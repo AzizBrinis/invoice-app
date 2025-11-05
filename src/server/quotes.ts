@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { requireUser } from "@/lib/auth";
 import {
   QuoteStatus,
   type Prisma,
@@ -82,6 +83,34 @@ export type QuoteFilters = {
 
 const DEFAULT_PAGE_SIZE = 10;
 
+async function assertClientOwnership(userId: string, clientId: string) {
+  const client = await prisma.client.findFirst({
+    where: { id: clientId, userId },
+  });
+  if (!client) {
+    throw new Error("Client introuvable");
+  }
+  return client;
+}
+
+async function assertProductsOwnership(
+  userId: string,
+  productIds: Array<string | null | undefined>,
+) {
+  const ids = Array.from(
+    new Set(productIds.filter((value): value is string => Boolean(value))),
+  );
+  if (ids.length === 0) {
+    return;
+  }
+  const count = await prisma.product.count({
+    where: { id: { in: ids }, userId },
+  });
+  if (count !== ids.length) {
+    throw new Error("Produit introuvable");
+  }
+}
+
 function buildWhere(filters: QuoteFilters): Prisma.QuoteWhereInput {
   const {
     search,
@@ -121,8 +150,12 @@ function buildWhere(filters: QuoteFilters): Prisma.QuoteWhereInput {
 }
 
 export async function listQuotes(filters: QuoteFilters = {}) {
+  const { id: userId } = await requireUser();
   const { page = 1, pageSize = DEFAULT_PAGE_SIZE } = filters;
-  const where = buildWhere(filters);
+  const where: Prisma.QuoteWhereInput = {
+    userId,
+    ...buildWhere(filters),
+  };
 
   const [items, total] = await Promise.all([
     prisma.quote.findMany({
@@ -264,8 +297,9 @@ function mapLineData(
 }
 
 export async function getQuote(id: string) {
-  return prisma.quote.findUnique({
-    where: { id },
+  const { id: userId } = await requireUser();
+  return prisma.quote.findFirst({
+    where: { id, userId },
     include: {
       client: true,
       lines: {
@@ -280,9 +314,20 @@ export async function getQuote(id: string) {
 }
 
 export async function createQuote(input: QuoteInput) {
+  const { id: userId } = await requireUser();
+  return createQuoteForUser(userId, input);
+}
+
+export async function createQuoteForUser(userId: string, input: QuoteInput) {
   const payload = quoteInputSchema.parse(input);
 
-  const settings = await getSettings();
+  await assertClientOwnership(userId, payload.clientId);
+  await assertProductsOwnership(
+    userId,
+    payload.lines.map((line) => line.productId),
+  );
+
+  const settings = await getSettings(userId);
   const taxConfig = normalizeTaxConfiguration(
     (settings as { taxConfiguration?: unknown }).taxConfiguration,
   );
@@ -295,10 +340,11 @@ export async function createQuote(input: QuoteInput) {
     payload.taxes,
   );
 
-  const number = payload.number ?? (await nextQuoteNumber());
+  const number = payload.number ?? (await nextQuoteNumber(userId));
 
   const quote = await prisma.quote.create({
     data: {
+      userId,
       number,
       clientId: payload.clientId,
       status: payload.status,
@@ -337,8 +383,20 @@ export async function createQuote(input: QuoteInput) {
 }
 
 export async function updateQuote(id: string, input: QuoteInput) {
+  const { id: userId } = await requireUser();
+  const existing = await prisma.quote.findFirst({
+    where: { id, userId },
+  });
+  if (!existing) {
+    throw new Error("Devis introuvable");
+  }
   const payload = quoteInputSchema.parse({ ...input, id });
-  const settings = await getSettings();
+  await assertClientOwnership(userId, payload.clientId);
+  await assertProductsOwnership(
+    userId,
+    payload.lines.map((line) => line.productId),
+  );
+  const settings = await getSettings(userId);
   const taxConfig = normalizeTaxConfiguration(
     (settings as { taxConfiguration?: unknown }).taxConfiguration,
   );
@@ -357,6 +415,7 @@ export async function updateQuote(id: string, input: QuoteInput) {
     const updated = await tx.quote.update({
       where: { id },
       data: {
+        userId,
         clientId: payload.clientId,
         status: payload.status,
         reference: payload.reference,
@@ -397,6 +456,13 @@ export async function updateQuote(id: string, input: QuoteInput) {
 }
 
 export async function changeQuoteStatus(id: string, status: QuoteStatus) {
+  const { id: userId } = await requireUser();
+  const existing = await prisma.quote.findFirst({
+    where: { id, userId },
+  });
+  if (!existing) {
+    throw new Error("Devis introuvable");
+  }
   return prisma.quote.update({
     where: { id },
     data: { status },
@@ -404,21 +470,38 @@ export async function changeQuoteStatus(id: string, status: QuoteStatus) {
 }
 
 export async function deleteQuote(id: string) {
+  const { id: userId } = await requireUser();
+  const existing = await prisma.quote.findFirst({
+    where: { id, userId },
+  });
+  if (!existing) {
+    throw new Error("Devis introuvable");
+  }
   await prisma.quote.delete({
     where: { id },
   });
 }
 
 export async function duplicateQuote(id: string) {
-  const existing = await getQuote(id);
+  const { id: userId } = await requireUser();
+  const existing = await prisma.quote.findFirst({
+    where: { id, userId },
+    include: {
+      client: true,
+      lines: {
+        orderBy: { position: "asc" },
+      },
+    },
+  });
   if (!existing) {
     throw new Error("Devis introuvable");
   }
 
-  const number = await nextQuoteNumber();
+  const number = await nextQuoteNumber(userId);
 
   return prisma.quote.create({
     data: {
+      userId,
       number,
       clientId: existing.clientId,
       status: QuoteStatus.BROUILLON,
@@ -467,8 +550,13 @@ export async function duplicateQuote(id: string) {
 }
 
 export async function convertQuoteToInvoice(id: string) {
-  const quote = await prisma.quote.findUnique({
-    where: { id },
+  const { id: userId } = await requireUser();
+  return convertQuoteToInvoiceForUser(userId, id);
+}
+
+export async function convertQuoteToInvoiceForUser(userId: string, id: string) {
+  const quote = await prisma.quote.findFirst({
+    where: { id, userId },
     include: {
       client: true,
       lines: {
@@ -486,11 +574,12 @@ export async function convertQuoteToInvoice(id: string) {
     return quote.invoice;
   }
 
-  const invoiceNumber = await nextInvoiceNumber();
+  const invoiceNumber = await nextInvoiceNumber(userId);
 
   const invoice = await prisma.$transaction(async (tx) => {
     const createdInvoice = await tx.invoice.create({
       data: {
+        userId,
         number: invoiceNumber,
         status: InvoiceStatus.ENVOYEE,
         reference: quote.reference,

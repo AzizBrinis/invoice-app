@@ -7,14 +7,22 @@ import {
 import nodemailer from "nodemailer";
 import MailComposer from "nodemailer/lib/mail-composer";
 import { simpleParser, type Attachment } from "mailparser";
-import sanitizeHtml from "sanitize-html";
 import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/prisma";
+import { requireUser } from "@/lib/auth";
 import { decryptSecret, encryptSecret } from "@/server/secure-credentials";
 import { analyzeAndHandleSpam } from "@/server/spam-detection";
+import { sanitizeEmailHtml } from "@/lib/email-html";
 
-const SETTINGS_ID = 1;
 const DEFAULT_PAGE_SIZE = 20;
+
+async function resolveUserId(provided?: string) {
+  if (provided) {
+    return provided;
+  }
+  const user = await requireUser();
+  return user.id;
+}
 
 export type MessagingIdentityInput = {
   senderName: string;
@@ -47,6 +55,7 @@ export type MessagingSettingsSummary = {
   smtpSecure: boolean;
   imapConfigured: boolean;
   smtpConfigured: boolean;
+  spamFilterEnabled: boolean;
 };
 
 export type Mailbox = "inbox" | "sent" | "drafts" | "trash" | "spam";
@@ -193,6 +202,7 @@ type MessagingCredentials = {
   senderLogoUrl: string | null;
   imap: ImapConnectionConfig | null;
   smtp: SmtpConnectionConfig | null;
+  spamFilterEnabled: boolean;
 };
 
 type MailboxOpenResult = {
@@ -478,49 +488,133 @@ function wrapEmailHtml(
   const { senderName, senderLogoUrl, fromEmail } = options;
   const displayName = senderName?.trim() ?? "";
   const email = fromEmail ?? "";
+  const fontFamily =
+    "'Segoe UI','Helvetica Neue',Arial,'Liberation Sans',sans-serif";
+  const outerBackground = "#f4f5f7";
+  const innerBackground = "#ffffff";
+  const primaryTextColor = "#111827";
+  const secondaryTextColor = "#475569";
+  const baseFontStyle = `font-family:${fontFamily};`;
 
   const logoHtml = senderLogoUrl
-    ? `<img src="${escapeHtml(senderLogoUrl)}" alt="Logo expéditeur" style="height:40px;width:auto;border-radius:6px;" />`
+    ? `<img src="${escapeHtml(senderLogoUrl)}" alt="Logo expéditeur" width="120" style="display:block;width:120px;max-width:100%;height:auto;border-radius:6px;" />`
     : "";
 
-  const headerContent =
-    displayName || email
-      ? `<div style="display:flex;flex-direction:column;">
-          ${
-            displayName
-              ? `<span style="font-size:16px;font-weight:600;color:#0f172a;">${escapeHtml(displayName)}</span>`
-              : ""
-          }
-          ${
-            email
-              ? `<span style="font-size:12px;color:#475569;">${escapeHtml(email)}</span>`
-              : ""
-          }
-        </div>`
-      : "";
+  const headerContentParts: string[] = [];
+  if (displayName) {
+    headerContentParts.push(
+      `<p style="margin:0;font-size:16px;font-weight:600;color:${primaryTextColor};">${escapeHtml(displayName)}</p>`,
+    );
+  }
+  if (email) {
+    headerContentParts.push(
+      `<p style="margin:${displayName ? "4px 0 0" : "0"};font-size:12px;color:${secondaryTextColor};">${escapeHtml(email)}</p>`,
+    );
+  }
+  const headerContent = headerContentParts.join("");
 
-  const headerHtml =
-    logoHtml || headerContent
-      ? `<div style="display:flex;align-items:center;gap:12px;margin-bottom:24px;">
-          ${logoHtml}
-          ${headerContent}
-        </div>`
-      : "";
+  let headerHtml = "";
+  if (logoHtml || headerContent) {
+    headerHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-bottom:24px;">
+        <tr>
+          ${
+            logoHtml
+              ? `<td style="padding-right:12px;vertical-align:middle;" width="48">${logoHtml}</td>`
+              : ""
+          }
+          ${
+            headerContent
+              ? `<td style="vertical-align:middle;">${headerContent}</td>`
+              : ""
+          }
+        </tr>
+      </table>`;
+  }
 
   return `<!DOCTYPE html>
 <html lang="fr">
   <head>
     <meta charset="utf-8" />
-    <meta name="color-scheme" content="light dark" />
+    <meta http-equiv="x-ua-compatible" content="ie=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <meta name="supported-color-schemes" content="light" />
+    <style>
+      :root {
+        color-scheme: light;
+        supported-color-schemes: light;
+      }
+      body,
+      table.email-wrapper,
+      td.email-wrapper {
+        background-color: ${outerBackground} !important;
+        color: ${primaryTextColor} !important;
+      }
+      .email-container,
+      .email-container td {
+        background-color: ${innerBackground} !important;
+        color: ${primaryTextColor} !important;
+        border-radius: 16px !important;
+      }
+      .email-container {
+        border-radius: 16px !important;
+        overflow: hidden !important;
+      }
+      @media (prefers-color-scheme: dark) {
+        body,
+        table.email-wrapper,
+        td.email-wrapper {
+          background-color: ${outerBackground} !important;
+          color: ${primaryTextColor} !important;
+        }
+        .email-container,
+        .email-container td {
+          background-color: ${innerBackground} !important;
+          color: ${primaryTextColor} !important;
+        }
+      }
+      body[data-ogsc],
+      [data-ogsc] body {
+        background-color: ${outerBackground} !important;
+        color: ${primaryTextColor} !important;
+      }
+      body[data-ogsc] .email-container,
+      [data-ogsc] .email-container {
+        background-color: ${innerBackground} !important;
+        color: ${primaryTextColor} !important;
+        border-radius: 16px !important;
+        overflow: hidden !important;
+      }
+    </style>
     <title>Message</title>
   </head>
-  <body style="margin:0;padding:32px;background-color:#f8fafc;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',sans-serif;color:#0f172a;">
-    <div style="max-width:640px;margin:0 auto;background:white;padding:32px;border-radius:16px;box-shadow:0 10px 30px rgba(15,23,42,0.08);">
-      ${headerHtml}
-      <div style="font-size:15px;line-height:1.6;color:#0f172a;">
-        ${contentHtml}
-      </div>
-    </div>
+  <body bgcolor="${outerBackground}" style="margin:0;padding:0;background-color:${outerBackground};${baseFontStyle}color:${primaryTextColor};color-scheme:light;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" class="email-wrapper" bgcolor="${outerBackground}" style="width:100%;border-collapse:collapse;background-color:${outerBackground};">
+      <tr>
+        <td class="email-wrapper" align="center" style="padding:32px 12px;background-color:${outerBackground};">
+          <!--[if mso]>
+          <table role="presentation" width="600" cellpadding="0" cellspacing="0">
+            <tr>
+              <td>
+          <![endif]-->
+          <table role="presentation" width="600" cellpadding="0" cellspacing="0" class="email-container" bgcolor="${innerBackground}" style="width:100%;max-width:600px;border-collapse:separate;border-spacing:0;background-color:${innerBackground};border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;">
+            <tr>
+              <td style="padding:28px 28px 32px;${baseFontStyle}color:${primaryTextColor};background-color:${innerBackground};border-radius:16px;">
+                ${headerHtml}
+                <div style="font-size:15px;line-height:1.6;color:${primaryTextColor};background-color:${innerBackground};">
+                  ${contentHtml}
+                </div>
+              </td>
+            </tr>
+          </table>
+          <!--[if mso]>
+              </td>
+            </tr>
+          </table>
+          <![endif]-->
+        </td>
+      </tr>
+    </table>
   </body>
 </html>`;
 }
@@ -933,16 +1027,22 @@ async function appendMessageToSentMailbox(params: {
   });
 }
 
-async function getMessagingCredentials(): Promise<MessagingCredentials> {
+async function getMessagingCredentials(
+  providedUserId?: string,
+): Promise<MessagingCredentials> {
+  const userId = await resolveUserId(providedUserId);
   const settings = await prisma.messagingSettings.findUnique({
-    where: { id: SETTINGS_ID },
+    where: { userId },
   });
 
   if (!settings) {
     return {
       fromEmail: null,
+      senderName: null,
+      senderLogoUrl: null,
       imap: null,
       smtp: null,
+      spamFilterEnabled: true,
     };
   }
 
@@ -966,6 +1066,7 @@ async function getMessagingCredentials(): Promise<MessagingCredentials> {
     fromEmail: settings.fromEmail,
     senderName: settings.senderName ?? null,
     senderLogoUrl: settings.senderLogoUrl ?? null,
+    spamFilterEnabled: settings.spamFilterEnabled ?? true,
     imap:
       settings.imapHost &&
       settings.imapPort &&
@@ -996,9 +1097,12 @@ async function getMessagingCredentials(): Promise<MessagingCredentials> {
   };
 }
 
-export async function getMessagingSettingsSummary(): Promise<MessagingSettingsSummary> {
+export async function getMessagingSettingsSummary(
+  userId?: string,
+): Promise<MessagingSettingsSummary> {
+  const resolvedUserId = await resolveUserId(userId);
   const settings = await prisma.messagingSettings.findUnique({
-    where: { id: SETTINGS_ID },
+    where: { userId: resolvedUserId },
   });
 
   if (!settings) {
@@ -1014,6 +1118,7 @@ export async function getMessagingSettingsSummary(): Promise<MessagingSettingsSu
       smtpSecure: true,
       imapConfigured: false,
       smtpConfigured: false,
+      spamFilterEnabled: true,
     };
   }
 
@@ -1037,17 +1142,19 @@ export async function getMessagingSettingsSummary(): Promise<MessagingSettingsSu
       Boolean(settings.smtpPort) &&
       Boolean(settings.smtpUser) &&
       Boolean(settings.smtpPassword),
+    spamFilterEnabled: settings.spamFilterEnabled ?? true,
   };
 }
 
 export async function updateMessagingSenderIdentity(
   input: MessagingIdentityInput,
 ): Promise<void> {
+  const userId = await resolveUserId();
   const normalizedName = (input.senderName ?? "").trim();
   const normalizedLogo = toOptionalString(input.senderLogoUrl ?? null);
 
   const existing = await prisma.messagingSettings.findUnique({
-    where: { id: SETTINGS_ID },
+    where: { userId },
   });
 
   const data = {
@@ -1057,13 +1164,13 @@ export async function updateMessagingSenderIdentity(
 
   if (existing) {
     await prisma.messagingSettings.update({
-      where: { id: SETTINGS_ID },
+      where: { userId },
       data,
     });
   } else {
     await prisma.messagingSettings.create({
       data: {
-        id: SETTINGS_ID,
+        userId,
         ...data,
       },
     });
@@ -1073,8 +1180,9 @@ export async function updateMessagingSenderIdentity(
 export async function updateMessagingConnections(
   input: MessagingConnectionsInput,
 ): Promise<void> {
+  const userId = await resolveUserId();
   const existing = await prisma.messagingSettings.findUnique({
-    where: { id: SETTINGS_ID },
+    where: { userId },
   });
 
   const sanitizedFromEmail = ensureNonEmpty(input.fromEmail, "Adresse e-mail");
@@ -1136,13 +1244,13 @@ export async function updateMessagingConnections(
 
   if (existing) {
     await prisma.messagingSettings.update({
-      where: { id: SETTINGS_ID },
+      where: { userId },
       data: connectionData,
     });
   } else {
     await prisma.messagingSettings.create({
       data: {
-        id: SETTINGS_ID,
+        userId,
         senderName: "",
         senderLogoUrl: null,
         ...connectionData,
@@ -1156,12 +1264,14 @@ export async function fetchMailboxMessages(params: {
   page?: number;
   pageSize?: number;
 }): Promise<MailboxPageResult> {
-  const credentials = await getMessagingCredentials();
+  const userId = await resolveUserId();
+  const credentials = await getMessagingCredentials(userId);
   if (!credentials.imap) {
     throw new Error(
       "Le serveur IMAP n'est pas configuré. Complétez les paramètres.",
     );
   }
+  const spamFilteringEnabled = credentials.spamFilterEnabled !== false;
 
   const page = Math.max(1, params.page ?? 1);
   const pageSize = Math.max(1, params.pageSize ?? DEFAULT_PAGE_SIZE);
@@ -1220,13 +1330,15 @@ export async function fetchMailboxMessages(params: {
       let filteredItems = items;
       const autoMoved: AutoMovedSummary[] = [];
 
-      if (params.mailbox === "inbox" && items.length) {
+      if (params.mailbox === "inbox" && items.length && spamFilteringEnabled) {
         for (const entry of [...items]) {
           try {
             const analysis = await analyzeAndHandleSpam({
+              userId,
               client,
               mailbox: params.mailbox,
               uid: entry.uid,
+              spamFilteringEnabled,
             });
             if (analysis.movedToSpam && !analysis.alreadyLogged) {
               autoMoved.push({
@@ -1270,12 +1382,15 @@ export async function fetchMailboxUpdates(params: {
   messages: MailboxListItem[];
   autoMoved?: AutoMovedSummary[];
 }> {
-  const credentials = await getMessagingCredentials();
+  const userId = await resolveUserId();
+  const credentials = await getMessagingCredentials(userId);
   if (!credentials.imap) {
     throw new Error(
       "Le serveur IMAP n'est pas configuré. Complétez les paramètres.",
     );
   }
+
+  const spamFilteringEnabled = credentials.spamFilterEnabled !== false;
 
   if (params.sinceUid <= 0) {
     return {
@@ -1325,13 +1440,15 @@ export async function fetchMailboxUpdates(params: {
       let filteredItems = items;
       const autoMoved: AutoMovedSummary[] = [];
 
-      if (params.mailbox === "inbox" && items.length) {
+      if (params.mailbox === "inbox" && items.length && spamFilteringEnabled) {
         for (const entry of [...items]) {
           try {
             const analysis = await analyzeAndHandleSpam({
+              userId,
               client,
               mailbox: params.mailbox,
               uid: entry.uid,
+              spamFilteringEnabled,
             });
             if (analysis.movedToSpam && !analysis.alreadyLogged) {
               autoMoved.push({
@@ -1370,7 +1487,8 @@ export async function fetchMessageDetail(params: {
   mailbox: Mailbox;
   uid: number;
 }): Promise<MessageDetail> {
-  const credentials = await getMessagingCredentials();
+  const userId = await resolveUserId();
+  const credentials = await getMessagingCredentials(userId);
   if (!credentials.imap) {
     throw new Error(
       "Le serveur IMAP n'est pas configuré. Complétez les paramètres.",
@@ -1425,36 +1543,7 @@ export async function fetchMessageDetail(params: {
         parsedBcc,
       );
 
-      const sanitizedHtml = parsed.html
-        ? sanitizeHtml(parsed.html, {
-            allowedTags: [
-              ...sanitizeHtml.defaults.allowedTags,
-              "img",
-              "table",
-              "thead",
-              "tbody",
-              "tr",
-              "td",
-              "th",
-              "span",
-            ],
-            allowedAttributes: {
-              ...sanitizeHtml.defaults.allowedAttributes,
-              a: ["href", "name", "target", "rel"],
-              img: ["src", "alt", "title", "width", "height"],
-              td: ["colspan", "rowspan"],
-              th: ["colspan", "rowspan"],
-            },
-            allowedSchemes: ["http", "https", "mailto", "data"],
-            transformTags: {
-              a: sanitizeHtml.simpleTransform(
-                "a",
-                { target: "_blank", rel: "noopener noreferrer" },
-                true,
-              ),
-            },
-          })
-        : null;
+      const sanitizedHtml = parsed.html ? sanitizeEmailHtml(parsed.html) : null;
 
       const attachmentDescriptors = buildAttachmentDescriptors(
         params.mailbox,
@@ -1501,7 +1590,8 @@ export async function fetchMessageAttachment(params: {
   uid: number;
   attachmentId: string;
 }): Promise<{ filename: string; contentType: string; content: Buffer }> {
-  const credentials = await getMessagingCredentials();
+  const userId = await resolveUserId();
+  const credentials = await getMessagingCredentials(userId);
   if (!credentials.imap) {
     throw new Error(
       "Le serveur IMAP n'est pas configuré. Complétez les paramètres.",
@@ -1563,7 +1653,8 @@ export async function moveMailboxMessage(params: {
     return;
   }
 
-  const credentials = await getMessagingCredentials();
+  const userId = await resolveUserId();
+  const credentials = await getMessagingCredentials(userId);
   if (!credentials.imap) {
     throw new Error(
       "Le serveur IMAP n'est pas configuré. Complétez les paramètres.",
@@ -1600,7 +1691,8 @@ export async function moveMailboxMessage(params: {
 export async function sendEmailMessage(
   params: ComposeEmailInput,
 ): Promise<SentMailboxAppendResult> {
-  const credentials = await getMessagingCredentials();
+  const userId = await resolveUserId();
+  const credentials = await getMessagingCredentials(userId);
   if (!credentials.smtp) {
     throw new Error(
       "Le serveur SMTP n'est pas configuré. Veuillez compléter les paramètres avant d'envoyer un message.",
@@ -1687,6 +1779,27 @@ export async function sendEmailMessage(
       message: null,
       totalMessages: null,
     };
+  }
+}
+
+export async function updateSpamFilterPreference(enabled: boolean): Promise<void> {
+  const userId = await resolveUserId();
+  const existing = await prisma.messagingSettings.findUnique({
+    where: { userId },
+  });
+
+  if (existing) {
+    await prisma.messagingSettings.update({
+      where: { userId },
+      data: { spamFilterEnabled: enabled },
+    });
+  } else {
+    await prisma.messagingSettings.create({
+      data: {
+        userId,
+        spamFilterEnabled: enabled,
+      },
+    });
   }
 }
 

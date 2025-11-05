@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { requireUser } from "@/lib/auth";
 import {
   CURRENCY_CODES,
   getDefaultCurrencyCode,
@@ -107,9 +108,18 @@ export const settingsSchema = z.object({
 
 export type SettingsInput = z.infer<typeof settingsSchema>;
 
-export async function getSettings() {
+async function resolveUserId(userId?: string) {
+  if (userId) {
+    return userId;
+  }
+  const user = await requireUser();
+  return user.id;
+}
+
+export async function getSettings(userId?: string) {
+  const resolvedUserId = await resolveUserId(userId);
   const settings = await prisma.companySettings.findUnique({
-    where: { id: 1 },
+    where: { userId: resolvedUserId },
     include: {
       invoiceTemplate: true,
       quoteTemplate: true,
@@ -127,9 +137,10 @@ export async function getSettings() {
     };
   }
 
-  return prisma.companySettings.create({
-    data: {
-      id: 1,
+  const created = await prisma.companySettings.upsert({
+    where: { userId: resolvedUserId },
+    create: {
+      userId: resolvedUserId,
       companyName: "Nouvelle société",
       logoData: null,
       matriculeFiscal: null,
@@ -143,26 +154,35 @@ export async function getSettings() {
       stampPosition: "bottom-right",
       signaturePosition: "bottom-right",
     },
+    update: {},
     include: {
       invoiceTemplate: true,
       quoteTemplate: true,
     },
   });
+  const normalizedTaxConfig = normalizeTaxConfiguration(
+    (created as { taxConfiguration?: unknown }).taxConfiguration,
+  );
+  return {
+    ...created,
+    taxConfiguration: normalizedTaxConfig,
+  };
 }
 
-export async function updateSettings(input: SettingsInput) {
+export async function updateSettings(input: SettingsInput, userId?: string) {
+  const resolvedUserId = await resolveUserId(userId);
   const parsed = settingsSchema.parse(input);
   const { taxConfiguration, ...rest } = parsed;
   const normalizedTaxConfig = normalizeTaxConfiguration(taxConfiguration);
 
   const settings = await prisma.companySettings.upsert({
-    where: { id: 1 },
+    where: { userId: resolvedUserId },
     update: {
       ...rest,
       taxConfiguration: normalizedTaxConfig,
     },
     create: {
-      id: 1,
+      userId: resolvedUserId,
       ...rest,
       taxConfiguration: normalizedTaxConfig,
     },

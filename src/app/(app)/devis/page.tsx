@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
+import { requireUser } from "@/lib/auth";
 import { listQuotes } from "@/server/quotes";
 import {
   changeQuoteStatusAction,
@@ -21,6 +22,8 @@ import {
   FlashMessages,
   type FlashMessage,
 } from "@/components/ui/flash-messages";
+
+export const dynamic = "force-dynamic";
 
 const STATUS_LABELS: Record<QuoteStatus, string> = {
   BROUILLON: "Brouillon",
@@ -72,6 +75,7 @@ async function DevisPageContent({
 }: {
   searchParams: SearchParams | Promise<SearchParams>;
 }) {
+  const user = await requireUser();
   const resolvedSearchParams = isPromise<SearchParams>(searchParams)
     ? await searchParams
     : searchParams;
@@ -137,6 +141,7 @@ async function DevisPageContent({
       page,
     }),
     prisma.client.findMany({
+      where: { userId: user.id },
       orderBy: { displayName: "asc" },
       select: { id: true, displayName: true },
     }),

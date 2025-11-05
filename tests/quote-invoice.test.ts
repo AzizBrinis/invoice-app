@@ -1,20 +1,39 @@
-import { beforeAll, afterAll, describe, expect, it } from "vitest";
+import { beforeAll, afterAll, describe, expect, it, vi, beforeEach } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { createQuote, convertQuoteToInvoice } from "@/server/quotes";
 import { createInvoice } from "@/server/invoices";
 import { nextQuoteNumber, nextInvoiceNumber } from "@/server/sequences";
-import { QuoteStatus, InvoiceStatus } from "@prisma/client";
+import { QuoteStatus, InvoiceStatus, User } from "@prisma/client";
+
+let user: User;
+
+vi.mock("@/lib/auth", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/auth")>("@/lib/auth");
+  return {
+    ...actual,
+    requireUser: vi.fn(async () => user),
+    getCurrentUser: vi.fn(async () => user),
+  };
+});
 
 let clientId: string;
 let productId: string;
 
 beforeAll(async () => {
+  user = await prisma.user.create({
+    data: {
+      email: `test-user-${Date.now()}@example.com`,
+      passwordHash: "hashed",
+      name: "Test User",
+    },
+  });
   const client = await prisma.client.create({
     data: {
       displayName: "Client Test",
       companyName: "SAS Test",
       email: "client@test.fr",
       isActive: true,
+      userId: user.id,
     },
   });
   clientId = client.id;
@@ -28,23 +47,28 @@ beforeAll(async () => {
       vatRate: 20,
       unit: "unité",
       isActive: true,
+      userId: user.id,
     },
   });
   productId = product.id;
 });
 
 afterAll(async () => {
-  await prisma.quote.deleteMany({ where: { clientId } });
-  await prisma.invoice.deleteMany({ where: { clientId } });
+  await prisma.quote.deleteMany({ where: { clientId, userId: user.id } });
+  await prisma.invoice.deleteMany({ where: { clientId, userId: user.id } });
   await prisma.product.delete({ where: { id: productId } });
   await prisma.client.delete({ where: { id: clientId } });
+  await prisma.numberingSequence.deleteMany({ where: { userId: user.id } });
+  await prisma.companySettings.deleteMany({ where: { userId: user.id } });
+  await prisma.messagingSettings.deleteMany({ where: { userId: user.id } });
+  await prisma.user.delete({ where: { id: user.id } });
 });
 
 describe("Quotes and invoices", () => {
   it("generates sequential numbers", async () => {
-    const quoteNumber = await nextQuoteNumber();
+    const quoteNumber = await nextQuoteNumber(user.id);
     expect(quoteNumber).toMatch(/DEV-/);
-    const invoiceNumber = await nextInvoiceNumber();
+    const invoiceNumber = await nextInvoiceNumber(user.id);
     expect(invoiceNumber).toMatch(/FAC-/);
   });
 

@@ -16,6 +16,19 @@ model User {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   sessions     Session[]
+  companySettings   CompanySettings?
+  messagingSettings MessagingSettings?
+  clients           Client[]
+  products          Product[]
+  quotes            Quote[]
+  invoices          Invoice[]
+  payments          Payment[]
+  invoiceAuditLogs  InvoiceAuditLog[]
+  emailLogs         EmailLog[]
+  numberingSequences NumberingSequence[]
+  spamDetectionLogs SpamDetectionLog[]
+  spamSenderReputations SpamSenderReputation[]
+  savedResponses MessagingSavedResponse[]
 }
 
 enum UserRole {
@@ -34,7 +47,9 @@ model Session {
 }
 
 model CompanySettings {
-  id                     Int           @id @default(1)
+  id                     String         @id @default(cuid())
+  userId                 String         @unique
+  user                   User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   companyName            String
   logoUrl                String?
   logoData               String?
@@ -46,14 +61,14 @@ model CompanySettings {
   iban                   String?
   stampImage             String?
   signatureImage         String?
-  stampPosition          String        @default("bottom-right")
-  signaturePosition      String        @default("bottom-right")
-  defaultCurrency        String        @default("TND")
-  defaultVatRate         Float         @default(0)
+  stampPosition          String         @default("bottom-right")
+  signaturePosition      String         @default("bottom-right")
+  defaultCurrency        String         @default("TND")
+  defaultVatRate         Float          @default(0)
   paymentTerms           String?
-  invoiceNumberPrefix    String        @default("FAC")
-  quoteNumberPrefix      String        @default("DEV")
-  resetNumberingAnnually Boolean       @default(true)
+  invoiceNumberPrefix    String         @default("FAC")
+  quoteNumberPrefix      String         @default("DEV")
+  resetNumberingAnnually Boolean        @default(true)
   defaultInvoiceFooter   String?
   defaultQuoteFooter     String?
   legalFooter            String?
@@ -61,29 +76,54 @@ model CompanySettings {
   invoiceTemplateId      String?
   quoteTemplateId        String?
   taxConfiguration       Json?
-  createdAt              DateTime      @default(now())
-  updatedAt              DateTime      @updatedAt
-  invoiceTemplate        PdfTemplate?  @relation("InvoiceTemplate", fields: [invoiceTemplateId], references: [id])
-  quoteTemplate          PdfTemplate?  @relation("QuoteTemplate", fields: [quoteTemplateId], references: [id])
+  createdAt              DateTime       @default(now())
+  updatedAt              DateTime       @updatedAt
+  invoiceTemplate        PdfTemplate?   @relation("InvoiceTemplate", fields: [invoiceTemplateId], references: [id])
+  quoteTemplate          PdfTemplate?   @relation("QuoteTemplate", fields: [quoteTemplateId], references: [id])
 }
 
 model MessagingSettings {
-  id           Int      @id @default(1)
-  fromEmail    String?
-  senderName   String?
-  senderLogoUrl String?
-  imapHost     String?
-  imapPort     Int?
-  imapSecure   Boolean  @default(true)
-  imapUser     String?
-  imapPassword String?
-  smtpHost     String?
-  smtpPort     Int?
-  smtpSecure   Boolean  @default(true)
-  smtpUser     String?
-  smtpPassword String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                String   @id @default(cuid())
+  userId            String   @unique
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fromEmail         String?
+  senderName        String?
+  senderLogoUrl     String?
+  imapHost          String?
+  imapPort          Int?
+  imapSecure        Boolean  @default(true)
+  imapUser          String?
+  imapPassword      String?
+  smtpHost          String?
+  smtpPort          Int?
+  smtpSecure        Boolean  @default(true)
+  smtpUser          String?
+  smtpPassword      String?
+  spamFilterEnabled Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+enum SavedResponseFormat {
+  PLAINTEXT
+  HTML
+}
+
+model MessagingSavedResponse {
+  id        String               @id @default(cuid())
+  userId    String
+  user      User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  slug      String?
+  description String?
+  content   String
+  format    SavedResponseFormat  @default(PLAINTEXT)
+  builtIn   Boolean              @default(false)
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
+
+  @@index([userId, title])
+  @@unique([userId, slug])
 }
 
 model SpamDetectionLog {
@@ -103,16 +143,25 @@ model SpamDetectionLog {
   detectedAt     DateTime @default(now())
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, mailbox])
 }
 
 model SpamSenderReputation {
   id             Int      @id @default(autoincrement())
-  domain         String   @unique
+  userId         String
+  domain         String
   spamCount      Int      @default(0)
   hamCount       Int      @default(0)
   lastFeedbackAt DateTime?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, domain])
+  @@index([userId])
 }
 
 model PdfTemplate {
@@ -133,6 +182,8 @@ enum PdfTemplateType {
 
 model Client {
   id           String    @id @default(cuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   displayName  String
   companyName  String?
   address      String?
@@ -145,11 +196,15 @@ model Client {
   updatedAt    DateTime  @updatedAt
   quotes       Quote[]
   invoices     Invoice[]
+
+  @@index([userId, displayName])
 }
 
 model Product {
   id                   String        @id @default(cuid())
-  sku                  String        @unique
+  userId               String
+  user                 User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sku                  String
   name                 String
   description          String?
   category             String?
@@ -163,35 +218,44 @@ model Product {
   updatedAt            DateTime      @updatedAt
   quoteLines           QuoteLine[]
   invoiceLines         InvoiceLine[]
+
+  @@unique([userId, sku])
+  @@index([userId, name])
 }
 
 model Quote {
-  id                       String        @id @default(cuid())
-  number                   String        @unique
-  status                   QuoteStatus   @default(BROUILLON)
-  reference                String?
-  issueDate                DateTime
-  validUntil               DateTime?
-  clientId                 String
-  client                   Client        @relation(fields: [clientId], references: [id])
-  currency                 String        @default("TND")
-  globalDiscountRate       Float?
+  id                        String        @id @default(cuid())
+  userId                    String
+  user                      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  number                    String
+  status                    QuoteStatus   @default(BROUILLON)
+  reference                 String?
+  issueDate                 DateTime
+  validUntil                DateTime?
+  clientId                  String
+  client                    Client        @relation(fields: [clientId], references: [id])
+  currency                  String        @default("TND")
+  globalDiscountRate        Float?
   globalDiscountAmountCents Int?
-  vatBreakdown             Json?
-  taxSummary               Json?
-  taxConfiguration         Json?
-  notes                    String?
-  terms                    String?
-  subtotalHTCents          Int
-  totalDiscountCents       Int
-  totalTVACents            Int
-  totalTTCCents            Int
+  vatBreakdown              Json?
+  taxSummary                Json?
+  taxConfiguration          Json?
+  notes                     String?
+  terms                     String?
+  subtotalHTCents           Int
+  totalDiscountCents        Int
+  totalTVACents             Int
+  totalTTCCents             Int
   fodecAmountCents          Int           @default(0)
   timbreAmountCents         Int           @default(0)
-  createdAt                DateTime      @default(now())
-  updatedAt                DateTime      @updatedAt
-  lines                    QuoteLine[]
-  invoice                  Invoice?
+  createdAt                 DateTime      @default(now())
+  updatedAt                 DateTime      @updatedAt
+  lines                     QuoteLine[]
+  invoice                   Invoice?
+
+  @@unique([userId, number])
+  @@index([userId, status])
+  @@index([userId, clientId])
 }
 
 enum QuoteStatus {
@@ -224,36 +288,42 @@ model QuoteLine {
 }
 
 model Invoice {
-  id                       String         @id @default(cuid())
-  number                   String         @unique
-  status                   InvoiceStatus  @default(BROUILLON)
-  reference                String?
-  issueDate                DateTime
-  dueDate                  DateTime?
-  clientId                 String
-  client                   Client         @relation(fields: [clientId], references: [id])
-  currency                 String         @default("TND")
-  globalDiscountRate       Float?
+  id                        String         @id @default(cuid())
+  userId                    String
+  user                      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  number                    String
+  status                    InvoiceStatus  @default(BROUILLON)
+  reference                 String?
+  issueDate                 DateTime
+  dueDate                   DateTime?
+  clientId                  String
+  client                    Client         @relation(fields: [clientId], references: [id])
+  currency                  String         @default("TND")
+  globalDiscountRate        Float?
   globalDiscountAmountCents Int?
-  vatBreakdown             Json?
-  taxSummary               Json?
-  taxConfiguration         Json?
-  notes                    String?
-  terms                    String?
-  lateFeeRate              Float?
-  subtotalHTCents          Int
-  totalDiscountCents       Int
-  totalTVACents            Int
-  totalTTCCents            Int
-  amountPaidCents          Int            @default(0)
+  vatBreakdown              Json?
+  taxSummary                Json?
+  taxConfiguration          Json?
+  notes                     String?
+  terms                     String?
+  lateFeeRate               Float?
+  subtotalHTCents           Int
+  totalDiscountCents        Int
+  totalTVACents             Int
+  totalTTCCents             Int
+  amountPaidCents           Int            @default(0)
   fodecAmountCents          Int            @default(0)
   timbreAmountCents         Int            @default(0)
-  createdAt                DateTime       @default(now())
-  updatedAt                DateTime       @updatedAt
-  quoteId                  String?        @unique
-  quote                    Quote?         @relation(fields: [quoteId], references: [id])
-  lines                    InvoiceLine[]
-  payments                 Payment[]
+  createdAt                 DateTime       @default(now())
+  updatedAt                 DateTime       @updatedAt
+  quoteId                   String?        @unique
+  quote                     Quote?         @relation(fields: [quoteId], references: [id])
+  lines                     InvoiceLine[]
+  payments                  Payment[]
+
+  @@unique([userId, number])
+  @@index([userId, status])
+  @@index([userId, clientId])
 }
 
 enum InvoiceStatus {
@@ -294,26 +364,36 @@ model InvoiceLine {
 model Payment {
   id             String   @id @default(cuid())
   invoiceId      String
+  userId         String
   amountCents    Int
   method         String?
   date           DateTime
   note           String?
   createdAt      DateTime @default(now())
   invoice        Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model InvoiceAuditLog {
   id             String               @id @default(cuid())
   invoiceId      String
+  userId         String
   action         InvoiceAuditAction
   previousStatus InvoiceStatus?
   newStatus      InvoiceStatus?
   note           String?
   createdAt      DateTime             @default(now())
+  user           User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, invoiceId])
 }
 
 model NumberingSequence {
   id        String       @id @default(cuid())
+  userId    String
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   type      SequenceType
   prefix    String
   year      Int
@@ -321,7 +401,8 @@ model NumberingSequence {
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
 
-  @@unique([type, year])
+  @@unique([userId, type, year])
+  @@index([userId])
 }
 
 enum SequenceType {
@@ -331,6 +412,7 @@ enum SequenceType {
 
 model EmailLog {
   id           String       @id @default(cuid())
+  userId       String
   documentType DocumentType
   documentId   String
   to           String
@@ -340,6 +422,9 @@ model EmailLog {
   status       EmailStatus  @default(EN_ATTENTE)
   error        String?
   createdAt    DateTime     @default(now())
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, documentType])
 }
 
 enum DocumentType {

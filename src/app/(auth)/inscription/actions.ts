@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { hashPassword, signIn } from "@/lib/auth";
+import { UserRole } from "@prisma/client";
 
 const registerSchema = z
   .object({
@@ -70,11 +71,22 @@ export async function registerAction(
     }
 
     const passwordHash = await hashPassword(password);
+    const billingManagerCount = await prisma.user.count({
+      where: {
+        role: {
+          in: [UserRole.ADMIN, UserRole.ACCOUNTANT],
+        },
+      },
+    });
+    const role =
+      billingManagerCount === 0 ? UserRole.ADMIN : UserRole.VIEWER;
+
     await prisma.user.create({
       data: {
         email,
         passwordHash,
         name: name && name.length > 0 ? name : null,
+        role,
       },
     });
 

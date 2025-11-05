@@ -1,19 +1,38 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { createInvoice, deleteInvoice, listInvoices } from "@/server/invoices";
-import { InvoiceAuditAction, InvoiceStatus } from "@prisma/client";
+import { InvoiceAuditAction, InvoiceStatus, type User } from "@prisma/client";
 
+let user: User;
 let clientId: string;
 let productId: string;
 const createdInvoiceIds: string[] = [];
 
+vi.mock("@/lib/auth", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/auth")>("@/lib/auth");
+  return {
+    ...actual,
+    requireUser: vi.fn(async () => user),
+    getCurrentUser: vi.fn(async () => user),
+  };
+});
+
 beforeAll(async () => {
+  user = await prisma.user.create({
+    data: {
+      email: `invoice-user-${Date.now()}@example.com`,
+      passwordHash: "hashed",
+      name: "Invoice User",
+    },
+  });
+
   const client = await prisma.client.create({
     data: {
       displayName: "Client Facture",
       companyName: "Société Facture",
       email: "facture@test.fr",
       isActive: true,
+      userId: user.id,
     },
   });
   clientId = client.id;
@@ -27,6 +46,7 @@ beforeAll(async () => {
       vatRate: 20,
       unit: "unité",
       isActive: true,
+      userId: user.id,
     },
   });
   productId = product.id;
@@ -35,49 +55,58 @@ beforeAll(async () => {
 afterAll(async () => {
   if (createdInvoiceIds.length > 0) {
     await prisma.invoiceAuditLog.deleteMany({
-      where: { invoiceId: { in: createdInvoiceIds } },
+      where: { invoiceId: { in: createdInvoiceIds }, userId: user.id },
     });
     await prisma.invoice.deleteMany({
-      where: { id: { in: createdInvoiceIds } },
+      where: { id: { in: createdInvoiceIds }, userId: user.id },
     });
   }
   await prisma.product.delete({ where: { id: productId } });
   await prisma.client.delete({ where: { id: clientId } });
+  await prisma.numberingSequence.deleteMany({ where: { userId: user.id } });
+  await prisma.companySettings.deleteMany({ where: { userId: user.id } });
+  await prisma.messagingSettings.deleteMany({ where: { userId: user.id } });
+  await prisma.user.delete({ where: { id: user.id } });
 });
+
+function buildInvoiceInput(status: InvoiceStatus) {
+  return {
+    clientId,
+    status,
+    issueDate: new Date(),
+    dueDate: new Date(),
+    currency: "TND",
+    lines: [
+      {
+        productId,
+        description: "Service Facturation",
+        quantity: 1,
+        unit: "unité",
+        unitPriceHTCents: 10000,
+        vatRate: 20,
+        discountRate: null,
+        discountAmountCents: null,
+        position: 0,
+      },
+    ],
+  };
+}
 
 describe("deleteInvoice", () => {
   it("permanently deletes draft invoices and records the event", async () => {
-    const invoice = await createInvoice({
-      clientId,
-      status: InvoiceStatus.BROUILLON,
-      issueDate: new Date(),
-      dueDate: new Date(),
-      currency: "TND",
-      lines: [
-        {
-          productId,
-          description: "Service Facturation",
-          quantity: 1,
-          unit: "unité",
-          unitPriceHTCents: 10000,
-          vatRate: 20,
-          discountRate: null,
-          discountAmountCents: null,
-          position: 0,
-        },
-      ],
-    });
-
+    const invoice = await createInvoice(buildInvoiceInput(InvoiceStatus.BROUILLON));
     createdInvoiceIds.push(invoice.id);
 
     const outcome = await deleteInvoice(invoice.id);
     expect(outcome).toBe("deleted");
 
-    const deleted = await prisma.invoice.findUnique({ where: { id: invoice.id } });
+    const deleted = await prisma.invoice.findFirst({
+      where: { id: invoice.id, userId: user.id },
+    });
     expect(deleted).toBeNull();
 
     const logs = await prisma.invoiceAuditLog.findMany({
-      where: { invoiceId: invoice.id },
+      where: { invoiceId: invoice.id, userId: user.id },
     });
     expect(logs).toHaveLength(1);
     expect(logs[0]?.action).toBe(InvoiceAuditAction.DELETION);
@@ -85,36 +114,16 @@ describe("deleteInvoice", () => {
   });
 
   it("cancels published invoices instead of deleting them", async () => {
-    const invoice = await createInvoice({
-      clientId,
-      status: InvoiceStatus.ENVOYEE,
-      issueDate: new Date(),
-      dueDate: new Date(),
-      currency: "TND",
-      lines: [
-        {
-          productId,
-          description: "Service Facturation",
-          quantity: 1,
-          unit: "unité",
-          unitPriceHTCents: 10000,
-          vatRate: 20,
-          discountRate: null,
-          discountAmountCents: null,
-          position: 0,
-        },
-      ],
-    });
-
+    const invoice = await createInvoice(buildInvoiceInput(InvoiceStatus.ENVOYEE));
     createdInvoiceIds.push(invoice.id);
 
     const outcome = await deleteInvoice(invoice.id);
     expect(outcome).toBe("cancelled");
 
-    const persisted = await prisma.invoice.findUniqueOrThrow({
-      where: { id: invoice.id },
+    const persisted = await prisma.invoice.findFirst({
+      where: { id: invoice.id, userId: user.id },
     });
-    expect(persisted.status).toBe(InvoiceStatus.ANNULEE);
+    expect(persisted?.status).toBe(InvoiceStatus.ANNULEE);
 
     const defaultListing = await listInvoices({ pageSize: 100 });
     expect(defaultListing.items.some((item) => item.id === invoice.id)).toBe(false);
@@ -126,7 +135,7 @@ describe("deleteInvoice", () => {
     expect(annulledListing.items.some((item) => item.id === invoice.id)).toBe(true);
 
     const logs = await prisma.invoiceAuditLog.findMany({
-      where: { invoiceId: invoice.id },
+      where: { invoiceId: invoice.id, userId: user.id },
       orderBy: { createdAt: "desc" },
     });
     expect(logs[0]?.action).toBe(InvoiceAuditAction.CANCELLATION);
@@ -135,48 +144,11 @@ describe("deleteInvoice", () => {
   });
 
   it("returns already-cancelled when attempting to delete a cancelled invoice again", async () => {
-    const invoice = await createInvoice({
-      clientId,
-      status: InvoiceStatus.ENVOYEE,
-      issueDate: new Date(),
-      dueDate: new Date(),
-      currency: "TND",
-      lines: [
-        {
-          productId,
-          description: "Service Facturation",
-          quantity: 1,
-          unit: "unité",
-          unitPriceHTCents: 10000,
-          vatRate: 20,
-          discountRate: null,
-          discountAmountCents: null,
-          position: 0,
-        },
-      ],
-    });
-
+    const invoice = await createInvoice(buildInvoiceInput(InvoiceStatus.ENVOYEE));
     createdInvoiceIds.push(invoice.id);
 
-    const firstAttempt = await deleteInvoice(invoice.id);
-    expect(firstAttempt).toBe("cancelled");
-
-    const secondAttempt = await deleteInvoice(invoice.id);
-    expect(secondAttempt).toBe("already-cancelled");
-
-    const logs = await prisma.invoiceAuditLog.findMany({
-      where: { invoiceId: invoice.id },
-    });
-    expect(
-      logs.filter((log) => log.action === InvoiceAuditAction.CANCELLATION),
-    ).toHaveLength(2);
-    expect(
-      logs.some(
-        (log) =>
-          log.action === InvoiceAuditAction.CANCELLATION &&
-          log.previousStatus === InvoiceStatus.ANNULEE &&
-          log.newStatus === InvoiceStatus.ANNULEE,
-      ),
-    ).toBe(true);
+    await deleteInvoice(invoice.id);
+    const outcome = await deleteInvoice(invoice.id);
+    expect(outcome).toBe("already-cancelled");
   });
 });

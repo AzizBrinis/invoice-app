@@ -853,7 +853,9 @@ export function MailboxClient({
                       {detail.subject}
                     </h3>
                     <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                      Reçu le {formatDate(detail.date)}
+                      {mailbox === "sent"
+                        ? `Envoyé le ${formatDate(detail.date)}`
+                        : `Reçu le ${formatDate(detail.date)}`}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
@@ -911,14 +913,85 @@ export function MailboxClient({
                   </div>
                 ) : null}
                 <div className="space-y-2 text-xs text-zinc-600 dark:text-zinc-400">
-                  {detail.from ? (
-                    <p>
-                      <span className="font-semibold text-zinc-700 dark:text-zinc-300">
-                        De :
-                      </span>{" "}
-                      {detail.from}
-                    </p>
-                  ) : null}
+                  <p>
+                    <span className="font-semibold text-zinc-700 dark:text-zinc-300">
+                      {mailbox === "sent" ? "À :" : "De :"}
+                    </span>{" "}
+                    {mailbox === "sent"
+                      ? detail.toAddresses.length > 0 || detail.to.length > 0
+                        ? (detail.toAddresses.length > 0
+                            ? detail.toAddresses
+                            : detail.to.map((raw) => ({
+                                name: raw,
+                                address: raw,
+                              }))
+                          )
+                            .map((recipient, index) => {
+                              const name = (recipient as { name?: string })
+                                .name?.trim();
+                              const address = (recipient as {
+                                address?: string;
+                              }).address?.trim();
+                              const label =
+                                name && name.length > 0
+                                  ? `${name} ${address ?? ""}`.trim()
+                                  : address ?? name ?? "";
+                              const key = `${label}-${index}`;
+                              return (
+                                <span key={key}>
+                                  {label}
+                                  {index <
+                                  (detail.toAddresses.length > 0
+                                    ? detail.toAddresses.length
+                                    : detail.to.length) -
+                                    1
+                                    ? ", "
+                                    : ""}
+                                </span>
+                              );
+                            })
+                        : "Destinataires inconnus"
+                      : detail.fromAddress?.address ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const address =
+                                detail.fromAddress?.address?.trim();
+                              if (!address) {
+                                addToast({
+                                  variant: "warning",
+                                  title:
+                                    "Adresse de l'expéditeur introuvable pour répondre.",
+                                });
+                                return;
+                              }
+                              const name = detail.fromAddress?.name?.trim();
+                              const recipient = name && name.length > 0
+                                ? `${name} <${address}>`
+                                : address;
+                              const params = new URLSearchParams();
+                              params.set("to", recipient);
+                              router.push(
+                                `/messagerie/nouveau-message?${params.toString()}`,
+                              );
+                            }}
+                            className="inline-flex flex-wrap items-center gap-2 rounded-md py-0.5 text-blue-600 transition hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:text-blue-400"
+                          >
+                            <span className="font-medium text-zinc-800 dark:text-zinc-100">
+                              {detail.fromAddress.name?.trim() ||
+                                detail.from?.trim() ||
+                                detail.fromAddress.address}
+                            </span>
+                            <span className="text-xs font-normal text-zinc-500 dark:text-zinc-400">
+                              {detail.fromAddress.address}
+                            </span>
+                          </button>
+                        ) : detail.from ? (
+                          <span>{detail.from}</span>
+                        ) : (
+                          <span>Expéditeur inconnu</span>
+                        )}
+                  </p>
                   {detail.to.length ? (
                     <p>
                       <span className="font-semibold text-zinc-700 dark:text-zinc-300">

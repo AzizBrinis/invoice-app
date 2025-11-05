@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import { requireUser } from "@/lib/auth";
 import { getSettings } from "@/server/settings";
 import { prisma } from "@/lib/prisma";
 import { Input } from "@/components/ui/input";
@@ -9,6 +10,8 @@ import { fromCents } from "@/lib/money";
 import { SUPPORTED_CURRENCIES } from "@/lib/currency";
 import { SettingsSkeleton } from "@/components/skeletons";
 import { FormSubmitButton } from "@/components/ui/form-submit-button";
+
+export const dynamic = "force-dynamic";
 
 const POSITION_OPTIONS = [
   { value: "top-left", label: "Haut gauche" },
@@ -26,8 +29,9 @@ export default function ParametresPage() {
 }
 
 async function ParametresPageContent() {
+  const user = await requireUser();
   const [settings, templates] = await Promise.all([
-    getSettings(),
+    getSettings(user.id),
     prisma.pdfTemplate.findMany({ orderBy: { name: "asc" } }),
   ]);
 

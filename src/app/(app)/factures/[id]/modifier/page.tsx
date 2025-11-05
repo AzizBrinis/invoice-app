@@ -1,11 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { requireUser } from "@/lib/auth";
 import { getInvoice } from "@/server/invoices";
 import { InvoiceEditor } from "@/app/(app)/factures/invoice-editor";
 import { getSettings } from "@/server/settings";
 import { SUPPORTED_CURRENCIES, type CurrencyCode } from "@/lib/currency";
 import { normalizeTaxConfiguration } from "@/lib/taxes";
+
+export const dynamic = "force-dynamic";
 
 type PageParams = { id: string };
 
@@ -31,10 +34,17 @@ export default async function EditFacturePage({
     notFound();
   }
 
+  const user = await requireUser();
   const [clients, products, settings] = await Promise.all([
-    prisma.client.findMany({ orderBy: { displayName: "asc" } }),
-    prisma.product.findMany({ orderBy: { name: "asc" } }),
-    getSettings(),
+    prisma.client.findMany({
+      where: { userId: user.id },
+      orderBy: { displayName: "asc" },
+    }),
+    prisma.product.findMany({
+      where: { userId: user.id },
+      orderBy: { name: "asc" },
+    }),
+    getSettings(user.id),
   ]);
 
   return (

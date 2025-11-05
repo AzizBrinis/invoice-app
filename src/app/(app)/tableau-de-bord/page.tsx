@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import { prisma } from "@/lib/prisma";
+import { requireUser } from "@/lib/auth";
 import { getDashboardMetrics } from "@/server/analytics";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import { fromCents } from "@/lib/money";
@@ -7,6 +8,9 @@ import { Badge } from "@/components/ui/badge";
 import { getSettings } from "@/server/settings";
 import type { CurrencyCode } from "@/lib/currency";
 import { DashboardSkeleton } from "@/components/skeletons";
+import { RevenueHistoryChart } from "@/components/dashboard/revenue-history-chart";
+
+export const dynamic = "force-dynamic";
 
 function statusVariant(status: string) {
   switch (status) {
@@ -31,12 +35,14 @@ export default function DashboardPage() {
 }
 
 async function DashboardPageContent() {
-  const settings = await getSettings();
+  const user = await requireUser();
+  const settings = await getSettings(user.id);
   const dashboardCurrency = settings.defaultCurrency as CurrencyCode;
 
   const [metrics, recentInvoices, recentQuotes] = await Promise.all([
     getDashboardMetrics(dashboardCurrency),
     prisma.invoice.findMany({
+      where: { userId: user.id },
       orderBy: { issueDate: "desc" },
       take: 5,
       include: {
@@ -44,6 +50,7 @@ async function DashboardPageContent() {
       },
     }),
     prisma.quote.findMany({
+      where: { userId: user.id },
       orderBy: { issueDate: "desc" },
       take: 5,
       include: {
@@ -51,11 +58,6 @@ async function DashboardPageContent() {
       },
     }),
   ]);
-
-  const maxValue = Math.max(
-    ...metrics.revenueHistory.map((value) => value.amountCents),
-    1,
-  );
 
   return (
     <div className="space-y-8">
@@ -111,32 +113,10 @@ async function DashboardPageContent() {
         </div>
       </section>
 
-      <section className="card p-5">
-        <h3 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
-          Évolution des encaissements (6 derniers mois)
-        </h3>
-        <div className="mt-6 flex h-48 items-end gap-4">
-          {metrics.revenueHistory.map((item) => {
-            const height = Math.max((item.amountCents / maxValue) * 100, 4);
-            const [year, month] = item.month.split("-");
-            return (
-              <div key={item.month} className="flex flex-1 flex-col items-center">
-                <div
-                  className="w-full rounded-t-lg bg-blue-500 transition-all dark:bg-blue-400"
-                  style={{ height: `${height}%` }}
-                  title={formatCurrency(fromCents(item.amountCents, dashboardCurrency), dashboardCurrency)}
-                />
-                <span className="mt-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                  {month}/{year.slice(-2)}
-                </span>
-                <span className="text-xs text-zinc-400 dark:text-zinc-500">
-                  {formatCurrency(fromCents(item.amountCents, dashboardCurrency), dashboardCurrency)}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      </section>
+      <RevenueHistoryChart
+        history={metrics.revenueHistory}
+        currency={dashboardCurrency}
+      />
 
       <section className="grid gap-6 lg:grid-cols-2">
         <div className="card p-5">

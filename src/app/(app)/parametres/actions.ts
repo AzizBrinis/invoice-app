@@ -11,6 +11,7 @@ import {
 } from "@/lib/taxes";
 import { fromCents, toCents } from "@/lib/money";
 import { prisma } from "@/lib/prisma";
+import { requireUser } from "@/lib/auth";
 
 const IMAGE_POSITIONS = [
   "top-left",
@@ -191,10 +192,11 @@ async function parseSettingsForm(
 }
 
 export async function updateSettingsAction(formData: FormData) {
+  const { id: userId } = await requireUser();
   const currentSettings = await prisma.companySettings.findUnique({
-    where: { id: 1 },
+    where: { userId },
   });
   const parsed = await parseSettingsForm(formData, currentSettings);
-  await updateSettings(parsed);
+  await updateSettings(parsed, userId);
   revalidatePath("/parametres");
 }

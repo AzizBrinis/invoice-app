@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { requireUser } from "@/lib/auth";
 import { calculateDocumentTotals, calculateLineTotals } from "@/lib/documents";
 import { getSettings } from "@/server/settings";
 import {
@@ -80,6 +81,49 @@ export type InvoiceFilters = {
 };
 
 const DEFAULT_PAGE_SIZE = 10;
+
+async function assertClientOwnership(userId: string, clientId: string) {
+  const client = await prisma.client.findFirst({
+    where: { id: clientId, userId },
+  });
+  if (!client) {
+    throw new Error("Client introuvable");
+  }
+  return client;
+}
+
+async function assertProductsOwnership(
+  userId: string,
+  productIds: Array<string | null | undefined>,
+) {
+  const ids = Array.from(
+    new Set(productIds.filter((value): value is string => Boolean(value))),
+  );
+  if (ids.length === 0) {
+    return;
+  }
+  const count = await prisma.product.count({
+    where: { id: { in: ids }, userId },
+  });
+  if (count !== ids.length) {
+    throw new Error("Produit introuvable");
+  }
+}
+
+async function assertInvoiceOwnership<T extends Prisma.InvoiceInclude | undefined>(
+  userId: string,
+  id: string,
+  include?: T,
+) {
+  const invoice = await prisma.invoice.findFirst({
+    where: { id, userId },
+    include,
+  });
+  if (!invoice) {
+    throw new Error("Facture introuvable");
+  }
+  return invoice as Prisma.InvoiceGetPayload<{ include: T }>;
+}
 
 function calculateStatusAfterPayment(
   invoice: {
@@ -254,8 +298,12 @@ function serializeVat(entries: ReturnType<typeof calculateDocumentTotals>["vatEn
 }
 
 export async function listInvoices(filters: InvoiceFilters = {}) {
+  const { id: userId } = await requireUser();
   const { page = 1, pageSize = DEFAULT_PAGE_SIZE } = filters;
-  const where = buildInvoiceWhere(filters);
+  const where: Prisma.InvoiceWhereInput = {
+    userId,
+    ...buildInvoiceWhere(filters),
+  };
 
   const [items, total] = await Promise.all([
     prisma.invoice.findMany({
@@ -283,8 +331,9 @@ export async function listInvoices(filters: InvoiceFilters = {}) {
 }
 
 export async function getInvoice(id: string) {
-  return prisma.invoice.findUnique({
-    where: { id },
+  const { id: userId } = await requireUser();
+  return prisma.invoice.findFirst({
+    where: { id, userId },
     include: {
       client: true,
       lines: { orderBy: { position: "asc" }, include: { product: true } },
@@ -295,17 +344,28 @@ export async function getInvoice(id: string) {
 }
 
 export async function createInvoice(input: InvoiceInput) {
+  const { id: userId } = await requireUser();
+  return createInvoiceForUser(userId, input);
+}
+
+export async function createInvoiceForUser(userId: string, input: InvoiceInput) {
   const payload = invoiceInputSchema.parse(input);
-  const settings = await getSettings();
+  await assertClientOwnership(userId, payload.clientId);
+  await assertProductsOwnership(
+    userId,
+    payload.lines.map((line) => line.productId),
+  );
+  const settings = await getSettings(userId);
   const taxConfig = normalizeTaxConfiguration(
     (settings as { taxConfiguration?: unknown }).taxConfiguration,
   );
   const { computedLines, totals, timbreAmountCents, taxConfigurationSnapshot } =
     computeInvoiceTotals(payload, taxConfig);
-  const number = payload.number ?? (await nextInvoiceNumber());
+  const number = payload.number ?? (await nextInvoiceNumber(userId));
 
   const invoice = await prisma.invoice.create({
     data: {
+      userId,
       number,
       clientId: payload.clientId,
       status: payload.status,
@@ -358,8 +418,15 @@ export async function createInvoice(input: InvoiceInput) {
 }
 
 export async function updateInvoice(id: string, input: InvoiceInput) {
+  const { id: userId } = await requireUser();
+  await assertInvoiceOwnership(userId, id);
   const payload = invoiceInputSchema.parse({ ...input, id });
-  const settings = await getSettings();
+  await assertClientOwnership(userId, payload.clientId);
+  await assertProductsOwnership(
+    userId,
+    payload.lines.map((line) => line.productId),
+  );
+  const settings = await getSettings(userId);
   const taxConfig = normalizeTaxConfiguration(
     (settings as { taxConfiguration?: unknown }).taxConfiguration,
   );
@@ -372,6 +439,7 @@ export async function updateInvoice(id: string, input: InvoiceInput) {
     const updated = await tx.invoice.update({
       where: { id },
       data: {
+        userId,
         clientId: payload.clientId,
         status: payload.status,
         reference: payload.reference,
@@ -427,9 +495,10 @@ export async function updateInvoice(id: string, input: InvoiceInput) {
 export type DeleteInvoiceOutcome = "deleted" | "cancelled" | "already-cancelled";
 
 export async function deleteInvoice(id: string): Promise<DeleteInvoiceOutcome> {
+  const { id: userId } = await requireUser();
   return prisma.$transaction(async (tx) => {
-    const invoice = await tx.invoice.findUnique({
-      where: { id },
+    const invoice = await tx.invoice.findFirst({
+      where: { id, userId },
       select: { status: true, number: true },
     });
 
@@ -441,6 +510,7 @@ export async function deleteInvoice(id: string): Promise<DeleteInvoiceOutcome> {
       await tx.invoiceAuditLog.create({
         data: {
           invoiceId: id,
+          userId,
           action: InvoiceAuditAction.DELETION,
           previousStatus: invoice.status,
           note: `Suppression définitive de la facture ${invoice.number} à l'état brouillon`,
@@ -454,6 +524,7 @@ export async function deleteInvoice(id: string): Promise<DeleteInvoiceOutcome> {
       await tx.invoiceAuditLog.create({
         data: {
           invoiceId: id,
+          userId,
           action: InvoiceAuditAction.CANCELLATION,
           previousStatus: invoice.status,
           newStatus: InvoiceStatus.ANNULEE,
@@ -471,6 +542,7 @@ export async function deleteInvoice(id: string): Promise<DeleteInvoiceOutcome> {
     await tx.invoiceAuditLog.create({
       data: {
         invoiceId: id,
+        userId,
         action: InvoiceAuditAction.CANCELLATION,
         previousStatus: invoice.status,
         newStatus: InvoiceStatus.ANNULEE,
@@ -482,6 +554,8 @@ export async function deleteInvoice(id: string): Promise<DeleteInvoiceOutcome> {
 }
 
 export async function changeInvoiceStatus(id: string, status: InvoiceStatus) {
+  const { id: userId } = await requireUser();
+  await assertInvoiceOwnership(userId, id);
   return prisma.invoice.update({
     where: { id },
     data: { status },
@@ -497,28 +571,36 @@ const paymentSchema = z.object({
 });
 
 export async function recordPayment(input: z.infer<typeof paymentSchema>) {
+  const { id: userId } = await requireUser();
   const payload = paymentSchema.parse(input);
+  await assertInvoiceOwnership(userId, payload.invoiceId);
 
   return prisma.$transaction(async (tx) => {
     const payment = await tx.payment.create({
-      data: payload,
+      data: {
+        ...payload,
+        userId,
+      },
     });
 
     const sums = await tx.payment.aggregate({
-      where: { invoiceId: payload.invoiceId },
+      where: { invoiceId: payload.invoiceId, userId },
       _sum: {
         amountCents: true,
       },
     });
 
-    const invoice = await tx.invoice.findUniqueOrThrow({
-      where: { id: payload.invoiceId },
+    const invoice = await tx.invoice.findFirst({
+      where: { id: payload.invoiceId, userId },
       select: {
         status: true,
         totalTTCCents: true,
         dueDate: true,
       },
     });
+    if (!invoice) {
+      throw new Error("Facture introuvable");
+    }
 
     const amountPaidCents = sums._sum.amountCents ?? 0;
     const newStatus = calculateStatusAfterPayment({
@@ -541,26 +623,37 @@ export async function recordPayment(input: z.infer<typeof paymentSchema>) {
 }
 
 export async function deletePayment(paymentId: string) {
+  const { id: userId } = await requireUser();
   await prisma.$transaction(async (tx) => {
-    const payment = await tx.payment.delete({
+    const existing = await tx.payment.findFirst({
+      where: { id: paymentId, userId },
+    });
+    if (!existing) {
+      throw new Error("Paiement introuvable");
+    }
+
+    await tx.payment.delete({
       where: { id: paymentId },
     });
 
     const sums = await tx.payment.aggregate({
-      where: { invoiceId: payment.invoiceId },
+      where: { invoiceId: existing.invoiceId, userId },
       _sum: {
         amountCents: true,
       },
     });
 
-    const invoice = await tx.invoice.findUniqueOrThrow({
-      where: { id: payment.invoiceId },
+    const invoice = await tx.invoice.findFirst({
+      where: { id: existing.invoiceId, userId },
       select: {
         status: true,
         totalTTCCents: true,
         dueDate: true,
       },
     });
+    if (!invoice) {
+      throw new Error("Facture introuvable");
+    }
 
     const amountPaidCents = sums._sum.amountCents ?? 0;
     const newStatus = calculateStatusAfterPayment({
@@ -571,7 +664,7 @@ export async function deletePayment(paymentId: string) {
     });
 
     await tx.invoice.update({
-      where: { id: payment.invoiceId },
+      where: { id: existing.invoiceId },
       data: {
         amountPaidCents,
         status: newStatus,
@@ -584,8 +677,9 @@ export async function reconcileInvoiceStatus(
   id: string,
   options?: { preserveStatus?: InvoiceStatus },
 ) {
-  const invoice = await prisma.invoice.findUnique({
-    where: { id },
+  const { id: userId } = await requireUser();
+  const invoice = await prisma.invoice.findFirst({
+    where: { id, userId },
     include: {
       payments: true,
     },
@@ -638,6 +732,18 @@ export async function linkQuoteToInvoice(
   invoiceId: string,
   quoteId: string,
 ) {
+  const { id: userId } = await requireUser();
+  await assertInvoiceOwnership(userId, invoiceId);
+  const quote = await prisma.quote.findFirst({
+    where: { id: quoteId, userId },
+    include: { invoice: true },
+  });
+  if (!quote) {
+    throw new Error("Devis introuvable");
+  }
+  if (quote.invoice && quote.invoice.id !== invoiceId) {
+    throw new Error("Ce devis est déjà lié à une autre facture");
+  }
   await prisma.$transaction(async (tx) => {
     await tx.invoice.update({
       where: { id: invoiceId },

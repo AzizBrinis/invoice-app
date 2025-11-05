@@ -43,7 +43,17 @@ const defaultMailboxCache = (): MailboxCache => ({
   totalMessages: null,
 });
 
-const STORAGE_KEY = "mailbox-cache-v2";
+const STORAGE_KEY_PREFIX = "mailbox-cache-v2";
+
+let activeUserId: string | null = null;
+
+function buildStorageKey(userId: string | null) {
+  return userId ? `${STORAGE_KEY_PREFIX}:${userId}` : STORAGE_KEY_PREFIX;
+}
+
+function getActiveStorageKey() {
+  return buildStorageKey(activeUserId);
+}
 
 function createInitialState(): StoreState {
   const entries = MAILBOX_KEYS.reduce<Record<Mailbox, MailboxCache>>(
@@ -61,6 +71,7 @@ const initialState: StoreState = createInitialState();
 type Listener = () => void;
 
 let hasHydratedFromStorage = false;
+let hydratedStorageKey: string | null = null;
 
 function getStorage(): Storage | null {
   if (typeof window === "undefined") {
@@ -76,9 +87,10 @@ function getStorage(): Storage | null {
 function persistState(state: StoreState) {
   const storage = getStorage();
   if (!storage) return;
+  const storageKey = getActiveStorageKey();
   try {
     storage.setItem(
-      STORAGE_KEY,
+      storageKey,
       JSON.stringify({
         mailboxes: state.mailboxes,
       }),
@@ -89,14 +101,16 @@ function persistState(state: StoreState) {
 }
 
 function hydrateFromStorage() {
-  if (hasHydratedFromStorage) {
+  const storageKey = getActiveStorageKey();
+  if (hasHydratedFromStorage && hydratedStorageKey === storageKey) {
     return;
   }
   hasHydratedFromStorage = true;
+  hydratedStorageKey = storageKey;
   const storage = getStorage();
   if (!storage) return;
   try {
-    const raw = storage.getItem(STORAGE_KEY);
+    const raw = storage.getItem(storageKey);
     if (!raw) return;
     const parsed = JSON.parse(raw) as Partial<StoreState>;
     if (!parsed?.mailboxes) return;
@@ -147,6 +161,39 @@ const store = {
     };
   },
 };
+
+export function setMailboxCacheUser(userId: string | null) {
+  const normalizedUserId = userId ?? null;
+  if (normalizedUserId === activeUserId) {
+    return;
+  }
+  activeUserId = normalizedUserId;
+  store.setState(createInitialState());
+  hasHydratedFromStorage = false;
+  hydratedStorageKey = null;
+}
+
+export function clearMailboxCache(userId?: string | null) {
+  const targetUserId =
+    typeof userId === "undefined" ? activeUserId : userId ?? null;
+  const storageKey = buildStorageKey(targetUserId);
+  const storage = getStorage();
+  if (storage) {
+    try {
+      storage.removeItem(storageKey);
+    } catch (error) {
+      console.error(
+        "Impossible de supprimer le cache de messagerie:",
+        error,
+      );
+    }
+  }
+  if (targetUserId === activeUserId) {
+    store.setState(createInitialState());
+    hasHydratedFromStorage = false;
+    hydratedStorageKey = null;
+  }
+}
 
 function computeLatestUid(messages: MailboxListItem[]): number | null {
   if (!messages.length) {

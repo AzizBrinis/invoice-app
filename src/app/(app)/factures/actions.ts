@@ -14,19 +14,42 @@ import {
   deletePayment,
   reconcileInvoiceStatus,
 } from "@/server/invoices";
-import { InvoiceStatus } from "@prisma/client";
+import { InvoiceStatus, UserRole } from "@prisma/client";
 import { toCents } from "@/lib/money";
 import { sendInvoiceEmail } from "@/server/email";
 import { getMessagingSettingsSummary } from "@/server/messaging";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
-import { ensureCanManageBilling } from "@/lib/authorization";
+import {
+  ensureCanManageBilling,
+  BILLING_MANAGER_ROLES,
+} from "@/lib/authorization";
 import { isRedirectError } from "@/lib/next";
 import type { InvoiceFormState } from "@/app/(app)/factures/form-state";
 
 async function requireBillingAccess() {
   const user = await requireUser();
+  const managerRoles = Array.from(BILLING_MANAGER_ROLES);
+  if (!managerRoles.includes(user.role)) {
+    const billingManagerCount = await prisma.user.count({
+      where: {
+        role: {
+          in: managerRoles,
+        },
+      },
+    });
+    if (billingManagerCount === 0) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { role: UserRole.ADMIN },
+      });
+      const elevatedUser = { ...user, role: UserRole.ADMIN };
+      ensureCanManageBilling(elevatedUser);
+      return elevatedUser;
+    }
+  }
   ensureCanManageBilling(user);
+  return user;
 }
 
 function parsePayload(formData: FormData) {
@@ -278,7 +301,7 @@ async function changeInvoiceStatusActionInternal(
 }
 
 export async function recordPaymentAction(formData: FormData) {
-  await requireBillingAccess();
+  const user = await requireBillingAccess();
   const invoiceId = formData.get("invoiceId")?.toString();
   const fallback = invoiceId ? `/factures/${invoiceId}` : "/factures";
   const redirectTarget = resolveRedirectTarget(formData, fallback);
@@ -292,8 +315,8 @@ export async function recordPaymentAction(formData: FormData) {
       throw new Error("Informations de paiement incomplètes");
     }
 
-    const invoice = await prisma.invoice.findUnique({
-      where: { id: invoiceId },
+    const invoice = await prisma.invoice.findFirst({
+      where: { id: invoiceId, userId: user.id },
       select: { currency: true },
     });
 
@@ -358,20 +381,21 @@ export async function sendInvoiceEmailAction(id: string, formData: FormData) {
   const messagingSummary = await getMessagingSettingsSummary();
   const to = formData.get("email")?.toString();
   const subject = formData.get("subject")?.toString() || undefined;
-  const message = formData.get("message")?.toString() || undefined;
   const redirectTarget = resolveRedirectTarget(formData, `/factures/${id}`);
   if (!messagingSummary.smtpConfigured) {
     redirectWithFeedback(redirectTarget, {
-      warning: "Veuillez configurer votre messagerie (SMTP/IMAP) avant d'envoyer des emails.",
+      warning: "Veuillez configurer la messagerie (SMTP/IMAP) avant d'envoyer des factures.",
     });
+    return;
   }
   if (!to) {
     redirectWithFeedback(redirectTarget, {
       error: "Adresse e-mail requise",
     });
+    return;
   }
   try {
-    await sendInvoiceEmail({ invoiceId: id, to, subject, message });
+    await sendInvoiceEmail({ invoiceId: id, to, subject });
     revalidatePath(`/factures/${id}`);
     redirectWithFeedback(redirectTarget, {
       message: "Facture envoyée par e-mail",
@@ -385,7 +409,7 @@ export async function sendInvoiceEmailAction(id: string, formData: FormData) {
       error instanceof Error ? error.message : "Échec de l'envoi de l'e-mail. Veuillez réessayer.";
     const needsConfig = /smtp|messagerie/i.test(rawMessage);
     const feedbackMessage = needsConfig
-      ? "Veuillez configurer votre messagerie (SMTP/IMAP) avant d'envoyer des emails."
+      ? "Veuillez configurer la messagerie (SMTP/IMAP) avant d'envoyer des factures."
       : "Échec de l'envoi de l'e-mail. Veuillez réessayer.";
     revalidatePath(`/factures/${id}`);
     redirectWithFeedback(redirectTarget, needsConfig ? { warning: feedbackMessage } : { error: feedbackMessage });

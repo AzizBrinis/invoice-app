@@ -9,6 +9,8 @@ import {
 import { Topbar } from "@/components/layout/topbar";
 import { MailboxSyncProvider } from "@/app/(app)/messagerie/_components/mailbox-sync-provider";
 
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: "Espace administrateur — Application de facturation",
 };
@@ -66,8 +68,8 @@ export default async function AppLayout({
   children: React.ReactNode;
 }) {
   const user = await requireUser();
-  const settings = await getSettings();
-  const messagingSummary = await getMessagingSettingsSummary();
+  const settings = await getSettings(user.id);
+  const messagingSummary = await getMessagingSettingsSummary(user.id);
 
   return (
     <div className="min-h-screen bg-zinc-100 transition-colors dark:bg-zinc-950">
@@ -80,7 +82,10 @@ export default async function AppLayout({
             user={{ name: user.name, email: user.email }}
           />
           <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
-            <MailboxSyncProvider enabled={messagingSummary.imapConfigured} />
+            <MailboxSyncProvider
+              enabled={messagingSummary.imapConfigured}
+              userId={user.id}
+            />
             <div className="mx-auto w-full max-w-7xl space-y-6">
               {children}
             </div>

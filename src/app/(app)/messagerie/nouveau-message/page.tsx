@@ -6,11 +6,13 @@ import {
   type Mailbox,
   type MessageParticipant,
 } from "@/server/messaging";
+import { listSavedResponses } from "@/server/messaging-responses";
 import { ComposeClient } from "@/app/(app)/messagerie/_components/compose-client";
 import {
   parseRecipientHeaders,
   type RecipientDraft,
 } from "@/lib/messaging/recipients";
+import { getSettings } from "@/server/settings";
 
 export const dynamic = "force-dynamic";
 
@@ -252,6 +254,7 @@ export default async function NouveauMessagePage({
   searchParams,
 }: NouveauMessagePageProps) {
   const summary = await getMessagingSettingsSummary();
+  const companySettings = await getSettings();
 
   const resolvedSearchParams =
     searchParams && typeof (searchParams as Promise<unknown>).then === "function"
@@ -286,12 +289,44 @@ export default async function NouveauMessagePage({
     }
   }
 
+  const savedResponses = await listSavedResponses();
+  const companyPlaceholderValues = {
+    company_name: companySettings.companyName?.trim() ?? "",
+    company_email: companySettings.email?.trim() ?? "",
+    company_phone: companySettings.phone?.trim() ?? "",
+    company_address: companySettings.address?.trim() ?? "",
+  };
+
+  if (!initialDraft) {
+    const toParam = resolvedSearchParams.to;
+    const rawValues = Array.isArray(toParam) ? toParam : toParam ? [toParam] : [];
+    const parsedRecipients = parseRecipientHeaders(
+      rawValues.flatMap((value) => {
+        if (typeof value !== "string") {
+          return [];
+        }
+        return value
+          .split(/[;,]/)
+          .map((entry) => entry.trim())
+          .filter((entry) => entry.length > 0);
+      }),
+    );
+    if (parsedRecipients.length > 0) {
+      initialDraft = {
+        to: parsedRecipients,
+        body: "",
+      };
+    }
+  }
+
   return (
     <ComposeClient
       fromEmail={summary.fromEmail}
       senderName={summary.senderName}
       smtpConfigured={summary.smtpConfigured}
       initialDraft={initialDraft}
+      savedResponses={savedResponses}
+      companyPlaceholders={companyPlaceholderValues}
     />
   );
 }

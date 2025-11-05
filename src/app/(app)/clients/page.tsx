@@ -12,6 +12,8 @@ import {
   type FlashMessage,
 } from "@/components/ui/flash-messages";
 
+export const dynamic = "force-dynamic";
+
 function parseBooleanFilter(value: string | undefined): boolean | "all" {
   if (!value || value === "all") return "all";
   if (value === "actifs") return true;

@@ -2,6 +2,8 @@ import fs from "fs";
 import path from "path";
 import puppeteer from "puppeteer";
 import { prisma } from "@/lib/prisma";
+import { requireUser } from "@/lib/auth";
+import { getSettings } from "@/server/settings";
 import {
   formatCurrency as formatCurrencyIntl,
   formatDate,
@@ -59,10 +61,14 @@ function formatCurrency(value: number, currency: string) {
   return formatCurrencyIntl(value, currency);
 }
 
-async function fetchCompanySettings() {
-  return prisma.companySettings.findUnique({
-    where: { id: 1 },
+async function fetchCompanySettings(userId: string) {
+  const settings = await prisma.companySettings.findUnique({
+    where: { userId },
   });
+  if (settings) {
+    return settings;
+  }
+  return getSettings(userId);
 }
 
 async function getBrowser() {
@@ -665,15 +671,20 @@ function buildDocumentHtml(
 }
 
 export async function generateQuotePdf(quoteId: string) {
+  const { id: userId } = await requireUser();
+  return generateQuotePdfForUser(userId, quoteId);
+}
+
+async function generateQuotePdfForUser(userId: string, quoteId: string) {
   const [quote, settings] = await Promise.all([
-    prisma.quote.findUnique({
-      where: { id: quoteId },
+    prisma.quote.findFirst({
+      where: { id: quoteId, userId },
       include: {
         client: true,
         lines: { orderBy: { position: "asc" } },
       },
     }),
-    fetchCompanySettings(),
+    fetchCompanySettings(userId),
   ]);
 
   if (!quote) {
@@ -685,16 +696,21 @@ export async function generateQuotePdf(quoteId: string) {
 }
 
 export async function generateInvoicePdf(invoiceId: string) {
+  const { id: userId } = await requireUser();
+  return generateInvoicePdfForUser(userId, invoiceId);
+}
+
+async function generateInvoicePdfForUser(userId: string, invoiceId: string) {
   const [invoice, settings] = await Promise.all([
-    prisma.invoice.findUnique({
-      where: { id: invoiceId },
+    prisma.invoice.findFirst({
+      where: { id: invoiceId, userId },
       include: {
         client: true,
         lines: { orderBy: { position: "asc" } },
         payments: true,
       },
     }),
-    fetchCompanySettings(),
+    fetchCompanySettings(userId),
   ]);
 
   if (!invoice) {

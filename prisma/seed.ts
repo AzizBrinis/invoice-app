@@ -1,8 +1,15 @@
-import { PrismaClient, InvoiceStatus, QuoteStatus, UserRole } from "@prisma/client";
+import {
+  PrismaClient,
+  InvoiceStatus,
+  QuoteStatus,
+  UserRole,
+  SavedResponseFormat,
+} from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { calculateDocumentTotals, calculateLineTotals, currencyUnitToCents } from "../src/lib/documents";
 import { DEFAULT_TAX_CONFIGURATION } from "../src/lib/taxes";
 import { getDefaultCurrencyCode } from "../src/lib/currency";
+import { DEFAULT_SAVED_RESPONSES } from "../src/lib/messaging/default-responses";
 
 const prisma = new PrismaClient();
 const SEED_CURRENCY = getDefaultCurrencyCode();
@@ -34,6 +41,7 @@ const LINE_FODEC_RATE_SEED =
 
 async function resetDatabase() {
   await prisma.emailLog.deleteMany();
+  await prisma.invoiceAuditLog.deleteMany();
   await prisma.payment.deleteMany();
   await prisma.invoiceLine.deleteMany();
   await prisma.quoteLine.deleteMany();
@@ -42,6 +50,10 @@ async function resetDatabase() {
   await prisma.product.deleteMany();
   await prisma.client.deleteMany();
   await prisma.numberingSequence.deleteMany();
+  await prisma.messagingSettings.deleteMany();
+  await prisma.messagingSavedResponse.deleteMany();
+  await prisma.spamDetectionLog.deleteMany();
+  await prisma.spamSenderReputation.deleteMany();
   await prisma.pdfTemplate.deleteMany();
   await prisma.companySettings.deleteMany();
   await prisma.session.deleteMany();
@@ -88,7 +100,7 @@ async function seed() {
 
   await prisma.companySettings.create({
     data: {
-      id: 1,
+      userId: adminUser.id,
       companyName: "Société Démonstration Tunisie",
       logoUrl: null,
       logoData: null,
@@ -121,6 +133,21 @@ async function seed() {
       quoteTemplateId: quoteTemplate.id,
       taxConfiguration: DEFAULT_TAX_CONFIGURATION,
     },
+  });
+
+  await prisma.messagingSavedResponse.createMany({
+    data: DEFAULT_SAVED_RESPONSES.map((entry) => ({
+      userId: adminUser.id,
+      title: entry.title,
+      description: entry.description,
+      content: entry.content,
+      format:
+        entry.format === "HTML"
+          ? SavedResponseFormat.HTML
+          : SavedResponseFormat.PLAINTEXT,
+      slug: entry.slug,
+      builtIn: true,
+    })),
   });
 
   const clients = await prisma.$transaction(
@@ -175,7 +202,14 @@ async function seed() {
         vatNumber: "TN7788990F",
         notes: "Paiement rapide, communication Slack.",
       },
-    ].map((data) => prisma.client.create({ data })),
+    ].map((data) =>
+      prisma.client.create({
+        data: {
+          ...data,
+          userId: adminUser.id,
+        },
+      }),
+    ),
   );
 
   const productsData = [
@@ -263,12 +297,13 @@ async function seed() {
 
   const products = await prisma.$transaction(
     productsData.map((product) => {
-    const priceHTCents = currencyUnitToCents(product.priceHT, SEED_CURRENCY);
+      const priceHTCents = currencyUnitToCents(product.priceHT, SEED_CURRENCY);
       const priceTTCCents = Math.round(
         priceHTCents * (1 + product.vat / 100),
       );
       return prisma.product.create({
         data: {
+          userId: adminUser.id,
           sku: product.sku,
           name: product.name,
           description: product.description,
@@ -289,12 +324,14 @@ async function seed() {
   await prisma.numberingSequence.createMany({
     data: [
       {
+        userId: adminUser.id,
         type: "DEVIS",
         prefix: "DEV",
         year: new Date().getFullYear(),
         counter: 4,
       },
       {
+        userId: adminUser.id,
         type: "FACTURE",
         prefix: "FAC",
         year: new Date().getFullYear(),
@@ -362,6 +399,7 @@ async function seed() {
 
     const quote = await prisma.quote.create({
       data: {
+        userId: adminUser.id,
         number,
         status: i === 0 ? QuoteStatus.ENVOYE : QuoteStatus.ACCEPTE,
         reference: `Q-${i + 1}`,
@@ -482,6 +520,7 @@ async function seed() {
 
     const invoice = await prisma.invoice.create({
       data: {
+        userId: adminUser.id,
         number,
         status: invoiceStatus,
         reference: `F-${i + 1}`,
@@ -545,6 +584,7 @@ async function seed() {
     if (invoiceStatus === InvoiceStatus.PAYEE) {
       await prisma.payment.create({
         data: {
+          userId: adminUser.id,
           invoiceId: invoice.id,
           amountCents: totals.totalTTCCents,
           method: "Virement bancaire",
@@ -559,6 +599,7 @@ async function seed() {
     } else {
       await prisma.payment.create({
         data: {
+          userId: adminUser.id,
           invoiceId: invoice.id,
           amountCents: Math.round(totals.totalTTCCents * 0.4),
           method: "Virement bancaire",
@@ -576,7 +617,10 @@ async function seed() {
   if (createdQuotes[1]) {
     await prisma.invoice.update({
       where: {
-        number: `FAC-${quoteBaseDate.getFullYear()}-0002`,
+        userId_number: {
+          userId: adminUser.id,
+          number: `FAC-${quoteBaseDate.getFullYear()}-0002`,
+        },
       },
       data: {
         quoteId: createdQuotes[1].id,
@@ -587,6 +631,7 @@ async function seed() {
   await prisma.emailLog.createMany({
     data: [
       {
+        userId: adminUser.id,
         documentType: "DEVIS",
         documentId: createdQuotes[0].id,
         to: "contact@ateliersmartin.fr",
@@ -596,6 +641,7 @@ async function seed() {
         status: "ENVOYE",
       },
       createdInvoices[1] && {
+        userId: adminUser.id,
         documentType: "FACTURE",
         documentId: createdInvoices[1].id,
         to: "finance@startinnov.fr",

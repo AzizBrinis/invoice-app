@@ -91,8 +91,19 @@ export async function requireUser(options?: { roles?: readonly UserRole[] }) {
 }
 
 async function clearSessionCookie() {
-  const cookieStore = await cookies();
-  cookieStore.delete(SESSION_COOKIE_NAME);
+  try {
+    const cookieStore = await cookies();
+    if (typeof cookieStore.delete === "function") {
+      cookieStore.delete(SESSION_COOKIE_NAME);
+    }
+  } catch (error) {
+    if (
+      !(error instanceof Error) ||
+      !error.message.includes("Cookies can only be modified")
+    ) {
+      throw error;
+    }
+  }
 }
 
 async function findSessionByToken(token: string) {

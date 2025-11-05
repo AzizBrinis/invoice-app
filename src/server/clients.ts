@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { requireUser } from "@/lib/auth";
 import { z } from "zod";
 
 export const clientSchema = z.object({
@@ -25,6 +26,7 @@ export type ClientFilters = {
 const DEFAULT_PAGE_SIZE = 10;
 
 export async function listClients(filters: ClientFilters = {}) {
+  const { id: userId } = await requireUser();
   const {
     search,
     page = 1,
@@ -33,6 +35,7 @@ export async function listClients(filters: ClientFilters = {}) {
   } = filters;
 
   const where = {
+    userId,
     ...(isActive === "all" ? {} : { isActive }),
     ...(search
       ? {
@@ -67,8 +70,9 @@ export async function listClients(filters: ClientFilters = {}) {
 }
 
 export async function getClient(id: string) {
-  return prisma.client.findUnique({
-    where: { id },
+  const { id: userId } = await requireUser();
+  return prisma.client.findFirst({
+    where: { id, userId },
     include: {
       quotes: true,
       invoices: true,
@@ -77,17 +81,26 @@ export async function getClient(id: string) {
 }
 
 export async function createClient(input: ClientInput) {
+  const { id: userId } = await requireUser();
   const payload = clientSchema.parse(input);
   const { id: _id, ...data } = payload;
   void _id;
   return prisma.client.create({
     data: {
+      userId,
       ...data,
     },
   });
 }
 
 export async function updateClient(id: string, input: ClientInput) {
+  const { id: userId } = await requireUser();
+  const existing = await prisma.client.findFirst({
+    where: { id, userId },
+  });
+  if (!existing) {
+    throw new Error("Client introuvable");
+  }
   const payload = clientSchema.parse({ ...input, id });
   const { id: _id, ...data } = payload;
   void _id;
@@ -95,14 +108,22 @@ export async function updateClient(id: string, input: ClientInput) {
     where: { id },
     data: {
       ...data,
+      userId,
     },
   });
 }
 
 export async function deleteClient(id: string) {
+  const { id: userId } = await requireUser();
+  const client = await prisma.client.findFirst({
+    where: { id, userId },
+  });
+  if (!client) {
+    throw new Error("Client introuvable");
+  }
   const [invoiceCount, quoteCount] = await prisma.$transaction([
-    prisma.invoice.count({ where: { clientId: id } }),
-    prisma.quote.count({ where: { clientId: id } }),
+    prisma.invoice.count({ where: { clientId: id, userId } }),
+    prisma.quote.count({ where: { clientId: id, userId } }),
   ]);
 
   if (invoiceCount > 0 || quoteCount > 0) {

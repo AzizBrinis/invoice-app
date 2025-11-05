@@ -184,7 +184,6 @@ export async function convertQuoteToInvoiceAction(
 export async function sendQuoteEmailAction(id: string, formData: FormData) {
   const to = formData.get("email")?.toString();
   const subject = formData.get("subject")?.toString() || undefined;
-  const message = formData.get("message")?.toString() || undefined;
   const messagingSummary = await getMessagingSettingsSummary();
   const redirectTarget = resolveRedirectTarget(
     formData,
@@ -192,7 +191,7 @@ export async function sendQuoteEmailAction(id: string, formData: FormData) {
   );
   if (!messagingSummary.smtpConfigured) {
     redirectWithFeedback(redirectTarget, {
-      warning: "Veuillez configurer votre messagerie (SMTP/IMAP) avant d'envoyer des emails.",
+      warning: "Veuillez configurer la messagerie (SMTP/IMAP) avant d'envoyer des devis.",
     });
   }
   if (!to) {
@@ -201,7 +200,7 @@ export async function sendQuoteEmailAction(id: string, formData: FormData) {
     });
   }
   try {
-    await sendQuoteEmail({ quoteId: id, to, subject, message });
+    await sendQuoteEmail({ quoteId: id, to, subject });
     revalidatePath(`/devis/${id}/modifier`);
     redirectWithFeedback(redirectTarget, {
       message: "Devis envoyé par e-mail",
@@ -215,7 +214,7 @@ export async function sendQuoteEmailAction(id: string, formData: FormData) {
       error instanceof Error ? error.message : "Échec de l'envoi de l'e-mail. Veuillez réessayer.";
     const needsConfig = /smtp|messagerie/i.test(rawMessage);
     const feedbackMessage = needsConfig
-      ? "Veuillez configurer votre messagerie (SMTP/IMAP) avant d'envoyer des emails."
+      ? "Veuillez configurer la messagerie (SMTP/IMAP) avant d'envoyer des devis."
       : "Échec de l'envoi de l'e-mail. Veuillez réessayer.";
     revalidatePath(`/devis/${id}/modifier`);
     redirectWithFeedback(redirectTarget, needsConfig ? { warning: feedbackMessage } : { error: feedbackMessage });

@@ -1,6 +1,7 @@
 import { clsx } from "clsx";
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
+import { requireUser } from "@/lib/auth";
 import { listProducts } from "@/server/products";
 import {
   deleteProductAction,
@@ -18,6 +19,8 @@ import {
   FlashMessages,
   type FlashMessage,
 } from "@/components/ui/flash-messages";
+
+export const dynamic = "force-dynamic";
 
 function parseBooleanFilter(value: string | undefined): boolean | "all" {
   if (!value || value === "all") return "all";
@@ -65,6 +68,7 @@ export default async function ProduitsPage({
   const page = Number(pageParam ?? "1") || 1;
   const isActive = parseBooleanFilter(statutParam);
 
+  const user = await requireUser();
   const [products, categories, settings] = await Promise.all([
     listProducts({
       search: search || undefined,
@@ -73,12 +77,12 @@ export default async function ProduitsPage({
       page,
     }),
     prisma.product.findMany({
+      where: { userId: user.id, category: { not: null } },
       distinct: ["category"],
       orderBy: { category: "asc" },
       select: { category: true },
-      where: { category: { not: null } },
     }),
-    getSettings(),
+    getSettings(user.id),
   ]);
 
   const categoryOptions = [

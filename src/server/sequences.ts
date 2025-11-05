@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { getSettings } from "@/server/settings";
+import { requireUser } from "@/lib/auth";
 
 function formatNumber(
   prefix: string,
@@ -14,8 +15,10 @@ function formatNumber(
   return `${prefix}-${padded}`;
 }
 
-async function nextNumber(type: "DEVIS" | "FACTURE") {
-  const settings = await getSettings();
+async function nextNumber(type: "DEVIS" | "FACTURE", providedUserId?: string) {
+  const userId =
+    providedUserId ?? (await requireUser()).id;
+  const settings = await getSettings(userId);
   const isQuote = type === "DEVIS";
   const prefix = isQuote
     ? settings.quoteNumberPrefix
@@ -24,18 +27,18 @@ async function nextNumber(type: "DEVIS" | "FACTURE") {
   const year = resetAnnually ? new Date().getFullYear() : 0;
 
   const number = await prisma.$transaction(async (tx) => {
-    const existing = await tx.numberingSequence.findUnique({
+    const existing = await tx.numberingSequence.findFirst({
       where: {
-        type_year: {
-          type,
-          year,
-        },
+        userId,
+        type,
+        year,
       },
     });
 
     if (!existing) {
       const created = await tx.numberingSequence.create({
         data: {
+          userId,
           type,
           year,
           prefix,
@@ -65,10 +68,10 @@ async function nextNumber(type: "DEVIS" | "FACTURE") {
   return number;
 }
 
-export async function nextQuoteNumber() {
-  return nextNumber("DEVIS");
+export async function nextQuoteNumber(userId?: string) {
+  return nextNumber("DEVIS", userId);
 }
 
-export async function nextInvoiceNumber() {
-  return nextNumber("FACTURE");
+export async function nextInvoiceNumber(userId?: string) {
+  return nextNumber("FACTURE", userId);
 }

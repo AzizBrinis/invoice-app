@@ -9,6 +9,7 @@ import { productSchema, createProduct, updateProduct, deleteProduct } from "@/se
 import { toCents } from "@/lib/money";
 import { prisma } from "@/lib/prisma";
 import { getSettings } from "@/server/settings";
+import { requireUser } from "@/lib/auth";
 import type { ProductFormState } from "@/app/(app)/produits/form-state";
 import { isRedirectError } from "@/lib/next";
 
@@ -251,6 +252,7 @@ export async function importProductsAction(formData: FormData) {
   const redirectTarget = resolveRedirectTarget(formData, "/produits");
 
   try {
+    const user = await requireUser();
     const file = formData.get("file");
     if (!(file instanceof File)) {
       throw new Error("Fichier CSV manquant");
@@ -280,7 +282,7 @@ export async function importProductsAction(formData: FormData) {
       return index >= 0 ? row[index]?.trim() ?? "" : "";
     };
 
-    const settings = await getSettings();
+    const settings = await getSettings(user.id);
     const currency = settings.defaultCurrency;
 
     const entries: Array<{
@@ -369,9 +371,15 @@ export async function importProductsAction(formData: FormData) {
     await prisma.$transaction(
       entries.map((entry) =>
         prisma.product.upsert({
-          where: { sku: entry.sku },
+          where: {
+            userId_sku: {
+              userId: user.id,
+              sku: entry.sku,
+            },
+          },
           update: entry.data,
           create: {
+            userId: user.id,
             sku: entry.sku,
             ...entry.data,
           },
