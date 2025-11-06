@@ -11,7 +11,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { InvoiceStatus } from "@prisma/client";
-import type { CurrencyInfo, CurrencyCode } from "@/lib/currency";
+import {
+  CURRENCY_CODES,
+  type CurrencyInfo,
+  type CurrencyCode,
+} from "@/lib/currency";
 import { normalizeTaxConfiguration, type TaxConfiguration } from "@/lib/taxes";
 import { submitInvoiceFormAction } from "@/app/(app)/factures/actions";
 import {
@@ -20,6 +24,7 @@ import {
 } from "@/app/(app)/factures/form-state";
 import { Alert } from "@/components/ui/alert";
 import { useToast } from "@/components/ui/toast-provider";
+import type { Route } from "next";
 
 type InvoiceLineForm = {
   id?: string;
@@ -54,6 +59,20 @@ const STATUS_OPTIONS: { value: InvoiceStatus; label: string }[] = [
   { value: "ANNULEE", label: "Annulée" },
 ];
 
+function normalizeCurrencyCode(
+  value: string | null | undefined,
+  fallback: CurrencyCode,
+): CurrencyCode {
+  if (!value) {
+    return fallback;
+  }
+  const upperValue = value.toUpperCase();
+  if ((CURRENCY_CODES as readonly string[]).includes(upperValue)) {
+    return upperValue as CurrencyCode;
+  }
+  return fallback;
+}
+
 function SubmitButton({ label }: { label: string }) {
   const { pending } = useFormStatus();
   return (
@@ -79,7 +98,10 @@ export function InvoiceEditor({
     submitInvoiceFormAction,
     INITIAL_INVOICE_FORM_STATE,
   );
-  const initialCurrency = defaultInvoice?.currency ?? defaultCurrency;
+  const initialCurrency = normalizeCurrencyCode(
+    defaultInvoice?.currency,
+    defaultCurrency,
+  );
   const invoiceTaxConfig = defaultInvoice?.taxConfiguration
     ? normalizeTaxConfiguration(defaultInvoice.taxConfiguration)
     : null;
@@ -203,7 +225,8 @@ export function InvoiceEditor({
         : baseDestination === "/factures"
           ? baseDestination
           : `/factures/${formState.invoiceId}`;
-      router.push(destination);
+      const typedDestination = destination as Route;
+      router.push(typedDestination);
     }
   }, [
     addToast,

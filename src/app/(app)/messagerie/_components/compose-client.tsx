@@ -238,12 +238,25 @@ export function ComposeClient({
         hasValue: boolean;
       }
     >();
-    const baseEntries: Array<[string, string | null | undefined]> = [
-      ...COMPANY_PLACEHOLDER_KEYS.map((key) => [
+    const mappedCompanyPlaceholders: Array<
+      [string, string | null | undefined]
+    > = COMPANY_PLACEHOLDER_KEYS.map(
+      (key): [string, string | null | undefined] => [
         key,
-        companyPlaceholders?.[key],
-      ]),
-      ...Object.entries(companyPlaceholders ?? {}),
+        companyPlaceholders?.[key] ?? null,
+      ],
+    );
+    const dynamicEntries: Array<[string, string | null | undefined]> = Object.entries(
+      companyPlaceholders ?? {},
+    ).map(
+      ([entryKey, entryValue]): [string, string | null | undefined] => [
+        entryKey,
+        entryValue,
+      ],
+    );
+    const baseEntries: Array<[string, string | null | undefined]> = [
+      ...mappedCompanyPlaceholders,
+      ...dynamicEntries,
     ];
     for (const [rawKey, rawValue] of baseEntries) {
       if (!rawKey) {

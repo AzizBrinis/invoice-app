@@ -16,6 +16,7 @@ import {
   INITIAL_PRODUCT_FORM_STATE,
   type ProductFormState,
 } from "@/app/(app)/produits/form-state";
+import type { Route } from "next";
 
 type ProductFormProps = {
   submitLabel: string;
@@ -58,7 +59,7 @@ export function ProductForm({
         redirectTo && redirectTo.startsWith("/")
           ? redirectTo
           : "/produits";
-      router.push(destination);
+      router.push(destination as Route);
     }
   }, [
     addToast,

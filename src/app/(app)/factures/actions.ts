@@ -26,10 +26,11 @@ import {
 } from "@/lib/authorization";
 import { isRedirectError } from "@/lib/next";
 import type { InvoiceFormState } from "@/app/(app)/factures/form-state";
+import type { Route } from "next";
 
 async function requireBillingAccess() {
   const user = await requireUser();
-  const managerRoles = Array.from(BILLING_MANAGER_ROLES);
+  const managerRoles: UserRole[] = [...BILLING_MANAGER_ROLES];
   if (!managerRoles.includes(user.role)) {
     const billingManagerCount = await prisma.user.count({
       where: {
@@ -75,7 +76,7 @@ function resolveRedirectTarget(
 function redirectWithFeedback(
   target: string,
   feedback: { message?: string; error?: string; warning?: string },
-) {
+): never {
   const [path, query = ""] = target.split("?");
   const params = new URLSearchParams(query);
   ["message", "error", "warning"].forEach((key) => {
@@ -85,7 +86,8 @@ function redirectWithFeedback(
   if (feedback.error) params.set("error", feedback.error);
   if (feedback.warning) params.set("warning", feedback.warning);
   const nextQuery = params.toString();
-  redirect(nextQuery ? `${path}?${nextQuery}` : path);
+  const href = (nextQuery ? `${path}?${nextQuery}` : path) as Route;
+  return redirect(href);
 }
 
 function normalizeZodInvoiceErrors(error: ZodError): {

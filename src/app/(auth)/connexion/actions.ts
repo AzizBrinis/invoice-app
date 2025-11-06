@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import type { Route } from "next";
 import { z } from "zod";
 import { signIn } from "@/lib/auth";
 
@@ -48,9 +49,9 @@ export async function authenticate(
     };
   }
 
-  const safeRedirect = parsed.data.redirectTo.startsWith("/")
+  const safeRedirect = (parsed.data.redirectTo.startsWith("/")
     ? parsed.data.redirectTo
-    : "/tableau-de-bord";
+    : "/tableau-de-bord") as Route;
 
   redirect(safeRedirect);
 }

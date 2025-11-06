@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
-import type { Quote, QuoteLine } from "@prisma/client";
+import type { Quote, QuoteLine, QuoteStatus } from "@prisma/client";
 import { calculateDocumentTotals, calculateLineTotals } from "@/lib/documents";
 import { fromCents, toCents } from "@/lib/money";
 import { formatCurrency } from "@/lib/formatters";
@@ -11,7 +11,11 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import type { Client } from "@prisma/client";
 import type { Product } from "@prisma/client";
-import type { CurrencyInfo, CurrencyCode } from "@/lib/currency";
+import {
+  CURRENCY_CODES,
+  type CurrencyInfo,
+  type CurrencyCode,
+} from "@/lib/currency";
 import { normalizeTaxConfiguration, type TaxConfiguration } from "@/lib/taxes";
 
 type QuoteLineForm = {
@@ -39,13 +43,27 @@ type QuoteEditorProps = {
   redirectTo?: string;
 };
 
-const STATUS_OPTIONS = [
+const STATUS_OPTIONS: Array<{ value: QuoteStatus; label: string }> = [
   { value: "BROUILLON", label: "Brouillon" },
   { value: "ENVOYE", label: "Envoyé" },
   { value: "ACCEPTE", label: "Accepté" },
   { value: "REFUSE", label: "Refusé" },
   { value: "EXPIRE", label: "Expiré" },
 ];
+
+function normalizeCurrencyCode(
+  value: string | null | undefined,
+  fallback: CurrencyCode,
+): CurrencyCode {
+  if (!value) {
+    return fallback;
+  }
+  const upperValue = value.toUpperCase();
+  if ((CURRENCY_CODES as readonly string[]).includes(upperValue)) {
+    return upperValue as CurrencyCode;
+  }
+  return fallback;
+}
 
 function SubmitButton({ label }: { label: string }) {
   const { pending } = useFormStatus();
@@ -67,12 +85,15 @@ export function QuoteEditor({
   defaultQuote,
   redirectTo,
 }: QuoteEditorProps) {
-  const initialCurrency = defaultQuote?.currency ?? defaultCurrency;
+  const initialCurrency = normalizeCurrencyCode(
+    defaultQuote?.currency,
+    defaultCurrency,
+  );
   const quoteTaxConfig = defaultQuote?.taxConfiguration
     ? normalizeTaxConfiguration(defaultQuote.taxConfiguration)
     : null;
   const [clientId, setClientId] = useState(defaultQuote?.clientId ?? clients[0]?.id ?? "");
-  const [status, setStatus] = useState(defaultQuote?.status ?? "BROUILLON");
+  const [status, setStatus] = useState<QuoteStatus>(defaultQuote?.status ?? "BROUILLON");
   const [issueDate, setIssueDate] = useState(
     defaultQuote ? defaultQuote.issueDate.toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
   );
@@ -369,7 +390,9 @@ export function QuoteEditor({
               name="status"
               className="input"
               value={status}
-              onChange={(event) => setStatus(event.target.value)}
+              onChange={(event) =>
+                setStatus(event.target.value as QuoteStatus)
+              }
             >
               {STATUS_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>

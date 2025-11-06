@@ -127,12 +127,15 @@ export async function extractSignedToken(
   const signatureBytes = base64UrlToUint8Array(signaturePart);
   const key = await getSigningKey();
   const subtle = await getSubtleCrypto();
-  const isValid = await subtle.verify(
-    "HMAC",
-    key,
-    signatureBytes,
-    encoder.encode(token),
-  );
+  const signatureBuffer =
+    signatureBytes.buffer instanceof SharedArrayBuffer
+      ? new Uint8Array(signatureBytes).slice().buffer
+      : signatureBytes.buffer.slice(
+          signatureBytes.byteOffset,
+          signatureBytes.byteOffset + signatureBytes.byteLength,
+        );
+  const tokenBytes = encoder.encode(token);
+  const isValid = await subtle.verify("HMAC", key, signatureBuffer, tokenBytes);
 
   return isValid ? token : null;
 }

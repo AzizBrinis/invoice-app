@@ -87,7 +87,8 @@ export async function GET(
       "Cache-Control": "private, max-age=0, must-revalidate",
     });
 
-    return new NextResponse(download.content, {
+    const body = new Uint8Array(download.content);
+    return new Response(body, {
       status: 200,
       headers,
     });

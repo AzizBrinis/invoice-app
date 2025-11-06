@@ -15,6 +15,7 @@ import {
   testSmtpConnection,
   updateMessagingConnections,
   updateMessagingSenderIdentity,
+  updateEmailTrackingPreference,
   getMessagingSettingsSummary,
   moveMailboxMessage,
   type Mailbox,
@@ -22,10 +23,10 @@ import {
   type MessageDetail,
   type MailboxListItem,
   type MessagingConnectionsInput,
-  type MessagingIdentityInput,
   type EmailAttachment,
   fetchMailboxUpdates,
   type SentMailboxAppendResult,
+  type AutoMovedSummary,
 } from "@/server/messaging";
 import { requireUser } from "@/lib/auth";
 import { recordManualSpamFeedback } from "@/server/spam-detection";
@@ -521,6 +522,41 @@ export async function updateMessagingConnectionsAction(
   }
 }
 
+export async function updateEmailTrackingPreferenceAction(
+  formData: FormData,
+): Promise<ActionResult> {
+  try {
+    const rawEnabled = formData.get("enabled");
+    const parsed = booleanSchema.safeParse(
+      typeof rawEnabled === "string" ? rawEnabled : "",
+    );
+    if (!parsed.success) {
+      return {
+        success: false,
+        message: "Valeur de suivi invalide.",
+      };
+    }
+
+    await updateEmailTrackingPreference(parsed.data);
+    revalidatePath("/messagerie/envoyes");
+    revalidatePath("/messagerie/parametres");
+    return {
+      success: true,
+      message: parsed.data
+        ? "Suivi des ouvertures activé."
+        : "Suivi des ouvertures désactivé.",
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Impossible de mettre à jour les préférences de suivi.",
+    };
+  }
+}
+
 export async function testImapConnectionAction(
   formData: FormData,
 ): Promise<ActionResult> {
@@ -615,7 +651,11 @@ export async function fetchMailboxPageAction(
 
 export async function fetchMailboxUpdatesAction(
   input: unknown,
-): Promise<ActionResult<{ messages: MailboxListItem[]; totalMessages: number | null }>> {
+): Promise<ActionResult<{
+  messages: MailboxListItem[];
+  totalMessages: number | null;
+  autoMoved?: AutoMovedSummary[];
+}>> {
   const parsed = mailboxUpdatesSchema.safeParse(input);
   if (!parsed.success) {
     return {
@@ -717,7 +757,7 @@ export async function moveMailboxMessageAction(
 
 export async function sendEmailAction(
   formData: FormData,
-): Promise<ActionResult> {
+): Promise<ActionResult<SentMailboxAppendResult>> {
   try {
     const parsed = composeSchema.parse(
       Object.fromEntries(formData),
@@ -811,7 +851,7 @@ export async function sendEmailAction(
     return {
       success: true,
       message: "Message envoyé.",
-      data: sentResult satisfies SentMailboxAppendResult,
+      data: sentResult,
     };
   } catch (error) {
     if (error instanceof z.ZodError) {

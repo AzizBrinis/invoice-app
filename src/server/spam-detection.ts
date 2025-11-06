@@ -1,11 +1,16 @@
 import { simpleParser, type ParsedMail } from "mailparser";
-import type { ImapFlow } from "imapflow";
+import type { ImapFlow, MessageAddressObject } from "imapflow";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 
 export type SpamMailbox = "inbox" | "sent" | "drafts" | "trash" | "spam";
 
 const SPAM_THRESHOLD = 70;
+
+type ImapAddress = MessageAddressObject & {
+  mailbox?: string | null;
+  host?: string | null;
+};
 
 const SUBJECT_KEYWORDS = [
   "gagner de l'argent",
@@ -85,6 +90,32 @@ function normalize(value: string | null | undefined): string {
     .toLowerCase()
     .normalize("NFD")
     .replace(/\p{Diacritic}/gu, "");
+}
+
+function formatEnvelopeAddress(entry?: ImapAddress | null): string | null {
+  if (!entry) return null;
+  const rawAddress =
+    typeof entry.address === "string" ? entry.address.trim() : "";
+  const mailbox =
+    typeof entry.mailbox === "string" ? entry.mailbox.trim() : "";
+  const host = typeof entry.host === "string" ? entry.host.trim() : "";
+  const email =
+    rawAddress.length > 0
+      ? rawAddress
+      : mailbox && host
+        ? `${mailbox}@${host}`
+        : "";
+  const name = typeof entry.name === "string" ? entry.name.trim() : "";
+  if (name && email) {
+    return `${name} <${email}>`;
+  }
+  if (email) {
+    return email;
+  }
+  if (name) {
+    return name;
+  }
+  return null;
 }
 
 function extractDomain(address: string | null | undefined): string | null {
@@ -355,20 +386,27 @@ export async function analyzeAndHandleSpam(options: {
     { uid: true },
   );
 
-  if (!result?.source) {
+  if (!result) {
+    return {
+      score: 0,
+      reasons: ["Message introuvable"],
+      movedToSpam: false,
+      alreadyLogged: false,
+    };
+  }
+
+  if (!result.source) {
     return { score: 0, reasons: ["Source introuvable"], movedToSpam: false, alreadyLogged: false };
   }
 
   const parsed = await simpleParser(result.source);
   const subject = result.envelope?.subject ?? parsed.subject ?? "";
-  const from = result.envelope?.from?.[0];
-  const fromAddress = from
-    ? `${from.name ?? ""} <${from.mailbox}@${from.host}>`
-    : parsed.from?.text ?? null;
-  const replyTo = result.envelope?.replyTo?.[0];
-  const replyToAddress = replyTo
-    ? `${replyTo.name ?? ""} <${replyTo.mailbox}@${replyTo.host}>`
-    : parsed.replyTo?.text ?? null;
+  const from = result.envelope?.from?.[0] as ImapAddress | undefined;
+  const fromAddress = formatEnvelopeAddress(from) ?? parsed.from?.text ?? null;
+  const replyTo =
+    result.envelope?.replyTo?.[0] as ImapAddress | undefined;
+  const replyToAddress =
+    formatEnvelopeAddress(replyTo) ?? parsed.replyTo?.text ?? null;
 
   const textContent = parsed.text || parsed.textAsHtml || parsed.html || "";
   const domain = extractDomain(fromAddress);
@@ -400,8 +438,11 @@ export async function analyzeAndHandleSpam(options: {
       );
     });
     if (spamFolder) {
-      const currentMailboxPath = client.mailbox?.path ?? null;
-      const wasReadOnly = Boolean(client.mailbox?.readOnly);
+      const mailboxInfo = client.mailbox;
+      const currentMailboxPath =
+        mailboxInfo !== false ? mailboxInfo.path : null;
+      const wasReadOnly =
+        mailboxInfo !== false ? Boolean(mailboxInfo.readOnly) : false;
       if (wasReadOnly && currentMailboxPath) {
         try {
           await client.mailboxOpen(currentMailboxPath, { readOnly: false });

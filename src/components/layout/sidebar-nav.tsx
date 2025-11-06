@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { clsx } from "clsx";
 import { useState } from "react";
+import type { Route } from "next";
 import {
   LayoutDashboard,
   FileText,
@@ -77,7 +78,7 @@ export function SidebarNav({ items }: { items: NavItem[] }) {
                 )}
               >
                 <Link
-                  href={item.href}
+                  href={item.href as Route}
                   className="flex flex-1 items-center gap-3"
                 >
                   <Icon className="h-4 w-4" />
@@ -115,7 +116,7 @@ export function SidebarNav({ items }: { items: NavItem[] }) {
                     return (
                       <li key={child.href}>
                         <Link
-                          href={child.href}
+                          href={child.href as Route}
                           className={clsx(
                             "block rounded-md px-3 py-2 text-sm transition",
                             childActive

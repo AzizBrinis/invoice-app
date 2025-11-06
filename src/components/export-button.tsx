@@ -15,9 +15,9 @@ function resolveFileName(contentDisposition: string | null) {
     return null;
   }
 
-  const match = /filename\*=UTF-8''(?<filename>[^;]+)/i.exec(contentDisposition);
-  if (match?.groups?.filename) {
-    return decodeURIComponent(match.groups.filename);
+  const extendedMatch = /filename\*=UTF-8''([^;]+)/i.exec(contentDisposition);
+  if (extendedMatch?.[1]) {
+    return decodeURIComponent(extendedMatch[1]);
   }
 
   const simpleMatch = /filename="?([^"]+)"?/i.exec(contentDisposition);

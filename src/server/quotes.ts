@@ -1,10 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
-import {
-  QuoteStatus,
-  type Prisma,
-  InvoiceStatus,
-} from "@prisma/client";
+import { QuoteStatus, Prisma, InvoiceStatus } from "@prisma/client";
 import { z } from "zod";
 import {
   calculateDocumentTotals,
@@ -82,6 +78,15 @@ export type QuoteFilters = {
 };
 
 const DEFAULT_PAGE_SIZE = 10;
+
+function toJsonInput(
+  value: Prisma.JsonValue | null | undefined,
+): Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput {
+  if (value === null || value === undefined) {
+    return Prisma.JsonNull;
+  }
+  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+}
 
 async function assertClientOwnership(userId: string, clientId: string) {
   const client = await prisma.client.findFirst({
@@ -511,10 +516,11 @@ export async function duplicateQuote(id: string) {
       currency: existing.currency,
       globalDiscountRate: existing.globalDiscountRate,
       globalDiscountAmountCents: existing.globalDiscountAmountCents,
-      vatBreakdown: existing.vatBreakdown,
-      taxSummary: existing.taxSummary ?? [],
-      taxConfiguration:
-        existing.taxConfiguration ?? DEFAULT_TAX_CONFIGURATION,
+      vatBreakdown: toJsonInput(existing.vatBreakdown),
+      taxSummary: existing.taxSummary
+        ? JSON.parse(JSON.stringify(existing.taxSummary))
+        : [],
+      taxConfiguration: normalizeTaxConfiguration(existing.taxConfiguration),
       notes: existing.notes,
       terms: existing.terms,
       subtotalHTCents: existing.subtotalHTCents,
@@ -589,7 +595,7 @@ export async function convertQuoteToInvoiceForUser(userId: string, id: string) {
         currency: quote.currency,
         globalDiscountRate: quote.globalDiscountRate,
         globalDiscountAmountCents: quote.globalDiscountAmountCents,
-        vatBreakdown: quote.vatBreakdown,
+        vatBreakdown: toJsonInput(quote.vatBreakdown),
         taxSummary: quote.taxSummary ?? [],
         taxConfiguration:
           quote.taxConfiguration ?? DEFAULT_TAX_CONFIGURATION,

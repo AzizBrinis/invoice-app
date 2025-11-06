@@ -12,6 +12,7 @@ import { getSettings } from "@/server/settings";
 import { requireUser } from "@/lib/auth";
 import type { ProductFormState } from "@/app/(app)/produits/form-state";
 import { isRedirectError } from "@/lib/next";
+import type { Route } from "next";
 
 async function parseProductForm(formData: FormData, currency: string) {
   const priceHT = Number(formData.get("priceHT") ?? 0);
@@ -82,7 +83,7 @@ function resolveRedirectTarget(
 function redirectWithFeedback(
   target: string,
   feedback: { message?: string; error?: string; warning?: string },
-) {
+): never {
   const [path, query = ""] = target.split("?");
   const params = new URLSearchParams(query);
   ["message", "error", "warning", "flash"].forEach((key) => {
@@ -95,7 +96,8 @@ function redirectWithFeedback(
     params.set("flash", randomUUID());
   }
   const nextQuery = params.toString();
-  redirect(nextQuery ? `${path}?${nextQuery}` : path);
+  const href = (nextQuery ? `${path}?${nextQuery}` : path) as Route;
+  return redirect(href);
 }
 
 export async function submitProductFormAction(
@@ -127,6 +129,10 @@ export async function submitProductFormAction(
   } catch (error) {
     if (error instanceof ZodError) {
       const flat = error.flatten();
+      const fieldErrors = flat.fieldErrors as Record<
+        string,
+        string[] | undefined
+      >;
       const fallbackMessages: Record<string, string> = {
         priceHTCents: "Prix HT invalide",
         vatRate: "TVA invalide",
@@ -134,13 +140,13 @@ export async function submitProductFormAction(
         unit: "Unité requise",
       };
       const pick = (key: string) =>
-        flat.fieldErrors[key]?.[0] ?? fallbackMessages[key] ?? undefined;
+        fieldErrors[key]?.[0] ?? fallbackMessages[key] ?? undefined;
       return {
         status: "error",
         message: flat.formErrors[0] ?? "Certains champs sont invalides.",
         fieldErrors: {
-          sku: flat.fieldErrors.sku?.[0],
-          name: flat.fieldErrors.name?.[0],
+          sku: fieldErrors.sku?.[0],
+          name: fieldErrors.name?.[0],
           unit: pick("unit"),
           priceHTCents: pick("priceHTCents"),
           vatRate: pick("vatRate"),

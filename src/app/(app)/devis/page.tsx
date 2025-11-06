@@ -33,6 +33,14 @@ const STATUS_LABELS: Record<QuoteStatus, string> = {
   EXPIRE: "Expiré",
 };
 
+const QUOTE_STATUS_VALUES: readonly QuoteStatus[] = [
+  "BROUILLON",
+  "ENVOYE",
+  "ACCEPTE",
+  "REFUSE",
+  "EXPIRE",
+];
+
 function statusVariant(status: QuoteStatus) {
   switch (status) {
     case "ACCEPTE":
@@ -56,6 +64,20 @@ function isPromise<T>(value: unknown): value is Promise<T> {
     "then" in value &&
     typeof (value as { then?: unknown }).then === "function"
   );
+}
+
+function isQuoteStatus(value: string): value is QuoteStatus {
+  return (QUOTE_STATUS_VALUES as readonly string[]).includes(value);
+}
+
+function parseStatusParam(
+  value: string | string[] | undefined,
+): QuoteStatus | "all" {
+  const candidate = Array.isArray(value) ? value[0] : value;
+  if (!candidate || candidate === "all") {
+    return "all";
+  }
+  return isQuoteStatus(candidate) ? candidate : "all";
 }
 
 export default function DevisPage({
@@ -83,9 +105,7 @@ async function DevisPageContent({
   const search = Array.isArray(resolvedSearchParams?.recherche)
     ? resolvedSearchParams.recherche[0]
     : resolvedSearchParams?.recherche ?? "";
-  const statutParam = Array.isArray(resolvedSearchParams?.statut)
-    ? resolvedSearchParams.statut[0]
-    : (resolvedSearchParams?.statut as QuoteStatus | "all" | undefined) ?? "all";
+  const statutParam = parseStatusParam(resolvedSearchParams?.statut);
   const clientParam = Array.isArray(resolvedSearchParams?.client)
     ? resolvedSearchParams.client[0]
     : (resolvedSearchParams?.client as string | undefined);

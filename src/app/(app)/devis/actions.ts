@@ -16,6 +16,7 @@ import { QuoteStatus } from "@prisma/client";
 import { sendQuoteEmail } from "@/server/email";
 import { getMessagingSettingsSummary } from "@/server/messaging";
 import { isRedirectError } from "@/lib/next";
+import type { Route } from "next";
 
 function parsePayload(formData: FormData) {
   const rawPayload = formData.get("payload");
@@ -40,7 +41,7 @@ function resolveRedirectTarget(
 function redirectWithFeedback(
   target: string,
   feedback: { message?: string; error?: string; warning?: string },
-) {
+): never {
   const [path, query = ""] = target.split("?");
   const params = new URLSearchParams(query);
   ["message", "error", "warning"].forEach((key) => {
@@ -50,7 +51,8 @@ function redirectWithFeedback(
   if (feedback.error) params.set("error", feedback.error);
   if (feedback.warning) params.set("warning", feedback.warning);
   const nextQuery = params.toString();
-  redirect(nextQuery ? `${path}?${nextQuery}` : path);
+  const href = (nextQuery ? `${path}?${nextQuery}` : path) as Route;
+  return redirect(href);
 }
 
 export async function createQuoteAction(formData: FormData) {

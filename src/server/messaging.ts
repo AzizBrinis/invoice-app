@@ -2,19 +2,59 @@ import {
   ImapFlow,
   type MessageStructureObject,
   type MessageAddressObject,
-  type MailboxObject,
+  type MessageEnvelopeObject,
+  type ListResponse,
+  type FetchMessageObject,
 } from "imapflow";
 import nodemailer from "nodemailer";
 import MailComposer from "nodemailer/lib/mail-composer";
+import addressParser from "nodemailer/lib/addressparser";
 import { simpleParser, type Attachment } from "mailparser";
 import { randomUUID } from "node:crypto";
+import type { MessagingRecipientType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { decryptSecret, encryptSecret } from "@/server/secure-credentials";
 import { analyzeAndHandleSpam } from "@/server/spam-detection";
 import { sanitizeEmailHtml } from "@/lib/email-html";
+import {
+  prepareEmailTracking,
+  getEmailTrackingSummaries,
+  getEmailTrackingDetail,
+  type EmailTrackingDetail,
+  type RecipientInput,
+} from "@/server/email-tracking";
 
 const DEFAULT_PAGE_SIZE = 20;
+const RECIPIENT_TYPE_MAP = {
+  to: "TO",
+  cc: "CC",
+  bcc: "BCC",
+} as const satisfies Record<"to" | "cc" | "bcc", MessagingRecipientType>;
+
+function parseRecipientList(
+  entries: string[] | undefined,
+  type: keyof typeof RECIPIENT_TYPE_MAP,
+): RecipientInput[] {
+  if (!entries?.length) {
+    return [];
+  }
+  return entries.flatMap((entry) => {
+    try {
+      const parsed = addressParser(entry, { flatten: true });
+      return parsed
+        .filter((item) => item.address.length > 0)
+        .map((item) => ({
+          address: item.address ?? "",
+          name: item.name?.trim() ?? null,
+          type: RECIPIENT_TYPE_MAP[type],
+        }));
+    } catch (error) {
+      console.warn("Impossible d'analyser l'adresse e-mail:", entry, error);
+      return [];
+    }
+  });
+}
 
 async function resolveUserId(provided?: string) {
   if (provided) {
@@ -56,23 +96,35 @@ export type MessagingSettingsSummary = {
   imapConfigured: boolean;
   smtpConfigured: boolean;
   spamFilterEnabled: boolean;
+  trackingEnabled: boolean;
 };
 
 export type Mailbox = "inbox" | "sent" | "drafts" | "trash" | "spam";
 
 export type MailboxListItem = {
   uid: number;
+  messageId: string | null;
   subject: string;
   from: string | null;
   to: string[];
   date: string;
   seen: boolean;
   hasAttachments: boolean;
+  tracking?: {
+    enabled: boolean;
+    totalOpens: number;
+    totalClicks: number;
+  } | null;
 };
 
 export type MessageParticipant = {
   name: string | null;
   address: string | null;
+};
+
+type ImapAddress = MessageAddressObject & {
+  mailbox?: string | null;
+  host?: string | null;
 };
 
 export type MailboxPageResult = {
@@ -102,8 +154,9 @@ function createMailboxListItem(message: {
   uid: number;
   envelope?: {
     subject?: string | null;
-    from?: Array<Pick<MessageAddressObject, "name" | "mailbox" | "host">>;
-    to?: Array<Pick<MessageAddressObject, "name" | "mailbox" | "host">>;
+    messageId?: string | null;
+    from?: ImapAddress[];
+    to?: ImapAddress[];
   };
   internalDate?: Date;
   flags?: Set<string>;
@@ -114,16 +167,20 @@ function createMailboxListItem(message: {
 }): MailboxListItem {
   const envelope = message.envelope;
   const from =
-    formatAddress(envelope?.from?.[0]) ?? "Expéditeur inconnu";
-  const to = formatAddressList(envelope?.to) ?? [];
+    formatAddress(envelope?.from?.[0] as ImapAddress | undefined) ??
+    "Expéditeur inconnu";
+  const to =
+    formatAddressList(envelope?.to as ImapAddress[] | undefined) ?? [];
   return {
     uid: message.uid,
+    messageId: envelope?.messageId ?? null,
     subject: envelope?.subject ?? "(Sans objet)",
     from,
     to,
     date: (message.internalDate ?? new Date()).toISOString(),
     seen: message.flags?.has("\\Seen") ?? false,
     hasAttachments: hasAttachments(message.bodyStructure),
+    tracking: null,
   };
 }
 
@@ -145,6 +202,7 @@ type AttachmentDescriptor = {
 export type MessageDetail = {
   mailbox: Mailbox;
   uid: number;
+  messageId: string | null;
   subject: string;
   from: string | null;
   to: string[];
@@ -161,6 +219,7 @@ export type MessageDetail = {
   ccAddresses: MessageParticipant[];
   bccAddresses: MessageParticipant[];
   replyToAddresses: MessageParticipant[];
+  tracking: EmailTrackingDetail | null;
 };
 
 export type ComposeEmailInput = {
@@ -203,6 +262,7 @@ type MessagingCredentials = {
   imap: ImapConnectionConfig | null;
   smtp: SmtpConnectionConfig | null;
   spamFilterEnabled: boolean;
+  trackingEnabled: boolean;
 };
 
 type MailboxOpenResult = {
@@ -293,7 +353,7 @@ function normalizeMailboxName(value: string): string {
     .toLowerCase();
 }
 
-function mailboxNameVariants(entry: MailboxObject): string[] {
+function mailboxNameVariants(entry: ListResponse): string[] {
   const variants = new Set<string>();
   variants.add(entry.path);
   const delimiter = entry.delimiter || "/";
@@ -352,8 +412,8 @@ function computeSentMailboxWeight(normalizedVariants: string[]): number {
   return Number.isFinite(best) ? best : 12;
 }
 
-async function listMailboxes(client: ImapFlow): Promise<MailboxObject[]> {
-  const seen = new Map<string, MailboxObject>();
+async function listMailboxes(client: ImapFlow): Promise<ListResponse[]> {
+  const seen = new Map<string, ListResponse>();
   try {
     const folders = await client.list();
     for (const mailbox of folders ?? []) {
@@ -702,9 +762,7 @@ function isConnectionError(error: unknown): boolean {
   );
 }
 
-function formatAddress(
-  entry?: Pick<MessageAddressObject, "name" | "mailbox" | "host"> | null,
-): string | null {
+function formatAddress(entry?: ImapAddress | null): string | null {
   if (!entry) {
     return null;
   }
@@ -721,9 +779,7 @@ function formatAddress(
   return email ?? null;
 }
 
-function formatAddressList(
-  list?: Array<Pick<MessageAddressObject, "name" | "mailbox" | "host">>,
-): string[] {
+function formatAddressList(list?: ImapAddress[]): string[] {
   if (!list?.length) {
     return [];
   }
@@ -879,6 +935,12 @@ async function openMailbox(
       attempted.add(attemptKey);
 
       let lock: Awaited<ReturnType<ImapFlow["getMailboxLock"]>> | null = null;
+      const releaseLock = () => {
+        if (lock) {
+          lock.release();
+          lock = null;
+        }
+      };
       try {
         lock = await client.getMailboxLock(variant);
         const info = await client.mailboxOpen(variant, { readOnly });
@@ -886,13 +948,10 @@ async function openMailbox(
         return {
           name: info.path ?? name,
           info,
-          release: () => lock.release(),
+          release: releaseLock,
         };
       } catch (error) {
-        if (lock) {
-          lock.release();
-          lock = null;
-        }
+        releaseLock();
         if (mailboxNameCache.get(mailbox) === name) {
           mailboxNameCache.delete(mailbox);
         }
@@ -921,6 +980,7 @@ async function appendMessageToSentMailbox(params: {
   rawMessage: Buffer;
   messageId: string;
   sentAt: Date;
+  userId: string;
 }): Promise<SentMailboxAppendResult> {
   if (!params.imap) {
     return {
@@ -1007,7 +1067,7 @@ async function appendMessageToSentMailbox(params: {
       const totalMessages =
         status?.messages ?? opened.info.exists ?? null;
 
-      const mailboxItem =
+      let mailboxItem =
         fetched && typeof fetched === "object"
           ? createMailboxListItem(
               fetched as unknown as Parameters<
@@ -1015,6 +1075,31 @@ async function appendMessageToSentMailbox(params: {
               >[0],
             )
           : null;
+
+      if (mailboxItem?.messageId) {
+        try {
+          const trackingSummaries = await getEmailTrackingSummaries({
+            userId: params.userId,
+            messageIds: [mailboxItem.messageId],
+          });
+          const summary = trackingSummaries.get(mailboxItem.messageId);
+          if (summary) {
+            mailboxItem = {
+              ...mailboxItem,
+              tracking: {
+                enabled: summary.trackingEnabled,
+                totalOpens: summary.totalOpens,
+                totalClicks: summary.totalClicks,
+              },
+            };
+          }
+        } catch (error) {
+          console.warn(
+            "Impossible de récupérer le suivi pour le message envoyé:",
+            error,
+          );
+        }
+      }
 
       return {
         message: mailboxItem,
@@ -1043,6 +1128,7 @@ async function getMessagingCredentials(
       imap: null,
       smtp: null,
       spamFilterEnabled: true,
+      trackingEnabled: true,
     };
   }
 
@@ -1067,6 +1153,7 @@ async function getMessagingCredentials(
     senderName: settings.senderName ?? null,
     senderLogoUrl: settings.senderLogoUrl ?? null,
     spamFilterEnabled: settings.spamFilterEnabled ?? true,
+    trackingEnabled: settings.trackingEnabled ?? true,
     imap:
       settings.imapHost &&
       settings.imapPort &&
@@ -1119,6 +1206,7 @@ export async function getMessagingSettingsSummary(
       imapConfigured: false,
       smtpConfigured: false,
       spamFilterEnabled: true,
+      trackingEnabled: true,
     };
   }
 
@@ -1143,6 +1231,7 @@ export async function getMessagingSettingsSummary(
       Boolean(settings.smtpUser) &&
       Boolean(settings.smtpPassword),
     spamFilterEnabled: settings.spamFilterEnabled ?? true,
+    trackingEnabled: settings.trackingEnabled ?? true,
   };
 }
 
@@ -1358,13 +1447,43 @@ export async function fetchMailboxMessages(params: {
 
       const adjustedTotal = Math.max(0, totalMessages - autoMoved.length);
 
+      const messageIds = filteredItems
+        .map((item) => item.messageId)
+        .filter((value): value is string => typeof value === "string" && value.length > 0);
+
+      let enrichedItems = filteredItems;
+
+      if (messageIds.length) {
+        const trackingSummaries = await getEmailTrackingSummaries({
+          userId,
+          messageIds,
+        });
+        enrichedItems = filteredItems.map((item) => {
+          if (!item.messageId) {
+            return item;
+          }
+          const summary = trackingSummaries.get(item.messageId);
+          if (!summary) {
+            return item;
+          }
+          return {
+            ...item,
+            tracking: {
+              enabled: summary.trackingEnabled,
+              totalOpens: summary.totalOpens,
+              totalClicks: summary.totalClicks,
+            },
+          };
+        });
+      }
+
       return {
         mailbox: params.mailbox,
         page,
         pageSize,
         totalMessages: adjustedTotal,
         hasMore: startSeq > 1,
-        messages: filteredItems,
+        messages: enrichedItems,
         autoMoved: autoMoved.length ? autoMoved : undefined,
       };
     } finally {
@@ -1471,9 +1590,39 @@ export async function fetchMailboxUpdates(params: {
           ? Math.max(0, totalMessages - autoMoved.length)
           : totalMessages;
 
+      const messageIds = filteredItems
+        .map((item) => item.messageId)
+        .filter((value): value is string => typeof value === "string" && value.length > 0);
+
+      let enrichedItems = filteredItems;
+
+      if (messageIds.length) {
+        const trackingSummaries = await getEmailTrackingSummaries({
+          userId,
+          messageIds,
+        });
+        enrichedItems = filteredItems.map((item) => {
+          if (!item.messageId) {
+            return item;
+          }
+          const summary = trackingSummaries.get(item.messageId);
+          if (!summary) {
+            return item;
+          }
+          return {
+            ...item,
+            tracking: {
+              enabled: summary.trackingEnabled,
+              totalOpens: summary.totalOpens,
+              totalClicks: summary.totalClicks,
+            },
+          };
+        });
+      }
+
       return {
         totalMessages: adjustedTotal,
-        messages: filteredItems,
+        messages: enrichedItems,
         autoMoved: autoMoved.length ? autoMoved : undefined,
       };
     } finally {
@@ -1510,11 +1659,23 @@ export async function fetchMessageDetail(params: {
         { uid: true },
       );
 
-      if (!message?.source || !message.envelope) {
+      if (
+        !message ||
+        typeof message !== "object" ||
+        !("source" in message) ||
+        !message.source ||
+        !("envelope" in message) ||
+        !message.envelope
+      ) {
         throw new Error("Message introuvable.");
       }
 
-      const parsed = await simpleParser(message.source);
+      const fetched = message as FetchMessageObject & {
+        source: Buffer | Uint8Array | string;
+        envelope: MessageEnvelopeObject;
+      };
+
+      const parsed = await simpleParser(fetched.source);
 
       const parsedFrom = parsed.from?.value ?? [];
       const parsedTo = parsed.to?.value ?? [];
@@ -1523,27 +1684,36 @@ export async function fetchMessageDetail(params: {
       const parsedReplyTo = parsed.replyTo?.value ?? [];
 
       const fromParticipants = mergeParticipants(
-        message.envelope.from,
+        fetched.envelope.from,
         parsedFrom,
       );
       const replyToParticipants = mergeParticipants(
-        message.envelope.replyTo,
+        fetched.envelope.replyTo,
         parsedReplyTo,
       );
       const toParticipants = mergeParticipants(
-        message.envelope.to,
+        fetched.envelope.to,
         parsedTo,
       );
       const ccParticipants = mergeParticipants(
-        message.envelope.cc,
+        fetched.envelope.cc,
         parsedCc,
       );
       const bccParticipants = mergeParticipants(
-        message.envelope.bcc,
+        fetched.envelope.bcc,
         parsedBcc,
       );
 
       const sanitizedHtml = parsed.html ? sanitizeEmailHtml(parsed.html) : null;
+
+      const envelopeMessageId = fetched.envelope.messageId ?? null;
+      const trackingDetail =
+        envelopeMessageId && params.mailbox === "sent"
+          ? await getEmailTrackingDetail({
+              userId,
+              messageId: envelopeMessageId,
+            })
+          : null;
 
       const attachmentDescriptors = buildAttachmentDescriptors(
         params.mailbox,
@@ -1551,17 +1721,25 @@ export async function fetchMessageDetail(params: {
         parsed.attachments,
       );
 
+      const internalDate =
+        fetched.internalDate instanceof Date
+          ? fetched.internalDate
+          : fetched.internalDate
+            ? new Date(fetched.internalDate)
+            : new Date();
+
       return {
         mailbox: params.mailbox,
         uid: params.uid,
-        subject: message.envelope.subject ?? "(Sans objet)",
-        from: formatAddress(message.envelope.from?.[0]),
-        to: formatAddressList(message.envelope.to),
-        cc: formatAddressList(message.envelope.cc),
-        bcc: formatAddressList(message.envelope.bcc),
-        replyTo: formatAddressList(message.envelope.replyTo),
-        date: (message.internalDate ?? new Date()).toISOString(),
-        seen: message.flags?.has("\\Seen") ?? false,
+        messageId: envelopeMessageId,
+        subject: fetched.envelope.subject ?? "(Sans objet)",
+        from: formatAddress(fetched.envelope.from?.[0] as ImapAddress | undefined),
+        to: formatAddressList(fetched.envelope.to as ImapAddress[] | undefined),
+        cc: formatAddressList(fetched.envelope.cc as ImapAddress[] | undefined),
+        bcc: formatAddressList(fetched.envelope.bcc as ImapAddress[] | undefined),
+        replyTo: formatAddressList(fetched.envelope.replyTo as ImapAddress[] | undefined),
+        date: internalDate.toISOString(),
+        seen: fetched.flags?.has("\\Seen") ?? false,
         html: sanitizedHtml,
         text: parsed.text ?? parsed.textAsHtml ?? null,
         attachments: attachmentDescriptors.map(
@@ -1577,6 +1755,7 @@ export async function fetchMessageDetail(params: {
         ccAddresses: ccParticipants,
         bccAddresses: bccParticipants,
         replyToAddresses: replyToParticipants,
+        tracking: trackingDetail,
       };
     } finally {
       await client.mailboxClose().catch(() => undefined);
@@ -1611,7 +1790,11 @@ export async function fetchMessageAttachment(params: {
         { uid: true },
       );
 
-      if (!message?.source) {
+      if (!message) {
+        throw new Error("Message introuvable.");
+      }
+
+      if (!message.source) {
         throw new Error("Message introuvable.");
       }
 
@@ -1719,7 +1902,7 @@ export async function sendEmailMessage(
     ? { name: senderName, address: fromAddress }
     : fromAddress;
 
-  const html = wrapEmailHtml(params.html, {
+  const baseHtml = wrapEmailHtml(params.html, {
     senderName: credentials.senderName,
     senderLogoUrl: credentials.senderLogoUrl,
     fromEmail: fromAddress,
@@ -1727,42 +1910,83 @@ export async function sendEmailMessage(
 
   const sentAt = new Date();
 
-  const mailOptions: nodemailer.SendMailOptions = {
+  const recipientInputs: RecipientInput[] = [
+    ...parseRecipientList(params.to, "to"),
+    ...parseRecipientList(params.cc, "cc"),
+    ...parseRecipientList(params.bcc, "bcc"),
+  ];
+
+  if (!recipientInputs.length) {
+    throw new Error("Aucun destinataire valide n'a été fourni.");
+  }
+
+  const trackingEnabled = credentials.trackingEnabled !== false;
+
+  const preparedTracking = await prepareEmailTracking({
+    userId,
+    messageId,
+    subject: params.subject,
+    sentAt,
+    html: baseHtml,
+    recipients: recipientInputs,
+    trackingEnabled,
+  });
+
+  const baseMailOptions: nodemailer.SendMailOptions = {
     from: fromField,
     to: params.to,
     subject: params.subject,
     text: params.text,
-    html,
+    html: baseHtml,
     messageId,
     date: sentAt,
   };
 
   if (params.cc?.length) {
-    mailOptions.cc = params.cc;
+    baseMailOptions.cc = params.cc;
   }
   if (params.bcc?.length) {
-    mailOptions.bcc = params.bcc;
+    baseMailOptions.bcc = params.bcc;
   }
   if (params.attachments?.length) {
-    mailOptions.attachments = params.attachments.map((attachment) => ({
+    baseMailOptions.attachments = params.attachments.map((attachment) => ({
       filename: attachment.filename,
       content: attachment.content,
       contentType: attachment.contentType,
     }));
   }
 
+  const envelopeFrom =
+    typeof fromField === "string" ? fromField : fromField.address;
+  if (!envelopeFrom) {
+    throw new Error("Adresse d'expéditeur invalide.");
+  }
+
+  try {
+    for (const recipientPayload of preparedTracking.recipients) {
+      await transporter.sendMail({
+        ...baseMailOptions,
+        html: recipientPayload.html,
+        envelope: {
+          from: envelopeFrom,
+          to: recipientPayload.address,
+        },
+      });
+    }
+  } catch (error) {
+    throw formatError("Échec de l'envoi du message", error);
+  }
+
+  const primaryHtml =
+    preparedTracking.recipients[0]?.html ?? baseHtml;
+
   const composer = new MailComposer({
-    ...mailOptions,
+    ...baseMailOptions,
+    html: primaryHtml,
     keepBcc: true,
   });
 
   const rawMessage = await composer.compile().build();
-
-  try {
-    await transporter.sendMail(mailOptions);
-  } catch (error) {
-    throw formatError("Échec de l'envoi du message", error);
-  }
 
   try {
     return await appendMessageToSentMailbox({
@@ -1772,6 +1996,7 @@ export async function sendEmailMessage(
         : Buffer.from(rawMessage),
       messageId,
       sentAt,
+      userId,
     });
   } catch (error) {
     console.warn("Impossible d'enregistrer le message dans 'Envoyés':", error);
@@ -1798,6 +2023,27 @@ export async function updateSpamFilterPreference(enabled: boolean): Promise<void
       data: {
         userId,
         spamFilterEnabled: enabled,
+      },
+    });
+  }
+}
+
+export async function updateEmailTrackingPreference(enabled: boolean): Promise<void> {
+  const userId = await resolveUserId();
+  const existing = await prisma.messagingSettings.findUnique({
+    where: { userId },
+  });
+
+  if (existing) {
+    await prisma.messagingSettings.update({
+      where: { userId },
+      data: { trackingEnabled: enabled },
+    });
+  } else {
+    await prisma.messagingSettings.create({
+      data: {
+        userId,
+        trackingEnabled: enabled,
       },
     });
   }

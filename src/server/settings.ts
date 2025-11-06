@@ -89,10 +89,10 @@ export const settingsSchema = z.object({
   defaultCurrency: z.enum(CURRENCY_CODES).default(getDefaultCurrencyCode()),
   defaultVatRate: z
     .number({
-      invalid_type_error: "Taux de TVA invalide",
+      error: "Taux de TVA invalide",
     })
-    .min(0)
-    .max(100),
+    .min(0, "Taux de TVA invalide")
+    .max(100, "Taux de TVA invalide"),
   paymentTerms: z.string().nullable().optional(),
   invoiceNumberPrefix: z.string().min(2).default("FAC"),
   quoteNumberPrefix: z.string().min(2).default("DEV"),

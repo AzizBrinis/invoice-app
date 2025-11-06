@@ -1,4 +1,5 @@
 import {
+  Prisma,
   PrismaClient,
   InvoiceStatus,
   QuoteStatus,
@@ -628,28 +629,33 @@ async function seed() {
     });
   }
 
+  const emailLogs: Prisma.EmailLogCreateManyInput[] = [
+    {
+      userId: adminUser.id,
+      documentType: "DEVIS",
+      documentId: createdQuotes[0].id,
+      to: "contact@ateliersmartin.fr",
+      subject: "Envoi devis DEV-0001",
+      body: "Bonjour, veuillez trouver votre devis en pièce jointe.",
+      sentAt: new Date(),
+      status: "ENVOYE",
+    },
+  ];
+
+  if (createdInvoices[1]) {
+    emailLogs.push({
+      userId: adminUser.id,
+      documentType: "FACTURE",
+      documentId: createdInvoices[1].id,
+      to: "finance@startinnov.fr",
+      subject: "Relance facture FAC-0002",
+      body: "Bonjour, il reste un solde à régler sur la facture FAC-0002.",
+      status: "EN_ATTENTE",
+    });
+  }
+
   await prisma.emailLog.createMany({
-    data: [
-      {
-        userId: adminUser.id,
-        documentType: "DEVIS",
-        documentId: createdQuotes[0].id,
-        to: "contact@ateliersmartin.fr",
-        subject: "Envoi devis DEV-0001",
-        body: "Bonjour, veuillez trouver votre devis en pièce jointe.",
-        sentAt: new Date(),
-        status: "ENVOYE",
-      },
-      createdInvoices[1] && {
-        userId: adminUser.id,
-        documentType: "FACTURE",
-        documentId: createdInvoices[1].id,
-        to: "finance@startinnov.fr",
-        subject: "Relance facture FAC-0002",
-        body: "Bonjour, il reste un solde à régler sur la facture FAC-0002.",
-        status: "EN_ATTENTE",
-      },
-    ].filter(Boolean) as Parameters<typeof prisma.emailLog.createMany>[0]["data"],
+    data: emailLogs,
   });
 
   console.info("✔ Seed terminé : données de démonstration importées.");

@@ -32,6 +32,15 @@ const STATUS_LABELS: Record<InvoiceStatus, string> = {
   ANNULEE: "Annulée",
 };
 
+const INVOICE_STATUS_VALUES: readonly InvoiceStatus[] = [
+  "BROUILLON",
+  "ENVOYEE",
+  "PAYEE",
+  "PARTIELLE",
+  "RETARD",
+  "ANNULEE",
+];
+
 function statusVariant(status: InvoiceStatus) {
   switch (status) {
     case "PAYEE":
@@ -56,6 +65,20 @@ function isPromise<T>(value: unknown): value is Promise<T> {
     "then" in value &&
     typeof (value as { then?: unknown }).then === "function"
   );
+}
+
+function isInvoiceStatus(value: string): value is InvoiceStatus {
+  return (INVOICE_STATUS_VALUES as readonly string[]).includes(value);
+}
+
+function parseStatusParam(
+  value: string | string[] | undefined,
+): InvoiceStatus | "all" {
+  const candidate = Array.isArray(value) ? value[0] : value;
+  if (!candidate || candidate === "all") {
+    return "all";
+  }
+  return isInvoiceStatus(candidate) ? candidate : "all";
 }
 
 export default function FacturesPage({
@@ -83,9 +106,7 @@ async function FacturesPageContent({
   const search = Array.isArray(resolvedSearchParams?.recherche)
     ? resolvedSearchParams.recherche[0]
     : resolvedSearchParams?.recherche ?? "";
-  const statutParam = Array.isArray(resolvedSearchParams?.statut)
-    ? resolvedSearchParams.statut[0]
-    : (resolvedSearchParams?.statut as InvoiceStatus | "all" | undefined) ?? "all";
+  const statutParam = parseStatusParam(resolvedSearchParams?.statut);
   const clientParam = Array.isArray(resolvedSearchParams?.client)
     ? resolvedSearchParams.client[0]
     : (resolvedSearchParams?.client as string | undefined);

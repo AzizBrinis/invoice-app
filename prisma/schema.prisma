@@ -18,6 +18,7 @@ model User {
   sessions     Session[]
   companySettings   CompanySettings?
   messagingSettings MessagingSettings?
+  messagingEmails   MessagingEmail[]
   clients           Client[]
   products          Product[]
   quotes            Quote[]
@@ -100,6 +101,7 @@ model MessagingSettings {
   smtpUser          String?
   smtpPassword      String?
   spamFilterEnabled Boolean  @default(true)
+  trackingEnabled   Boolean  @default(true)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 }
@@ -124,6 +126,110 @@ model MessagingSavedResponse {
 
   @@index([userId, title])
   @@unique([userId, slug])
+}
+
+enum MessagingRecipientType {
+  TO
+  CC
+  BCC
+}
+
+enum MessagingEventType {
+  OPEN
+  CLICK
+}
+
+model MessagingEmail {
+  id              String                     @id @default(cuid())
+  userId          String
+  user            User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messageId       String
+  subject         String?
+  sentAt          DateTime
+  trackingEnabled Boolean                    @default(false)
+  createdAt       DateTime                   @default(now())
+  updatedAt       DateTime                   @updatedAt
+  recipients      MessagingEmailRecipient[]
+  links           MessagingEmailLink[]
+  events          MessagingEmailEvent[]
+
+  @@unique([userId, messageId])
+  @@index([userId, sentAt])
+}
+
+model MessagingEmailRecipient {
+  id             String                       @id @default(cuid())
+  emailId        String
+  email          MessagingEmail               @relation(fields: [emailId], references: [id], onDelete: Cascade)
+  address        String
+  name           String?
+  type           MessagingRecipientType
+  openToken      String                       @unique
+  openCount      Int                          @default(0)
+  firstOpenedAt  DateTime?
+  lastOpenedAt   DateTime?
+  clickCount     Int                          @default(0)
+  lastClickedAt  DateTime?
+  createdAt      DateTime                     @default(now())
+  updatedAt      DateTime                     @updatedAt
+  linkRecipients MessagingEmailLinkRecipient[]
+  events         MessagingEmailEvent[]
+
+  @@index([emailId, address])
+}
+
+model MessagingEmailLink {
+  id        String                 @id @default(cuid())
+  emailId   String
+  email     MessagingEmail         @relation(fields: [emailId], references: [id], onDelete: Cascade)
+  url       String
+  position  Int
+  createdAt DateTime               @default(now())
+  updatedAt DateTime               @updatedAt
+  recipients MessagingEmailLinkRecipient[]
+  events    MessagingEmailEvent[]
+
+  @@index([emailId])
+}
+
+model MessagingEmailLinkRecipient {
+  id             String                     @id @default(cuid())
+  linkId         String
+  link           MessagingEmailLink         @relation(fields: [linkId], references: [id], onDelete: Cascade)
+  recipientId    String
+  recipient      MessagingEmailRecipient    @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+  token          String                     @unique
+  clickCount     Int                        @default(0)
+  firstClickedAt DateTime?
+  lastClickedAt  DateTime?
+  createdAt      DateTime                   @default(now())
+  updatedAt      DateTime                   @updatedAt
+  events         MessagingEmailEvent[]
+
+  @@index([linkId])
+  @@index([recipientId])
+}
+
+model MessagingEmailEvent {
+  id               String                      @id @default(cuid())
+  emailId          String
+  email            MessagingEmail              @relation(fields: [emailId], references: [id], onDelete: Cascade)
+  recipientId      String?
+  recipient        MessagingEmailRecipient?    @relation(fields: [recipientId], references: [id], onDelete: SetNull)
+  linkId           String?
+  link             MessagingEmailLink?         @relation(fields: [linkId], references: [id], onDelete: SetNull)
+  linkRecipientId  String?
+  linkRecipient    MessagingEmailLinkRecipient? @relation(fields: [linkRecipientId], references: [id], onDelete: SetNull)
+  type             MessagingEventType
+  userAgent        String?
+  deviceFamily     String?
+  deviceType       String?
+  occurredAt       DateTime                    @default(now())
+  createdAt        DateTime                    @default(now())
+
+  @@index([emailId, occurredAt])
+  @@index([recipientId])
+  @@index([linkRecipientId])
 }
 
 model SpamDetectionLog {

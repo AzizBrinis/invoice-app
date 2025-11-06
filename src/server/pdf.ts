@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import puppeteer from "puppeteer";
+import puppeteer, { type Browser } from "puppeteer";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { getSettings } from "@/server/settings";
@@ -20,24 +20,25 @@ import type {
   Payment,
   InvoiceStatus,
   QuoteStatus,
+  Client,
 } from "@prisma/client";
 
 type DocumentType = "invoice" | "quote";
 
 type InvoiceWithRelations = Invoice & {
-  client: Quote["client"];
+  client: Client;
   lines: InvoiceLine[];
   payments: Payment[];
 };
 
 type QuoteWithRelations = Quote & {
-  client: Quote["client"];
+  client: Client;
   lines: QuoteLine[];
 };
 
 type DocumentWithRelations = InvoiceWithRelations | QuoteWithRelations;
 
-let browserPromise: Promise<puppeteer.Browser> | null = null;
+let browserPromise: Promise<Browser> | null = null;
 let cachedCss: string | null = null;
 
 function escapeHtml(value: string | null | undefined) {
@@ -78,7 +79,7 @@ async function getBrowser() {
       puppeteerArgs.push("--no-sandbox", "--disable-setuid-sandbox");
     }
     browserPromise = puppeteer.launch({
-      headless: "new",
+      headless: true,
       args: puppeteerArgs,
     });
   }

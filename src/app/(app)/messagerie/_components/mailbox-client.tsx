@@ -30,6 +30,7 @@ import {
   type ActionResult,
 } from "@/app/(app)/messagerie/actions";
 import { Button, type ButtonProps } from "@/components/ui/button";
+import type { Route } from "next";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
 import { useToast } from "@/components/ui/toast-provider";
@@ -83,13 +84,16 @@ function formatFileSize(bytes: number): string {
   return `${display} ${units[exponent]}`;
 }
 
+function formatCount(count: number, singular: string, plural: string): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
 type MoveOption = {
   target: Mailbox;
   label: string;
   variant: ButtonProps["variant"];
   icon?: LucideIcon;
   className?: string;
-  size?: ButtonProps["size"];
 };
 
 const MAILBOX_MOVE_OPTIONS: Record<Mailbox, MoveOption[]> = {
@@ -101,7 +105,6 @@ const MAILBOX_MOVE_OPTIONS: Record<Mailbox, MoveOption[]> = {
       icon: Trash2,
       className:
         "border border-red-500 text-red-600 hover:bg-red-50 dark:border-red-600 dark:text-red-300 dark:hover:bg-red-500/10",
-      size: "sm",
     },
     {
       target: "spam",
@@ -110,7 +113,6 @@ const MAILBOX_MOVE_OPTIONS: Record<Mailbox, MoveOption[]> = {
       icon: ShieldAlert,
       className:
         "border border-red-500 text-red-600 hover:bg-red-50 dark:border-red-600 dark:text-red-300 dark:hover:bg-red-500/10",
-      size: "sm",
     },
   ],
   sent: [
@@ -121,7 +123,6 @@ const MAILBOX_MOVE_OPTIONS: Record<Mailbox, MoveOption[]> = {
       icon: Trash2,
       className:
         "border border-red-500 text-red-600 hover:bg-red-50 dark:border-red-600 dark:text-red-300 dark:hover:bg-red-500/10",
-      size: "sm",
     },
   ],
   drafts: [
@@ -132,7 +133,6 @@ const MAILBOX_MOVE_OPTIONS: Record<Mailbox, MoveOption[]> = {
       icon: Trash2,
       className:
         "border border-red-500 text-red-600 hover:bg-red-50 dark:border-red-600 dark:text-red-300 dark:hover:bg-red-500/10",
-      size: "sm",
     },
   ],
   trash: [
@@ -147,7 +147,6 @@ const MAILBOX_MOVE_OPTIONS: Record<Mailbox, MoveOption[]> = {
       label: "Marquer comme spam",
       variant: "secondary",
       icon: ShieldAlert,
-      size: "sm",
     },
   ],
   spam: [
@@ -156,7 +155,6 @@ const MAILBOX_MOVE_OPTIONS: Record<Mailbox, MoveOption[]> = {
       label: "Déplacer vers Reçus",
       variant: "secondary",
       icon: Undo2,
-      size: "sm",
     },
     {
       target: "trash",
@@ -165,7 +163,6 @@ const MAILBOX_MOVE_OPTIONS: Record<Mailbox, MoveOption[]> = {
       icon: Trash2,
       className:
         "border border-red-500 text-red-600 hover:bg-red-50 dark:border-red-600 dark:text-red-300 dark:hover:bg-red-500/10",
-      size: "sm",
     },
   ],
 };
@@ -215,15 +212,25 @@ export function MailboxClient({
     useState<string | null>(null);
   const [movingTarget, setMovingTarget] = useState<Mailbox | null>(null);
   const previewUrlRef = useRef<Record<string, string>>({});
+  const [storeHydrated, setStoreHydrated] = useState(false);
+
+  useEffect(() => {
+    setStoreHydrated(true);
+  }, []);
 
   const pageSizeFromStore =
-    mailboxState.pageSize || initialPage?.pageSize || 20;
-  const messages = mailboxState.initialized
-    ? mailboxState.messages
-    : initialPage?.messages ?? [];
+    storeHydrated && mailboxState.initialized
+      ? mailboxState.pageSize
+      : initialPage?.pageSize ?? 20;
+  const messages =
+    storeHydrated && mailboxState.initialized
+      ? mailboxState.messages
+      : initialPage?.messages ?? [];
   const hasMessages = messages.length > 0;
   const hasMoreMessages = mailboxState.initialized
-    ? mailboxState.hasMore
+    ? storeHydrated
+      ? mailboxState.hasMore
+      : initialPage?.hasMore ?? false
     : initialPage?.hasMore ?? false;
 
   const safeActionCall = useCallback(
@@ -355,14 +362,19 @@ export function MailboxClient({
         return;
       }
       if (result.success) {
+        const payload = result.data;
+        if (!payload) {
+          setListError("Réponse invalide du serveur.");
+          return;
+        }
         initializeMailboxCache(mailbox, {
-          messages: result.data.messages,
-          page: result.data.page,
-          pageSize: result.data.pageSize,
-          hasMore: result.data.hasMore,
-          totalMessages: result.data.totalMessages,
+          messages: payload.messages,
+          page: payload.page,
+          pageSize: payload.pageSize,
+          hasMore: payload.hasMore,
+          totalMessages: payload.totalMessages,
         });
-        processAutoMoved(result.data.autoMoved);
+        processAutoMoved(payload.autoMoved);
         setListError(null);
       } else {
         setListError(result.message);
@@ -412,6 +424,10 @@ export function MailboxClient({
         );
         if (!result || isCancelled) return;
         if (result.success) {
+          if (!result.data) {
+            setDetailError("Message introuvable.");
+            return;
+          }
           setDetail(result.data);
           markMailboxMessageSeen(mailbox, selectedUid);
         } else {
@@ -445,7 +461,8 @@ export function MailboxClient({
     (uid: number) => {
       const params = new URLSearchParams(searchParams.toString());
       params.set("message", String(uid));
-      router.replace(`${pathname}?${params.toString()}`, {
+      const nextUrl = `${pathname}?${params.toString()}` as Route;
+      router.replace(nextUrl, {
         scroll: false,
       });
     },
@@ -456,7 +473,8 @@ export function MailboxClient({
     const params = new URLSearchParams(searchParams.toString());
     params.delete("message");
     const query = params.toString();
-    router.replace(query ? `${pathname}?${query}` : pathname, {
+    const nextUrl = (query ? `${pathname}?${query}` : pathname) as Route;
+    router.replace(nextUrl, {
       scroll: false,
     });
   }, [pathname, router, searchParams]);
@@ -502,14 +520,22 @@ export function MailboxClient({
       });
       return;
     }
-    appendMailboxMessages(mailbox, result.data.messages, {
-      page: result.data.page,
-      pageSize: result.data.pageSize,
-      hasMore: result.data.hasMore,
-      totalMessages: result.data.totalMessages,
+    if (!result.data) {
+      addToast({
+        variant: "error",
+        title: "Réponse invalide du serveur.",
+      });
+      return;
+    }
+    const payload = result.data;
+    appendMailboxMessages(mailbox, payload.messages, {
+      page: payload.page,
+      pageSize: payload.pageSize,
+      hasMore: payload.hasMore,
+      totalMessages: payload.totalMessages,
       lastSync: Date.now(),
     });
-    processAutoMoved(result.data.autoMoved);
+    processAutoMoved(payload.autoMoved);
   };
 
   const handleRefresh = async () => {
@@ -531,14 +557,22 @@ export function MailboxClient({
       setListError(result.message);
       return;
     }
+    if (!result.data) {
+      addToast({
+        variant: "error",
+        title: "Réponse invalide du serveur.",
+      });
+      return;
+    }
+    const payload = result.data;
     replaceMailboxMessages(mailbox, {
-      messages: result.data.messages,
-      page: result.data.page,
-      pageSize: result.data.pageSize,
-      hasMore: result.data.hasMore,
-      totalMessages: result.data.totalMessages,
+      messages: payload.messages,
+      page: payload.page,
+      pageSize: payload.pageSize,
+      hasMore: payload.hasMore,
+      totalMessages: payload.totalMessages,
     });
-    processAutoMoved(result.data.autoMoved);
+    processAutoMoved(payload.autoMoved);
     setListError(null);
     addToast({
       variant: "success",
@@ -597,7 +631,9 @@ export function MailboxClient({
   );
 
   const showInitialSkeleton =
-    !mailboxState.initialized && !initialPage && (initialLoading || !hasMessages);
+    (!storeHydrated || !mailboxState.initialized) &&
+    !initialPage &&
+    (initialLoading || !hasMessages);
 
   const handleDownloadAttachment = useCallback(
     async (attachment: MessageDetail["attachments"][number]) => {
@@ -798,6 +834,15 @@ export function MailboxClient({
                                 {message.to.length > 3 ? "…" : ""}
                               </p>
                             ) : null}
+                            {mailbox === "sent" ? (
+                              <div className="text-xs text-zinc-500 dark:text-zinc-400">
+                                {message.tracking
+                                  ? message.tracking.enabled
+                                    ? `${formatCount(message.tracking.totalOpens, "ouverture", "ouvertures")} · ${formatCount(message.tracking.totalClicks, "clic", "clics")}`
+                                    : "Suivi désactivé lors de l'envoi"
+                                  : "Suivi non disponible"}
+                              </div>
+                            ) : null}
                             {message.hasAttachments ? (
                               <Badge variant="info" className="w-fit">
                                 <span className="inline-flex items-center gap-1">
@@ -841,7 +886,11 @@ export function MailboxClient({
                 <p className="text-sm text-red-600 dark:text-red-400">
                   {detailError}
                 </p>
-                <Button type="button" variant="outline" onClick={handleClearSelection}>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={handleClearSelection}
+                >
                   Retour à la liste
                 </Button>
               </div>
@@ -887,7 +936,7 @@ export function MailboxClient({
                 </div>
                 {moveOptions.length ? (
                   <div className="flex flex-wrap gap-1.5">
-                    {moveOptions.map(({ target, label, variant, icon: Icon, className, size }) => {
+                    {moveOptions.map(({ target, label, variant, icon: Icon, className }) => {
                       const IconComponent = Icon ?? FolderSymlink;
                       const isLoading = movingTarget === target;
                       return (
@@ -900,8 +949,7 @@ export function MailboxClient({
                           disabled={
                             movingTarget !== null && movingTarget !== target
                           }
-                          size={size ?? "sm"}
-                          className={className}
+                          className={clsx("px-3 py-1 text-xs", className)}
                         >
                           <IconComponent className="h-3.5 w-3.5" />
                           <span className="text-xs font-medium uppercase tracking-wide">
@@ -1010,6 +1058,163 @@ export function MailboxClient({
                   ) : null}
                 </div>
 
+                {mailbox === "sent" ? (
+                  <div className="space-y-4 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <h3 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                          Suivi des interactions
+                        </h3>
+                        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                          {detail.tracking
+                            ? detail.tracking.trackingEnabled
+                              ? "Statistiques consolidées par destinataire."
+                              : "Le suivi était désactivé lors de l'envoi."
+                            : "Aucune donnée de suivi n'est disponible pour ce message."}
+                        </p>
+                      </div>
+                      {detail.tracking && detail.tracking.trackingEnabled ? (
+                        <div className="flex flex-wrap gap-2">
+                          <Badge variant="info">
+                            {formatCount(
+                              detail.tracking.totalOpens,
+                              "ouverture",
+                              "ouvertures",
+                            )}
+                          </Badge>
+                          <Badge variant="info">
+                            {formatCount(
+                              detail.tracking.totalClicks,
+                              "clic",
+                              "clics",
+                            )}
+                          </Badge>
+                        </div>
+                      ) : null}
+                    </div>
+                    {detail.tracking && detail.tracking.trackingEnabled ? (
+                      <div className="space-y-3">
+                        {detail.tracking.recipients.length ? (
+                          <ul className="space-y-2">
+                            {detail.tracking.recipients.map((recipient) => {
+                              const lastDevice = recipient.devices[0] ?? null;
+                              const label =
+                                recipient.name && recipient.name.length > 0
+                                  ? `${recipient.name} <${recipient.address}>`
+                                  : recipient.address;
+                              return (
+                                <li
+                                  key={recipient.id}
+                                  className="space-y-2 rounded-md border border-zinc-200 bg-zinc-50 p-3 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+                                >
+                                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                    <div>
+                                      <p className="font-medium text-zinc-800 dark:text-zinc-100">
+                                        {label}
+                                      </p>
+                                      <p className="text-[11px] uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
+                                        {recipient.type === "TO"
+                                          ? "Destinataire principal"
+                                          : recipient.type === "CC"
+                                            ? "Copie (Cc)"
+                                            : "Copie cachée (Bcc)"}
+                                      </p>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                      <Badge variant="info">
+                                        {formatCount(
+                                          recipient.openCount,
+                                          "ouverture",
+                                          "ouvertures",
+                                        )}
+                                      </Badge>
+                                      <Badge variant="info">
+                                        {formatCount(
+                                          recipient.clickCount,
+                                          "clic",
+                                          "clics",
+                                        )}
+                                      </Badge>
+                                    </div>
+                                  </div>
+                                  <div className="grid gap-2 text-[11px] text-zinc-500 dark:text-zinc-400 sm:grid-cols-3">
+                                    <div>
+                                      <span className="font-semibold text-zinc-600 dark:text-zinc-300">
+                                        Dernière ouverture
+                                      </span>
+                                      <div>
+                                        {recipient.lastOpenedAt
+                                          ? formatDate(recipient.lastOpenedAt)
+                                          : "Aucune"}
+                                      </div>
+                                    </div>
+                                    <div>
+                                      <span className="font-semibold text-zinc-600 dark:text-zinc-300">
+                                        Dernier clic
+                                      </span>
+                                      <div>
+                                        {recipient.lastClickedAt
+                                          ? formatDate(recipient.lastClickedAt)
+                                          : "Aucun"}
+                                      </div>
+                                    </div>
+                                    <div>
+                                      <span className="font-semibold text-zinc-600 dark:text-zinc-300">
+                                        Appareil récent
+                                      </span>
+                                      <div>
+                                        {lastDevice
+                                          ? `${lastDevice.deviceFamily ?? "Inconnu"}${
+                                              lastDevice.deviceType
+                                                ? ` · ${lastDevice.deviceType}`
+                                                : ""
+                                            }`
+                                          : "Non détecté"}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        ) : (
+                          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                            Aucun destinataire enregistré pour le suivi.
+                          </p>
+                        )}
+                        {detail.tracking.links.length ? (
+                          <div className="space-y-2">
+                            <h4 className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                              Liens traqués
+                            </h4>
+                            <ul className="space-y-1 text-xs text-zinc-600 dark:text-zinc-400">
+                              {detail.tracking.links.map((link) => (
+                                <li
+                                  key={link.id}
+                                  className="flex flex-col gap-1 rounded-md border border-zinc-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900/80"
+                                >
+                                  <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                                    <span className="truncate font-medium text-blue-600 dark:text-blue-300">
+                                      {link.url}
+                                    </span>
+                                    <Badge variant="info">
+                                      {formatCount(
+                                        link.totalClicks,
+                                        "clic",
+                                        "clics",
+                                      )}
+                                    </Badge>
+                                  </div>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
                 <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-6 text-sm leading-relaxed text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950/60 dark:text-zinc-100">
                   {detail.html ? (
                     <div
@@ -1066,8 +1271,7 @@ export function MailboxClient({
                                   <Button
                                     type="button"
                                     variant="secondary"
-                                    size="sm"
-                                    className="px-2"
+                                    className="px-2 py-1 text-xs"
                                     onClick={() =>
                                       void handlePreviewAttachment(attachment)
                                     }
@@ -1092,9 +1296,8 @@ export function MailboxClient({
                                 ) : null}
                                 <Button
                                   type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  className="px-2"
+                                  variant="secondary"
+                                  className="px-2 py-1 text-xs"
                                   onClick={() =>
                                     void handleDownloadAttachment(attachment)
                                   }

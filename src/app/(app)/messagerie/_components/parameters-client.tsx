@@ -8,12 +8,14 @@ import {
   useState,
   type ChangeEvent,
 } from "react";
+import { useRouter } from "next/navigation";
 import type { MessagingSettingsSummary } from "@/server/messaging";
 import {
   updateMessagingConnectionsAction,
   updateMessagingIdentityAction,
   testImapConnectionAction,
   testSmtpConnectionAction,
+  updateEmailTrackingPreferenceAction,
   type ActionResult,
 } from "@/app/(app)/messagerie/actions";
 import { useToast } from "@/components/ui/toast-provider";
@@ -34,10 +36,13 @@ export function ParametersClient({ summary, savedResponses }: ParametersClientPr
   const logoFileInputRef = useRef<HTMLInputElement | null>(null);
   const logoUrlInputRef = useRef<HTMLInputElement | null>(null);
   const { addToast } = useToast();
+  const router = useRouter();
   const initialLogoUrl = summary.senderLogoUrl ?? "";
   const [logoPreview, setLogoPreview] = useState(initialLogoUrl);
   const [logoRemoved, setLogoRemoved] = useState(false);
   const [logoObjectUrl, setLogoObjectUrl] = useState<string | null>(null);
+  const [trackingEnabled, setTrackingEnabled] = useState(summary.trackingEnabled);
+  const [updatingTracking, setUpdatingTracking] = useState(false);
   const [savingIdentity, setSavingIdentity] = useState(false);
   const [savingConnections, setSavingConnections] = useState(false);
   const [testingImap, setTestingImap] = useState(false);
@@ -50,6 +55,10 @@ export function ParametersClient({ summary, savedResponses }: ParametersClientPr
       }
     };
   }, [logoObjectUrl]);
+
+  useEffect(() => {
+    setTrackingEnabled(summary.trackingEnabled);
+  }, [summary.trackingEnabled]);
 
   useEffect(() => {
     setLogoObjectUrl((previous) => {
@@ -149,6 +158,15 @@ export function ParametersClient({ summary, savedResponses }: ParametersClientPr
     [summary.smtpConfigured],
   );
 
+  const trackingStatusBadge = useMemo(
+    () => (
+      <Badge variant={trackingEnabled ? "success" : "neutral"}>
+        {trackingEnabled ? "Suivi activé" : "Suivi désactivé"}
+      </Badge>
+    ),
+    [trackingEnabled],
+  );
+
   const callFormAction = useCallback(
     async <T,>(
       form: HTMLFormElement | null,
@@ -245,6 +263,41 @@ export function ParametersClient({ summary, savedResponses }: ParametersClientPr
     });
   };
 
+  const handleTrackingToggle = useCallback(async () => {
+    setUpdatingTracking(true);
+    const nextValue = !trackingEnabled;
+    try {
+      const formData = new FormData();
+      formData.append("enabled", nextValue ? "true" : "false");
+      const result = await updateEmailTrackingPreferenceAction(formData);
+      if (result?.success) {
+        setTrackingEnabled(nextValue);
+        addToast({
+          variant: "success",
+          title:
+            result.message ??
+            (nextValue
+              ? "Suivi des e-mails activé."
+              : "Suivi des e-mails désactivé."),
+        });
+        router.refresh();
+      } else if (result) {
+        addToast({
+          variant: "error",
+          title: result.message ?? "Échec de la mise à jour du suivi.",
+        });
+      }
+    } catch (error) {
+      console.error("Impossible de modifier le suivi des e-mails:", error);
+      addToast({
+        variant: "error",
+        title: "Impossible de mettre à jour le suivi des e-mails.",
+      });
+    } finally {
+      setUpdatingTracking(false);
+    }
+  }, [trackingEnabled, addToast, router]);
+
   const hasStoredLogo = (summary.senderLogoUrl ?? "").length > 0;
   const hasPreview = logoPreview.length > 0;
   const canRemoveLogo =
@@ -265,8 +318,35 @@ export function ParametersClient({ summary, savedResponses }: ParametersClientPr
         <div className="flex flex-wrap gap-2">
           {imapConfiguredBadge}
           {smtpConfiguredBadge}
-        </div>
       </div>
+    </div>
+
+      <section className="space-y-3 rounded-lg border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-2">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+              Suivi des e-mails envoyés
+            </h3>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              Ajoutez un pixel d&apos;ouverture et des liens traqués pour suivre l&apos;engagement
+              destinataire par destinataire. La désactivation coupe instantanément ces éléments.
+            </p>
+            {trackingStatusBadge}
+          </div>
+          <Button
+            type="button"
+            variant={trackingEnabled ? "ghost" : "secondary"}
+            onClick={handleTrackingToggle}
+            loading={updatingTracking}
+          >
+            {trackingEnabled ? "Désactiver le suivi" : "Activer le suivi"}
+          </Button>
+        </div>
+        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+          Le suivi reste limité à votre locataire : chaque pixel et lien est signé par un jeton
+          impossible à deviner, sans exposer d&apos;adresse ou de contenu sensible.
+        </p>
+      </section>
 
       <form
         ref={identityFormRef}

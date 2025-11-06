@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { ZodError } from "zod";
 import { clientSchema, createClient, updateClient, deleteClient } from "@/server/clients";
 import { isRedirectError } from "@/lib/next";
+import type { Route } from "next";
 
 function parseClientForm(formData: FormData) {
   const payload = {
@@ -37,7 +38,7 @@ function resolveRedirectTarget(
 function redirectWithFeedback(
   target: string,
   feedback: { message?: string; error?: string; warning?: string },
-) {
+): never {
   const [path, query = ""] = target.split("?");
   const params = new URLSearchParams(query);
   ["message", "error", "warning"].forEach((key) => {
@@ -47,7 +48,8 @@ function redirectWithFeedback(
   if (feedback.error) params.set("error", feedback.error);
   if (feedback.warning) params.set("warning", feedback.warning);
   const nextQuery = params.toString();
-  redirect(nextQuery ? `${path}?${nextQuery}` : path);
+  const href = (nextQuery ? `${path}?${nextQuery}` : path) as Route;
+  return redirect(href);
 }
 
 export async function createClientAction(formData: FormData) {

@@ -118,16 +118,24 @@ export function MailboxSyncProvider({
       if (!result || !result.success) {
         return;
       }
+      if (!result.data) {
+        addToast({
+          variant: "error",
+          title: "Réponse invalide du serveur (snapshot).",
+        });
+        return;
+      }
+      const payload = result.data;
       replaceMailboxMessages(mailbox, {
-        messages: result.data.messages,
-        page: result.data.page,
-        pageSize: result.data.pageSize,
-        hasMore: result.data.hasMore,
-        totalMessages: result.data.totalMessages,
+        messages: payload.messages,
+        page: payload.page,
+        pageSize: payload.pageSize,
+        hasMore: payload.hasMore,
+        totalMessages: payload.totalMessages,
       });
-      handleAutoMoved(mailbox, result.data.autoMoved);
+      handleAutoMoved(mailbox, payload.autoMoved);
     },
-    [handleAutoMoved, safeActionCall],
+    [addToast, handleAutoMoved, safeActionCall],
   );
 
   const synchronizeMailbox = useCallback(
@@ -153,16 +161,24 @@ export function MailboxSyncProvider({
         if (!result || !result.success) {
           return;
         }
+        if (!result.data) {
+          addToast({
+            variant: "error",
+            title: "Réponse invalide du serveur (synchronisation).",
+          });
+          return;
+        }
+        const payload = result.data;
         const existingUids = new Set(cached.messages.map((item) => item.uid));
-        const newMessages = result.data.messages.filter(
+        const newMessages = payload.messages.filter(
           (item) => !existingUids.has(item.uid),
         );
-        if (result.data.messages.length) {
-          appendMailboxMessages(mailbox, result.data.messages, {
-            totalMessages: result.data.totalMessages ?? undefined,
+        if (payload.messages.length) {
+          appendMailboxMessages(mailbox, payload.messages, {
+            totalMessages: payload.totalMessages ?? undefined,
             lastSync: Date.now(),
           });
-          handleAutoMoved(mailbox, result.data.autoMoved);
+          handleAutoMoved(mailbox, payload.autoMoved);
           if (mailbox === "inbox" && newMessages.length) {
             newMessages.forEach((message) => {
               addToast({
@@ -176,20 +192,20 @@ export function MailboxSyncProvider({
               });
             });
           }
-        } else if (typeof result.data.totalMessages === "number") {
+        } else if (typeof payload.totalMessages === "number") {
           replaceMailboxMessages(mailbox, {
             messages: cached.messages,
             page: cached.page,
             pageSize: cached.pageSize,
             hasMore: cached.hasMore,
-            totalMessages: result.data.totalMessages,
+            totalMessages: payload.totalMessages,
           });
-          handleAutoMoved(mailbox, result.data.autoMoved);
+          handleAutoMoved(mailbox, payload.autoMoved);
         }
         if (
-          typeof result.data.totalMessages === "number" &&
+          typeof payload.totalMessages === "number" &&
           cached.totalMessages !== null &&
-          result.data.totalMessages < cached.totalMessages
+          payload.totalMessages < cached.totalMessages
         ) {
           await synchronizeSnapshot(mailbox);
         }

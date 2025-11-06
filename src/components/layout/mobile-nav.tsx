@@ -5,6 +5,7 @@ import { clsx } from "clsx";
 import Link from "next/link";
 import { Menu, X, ChevronDown } from "lucide-react";
 import { usePathname } from "next/navigation";
+import type { Route } from "next";
 import {
   type NavItem,
   NAV_ICON_MAP,
@@ -50,7 +51,7 @@ export function MobileNav({ items }: { items: NavItem[] }) {
                   )}
                 >
                   <Link
-                    href={item.href}
+                    href={item.href as Route}
                     onClick={() => {
                       setOpen(false);
                     }}
@@ -91,7 +92,7 @@ export function MobileNav({ items }: { items: NavItem[] }) {
                       return (
                         <Link
                           key={child.href}
-                          href={child.href}
+                          href={child.href as Route}
                           onClick={() => setOpen(false)}
                           className={clsx(
                             "block rounded-md px-3 py-2 text-sm transition-colors",
