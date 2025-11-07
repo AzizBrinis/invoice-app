@@ -14,6 +14,7 @@ import {
   testImapConnection,
   testSmtpConnection,
   updateMessagingConnections,
+  updateMessagingAutoReplySettings,
   updateMessagingSenderIdentity,
   updateEmailTrackingPreference,
   getMessagingSettingsSummary,
@@ -28,6 +29,11 @@ import {
   type SentMailboxAppendResult,
   type AutoMovedSummary,
 } from "@/server/messaging";
+import {
+  scheduleEmailDraft,
+  rescheduleScheduledEmail,
+  cancelScheduledEmail,
+} from "@/server/messaging-scheduled";
 import { requireUser } from "@/lib/auth";
 import { recordManualSpamFeedback } from "@/server/spam-detection";
 import {
@@ -207,6 +213,54 @@ const savedResponseSchema = z.object({
 
 const savedResponseUpdateSchema = savedResponseSchema.extend({
   responseId: z.string().min(1, "Identifiant requis"),
+});
+
+const optionalEmailSchema = z
+  .string()
+  .optional()
+  .transform((value) => {
+    const trimmed = value?.trim() ?? "";
+    return trimmed.length ? trimmed : null;
+  })
+  .refine(
+    (value) => value === null || z.string().email().safeParse(value).success,
+    "Adresse e-mail de secours invalide.",
+  );
+
+const dateInputSchema = z
+  .string()
+  .optional()
+  .transform((value) => {
+    const trimmed = value?.trim() ?? "";
+    return trimmed.length ? trimmed : null;
+  });
+
+const autoReplySettingsSchema = z.object({
+  autoReplyEnabled: booleanSchema,
+  autoReplySubject: z
+    .string()
+    .min(3, "Sujet trop court.")
+    .max(180, "Sujet trop long.")
+    .transform((value) => value.trim()),
+  autoReplyBody: z
+    .string()
+    .min(10, "Message trop court.")
+    .max(2000, "Message trop long.")
+    .transform((value) => value.replace(/\r\n/g, "\n").trim()),
+  vacationModeEnabled: booleanSchema,
+  vacationSubject: z
+    .string()
+    .min(3, "Sujet trop court.")
+    .max(180, "Sujet trop long.")
+    .transform((value) => value.trim()),
+  vacationMessage: z
+    .string()
+    .min(10, "Message trop court.")
+    .max(2000, "Message trop long.")
+    .transform((value) => value.replace(/\r\n/g, "\n").trim()),
+  vacationStartDate: dateInputSchema,
+  vacationEndDate: dateInputSchema,
+  vacationBackupEmail: optionalEmailSchema,
 });
 
 function mapSettingsValidationError(error: z.ZodError): string {
@@ -492,6 +546,83 @@ export async function updateMessagingIdentityAction(
   }
 }
 
+export async function updateAutoReplySettingsAction(
+  formData: FormData,
+): Promise<ActionResult> {
+  try {
+    const parsed = autoReplySettingsSchema.parse(
+      Object.fromEntries(formData),
+    );
+    if (
+      parsed.vacationModeEnabled &&
+      (!parsed.vacationStartDate || !parsed.vacationEndDate)
+    ) {
+      return {
+        success: false,
+        message: "Renseignez une date de début et de fin pour le mode vacances.",
+      };
+    }
+
+    let vacationStart: Date | null = null;
+    let vacationEnd: Date | null = null;
+
+    try {
+      vacationStart = parseDateOnly(parsed.vacationStartDate);
+      vacationEnd = parseDateOnly(parsed.vacationEndDate);
+    } catch (error) {
+      return {
+        success: false,
+        message:
+          error instanceof Error
+            ? error.message
+            : "Dates invalides fournies.",
+      };
+    }
+
+    if (vacationStart && vacationEnd && vacationEnd < vacationStart) {
+      return {
+        success: false,
+        message: "La date de fin doit être postérieure à la date de début.",
+      };
+    }
+
+    await updateMessagingAutoReplySettings({
+      autoReplyEnabled: parsed.autoReplyEnabled,
+      autoReplySubject: parsed.autoReplySubject,
+      autoReplyBody: parsed.autoReplyBody,
+      vacationModeEnabled: parsed.vacationModeEnabled,
+      vacationSubject: parsed.vacationSubject,
+      vacationMessage: parsed.vacationMessage,
+      vacationStartDate: vacationStart,
+      vacationEndDate: vacationEnd,
+      vacationBackupEmail: parsed.vacationBackupEmail,
+    });
+
+    revalidatePath("/messagerie/parametres");
+
+    return {
+      success: true,
+      message: parsed.vacationModeEnabled
+        ? "Mode vacances mis à jour."
+        : "Réponses automatiques mises à jour.",
+    };
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return {
+        success: false,
+        message: error.issues[0]?.message ?? "Champs invalides.",
+      };
+    }
+    return {
+      success: false,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Impossible de mettre à jour les réponses automatiques.",
+    };
+  }
+}
+
 export async function updateMessagingConnectionsAction(
   formData: FormData,
 ): Promise<ActionResult> {
@@ -755,98 +886,100 @@ export async function moveMailboxMessageAction(
   }
 }
 
+type PreparedComposePayload = {
+  to: string[];
+  cc?: string[];
+  bcc?: string[];
+  subject: string;
+  text: string;
+  html: string;
+  attachments?: EmailAttachment[];
+};
+
+async function buildPreparedComposePayload(
+  formData: FormData,
+): Promise<PreparedComposePayload> {
+  const parsed = composeSchema.parse(Object.fromEntries(formData));
+
+  const toList = parseAddressList(parsed.to);
+  if (!toList.length) {
+    throw new Error("Destinataire requis.");
+  }
+
+  const ccList = parseAddressList(parsed.cc);
+  const bccList = parseAddressList(parsed.bcc);
+
+  const files = formData
+    .getAll("attachments")
+    .filter((value): value is File => value instanceof File && value.size > 0);
+
+  const attachments: EmailAttachment[] = [];
+  for (const file of files) {
+    if (file.size > MAX_ATTACHMENT_SIZE) {
+      throw new Error("Pièce jointe trop volumineuse.");
+    }
+    if (!isAllowedAttachmentType(file.type)) {
+      throw new Error("Type de fichier non supporté.");
+    }
+    const buffer = Buffer.from(await file.arrayBuffer());
+    attachments.push({
+      filename: file.name,
+      content: buffer,
+      contentType: file.type || undefined,
+    });
+  }
+
+  const plainBody = parsed.body ?? "";
+  const htmlBody = parsed.bodyHtml ?? "";
+  const isHtmlBody = parsed.bodyFormat === "html" && htmlBody.trim().length > 0;
+
+  const htmlContent = buildEmailHtml(
+    plainBody,
+    htmlBody,
+    isHtmlBody ? "html" : "plain",
+    parsed.quotedHtml,
+    parsed.quotedText,
+  );
+
+  let primaryText = isHtmlBody ? stripHtml(htmlBody) : plainBody.trimEnd();
+  if (!primaryText.length && plainBody.length) {
+    primaryText = plainBody.trim();
+  }
+  if (!primaryText.length && isHtmlBody) {
+    primaryText = stripHtml(htmlContent);
+  }
+
+  const textParts: string[] = [];
+  if (primaryText.length) {
+    textParts.push(primaryText);
+  }
+  const trimmedQuotedText = parsed.quotedText.trim();
+  if (trimmedQuotedText.length > 0) {
+    if (textParts.length) {
+      textParts.push("");
+    }
+    textParts.push("----- Message d'origine -----", trimmedQuotedText);
+  }
+
+  const textPayload = textParts.length ? textParts.join("\n") : " ";
+
+  return {
+    to: toList,
+    cc: ccList.length ? ccList : undefined,
+    bcc: bccList.length ? bccList : undefined,
+    subject: parsed.subject,
+    text: textPayload,
+    html: htmlContent,
+    attachments: attachments.length ? attachments : undefined,
+  };
+}
+
 export async function sendEmailAction(
   formData: FormData,
 ): Promise<ActionResult<SentMailboxAppendResult>> {
   try {
-    const parsed = composeSchema.parse(
-      Object.fromEntries(formData),
-    );
-
-    const toList = parseAddressList(parsed.to);
-    if (toList.length === 0) {
-      return {
-        success: false,
-        message: "Destinataire requis.",
-      };
-    }
-
-    const ccList = parseAddressList(parsed.cc);
-    const bccList = parseAddressList(parsed.bcc);
-
-    const files = formData
-      .getAll("attachments")
-      .filter((value): value is File => value instanceof File && value.size > 0);
-
-    const attachments: EmailAttachment[] = [];
-    for (const file of files) {
-      if (file.size > MAX_ATTACHMENT_SIZE) {
-        return {
-          success: false,
-          message: "Pièce jointe trop volumineuse.",
-        };
-      }
-      if (!isAllowedAttachmentType(file.type)) {
-        return {
-          success: false,
-          message: "Type de fichier non supporté.",
-        };
-      }
-      const buffer = Buffer.from(await file.arrayBuffer());
-      attachments.push({
-        filename: file.name,
-        content: buffer,
-        contentType: file.type || undefined,
-      });
-    }
-
-    const plainBody = parsed.body ?? "";
-    const htmlBody = parsed.bodyHtml ?? "";
-    const bodyFormat = parsed.bodyFormat;
-    const isHtmlBody = bodyFormat === "html" && htmlBody.trim().length > 0;
-
-    const htmlContent = buildEmailHtml(
-      plainBody,
-      htmlBody,
-      isHtmlBody ? "html" : "plain",
-      parsed.quotedHtml,
-      parsed.quotedText,
-    );
-
-    let primaryText = isHtmlBody
-      ? stripHtml(htmlBody)
-      : plainBody.trimEnd();
-
-    if (!primaryText.length && plainBody.length) {
-      primaryText = plainBody.trim();
-    }
-    if (!primaryText.length && isHtmlBody) {
-      primaryText = stripHtml(htmlContent);
-    }
-
-    const textParts: string[] = [];
-    if (primaryText.length) {
-      textParts.push(primaryText);
-    }
-    const trimmedQuotedText = parsed.quotedText.trim();
-    if (trimmedQuotedText.length > 0) {
-      if (textParts.length) {
-        textParts.push("");
-      }
-      textParts.push("----- Message d'origine -----", trimmedQuotedText);
-    }
-
-    const textPayload = textParts.length ? textParts.join("\n") : " ";
-
-    const sentResult = await sendEmailMessage({
-      to: toList,
-      cc: ccList.length ? ccList : undefined,
-      bcc: bccList.length ? bccList : undefined,
-      subject: parsed.subject,
-      text: textPayload,
-      html: htmlContent,
-      attachments: attachments.length ? attachments : undefined,
-    });
+    const payload = await buildPreparedComposePayload(formData);
+    const sentResult = await sendEmailMessage(payload);
 
     return {
       success: true,
@@ -868,6 +1001,160 @@ export async function sendEmailAction(
       ),
     };
   }
+}
+
+export async function scheduleEmailAction(
+  formData: FormData,
+): Promise<ActionResult<{ id: string }>> {
+  try {
+    const scheduledAtRaw = formData.get("scheduledAt");
+    if (typeof scheduledAtRaw !== "string" || scheduledAtRaw.trim().length === 0) {
+      return {
+        success: false,
+        message: "Choisissez une date et une heure d'envoi.",
+      };
+    }
+    const scheduledAt = new Date(scheduledAtRaw);
+    if (Number.isNaN(scheduledAt.getTime())) {
+      return {
+        success: false,
+        message: "Date d'envoi invalide.",
+      };
+    }
+    if (scheduledAt.getTime() <= Date.now()) {
+      return {
+        success: false,
+        message: "La date d'envoi doit être dans le futur.",
+      };
+    }
+
+    const payload = await buildPreparedComposePayload(formData);
+    const user = await requireUser();
+    const summary = await getMessagingSettingsSummary(user.id);
+    if (!summary.smtpConfigured) {
+      return {
+        success: false,
+        message: "Configurez le SMTP avant de planifier un envoi.",
+      };
+    }
+
+    const record = await scheduleEmailDraft({
+      userId: user.id,
+      to: payload.to,
+      cc: payload.cc,
+      bcc: payload.bcc,
+      subject: payload.subject,
+      text: payload.text,
+      html: payload.html,
+      sendAt: scheduledAt,
+      attachments: payload.attachments ?? [],
+    });
+
+    revalidatePath("/messagerie/planifies");
+
+    return {
+      success: true,
+      message: "E-mail planifié.",
+      data: { id: record.id },
+    };
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return {
+        success: false,
+        message: error.issues[0]?.message ?? "Champs invalides.",
+      };
+    }
+    return {
+      success: false,
+      message:
+        error instanceof Error ? error.message : "Impossible de planifier l'e-mail.",
+    };
+  }
+}
+
+export async function rescheduleScheduledEmailAction(
+  formData: FormData,
+): Promise<ActionResult<{ sendAt: string }>> {
+  try {
+    const id = formData.get("id")?.toString() ?? "";
+    const scheduledAtRaw = formData.get("scheduledAt")?.toString() ?? "";
+    if (!id) {
+      return {
+        success: false,
+        message: "E-mail planifié introuvable.",
+      };
+    }
+    if (!scheduledAtRaw) {
+      return {
+        success: false,
+        message: "Nouvelle date d'envoi requise.",
+      };
+    }
+    const sendAt = new Date(scheduledAtRaw);
+    if (Number.isNaN(sendAt.getTime())) {
+      return {
+        success: false,
+        message: "Date d'envoi invalide.",
+      };
+    }
+    await rescheduleScheduledEmail({
+      id,
+      sendAt,
+    });
+    revalidatePath("/messagerie/planifies");
+    return {
+      success: true,
+      message: "Planification mise à jour.",
+      data: { sendAt: sendAt.toISOString() },
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Impossible de replanifier cet e-mail.",
+    };
+  }
+}
+
+export async function cancelScheduledEmailAction(
+  formData: FormData,
+): Promise<ActionResult> {
+  try {
+    const id = formData.get("id")?.toString() ?? "";
+    if (!id) {
+      return {
+        success: false,
+        message: "E-mail planifié introuvable.",
+      };
+    }
+    await cancelScheduledEmail({ id });
+    revalidatePath("/messagerie/planifies");
+    return {
+      success: true,
+      message: "Planification annulée.",
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Impossible d'annuler cet e-mail.",
+    };
+  }
+}
+
+function parseDateOnly(value: string | null): Date | null {
+  if (!value) {
+    return null;
+  }
+  const date = new Date(`${value}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error("Date invalide.");
+  }
+  return date;
 }
 
 function toNullable(value: string | undefined | null): string | null {

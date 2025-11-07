@@ -6,17 +6,24 @@ import {
   type ListResponse,
   type FetchMessageObject,
 } from "imapflow";
-import nodemailer from "nodemailer";
+import nodemailer, { type Transporter } from "nodemailer";
 import MailComposer from "nodemailer/lib/mail-composer";
 import addressParser from "nodemailer/lib/addressparser";
-import { simpleParser, type Attachment } from "mailparser";
+import { simpleParser, type Attachment, type ParsedMail } from "mailparser";
 import { randomUUID } from "node:crypto";
-import type { MessagingRecipientType } from "@prisma/client";
+import type { MessagingAutoReplyType, MessagingRecipientType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { decryptSecret, encryptSecret } from "@/server/secure-credentials";
 import { analyzeAndHandleSpam } from "@/server/spam-detection";
 import { sanitizeEmailHtml } from "@/lib/email-html";
+import {
+  DEFAULT_AUTO_REPLY_BODY,
+  DEFAULT_AUTO_REPLY_SUBJECT,
+  DEFAULT_VACATION_BODY,
+  DEFAULT_VACATION_SUBJECT,
+  renderVacationTemplate,
+} from "@/lib/messaging/auto-reply";
 import {
   prepareEmailTracking,
   getEmailTrackingSummaries,
@@ -31,6 +38,7 @@ const RECIPIENT_TYPE_MAP = {
   cc: "CC",
   bcc: "BCC",
 } as const satisfies Record<"to" | "cc" | "bcc", MessagingRecipientType>;
+const AUTO_REPLY_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
 function parseRecipientList(
   entries: string[] | undefined,
@@ -56,7 +64,7 @@ function parseRecipientList(
   });
 }
 
-async function resolveUserId(provided?: string) {
+export async function resolveUserId(provided?: string) {
   if (provided) {
     return provided;
   }
@@ -83,6 +91,18 @@ export type MessagingConnectionsInput = {
   smtpPassword?: string | null;
 };
 
+export type MessagingAutoReplySettingsInput = {
+  autoReplyEnabled: boolean;
+  autoReplySubject: string;
+  autoReplyBody: string;
+  vacationModeEnabled: boolean;
+  vacationSubject: string;
+  vacationMessage: string;
+  vacationStartDate: Date | null;
+  vacationEndDate: Date | null;
+  vacationBackupEmail: string | null;
+};
+
 export type MessagingSettingsSummary = {
   fromEmail: string;
   senderName: string;
@@ -97,6 +117,15 @@ export type MessagingSettingsSummary = {
   smtpConfigured: boolean;
   spamFilterEnabled: boolean;
   trackingEnabled: boolean;
+  autoReplyEnabled: boolean;
+  autoReplySubject: string;
+  autoReplyBody: string;
+  vacationModeEnabled: boolean;
+  vacationSubject: string;
+  vacationMessage: string;
+  vacationStartDate: string | null;
+  vacationEndDate: string | null;
+  vacationBackupEmail: string | null;
 };
 
 export type Mailbox = "inbox" | "sent" | "drafts" | "trash" | "spam";
@@ -115,6 +144,21 @@ export type MailboxListItem = {
     totalOpens: number;
     totalClicks: number;
   } | null;
+};
+
+type StandardAutoReplyConfig = {
+  enabled: boolean;
+  subject: string;
+  body: string;
+};
+
+type VacationAutoReplyConfig = {
+  enabled: boolean;
+  subject: string;
+  message: string;
+  startDate: Date | null;
+  endDate: Date | null;
+  backupEmail: string | null;
 };
 
 export type MessageParticipant = {
@@ -263,6 +307,8 @@ type MessagingCredentials = {
   smtp: SmtpConnectionConfig | null;
   spamFilterEnabled: boolean;
   trackingEnabled: boolean;
+  autoReply: StandardAutoReplyConfig;
+  vacation: VacationAutoReplyConfig;
 };
 
 type MailboxOpenResult = {
@@ -528,6 +574,21 @@ function toOptionalString(value: string | null | undefined): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+function coerceWithFallback(
+  value: string | null | undefined,
+  fallback: string,
+): string {
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  return trimmed.length > 0 ? trimmed : fallback;
+}
+
+function formatDateInputValue(value: Date | null): string | null {
+  if (!value) {
+    return null;
+  }
+  return value.toISOString().slice(0, 10);
+}
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -677,6 +738,20 @@ function wrapEmailHtml(
     </table>
   </body>
 </html>`;
+}
+
+function convertPlainTextToHtml(text: string): string {
+  const normalized = text.replace(/\r\n/g, "\n").trim();
+  if (!normalized.length) {
+    return `<p style="margin:0;font-size:14px;line-height:1.6;">&nbsp;</p>`;
+  }
+  return normalized
+    .split(/\n{2,}/)
+    .map((paragraph) => {
+      const escaped = escapeHtml(paragraph).replace(/\n/g, "<br />");
+      return `<p style="margin:0 0 16px 0;font-size:14px;line-height:1.6;">${escaped}</p>`;
+    })
+    .join("");
 }
 
 function buildAttachmentDescriptors(
@@ -1129,6 +1204,19 @@ async function getMessagingCredentials(
       smtp: null,
       spamFilterEnabled: true,
       trackingEnabled: true,
+      autoReply: {
+        enabled: false,
+        subject: DEFAULT_AUTO_REPLY_SUBJECT,
+        body: DEFAULT_AUTO_REPLY_BODY,
+      },
+      vacation: {
+        enabled: false,
+        subject: DEFAULT_VACATION_SUBJECT,
+        message: DEFAULT_VACATION_BODY,
+        startDate: null,
+        endDate: null,
+        backupEmail: null,
+      },
     };
   }
 
@@ -1154,6 +1242,31 @@ async function getMessagingCredentials(
     senderLogoUrl: settings.senderLogoUrl ?? null,
     spamFilterEnabled: settings.spamFilterEnabled ?? true,
     trackingEnabled: settings.trackingEnabled ?? true,
+    autoReply: {
+      enabled: settings.autoReplyEnabled ?? false,
+      subject: coerceWithFallback(
+        toOptionalString(settings.autoReplySubject),
+        DEFAULT_AUTO_REPLY_SUBJECT,
+      ),
+      body: coerceWithFallback(
+        settings.autoReplyBody ?? null,
+        DEFAULT_AUTO_REPLY_BODY,
+      ),
+    },
+    vacation: {
+      enabled: settings.vacationModeEnabled ?? false,
+      subject: coerceWithFallback(
+        toOptionalString(settings.vacationSubject),
+        DEFAULT_VACATION_SUBJECT,
+      ),
+      message: coerceWithFallback(
+        settings.vacationMessage ?? null,
+        DEFAULT_VACATION_BODY,
+      ),
+      startDate: settings.vacationStartDate ?? null,
+      endDate: settings.vacationEndDate ?? null,
+      backupEmail: toOptionalString(settings.vacationBackupEmail),
+    },
     imap:
       settings.imapHost &&
       settings.imapPort &&
@@ -1207,6 +1320,15 @@ export async function getMessagingSettingsSummary(
       smtpConfigured: false,
       spamFilterEnabled: true,
       trackingEnabled: true,
+      autoReplyEnabled: false,
+      autoReplySubject: DEFAULT_AUTO_REPLY_SUBJECT,
+      autoReplyBody: DEFAULT_AUTO_REPLY_BODY,
+      vacationModeEnabled: false,
+      vacationSubject: DEFAULT_VACATION_SUBJECT,
+      vacationMessage: DEFAULT_VACATION_BODY,
+      vacationStartDate: null,
+      vacationEndDate: null,
+      vacationBackupEmail: null,
     };
   }
 
@@ -1232,6 +1354,27 @@ export async function getMessagingSettingsSummary(
       Boolean(settings.smtpPassword),
     spamFilterEnabled: settings.spamFilterEnabled ?? true,
     trackingEnabled: settings.trackingEnabled ?? true,
+    autoReplyEnabled: settings.autoReplyEnabled ?? false,
+    autoReplySubject: coerceWithFallback(
+      toOptionalString(settings.autoReplySubject),
+      DEFAULT_AUTO_REPLY_SUBJECT,
+    ),
+    autoReplyBody: coerceWithFallback(
+      settings.autoReplyBody ?? null,
+      DEFAULT_AUTO_REPLY_BODY,
+    ),
+    vacationModeEnabled: settings.vacationModeEnabled ?? false,
+    vacationSubject: coerceWithFallback(
+      toOptionalString(settings.vacationSubject),
+      DEFAULT_VACATION_SUBJECT,
+    ),
+    vacationMessage: coerceWithFallback(
+      settings.vacationMessage ?? null,
+      DEFAULT_VACATION_BODY,
+    ),
+    vacationStartDate: formatDateInputValue(settings.vacationStartDate ?? null),
+    vacationEndDate: formatDateInputValue(settings.vacationEndDate ?? null),
+    vacationBackupEmail: toOptionalString(settings.vacationBackupEmail),
   };
 }
 
@@ -1249,6 +1392,59 @@ export async function updateMessagingSenderIdentity(
   const data = {
     senderName: normalizedName,
     senderLogoUrl: normalizedLogo,
+  };
+
+  if (existing) {
+    await prisma.messagingSettings.update({
+      where: { userId },
+      data,
+    });
+  } else {
+    await prisma.messagingSettings.create({
+      data: {
+        userId,
+        ...data,
+      },
+    });
+  }
+}
+
+export async function updateMessagingAutoReplySettings(
+  input: MessagingAutoReplySettingsInput,
+): Promise<void> {
+  const userId = await resolveUserId();
+  const existing = await prisma.messagingSettings.findUnique({
+    where: { userId },
+  });
+
+  const normalizedSubject = coerceWithFallback(
+    input.autoReplySubject,
+    DEFAULT_AUTO_REPLY_SUBJECT,
+  );
+  const normalizedBody = coerceWithFallback(
+    input.autoReplyBody,
+    DEFAULT_AUTO_REPLY_BODY,
+  );
+  const normalizedVacationSubject = coerceWithFallback(
+    input.vacationSubject,
+    DEFAULT_VACATION_SUBJECT,
+  );
+  const normalizedVacationMessage = coerceWithFallback(
+    input.vacationMessage,
+    DEFAULT_VACATION_BODY,
+  );
+  const normalizedBackupEmail = toOptionalString(input.vacationBackupEmail);
+
+  const data = {
+    autoReplyEnabled: input.autoReplyEnabled,
+    autoReplySubject: normalizedSubject,
+    autoReplyBody: normalizedBody,
+    vacationModeEnabled: input.vacationModeEnabled,
+    vacationSubject: normalizedVacationSubject,
+    vacationMessage: normalizedVacationMessage,
+    vacationStartDate: input.vacationStartDate,
+    vacationEndDate: input.vacationEndDate,
+    vacationBackupEmail: normalizedBackupEmail,
   };
 
   if (existing) {
@@ -1345,6 +1541,380 @@ export async function updateMessagingConnections(
         ...connectionData,
       },
     });
+  }
+}
+
+type IncomingMessageMetadata = {
+  uid: number;
+  messageId: string | null;
+  subject: string;
+  fromAddress: string | null;
+  replyToAddress: string | null;
+  parsed: ParsedMail;
+};
+
+const AUTOMATED_ADDRESS_PATTERNS = [
+  "no-reply",
+  "noreply",
+  "do-not-reply",
+  "donotreply",
+  "mailer-daemon",
+  "postmaster",
+];
+
+function normalizeEmailAddress(value: string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed.length) {
+    return null;
+  }
+  const match = trimmed.match(/<([^>]+)>/);
+  const email = (match ? match[1] : trimmed).trim().toLowerCase();
+  if (!email.length || !email.includes("@")) {
+    return null;
+  }
+  return email;
+}
+
+function getEnvelopeEmail(entry?: ImapAddress | null): string | null {
+  if (!entry) return null;
+  if (typeof entry.address === "string" && entry.address.trim().length > 0) {
+    return entry.address.trim();
+  }
+  if (entry.mailbox && entry.host) {
+    return `${entry.mailbox}@${entry.host}`.trim();
+  }
+  return null;
+}
+
+function getHeaderValue(parsed: ParsedMail, header: string): string | null {
+  const raw = parsed.headers.get(header);
+  if (!raw) return null;
+  if (Array.isArray(raw)) {
+    return raw[0] ? String(raw[0]).trim() : null;
+  }
+  return String(raw).trim();
+}
+
+function hasAutomatedHeaders(parsed: ParsedMail): boolean {
+  const autoSubmitted = getHeaderValue(parsed, "auto-submitted");
+  if (autoSubmitted && autoSubmitted.toLowerCase() !== "no") {
+    return true;
+  }
+  const precedence = getHeaderValue(parsed, "precedence");
+  if (
+    precedence &&
+    ["bulk", "junk", "auto_reply"].includes(precedence.toLowerCase())
+  ) {
+    return true;
+  }
+  const suppress = getHeaderValue(parsed, "x-auto-response-suppress");
+  if (suppress) {
+    return true;
+  }
+  if (
+    parsed.headers.has("x-autoreply") ||
+    parsed.headers.has("x-autorespond") ||
+    parsed.headers.has("auto-submitted") ||
+    parsed.headers.has("x-auto-submitted")
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function shouldSkipAutoResponse(
+  parsed: ParsedMail,
+  candidateAddress: string | null,
+): boolean {
+  if (!candidateAddress) {
+    return true;
+  }
+  if (
+    AUTOMATED_ADDRESS_PATTERNS.some((pattern) =>
+      candidateAddress.toLowerCase().includes(pattern),
+    )
+  ) {
+    return true;
+  }
+  if (hasAutomatedHeaders(parsed)) {
+    return true;
+  }
+  return false;
+}
+
+function formatVacationReturnDate(value: Date | null): string | null {
+  if (!value) {
+    return null;
+  }
+  return new Intl.DateTimeFormat("fr-FR", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  }).format(value);
+}
+
+function isVacationModeActive(
+  config: VacationAutoReplyConfig,
+  referenceDate: Date,
+): boolean {
+  if (
+    !config.enabled ||
+    !config.startDate ||
+    !config.endDate
+  ) {
+    return false;
+  }
+  const start = new Date(config.startDate);
+  start.setUTCHours(0, 0, 0, 0);
+  const end = new Date(config.endDate);
+  end.setUTCHours(23, 59, 59, 999);
+  if (end < start) {
+    return false;
+  }
+  return referenceDate >= start && referenceDate <= end;
+}
+
+async function loadIncomingMessageMetadata(
+  client: ImapFlow,
+  uid: number,
+): Promise<IncomingMessageMetadata | null> {
+  const fetched = await client.fetchOne(
+    uid,
+    {
+      envelope: true,
+      source: true,
+    },
+    { uid: true },
+  );
+
+  if (
+    !fetched ||
+    typeof fetched !== "object" ||
+    !("source" in fetched) ||
+    !fetched.source
+  ) {
+    return null;
+  }
+
+  const source = fetched.source as Buffer | Uint8Array | string;
+  const normalizedSource =
+    typeof source === "string"
+      ? source
+      : Buffer.isBuffer(source)
+        ? source
+        : Buffer.from(source);
+
+  const parsed = await simpleParser(normalizedSource);
+  const envelope = fetched.envelope;
+  const fromEntry = envelope?.from?.[0] as ImapAddress | undefined;
+  const replyToEntry = envelope?.replyTo?.[0] as ImapAddress | undefined;
+
+  const fromAddress =
+    getEnvelopeEmail(fromEntry) ??
+    parsed.from?.value?.[0]?.address ??
+    null;
+  const replyToAddress =
+    getEnvelopeEmail(replyToEntry) ??
+    parsed.replyTo?.value?.[0]?.address ??
+    null;
+
+  return {
+    uid,
+    messageId: envelope?.messageId ?? parsed.messageId ?? null,
+    subject: envelope?.subject ?? parsed.subject ?? "(Sans objet)",
+    fromAddress,
+    replyToAddress,
+    parsed,
+  };
+}
+
+async function processAutoReplies(params: {
+  userId: string;
+  client: ImapFlow;
+  credentials: MessagingCredentials;
+  messages: MailboxListItem[];
+}): Promise<void> {
+  const { userId, client, credentials, messages } = params;
+  const smtp = credentials.smtp;
+  if (!smtp || !messages.length) {
+    return;
+  }
+
+  const now = new Date();
+  const vacationActive = isVacationModeActive(credentials.vacation, now);
+  const standardEnabled =
+    credentials.autoReply.enabled && !vacationActive;
+  if (!vacationActive && !standardEnabled) {
+    return;
+  }
+
+  const ownAddress = normalizeEmailAddress(
+    smtp.fromEmail ?? smtp.user ?? credentials.fromEmail,
+  );
+
+  const metadataEntries: Array<{
+    uid: number;
+    messageId: string | null;
+    subject: string;
+    targetAddress: string;
+    normalizedAddress: string;
+    parsed: ParsedMail;
+  }> = [];
+
+  for (const entry of messages) {
+    const metadata = await loadIncomingMessageMetadata(client, entry.uid);
+    if (!metadata) {
+      continue;
+    }
+    const targetAddress = metadata.replyToAddress ?? metadata.fromAddress;
+    if (!targetAddress) {
+      continue;
+    }
+    const normalized = normalizeEmailAddress(targetAddress);
+    if (!normalized) {
+      continue;
+    }
+    if (ownAddress && normalized === ownAddress) {
+      continue;
+    }
+    if (shouldSkipAutoResponse(metadata.parsed, targetAddress)) {
+      continue;
+    }
+    metadataEntries.push({
+      uid: entry.uid,
+      messageId: metadata.messageId,
+      subject: metadata.subject,
+      targetAddress,
+      normalizedAddress: normalized,
+      parsed: metadata.parsed,
+    });
+  }
+
+  if (!metadataEntries.length) {
+    return;
+  }
+
+  const uniqueSenders = Array.from(
+    new Set(metadataEntries.map((item) => item.normalizedAddress)),
+  );
+  const cutoff = new Date(Date.now() - AUTO_REPLY_COOLDOWN_MS);
+
+  const recentLogs = uniqueSenders.length
+    ? await prisma.messagingAutoReplyLog.findMany({
+        where: {
+          userId,
+          senderEmail: { in: uniqueSenders },
+          sentAt: { gte: cutoff },
+        },
+        select: {
+          senderEmail: true,
+          replyType: true,
+          sentAt: true,
+        },
+      })
+    : [];
+
+  const recentLogMap = new Map<
+    string,
+    { replyType: MessagingAutoReplyType; sentAt: Date }
+  >();
+  for (const log of recentLogs) {
+    const existing = recentLogMap.get(log.senderEmail);
+    if (!existing || existing.sentAt < log.sentAt) {
+      recentLogMap.set(log.senderEmail, {
+        replyType: log.replyType,
+        sentAt: log.sentAt,
+      });
+    }
+  }
+
+  const transporter = nodemailer.createTransport({
+    host: smtp.host,
+    port: smtp.port,
+    secure: smtp.secure,
+    auth: {
+      user: smtp.user,
+      pass: smtp.password,
+    },
+  });
+
+  for (const entry of metadataEntries) {
+    const replyType: MessagingAutoReplyType = vacationActive
+      ? "VACATION"
+      : "STANDARD";
+
+    const lastLog = recentLogMap.get(entry.normalizedAddress);
+    if (lastLog) {
+      const withinCooldown =
+        Date.now() - lastLog.sentAt.getTime() < AUTO_REPLY_COOLDOWN_MS;
+      if (withinCooldown && lastLog.replyType === replyType) {
+        continue;
+      }
+      if (!withinCooldown) {
+        recentLogMap.delete(entry.normalizedAddress);
+      }
+    }
+
+    const payload =
+      replyType === "VACATION"
+        ? {
+            subject: credentials.vacation.subject,
+            body: renderVacationTemplate(
+              credentials.vacation.message,
+              {
+                returnDate: formatVacationReturnDate(
+                  credentials.vacation.endDate,
+                ),
+                backupEmail:
+                  credentials.vacation.backupEmail ??
+                  credentials.fromEmail ??
+                  smtp.fromEmail ??
+                  smtp.user,
+                defaultReturnText: "bientôt",
+                defaultBackupText: "notre équipe support",
+              },
+            ),
+          }
+        : {
+            subject: credentials.autoReply.subject,
+            body: credentials.autoReply.body,
+          };
+
+    if (!payload.body.trim().length) {
+      continue;
+    }
+
+    try {
+      await sendAutomatedReplyEmail({
+        transporter,
+        smtp,
+        imap: credentials.imap,
+        senderName: credentials.senderName,
+        senderLogoUrl: credentials.senderLogoUrl,
+        to: entry.targetAddress,
+        subject: payload.subject,
+        body: payload.body,
+        userId,
+      });
+      const logEntry = await prisma.messagingAutoReplyLog.create({
+        data: {
+          userId,
+          senderEmail: entry.normalizedAddress,
+          replyType,
+          originalMessageId: entry.messageId,
+          originalUid: entry.uid,
+        },
+      });
+      recentLogMap.set(entry.normalizedAddress, {
+        replyType,
+        sentAt: logEntry.sentAt,
+      });
+    } catch (error) {
+      console.warn("Impossible d'envoyer une réponse automatique:", error);
+    }
   }
 }
 
@@ -1589,6 +2159,23 @@ export async function fetchMailboxUpdates(params: {
         typeof totalMessages === "number"
           ? Math.max(0, totalMessages - autoMoved.length)
           : totalMessages;
+
+      if (
+        params.mailbox === "inbox" &&
+        filteredItems.length &&
+        spamFilteringEnabled
+      ) {
+        try {
+          await processAutoReplies({
+            userId,
+            client,
+            credentials,
+            messages: filteredItems,
+          });
+        } catch (error) {
+          console.warn("Impossible d'envoyer les réponses automatiques:", error);
+        }
+      }
 
       const messageIds = filteredItems
         .map((item) => item.messageId)
@@ -1871,10 +2458,101 @@ export async function moveMailboxMessage(params: {
   });
 }
 
+async function sendAutomatedReplyEmail(options: {
+  transporter: Transporter;
+  smtp: SmtpConnectionConfig;
+  imap: ImapConnectionConfig | null;
+  senderName: string | null;
+  senderLogoUrl: string | null;
+  to: string;
+  subject: string;
+  body: string;
+  userId: string;
+}): Promise<void> {
+  const fromAddress = options.smtp.fromEmail ?? options.smtp.user;
+  if (!fromAddress) {
+    throw new Error("Adresse d'expéditeur invalide pour la réponse automatique.");
+  }
+
+  const messageDomain = fromAddress.includes("@")
+    ? fromAddress.split("@").pop() ?? "local"
+    : "local";
+  const messageId = `<${randomUUID()}@${messageDomain}>`;
+  const sentAt = new Date();
+  const senderName = options.senderName?.trim() ?? "";
+  const fromField = senderName
+    ? { name: senderName, address: fromAddress }
+    : fromAddress;
+
+  const htmlContent = wrapEmailHtml(convertPlainTextToHtml(options.body), {
+    senderName: options.senderName,
+    senderLogoUrl: options.senderLogoUrl,
+    fromEmail: fromAddress,
+  });
+
+  const headers = {
+    "Auto-Submitted": "auto-replied",
+    Precedence: "bulk",
+    "X-Auto-Response-Suppress": "All",
+  } satisfies Record<string, string>;
+
+  await options.transporter.sendMail({
+    from: fromField,
+    to: options.to,
+    subject: options.subject,
+    text: options.body,
+    html: htmlContent,
+    messageId,
+    date: sentAt,
+    headers,
+    envelope: {
+      from: fromAddress,
+      to: options.to,
+    },
+  });
+
+  const composer = new MailComposer({
+    from: fromField,
+    to: options.to,
+    subject: options.subject,
+    text: options.body,
+    html: htmlContent,
+    messageId,
+    date: sentAt,
+    headers,
+  });
+
+  const rawMessage = await composer.compile().build();
+
+  try {
+    await appendMessageToSentMailbox({
+      imap: options.imap,
+      rawMessage: Buffer.isBuffer(rawMessage)
+        ? rawMessage
+        : Buffer.from(rawMessage),
+      messageId,
+      sentAt,
+      userId: options.userId,
+    });
+  } catch (error) {
+    console.warn(
+      "Impossible d'enregistrer la réponse automatique dans 'Envoyés':",
+      error,
+    );
+  }
+}
+
 export async function sendEmailMessage(
   params: ComposeEmailInput,
 ): Promise<SentMailboxAppendResult> {
   const userId = await resolveUserId();
+  return sendEmailMessageForUser(userId, params);
+}
+
+export async function sendEmailMessageForUser(
+  userId: string,
+  params: ComposeEmailInput,
+): Promise<SentMailboxAppendResult> {
   const credentials = await getMessagingCredentials(userId);
   if (!credentials.smtp) {
     throw new Error(

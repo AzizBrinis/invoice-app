@@ -13,6 +13,7 @@ import {
   type SetStateAction,
 } from "react";
 import Link from "next/link";
+import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { Paperclip, UploadCloud, Trash2, X } from "lucide-react";
 import { useToast } from "@/components/ui/toast-provider";
@@ -26,6 +27,7 @@ import {
 } from "@/lib/messaging/placeholders";
 import {
   sendEmailAction,
+  scheduleEmailAction,
   type ActionResult,
 } from "@/app/(app)/messagerie/actions";
 import {
@@ -178,6 +180,16 @@ const COMPANY_PLACEHOLDER_KEYS = [
   "company_address",
 ] as const;
 
+function formatDateTimeLocal(date: Date): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  const year = date.getFullYear();
+  const month = pad(date.getMonth() + 1);
+  const day = pad(date.getDate());
+  const hours = pad(date.getHours());
+  const minutes = pad(date.getMinutes());
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
 export function ComposeClient({
   fromEmail,
   senderName,
@@ -215,6 +227,11 @@ export function ComposeClient({
   const [selectedSavedResponseId, setSelectedSavedResponseId] = useState("");
   const [attachments, setAttachments] = useState<File[]>([]);
   const [sending, setSending] = useState(false);
+  const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false);
+  const [scheduledAtInput, setScheduledAtInput] = useState(() =>
+    formatDateTimeLocal(new Date(Date.now() + 30 * 60 * 1000)),
+  );
+  const [scheduling, setScheduling] = useState(false);
   const toInputRef = useRef<HTMLInputElement | null>(null);
   const ccInputRef = useRef<HTMLInputElement | null>(null);
   const bccInputRef = useRef<HTMLInputElement | null>(null);
@@ -774,6 +791,21 @@ export function ComposeClient({
     }
   }
 
+  async function safeSchedule(
+    formData: FormData
+  ): Promise<ActionResult<{ id: string }> | null> {
+    try {
+      return await scheduleEmailAction(formData);
+    } catch (error) {
+      console.error("Erreur réseau lors de la planification:", error);
+      addToast({
+        variant: "error",
+        title: "Erreur réseau.",
+      });
+      return null;
+    }
+  }
+
   const resetToInitialDraft = useCallback(() => {
     setToField(createRecipientFieldState(initialToRef.current));
     setCcField(createRecipientFieldState(initialCcRef.current));
@@ -787,16 +819,7 @@ export function ComposeClient({
     setAttachments([]);
   }, []);
 
-  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!smtpConfigured) {
-      addToast({
-        variant: "warning",
-        title: "Configurez votre SMTP pour envoyer un message.",
-      });
-      return;
-    }
-
+  const prepareComposeFormData = useCallback((): FormData | null => {
     const pendingToInput = toField.input;
     const pendingCcInput = ccField.input;
     const pendingBccInput = bccField.input;
@@ -848,6 +871,14 @@ export function ComposeClient({
         : bccField.recipients;
 
     const toAddresses = formatRecipientAddresses(resolvedToRecipients);
+    if (!toAddresses.trim().length) {
+      addToast({
+        variant: "error",
+        title: "Ajoutez au moins un destinataire.",
+      });
+      return null;
+    }
+
     const ccAddresses = formatRecipientAddresses(resolvedCcRecipients);
     const bccAddresses = formatRecipientAddresses(resolvedBccRecipients);
 
@@ -868,6 +899,46 @@ export function ComposeClient({
     attachments.forEach((file) => {
       formData.append("attachments", file);
     });
+
+    return formData;
+  }, [
+    addToast,
+    attachments,
+    bccField,
+    ccField,
+    commitRecipientInput,
+    deriveRecipientsFromInput,
+    editorMode,
+    htmlBody,
+    initialBccRef,
+    initialCcRef,
+    initialToRef,
+    formatRecipientAddresses,
+    mergeRecipientLists,
+    plainBody,
+    quotedHtml,
+    quotedText,
+    subject,
+    setBccField,
+    setCcField,
+    setToField,
+    toField,
+  ]);
+
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!smtpConfigured) {
+      addToast({
+        variant: "warning",
+        title: "Configurez votre SMTP pour envoyer un message.",
+      });
+      return;
+    }
+
+    const formData = prepareComposeFormData();
+    if (!formData) {
+      return;
+    }
 
     setSending(true);
     const result = await safeSubmit(formData);
@@ -897,7 +968,7 @@ export function ComposeClient({
         variant: "success",
         title: result.message ?? "Message envoyé.",
       });
-      router.push("/messagerie/envoyes");
+      router.push("/messagerie/envoyes" as Route);
     } else {
       addToast({
         variant: "error",
@@ -906,11 +977,96 @@ export function ComposeClient({
     }
   };
 
+  const handleScheduleRequest = () => {
+    if (!smtpConfigured) {
+      addToast({
+        variant: "warning",
+        title: "Configurez votre SMTP pour planifier un envoi.",
+      });
+      return;
+    }
+    if (!hasPrimaryRecipient) {
+      addToast({
+        variant: "error",
+        title: "Ajoutez un destinataire avant de planifier l'envoi.",
+      });
+      return;
+    }
+    setScheduledAtInput((current) =>
+      current && current.length > 0
+        ? current
+        : formatDateTimeLocal(new Date(Date.now() + 30 * 60 * 1000))
+    );
+    setScheduleDialogOpen(true);
+  };
+
+  const handleScheduleConfirm = async () => {
+    const plannedValue = scheduledAtInput.trim();
+    if (!plannedValue.length) {
+      addToast({
+        variant: "error",
+        title: "Choisissez une date pour l'envoi planifié.",
+      });
+      return;
+    }
+    const scheduledDate = new Date(plannedValue);
+    if (Number.isNaN(scheduledDate.getTime())) {
+      addToast({
+        variant: "error",
+        title: "Date d'envoi invalide.",
+      });
+      return;
+    }
+    if (scheduledDate.getTime() <= Date.now()) {
+      addToast({
+        variant: "error",
+        title: "Sélectionnez un horaire dans le futur.",
+      });
+      return;
+    }
+
+    const formData = prepareComposeFormData();
+    if (!formData) {
+      return;
+    }
+    formData.append("scheduledAt", scheduledDate.toISOString());
+
+    setScheduling(true);
+    const result = await safeSchedule(formData);
+    setScheduling(false);
+
+    if (!result) {
+      return;
+    }
+    if (result.success) {
+      resetToInitialDraft();
+      setScheduleDialogOpen(false);
+      addToast({
+        variant: "success",
+        title: "E-mail planifié.",
+      });
+      router.push("/messagerie/planifies" as Route);
+    } else {
+      addToast({
+        variant: "error",
+        title: result.message,
+      });
+    }
+  };
+
+  const handleScheduleCancel = () => {
+    if (scheduling) {
+      return;
+    }
+    setScheduleDialogOpen(false);
+  };
+
   return (
-    <div className="space-y-4">
-      <div>
-        <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
-          Composer un nouveau message
+    <>
+      <div className="space-y-4">
+        <div>
+          <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+            Composer un nouveau message
         </h2>
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
           Rédigez votre e-mail, nous gérons l&apos;envoi via vos paramètres
@@ -1425,14 +1581,26 @@ export function ComposeClient({
             </div>
           )}
 
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <Button
-              type="submit"
-              loading={sending}
-              disabled={!smtpConfigured || sending || !hasPrimaryRecipient}
-            >
-              Envoyer
-            </Button>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+              <Button
+                type="submit"
+                loading={sending}
+                disabled={!smtpConfigured || sending || !hasPrimaryRecipient}
+              >
+                Envoyer
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={handleScheduleRequest}
+                disabled={
+                  !smtpConfigured || sending || scheduling || !hasPrimaryRecipient
+                }
+              >
+                Planifier l&apos;envoi
+              </Button>
+            </div>
             {!smtpConfigured ? (
               <p className="text-xs text-amber-600 dark:text-amber-300">
                 Configurez le SMTP pour activer l&apos;envoi.
@@ -1441,6 +1609,67 @@ export function ComposeClient({
           </div>
         </form>
       </div>
-    </div>
+      </div>
+
+      {scheduleDialogOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl dark:bg-zinc-900">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+                  Planifier l&apos;envoi
+                </h3>
+                <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                  Choisissez la date et l&apos;heure d&apos;envoi. Nous enverrons l&apos;e-mail même si vous quittez l&apos;application.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleScheduleCancel}
+                className="text-zinc-500 transition hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-100"
+                aria-label="Fermer la fenêtre Planifier l'envoi"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="mt-4 space-y-2">
+              <label
+                htmlFor="schedule-datetime"
+                className="text-sm font-medium text-zinc-800 dark:text-zinc-200"
+              >
+                Date et heure d&apos;envoi
+              </label>
+              <Input
+                id="schedule-datetime"
+                type="datetime-local"
+                value={scheduledAtInput}
+                onChange={(event) => setScheduledAtInput(event.target.value)}
+                min={formatDateTimeLocal(new Date())}
+              />
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                Le fuseau horaire utilisé est celui de votre navigateur.
+              </p>
+            </div>
+            <div className="mt-6 flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={handleScheduleCancel}
+                disabled={scheduling}
+              >
+                Annuler
+              </Button>
+              <Button
+                type="button"
+                onClick={handleScheduleConfirm}
+                loading={scheduling}
+              >
+                Confirmer l&apos;envoi
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </>
   );
 }

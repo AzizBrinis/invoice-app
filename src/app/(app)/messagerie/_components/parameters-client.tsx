@@ -13,6 +13,7 @@ import type { MessagingSettingsSummary } from "@/server/messaging";
 import {
   updateMessagingConnectionsAction,
   updateMessagingIdentityAction,
+  updateAutoReplySettingsAction,
   testImapConnectionAction,
   testSmtpConnectionAction,
   updateEmailTrackingPreferenceAction,
@@ -20,10 +21,12 @@ import {
 } from "@/app/(app)/messagerie/actions";
 import { useToast } from "@/components/ui/toast-provider";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import type { SavedResponse } from "@/lib/messaging/saved-responses";
 import { SavedResponsesManager } from "@/app/(app)/messagerie/_components/saved-responses-manager";
+import { VACATION_PLACEHOLDER_TOKENS } from "@/lib/messaging/auto-reply";
 
 type ParametersClientProps = {
   summary: MessagingSettingsSummary;
@@ -33,6 +36,7 @@ type ParametersClientProps = {
 export function ParametersClient({ summary, savedResponses }: ParametersClientProps) {
   const identityFormRef = useRef<HTMLFormElement | null>(null);
   const connectionFormRef = useRef<HTMLFormElement | null>(null);
+  const autoReplyFormRef = useRef<HTMLFormElement | null>(null);
   const logoFileInputRef = useRef<HTMLInputElement | null>(null);
   const logoUrlInputRef = useRef<HTMLInputElement | null>(null);
   const { addToast } = useToast();
@@ -45,6 +49,7 @@ export function ParametersClient({ summary, savedResponses }: ParametersClientPr
   const [updatingTracking, setUpdatingTracking] = useState(false);
   const [savingIdentity, setSavingIdentity] = useState(false);
   const [savingConnections, setSavingConnections] = useState(false);
+  const [savingAutoReply, setSavingAutoReply] = useState(false);
   const [testingImap, setTestingImap] = useState(false);
   const [testingSmtp, setTestingSmtp] = useState(false);
 
@@ -235,6 +240,31 @@ export function ParametersClient({ summary, savedResponses }: ParametersClientPr
     }
   };
 
+  const handleAutoReplySave = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSavingAutoReply(true);
+    const result = await callFormAction(
+      autoReplyFormRef.current,
+      updateAutoReplySettingsAction,
+    );
+    setSavingAutoReply(false);
+    if (!result) {
+      return;
+    }
+    if (result.success) {
+      addToast({
+        variant: "success",
+        title: result.message ?? "Réponses automatiques mises à jour.",
+      });
+      router.refresh();
+    } else {
+      addToast({
+        variant: "error",
+        title: result.message ?? "Échec de la mise à jour des réponses automatiques.",
+      });
+    }
+  };
+
   const handleTestImap = async () => {
     setTestingImap(true);
     const result = await callFormAction(
@@ -347,6 +377,171 @@ export function ParametersClient({ summary, savedResponses }: ParametersClientPr
           impossible à deviner, sans exposer d&apos;adresse ou de contenu sensible.
         </p>
       </section>
+
+      <form
+        ref={autoReplyFormRef}
+        onSubmit={handleAutoReplySave}
+        className="space-y-6 rounded-lg border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
+      >
+        <div className="space-y-2">
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+            Réponses automatiques
+          </h3>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            Accusez réception dès qu&apos;un message arrive et planifiez un message de congés qui
+            prend automatiquement le relais pendant vos absences.
+          </p>
+        </div>
+        <section className="grid gap-6 lg:grid-cols-2">
+          <div className="space-y-4 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h4 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
+                  Réponse standard
+                </h4>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Envoyée au plus une fois toutes les 24h par expéditeur.
+                </p>
+              </div>
+              <label className="label flex items-center gap-2 text-xs font-medium text-zinc-700 dark:text-zinc-200">
+                <input type="hidden" name="autoReplyEnabled" value="false" />
+                <input
+                  type="checkbox"
+                  name="autoReplyEnabled"
+                  value="true"
+                  defaultChecked={summary.autoReplyEnabled}
+                  className="checkbox"
+                />
+                Activer
+              </label>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-zinc-800 dark:text-zinc-200" htmlFor="auto-reply-subject">
+                Sujet
+              </label>
+              <Input
+                id="auto-reply-subject"
+                name="autoReplySubject"
+                defaultValue={summary.autoReplySubject}
+                required
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-zinc-800 dark:text-zinc-200" htmlFor="auto-reply-body">
+                Message
+              </label>
+              <Textarea
+                id="auto-reply-body"
+                name="autoReplyBody"
+                rows={4}
+                defaultValue={summary.autoReplyBody}
+                required
+              />
+            </div>
+          </div>
+          <div className="space-y-4 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h4 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
+                  Mode vacances
+                </h4>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Remplace la réponse standard pendant la période définie.
+                </p>
+              </div>
+              <label className="label flex items-center gap-2 text-xs font-medium text-zinc-700 dark:text-zinc-200">
+                <input type="hidden" name="vacationModeEnabled" value="false" />
+                <input
+                  type="checkbox"
+                  name="vacationModeEnabled"
+                  value="true"
+                  defaultChecked={summary.vacationModeEnabled}
+                  className="checkbox"
+                />
+                Activer
+              </label>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-zinc-800 dark:text-zinc-200" htmlFor="vacation-start">
+                  Début
+                </label>
+                <Input
+                  id="vacation-start"
+                  type="date"
+                  name="vacationStartDate"
+                  defaultValue={summary.vacationStartDate ?? ""}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-zinc-800 dark:text-zinc-200" htmlFor="vacation-end">
+                  Fin
+                </label>
+                <Input
+                  id="vacation-end"
+                  type="date"
+                  name="vacationEndDate"
+                  defaultValue={summary.vacationEndDate ?? ""}
+                />
+              </div>
+            </div>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              Les dates de début et de fin sont obligatoires pour activer le mode vacances.
+            </p>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-zinc-800 dark:text-zinc-200" htmlFor="vacation-subject">
+                Sujet
+              </label>
+              <Input
+                id="vacation-subject"
+                name="vacationSubject"
+                defaultValue={summary.vacationSubject}
+                required
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-zinc-800 dark:text-zinc-200" htmlFor="vacation-backup-email">
+                Contact de secours
+              </label>
+              <Input
+                id="vacation-backup-email"
+                name="vacationBackupEmail"
+                type="email"
+                placeholder="support@exemple.com"
+                defaultValue={summary.vacationBackupEmail ?? ""}
+              />
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                Facultatif — apparaîtra à la place de{" "}
+                <code className="font-mono text-xs text-zinc-700 dark:text-zinc-200">
+                  {"{{backup_email}}"}
+                </code>{" "}
+                si renseigné.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-zinc-800 dark:text-zinc-200" htmlFor="vacation-message">
+                Message
+              </label>
+              <Textarea
+                id="vacation-message"
+                name="vacationMessage"
+                rows={4}
+                defaultValue={summary.vacationMessage}
+                required
+              />
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                Variables disponibles&nbsp;:{" "}
+                <span className="font-medium">{VACATION_PLACEHOLDER_TOKENS.join(", ")}</span>
+              </p>
+            </div>
+          </div>
+        </section>
+        <div className="flex justify-end">
+          <Button type="submit" loading={savingAutoReply}>
+            Enregistrer les réponses automatiques
+          </Button>
+        </div>
+      </form>
 
       <form
         ref={identityFormRef}

@@ -48,6 +48,7 @@ const NAV_ITEMS: NavItem[] = [
     children: [
       { label: "Reçus", href: "/messagerie/recus" },
       { label: "Envoyés", href: "/messagerie/envoyes" },
+      { label: "Planifiés", href: "/messagerie/planifies" },
       { label: "Brouillons", href: "/messagerie/brouillons" },
       { label: "Spam", href: "/messagerie/spam" },
       { label: "Corbeille", href: "/messagerie/corbeille" },

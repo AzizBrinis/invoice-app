@@ -30,6 +30,8 @@ model User {
   spamDetectionLogs SpamDetectionLog[]
   spamSenderReputations SpamSenderReputation[]
   savedResponses MessagingSavedResponse[]
+  autoReplyLogs MessagingAutoReplyLog[]
+  scheduledEmails MessagingScheduledEmail[]
 }
 
 enum UserRole {
@@ -102,6 +104,15 @@ model MessagingSettings {
   smtpPassword      String?
   spamFilterEnabled Boolean  @default(true)
   trackingEnabled   Boolean  @default(true)
+  autoReplyEnabled        Boolean  @default(false)
+  autoReplySubject        String?
+  autoReplyBody           String?
+  vacationModeEnabled     Boolean  @default(false)
+  vacationSubject         String?
+  vacationMessage         String?
+  vacationStartDate       DateTime?
+  vacationEndDate         DateTime?
+  vacationBackupEmail     String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 }
@@ -137,6 +148,71 @@ enum MessagingRecipientType {
 enum MessagingEventType {
   OPEN
   CLICK
+}
+
+enum MessagingScheduledStatus {
+  PENDING
+  SENDING
+  SENT
+  FAILED
+  CANCELLED
+}
+
+enum MessagingAutoReplyType {
+  STANDARD
+  VACATION
+}
+
+model MessagingAutoReplyLog {
+  id              String                  @id @default(cuid())
+  userId          String
+  user            User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  senderEmail     String
+  replyType       MessagingAutoReplyType
+  originalMessageId String?
+  originalUid     Int?
+  sentAt          DateTime                @default(now())
+  createdAt       DateTime                @default(now())
+
+  @@index([userId, senderEmail])
+  @@index([userId, sentAt])
+}
+
+model MessagingScheduledEmail {
+  id          String                   @id @default(cuid())
+  userId      String
+  user        User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  to          Json
+  cc          Json?
+  bcc         Json?
+  subject     String
+  text        String
+  html        String
+  previewText String
+  sendAt      DateTime
+  sentAt      DateTime?
+  canceledAt  DateTime?
+  status      MessagingScheduledStatus @default(PENDING)
+  failureReason String?
+  createdAt   DateTime                 @default(now())
+  updatedAt   DateTime                 @updatedAt
+  attachments MessagingScheduledAttachment[]
+
+  @@index([userId, status, sendAt])
+  @@index([status, sendAt])
+}
+
+model MessagingScheduledAttachment {
+  id               String                  @id @default(cuid())
+  scheduledEmailId String
+  scheduledEmail   MessagingScheduledEmail @relation(fields: [scheduledEmailId], references: [id], onDelete: Cascade)
+  filename         String?
+  contentType      String?
+  size             Int
+  content          Bytes
+  createdAt        DateTime                @default(now())
+
+  @@index([scheduledEmailId])
 }
 
 model MessagingEmail {
