@@ -17,6 +17,22 @@ function normalizeBaseUrl(value: string | undefined | null): string | null {
   return withoutTrailingSlash;
 }
 
+function extractHostname(value: string | undefined | null): string | null {
+  if (!value) {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const candidate = /^[a-z]+:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  try {
+    return new URL(candidate).host.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
 export function getAppBaseUrl(): string {
   for (const key of APP_URL_ENV_KEYS) {
     const candidate = normalizeBaseUrl(process.env[key]);
@@ -31,18 +47,30 @@ export function getAppBaseUrl(): string {
 }
 
 export function getAppHostnames(): string[] {
+  const hosts = new Set(DEFAULT_APP_HOSTS.map((host) => host.toLowerCase()));
+
   const raw = process.env.APP_HOSTNAMES;
-  if (!raw) {
-    return DEFAULT_APP_HOSTS;
+  if (raw) {
+    raw
+      .split(",")
+      .map((entry) => entry.trim().toLowerCase())
+      .filter(Boolean)
+      .forEach((host) => hosts.add(host));
   }
-  const hosts = raw
-    .split(",")
-    .map((entry) => entry.trim().toLowerCase())
-    .filter(Boolean);
-  if (!hosts.length) {
-    return DEFAULT_APP_HOSTS;
+
+  for (const key of APP_URL_ENV_KEYS) {
+    const host = extractHostname(process.env[key]);
+    if (host) {
+      hosts.add(host);
+    }
   }
-  return hosts;
+
+  const vercelHost = extractHostname(process.env.VERCEL_URL);
+  if (vercelHost) {
+    hosts.add(vercelHost);
+  }
+
+  return Array.from(hosts);
 }
 
 export function getCatalogEdgeDomain(): string {

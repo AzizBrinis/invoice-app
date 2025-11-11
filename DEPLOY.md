@@ -26,6 +26,15 @@ Le script `scripts/run-vercel-build.cjs` saute automatiquement l’étape _migra
 
 > Astuce : copiez le contenu de `.env.example`, remplacez les placeholders par les valeurs Supabase/Vercel, puis collez-les dans l’onglet _Environment Variables_ de Vercel.
 
+#### Supabase et réseaux IPv4 (Vercel, GitHub Actions…)
+
+L’endpoint `db.<ref>.supabase.co` est uniquement IPv6. Les plateformes IPv4-only (Vercel, GitHub Actions, Render, Retool, etc.) ne peuvent donc pas l’atteindre tant que vous n’avez pas souscrit à l’option IPv4 de Supabase. Pour que les builds Vercel s’exécutent quand même :
+
+1. Réglez `DATABASE_URL` sur le **transaction pooler** Supabase (`aws-1-...pooler.supabase.com:6543` avec `pgbouncer=true`).  
+2. Réglez `DIRECT_URL` et `SHADOW_DATABASE_URL` sur le **session pooler** (`aws-1-...pooler.supabase.com:5432` sans `pgbouncer=true`). Ce host est IPv4 et compatible avec `prisma migrate deploy`.  
+3. Gardez ces valeurs identiques sur Vercel, GitHub Actions et en local, ou surchargez-les via `.env.local` si nécessaire.  
+4. Si vous préférez utiliser l’endpoint “direct” natif, déclenchez `npm run prisma:deploy` depuis une machine/CI connectée en IPv6 (VPN, VPS, Supabase SQL Editor…) avant de lancer un déploiement Vercel.
+
 ### Contrôle fin des migrations pendant le build
 
 Le script `run-vercel-build.cjs` expose plusieurs flags :
