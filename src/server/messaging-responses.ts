@@ -34,6 +34,31 @@ function normalizeDefaultEntry(entry: DefaultSavedResponse): {
   };
 }
 
+const DEFAULT_RESPONSE_ENTRIES = DEFAULT_SAVED_RESPONSES.map(
+  normalizeDefaultEntry,
+);
+const DEFAULT_RESPONSE_SLUGS = DEFAULT_RESPONSE_ENTRIES.map(
+  (entry) => entry.slug,
+);
+
+const SAVED_RESPONSES_CACHE_TTL_MS = 30 * 1000;
+const savedResponsesCache = new Map<
+  string,
+  { data: SavedResponse[]; expiresAt: number }
+>();
+
+function formatToPrisma(
+  format: SavedResponseFormat,
+): PrismaSavedResponseFormat {
+  return format === "HTML"
+    ? PrismaSavedResponseFormat.HTML
+    : PrismaSavedResponseFormat.PLAINTEXT;
+}
+
+function invalidateSavedResponsesCache(userId: string) {
+  savedResponsesCache.delete(userId);
+}
+
 async function resolveUserId(userId?: string) {
   if (userId) {
     return userId;
@@ -68,45 +93,47 @@ function serializeSavedResponse(entity: {
 }
 
 async function ensureDefaultSavedResponses(userId: string) {
-  await Promise.all(
-    DEFAULT_SAVED_RESPONSES.map((rawEntry) => {
-      const entry = normalizeDefaultEntry(rawEntry);
-      return prisma.messagingSavedResponse.upsert({
-        where: {
-          userId_slug: {
-            userId,
-            slug: entry.slug,
-          },
-        },
-        update: {
-          title: entry.title,
-          description: entry.description,
-          content: entry.content,
-          format:
-            entry.format === "HTML"
-              ? PrismaSavedResponseFormat.HTML
-              : PrismaSavedResponseFormat.PLAINTEXT,
-          builtIn: true,
-        },
-        create: {
-          userId,
-          title: entry.title,
-          description: entry.description,
-          content: entry.content,
-          format:
-            entry.format === "HTML"
-              ? PrismaSavedResponseFormat.HTML
-              : PrismaSavedResponseFormat.PLAINTEXT,
-          slug: entry.slug,
-          builtIn: true,
-        },
-      });
-    }),
+  const existing = await prisma.messagingSavedResponse.findMany({
+    where: {
+      userId,
+      slug: { in: DEFAULT_RESPONSE_SLUGS },
+    },
+    select: { slug: true },
+  });
+  const existingSlugs = new Set(
+    existing
+      .map((entry) => entry.slug)
+      .filter((slug): slug is string => typeof slug === "string"),
   );
+
+  const missing = DEFAULT_RESPONSE_ENTRIES.filter(
+    (entry) => !existingSlugs.has(entry.slug),
+  );
+  if (!missing.length) {
+    return;
+  }
+
+  await prisma.messagingSavedResponse.createMany({
+    data: missing.map((entry) => ({
+      userId,
+      title: entry.title,
+      description: entry.description,
+      content: entry.content,
+      format: formatToPrisma(entry.format),
+      slug: entry.slug,
+      builtIn: true,
+    })),
+    skipDuplicates: true,
+  });
 }
 
 export async function listSavedResponses(userId?: string): Promise<SavedResponse[]> {
   const resolvedUserId = await resolveUserId(userId);
+  const cached = savedResponsesCache.get(resolvedUserId);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.data;
+  }
+
   await ensureDefaultSavedResponses(resolvedUserId);
 
   const responses = await prisma.messagingSavedResponse.findMany({
@@ -117,7 +144,12 @@ export async function listSavedResponses(userId?: string): Promise<SavedResponse
     ],
   });
 
-  return responses.map(serializeSavedResponse);
+  const serialized = responses.map(serializeSavedResponse);
+  savedResponsesCache.set(resolvedUserId, {
+    data: serialized,
+    expiresAt: Date.now() + SAVED_RESPONSES_CACHE_TTL_MS,
+  });
+  return serialized;
 }
 
 export async function createSavedResponse(
@@ -139,6 +171,7 @@ export async function createSavedResponse(
     },
   });
 
+  invalidateSavedResponsesCache(user.id);
   return serializeSavedResponse(created);
 }
 
@@ -171,6 +204,7 @@ export async function updateSavedResponse(
     },
   });
 
+  invalidateSavedResponsesCache(user.id);
   return serializeSavedResponse(updated);
 }
 
@@ -196,5 +230,6 @@ export async function deleteSavedResponse(id: string): Promise<{ id: string }> {
     where: { id },
   });
 
+  invalidateSavedResponsesCache(user.id);
   return { id };
 }

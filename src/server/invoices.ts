@@ -1,6 +1,8 @@
+import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { calculateDocumentTotals, calculateLineTotals } from "@/lib/documents";
+import { toCents } from "@/lib/money";
 import { getSettings } from "@/server/settings";
 import {
   DEFAULT_TAX_CONFIGURATION,
@@ -11,7 +13,8 @@ import {
   InvoiceAuditAction,
   InvoiceStatus,
   QuoteStatus,
-  type Prisma,
+  Prisma,
+  type User,
 } from "@prisma/client";
 import { z } from "zod";
 import { nextInvoiceNumber } from "@/server/sequences";
@@ -81,6 +84,172 @@ export type InvoiceFilters = {
 };
 
 const DEFAULT_PAGE_SIZE = 10;
+const MAX_PAGE_SIZE = 50;
+const INVOICE_CACHE_REVALIDATE_SECONDS = 45;
+const SHOULD_USE_INVOICE_CACHE = process.env.NODE_ENV !== "test";
+
+export const invoiceListTag = (tenantId: string) =>
+  `invoices:list:${tenantId}`;
+export const invoiceDetailTag = (tenantId: string, invoiceId: string) =>
+  `invoices:detail:${tenantId}:${invoiceId}`;
+export const invoiceStatsTag = (tenantId: string) =>
+  `invoices:stats:${tenantId}`;
+
+function resolveTenantId(user: Pick<User, "id"> & { tenantId?: string | null }) {
+  return user.tenantId ?? user.id;
+}
+
+const invoiceListSelect = Prisma.validator<Prisma.InvoiceSelect>()({
+  id: true,
+  userId: true,
+  number: true,
+  reference: true,
+  status: true,
+  issueDate: true,
+  dueDate: true,
+  totalTTCCents: true,
+  amountPaidCents: true,
+  currency: true,
+  client: {
+    select: {
+      id: true,
+      displayName: true,
+    },
+  },
+});
+
+type InvoiceListItem = Prisma.InvoiceGetPayload<{
+  select: typeof invoiceListSelect;
+}>;
+
+const invoiceDetailSelect = Prisma.validator<Prisma.InvoiceSelect>()({
+  id: true,
+  userId: true,
+  number: true,
+  reference: true,
+  status: true,
+  clientId: true,
+  issueDate: true,
+  dueDate: true,
+  currency: true,
+  globalDiscountRate: true,
+  globalDiscountAmountCents: true,
+  subtotalHTCents: true,
+  totalDiscountCents: true,
+  totalTVACents: true,
+  totalTTCCents: true,
+  amountPaidCents: true,
+  lateFeeRate: true,
+  taxSummary: true,
+  taxConfiguration: true,
+  notes: true,
+  terms: true,
+  fodecAmountCents: true,
+  timbreAmountCents: true,
+  createdAt: true,
+  updatedAt: true,
+  client: {
+    select: {
+      id: true,
+      displayName: true,
+      email: true,
+    },
+  },
+  lines: {
+    orderBy: { position: "asc" },
+    select: {
+      id: true,
+      productId: true,
+      description: true,
+      quantity: true,
+      unit: true,
+      unitPriceHTCents: true,
+      vatRate: true,
+      discountRate: true,
+      discountAmountCents: true,
+      totalHTCents: true,
+      totalTVACents: true,
+      totalTTCCents: true,
+      fodecRate: true,
+      position: true,
+    },
+  },
+  payments: {
+    orderBy: { date: "desc" },
+    select: {
+      id: true,
+      amountCents: true,
+      method: true,
+      date: true,
+      note: true,
+    },
+  },
+});
+
+export type InvoiceDetail = Prisma.InvoiceGetPayload<{
+  select: typeof invoiceDetailSelect;
+}>;
+
+type NormalizedInvoiceFilters = {
+  search: string | null;
+  status: InvoiceStatus | "all";
+  clientId: string | null;
+  issueDateFrom: Date | null;
+  issueDateTo: Date | null;
+  dueDateBefore: Date | null;
+  page: number;
+  pageSize: number;
+};
+
+type InvoiceCountFilters = Omit<NormalizedInvoiceFilters, "page" | "pageSize">;
+
+type InvoiceListResultBase = {
+  items: InvoiceListItem[];
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+};
+
+export type InvoiceListResultWithTotal = InvoiceListResultBase & {
+  total: number;
+  pageCount: number;
+};
+
+export type InvoiceListResultWithoutTotal = InvoiceListResultBase & {
+  total: null;
+  pageCount: null;
+};
+
+type InvoiceListResult =
+  | InvoiceListResultWithTotal
+  | InvoiceListResultWithoutTotal;
+
+export type InvoiceListOptions = {
+  includeTotals?: boolean;
+};
+
+function filterKeyParts(filters: InvoiceCountFilters) {
+  return [
+    filters.search ?? "",
+    filters.status,
+    filters.clientId ?? "",
+    filters.issueDateFrom?.toISOString() ?? "",
+    filters.issueDateTo?.toISOString() ?? "",
+    filters.dueDateBefore?.toISOString() ?? "",
+  ];
+}
+
+function listCacheKey(filters: NormalizedInvoiceFilters) {
+  return [
+    ...filterKeyParts(filters),
+    `page:${filters.page}`,
+    `size:${filters.pageSize}`,
+  ].join("|");
+}
+
+function countCacheKey(filters: InvoiceCountFilters) {
+  return filterKeyParts(filters).join("|");
+}
 
 async function assertClientOwnership(userId: string, clientId: string) {
   const client = await prisma.client.findFirst({
@@ -154,8 +323,74 @@ function calculateStatusAfterPayment(
     : InvoiceStatus.ENVOYEE;
 }
 
+function buildInvoiceSearchWhere(
+  search: string | null | undefined,
+): Prisma.InvoiceWhereInput | undefined {
+  if (!search) {
+    return undefined;
+  }
+  const normalized = search.trim().replace(/\s+/g, " ");
+  if (!normalized) {
+    return undefined;
+  }
+
+  const clauses: Prisma.InvoiceWhereInput[] = [];
+  const numericCandidate = normalized.replace(/\D+/g, "");
+
+  if (numericCandidate.length >= 3) {
+    clauses.push({
+      number: {
+        startsWith: numericCandidate,
+      },
+    });
+  }
+
+  clauses.push(
+    {
+      number: {
+        startsWith: normalized,
+        mode: "insensitive",
+      },
+    },
+    {
+      reference: {
+        startsWith: normalized,
+        mode: "insensitive",
+      },
+    },
+    {
+      client: {
+        displayName: {
+          startsWith: normalized,
+          mode: "insensitive",
+        },
+      },
+    },
+  );
+
+  const tokens = normalized.split(" ").filter(Boolean);
+  if (tokens.length > 1) {
+    const uniqueTokens = Array.from(new Set(tokens));
+    for (const token of uniqueTokens) {
+      if (token.length < 2) {
+        continue;
+      }
+      clauses.push({
+        client: {
+          displayName: {
+            startsWith: token,
+            mode: "insensitive",
+          },
+        },
+      });
+    }
+  }
+
+  return clauses.length > 0 ? { OR: clauses } : undefined;
+}
+
 function buildInvoiceWhere(
-  filters: InvoiceFilters,
+  filters: InvoiceFilters | NormalizedInvoiceFilters | InvoiceCountFilters,
 ): Prisma.InvoiceWhereInput {
   const {
     search,
@@ -189,22 +424,103 @@ function buildInvoiceWhere(
           },
         }
       : {}),
-    ...(search
-      ? {
-          OR: [
-            { number: { contains: search } },
-            { reference: { contains: search } },
-            {
-              client: {
-                displayName: {
-                  contains: search,
-                },
-              },
-            },
-          ],
-        }
-      : {}),
+    ...(buildInvoiceSearchWhere(search) ?? {}),
   } satisfies Prisma.InvoiceWhereInput;
+}
+
+function normalizeDateInput(value?: Date | null): Date | null {
+  if (!value) {
+    return null;
+  }
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.valueOf()) ? null : date;
+}
+
+function normalizeInvoiceFilters(
+  filters: InvoiceFilters,
+): NormalizedInvoiceFilters {
+  const sanitizedSearch = (filters.search ?? "").trim().replace(/\s+/g, " ");
+  const clientId = filters.clientId?.trim() ?? "";
+  const requestedPage =
+    typeof filters.page === "number" && Number.isFinite(filters.page)
+      ? Math.floor(filters.page)
+      : Number.parseInt(String(filters.page ?? 1), 10) || 1;
+  const requestedPageSize =
+    typeof filters.pageSize === "number" && Number.isFinite(filters.pageSize)
+      ? Math.floor(filters.pageSize)
+      : Number.parseInt(String(filters.pageSize ?? DEFAULT_PAGE_SIZE), 10) ||
+        DEFAULT_PAGE_SIZE;
+
+  return {
+    search: sanitizedSearch.length > 0 ? sanitizedSearch : null,
+    status:
+      filters.status && filters.status !== "all" ? filters.status : "all",
+    clientId: clientId.length > 0 ? clientId : null,
+    issueDateFrom: normalizeDateInput(filters.issueDateFrom ?? null),
+    issueDateTo: normalizeDateInput(filters.issueDateTo ?? null),
+    dueDateBefore: normalizeDateInput(filters.dueDateBefore ?? null),
+    page: Math.max(1, requestedPage),
+    pageSize: Math.min(Math.max(1, requestedPageSize), MAX_PAGE_SIZE),
+  };
+}
+
+function toCountFilters(
+  filters: NormalizedInvoiceFilters,
+): InvoiceCountFilters {
+  const { search, status, clientId, issueDateFrom, issueDateTo, dueDateBefore } =
+    filters;
+  return {
+    search,
+    status,
+    clientId,
+    issueDateFrom,
+    issueDateTo,
+    dueDateBefore,
+  };
+}
+
+async function queryInvoicePage(
+  tenantId: string,
+  filters: NormalizedInvoiceFilters,
+) {
+  const where: Prisma.InvoiceWhereInput = {
+    userId: tenantId,
+    ...buildInvoiceWhere(filters),
+  };
+
+  const rows = await prisma.invoice.findMany({
+    where,
+    select: invoiceListSelect,
+    orderBy: [{ issueDate: "desc" }, { id: "desc" }],
+    skip: (filters.page - 1) * filters.pageSize,
+    take: filters.pageSize + 1,
+  });
+
+  const hasMore = rows.length > filters.pageSize;
+  const items = hasMore ? rows.slice(0, filters.pageSize) : rows;
+
+  return { items, hasMore };
+}
+
+async function queryInvoiceCount(
+  tenantId: string,
+  filters: InvoiceCountFilters,
+) {
+  const where: Prisma.InvoiceWhereInput = {
+    userId: tenantId,
+    ...buildInvoiceWhere(filters),
+  };
+  return prisma.invoice.count({ where });
+}
+
+async function fetchInvoiceDetail(
+  tenantId: string,
+  invoiceId: string,
+): Promise<InvoiceDetail | null> {
+  return prisma.invoice.findFirst({
+    where: { id: invoiceId, userId: tenantId },
+    select: invoiceDetailSelect,
+  });
 }
 
 function computeInvoiceTotals(
@@ -297,50 +613,96 @@ function serializeVat(entries: ReturnType<typeof calculateDocumentTotals>["vatEn
   }));
 }
 
-export async function listInvoices(filters: InvoiceFilters = {}) {
-  const { id: userId } = await requireUser();
-  const { page = 1, pageSize = DEFAULT_PAGE_SIZE } = filters;
-  const where: Prisma.InvoiceWhereInput = {
-    userId,
-    ...buildInvoiceWhere(filters),
-  };
+export function listInvoices(
+  filters?: InvoiceFilters,
+  options?: { includeTotals?: true },
+): Promise<InvoiceListResultWithTotal>;
+export function listInvoices(
+  filters: InvoiceFilters,
+  options: { includeTotals: false },
+): Promise<InvoiceListResultWithoutTotal>;
+export async function listInvoices(
+  filters: InvoiceFilters = {},
+  options: InvoiceListOptions = {},
+): Promise<InvoiceListResult> {
+  const user = await requireUser();
+  const tenantId = resolveTenantId(user);
+  const normalizedFilters = normalizeInvoiceFilters(filters);
+  const countFilters = toCountFilters(normalizedFilters);
+  const includeTotals = options.includeTotals ?? true;
 
-  const [items, total] = await Promise.all([
-    prisma.invoice.findMany({
-      where,
-      include: {
-        client: true,
-        payments: true,
-      },
-      orderBy: {
-        issueDate: "desc",
-      },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-    }),
-    prisma.invoice.count({ where }),
-  ]);
+  const runPageQuery = () => queryInvoicePage(tenantId, normalizedFilters);
+  const runCountQuery = () => queryInvoiceCount(tenantId, countFilters);
+
+  const pagePromise = SHOULD_USE_INVOICE_CACHE
+    ? unstable_cache(
+        runPageQuery,
+        ["invoices", "list", tenantId, listCacheKey(normalizedFilters)],
+        {
+          tags: [invoiceListTag(tenantId)],
+          revalidate: INVOICE_CACHE_REVALIDATE_SECONDS,
+        },
+      )()
+    : runPageQuery();
+
+  if (!includeTotals) {
+    const pageResult = await pagePromise;
+    return {
+      items: pageResult.items,
+      total: null,
+      page: normalizedFilters.page,
+      pageSize: normalizedFilters.pageSize,
+      pageCount: null,
+      hasMore: pageResult.hasMore,
+    };
+  }
+
+  const countPromise = SHOULD_USE_INVOICE_CACHE
+    ? unstable_cache(
+        runCountQuery,
+        ["invoices", "count", tenantId, countCacheKey(countFilters)],
+        {
+          tags: [invoiceStatsTag(tenantId)],
+          revalidate: INVOICE_CACHE_REVALIDATE_SECONDS,
+        },
+      )()
+    : runCountQuery();
+
+  const [pageResult, total] = await Promise.all([pagePromise, countPromise]);
+
+  const pageCount = Math.max(
+    1,
+    Math.ceil(total / Math.max(1, normalizedFilters.pageSize)),
+  );
 
   return {
-    items,
+    items: pageResult.items,
     total,
-    page,
-    pageSize,
-    pageCount: Math.ceil(total / pageSize),
+    page: normalizedFilters.page,
+    pageSize: normalizedFilters.pageSize,
+    pageCount,
+    hasMore: pageResult.hasMore,
   };
 }
 
-export async function getInvoice(id: string) {
-  const { id: userId } = await requireUser();
-  return prisma.invoice.findFirst({
-    where: { id, userId },
-    include: {
-      client: true,
-      lines: { orderBy: { position: "asc" }, include: { product: true } },
-      payments: { orderBy: { date: "desc" } },
-      quote: true,
+export async function getInvoice(id: string): Promise<InvoiceDetail | null> {
+  const user = await requireUser();
+  const tenantId = resolveTenantId(user);
+
+  if (!SHOULD_USE_INVOICE_CACHE) {
+    return fetchInvoiceDetail(tenantId, id);
+  }
+
+  const cached = unstable_cache(
+    () => fetchInvoiceDetail(tenantId, id),
+    ["invoices", "detail", tenantId, id],
+    {
+      tags: [invoiceDetailTag(tenantId, id)],
+      revalidate: INVOICE_CACHE_REVALIDATE_SECONDS,
     },
-  });
+  );
+
+  return cached();
 }
 
 export async function createInvoice(input: InvoiceInput) {
@@ -555,30 +917,97 @@ export async function deleteInvoice(id: string): Promise<DeleteInvoiceOutcome> {
 
 export async function changeInvoiceStatus(id: string, status: InvoiceStatus) {
   const { id: userId } = await requireUser();
-  await assertInvoiceOwnership(userId, id);
-  return prisma.invoice.update({
-    where: { id },
-    data: { status },
+  return prisma.$transaction(async (tx) => {
+    const invoice = await tx.invoice.findFirst({
+      where: { id, userId },
+      select: {
+        totalTTCCents: true,
+        payments: {
+          select: { amountCents: true },
+        },
+      },
+    });
+    if (!invoice) {
+      throw new Error("Facture introuvable");
+    }
+
+    const amountPaidCents = invoice.payments.reduce(
+      (sum, payment) => sum + payment.amountCents,
+      0,
+    );
+    const amountToApply =
+      status === InvoiceStatus.PAYEE
+        ? Math.max(amountPaidCents, invoice.totalTTCCents)
+        : amountPaidCents;
+
+    return tx.invoice.update({
+      where: { id },
+      data: {
+        status,
+        amountPaidCents: amountToApply,
+      },
+    });
   });
 }
 
-const paymentSchema = z.object({
-  invoiceId: z.string(),
-  amountCents: z.number().int().positive(),
-  method: z.string().nullable().optional(),
-  date: z.coerce.date(),
-  note: z.string().nullable().optional(),
-});
+const paymentSchema = z
+  .object({
+    invoiceId: z.string(),
+    amount: z.number().positive().optional(),
+    amountCents: z.number().int().positive().optional(),
+    method: z.string().nullable().optional(),
+    date: z.coerce.date(),
+    note: z.string().nullable().optional(),
+  })
+  .refine(
+    (payload) =>
+      typeof payload.amount === "number" ||
+      typeof payload.amountCents === "number",
+    {
+      message: "Montant de paiement requis",
+      path: ["amount"],
+    },
+  );
 
 export async function recordPayment(input: z.infer<typeof paymentSchema>) {
   const { id: userId } = await requireUser();
   const payload = paymentSchema.parse(input);
-  await assertInvoiceOwnership(userId, payload.invoiceId);
 
   return prisma.$transaction(async (tx) => {
+    const invoice = await tx.invoice.findFirst({
+      where: { id: payload.invoiceId, userId },
+      select: {
+        status: true,
+        totalTTCCents: true,
+        dueDate: true,
+        currency: true,
+      },
+    });
+    if (!invoice) {
+      throw new Error("Facture introuvable");
+    }
+
+    const amountCents =
+      payload.amountCents ??
+      (payload.amount != null
+        ? toCents(payload.amount, invoice.currency)
+        : null);
+
+    if (
+      typeof amountCents !== "number" ||
+      Number.isNaN(amountCents) ||
+      amountCents <= 0
+    ) {
+      throw new Error("Montant de paiement invalide");
+    }
+
     const payment = await tx.payment.create({
       data: {
-        ...payload,
+        invoiceId: payload.invoiceId,
+        amountCents,
+        method: payload.method ?? null,
+        date: payload.date,
+        note: payload.note ?? null,
         userId,
       },
     });
@@ -589,18 +1018,6 @@ export async function recordPayment(input: z.infer<typeof paymentSchema>) {
         amountCents: true,
       },
     });
-
-    const invoice = await tx.invoice.findFirst({
-      where: { id: payload.invoiceId, userId },
-      select: {
-        status: true,
-        totalTTCCents: true,
-        dueDate: true,
-      },
-    });
-    if (!invoice) {
-      throw new Error("Facture introuvable");
-    }
 
     const amountPaidCents = sums._sum.amountCents ?? 0;
     const newStatus = calculateStatusAfterPayment({

@@ -37,6 +37,11 @@ const NAV_ITEMS: NavItem[] = [
     icon: "products",
   },
   {
+    label: "Site web",
+    href: "/site-web",
+    icon: "website",
+  },
+  {
     label: "Clients",
     href: "/clients",
     icon: "clients",

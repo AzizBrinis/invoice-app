@@ -10,7 +10,7 @@ import {
   signSessionToken,
 } from "@/lib/session-cookie";
 
-const SESSION_COOKIE_NAME =
+export const SESSION_COOKIE_NAME =
   process.env.SESSION_COOKIE_NAME ?? "session_token";
 const SESSION_DURATION_HOURS = parseInt(
   process.env.SESSION_DURATION_HOURS ?? "12",

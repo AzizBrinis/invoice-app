@@ -9,8 +9,7 @@ import { formatCurrency } from "@/lib/formatters";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import type { Client } from "@prisma/client";
-import type { Product } from "@prisma/client";
+import type { Client, Product } from "@prisma/client";
 import {
   CURRENCY_CODES,
   type CurrencyInfo,
@@ -31,11 +30,17 @@ type QuoteLineForm = {
   fodecRate?: number | null;
 };
 
+type QuoteEditorClient = Pick<Client, "id" | "displayName">;
+type QuoteEditorProduct = Pick<
+  Product,
+  "id" | "name" | "priceHTCents" | "vatRate" | "unit" | "defaultDiscountRate"
+>;
+
 type QuoteEditorProps = {
   action: (formData: FormData) => void;
   submitLabel: string;
-  clients: Client[];
-  products: Product[];
+  clients: QuoteEditorClient[];
+  products: QuoteEditorProduct[];
   defaultCurrency: CurrencyCode;
   currencyOptions: CurrencyInfo[];
   taxConfiguration: TaxConfiguration;
@@ -835,7 +840,7 @@ export function QuoteEditor({
 }
 
 function createEmptyLine(
-  product: Product | undefined,
+  product: QuoteEditorProduct | undefined,
   defaultFodecRate: number | null | undefined,
   currency: CurrencyCode,
 ): QuoteLineForm {

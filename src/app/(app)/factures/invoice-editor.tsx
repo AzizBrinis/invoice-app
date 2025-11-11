@@ -3,7 +3,7 @@
 import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { useRouter } from "next/navigation";
-import type { Client, Invoice, InvoiceLine, Product } from "@prisma/client";
+import type { Client, Product } from "@prisma/client";
 import { calculateDocumentTotals, calculateLineTotals } from "@/lib/documents";
 import { toCents, fromCents } from "@/lib/money";
 import { formatCurrency } from "@/lib/formatters";
@@ -25,6 +25,7 @@ import {
 import { Alert } from "@/components/ui/alert";
 import { useToast } from "@/components/ui/toast-provider";
 import type { Route } from "next";
+import type { InvoiceDetail } from "@/server/invoices";
 
 type InvoiceLineForm = {
   id?: string;
@@ -46,7 +47,7 @@ type InvoiceEditorProps = {
   defaultCurrency: CurrencyCode;
   currencyOptions: CurrencyInfo[];
   taxConfiguration: TaxConfiguration;
-  defaultInvoice?: Invoice & { lines: InvoiceLine[] };
+  defaultInvoice?: InvoiceDetail;
   redirectTo?: string;
 };
 

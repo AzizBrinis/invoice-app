@@ -37,6 +37,9 @@ async function parseProductForm(formData: FormData, currency: string) {
     isActive:
       (formData.get("isActive")?.toString() ?? "true").toLowerCase() !==
       "false",
+    isListedInCatalog:
+      (formData.get("isListedInCatalog")?.toString() ?? "true").toLowerCase() !==
+      "false",
   } satisfies Record<string, unknown>;
 
   return productSchema.parse(payload);
@@ -247,6 +250,23 @@ export async function deleteProductAction(id: string, formData?: FormData) {
     redirectWithFeedback(redirectTarget, {
       error: "Impossible de supprimer ce produit.",
     });
+  }
+}
+
+export async function deleteProductInlineAction(id: string) {
+  try {
+    await deleteProduct(id);
+    revalidatePath("/produits");
+    return { success: true };
+  } catch (error) {
+    if (isRedirectError(error)) {
+      throw error;
+    }
+    console.error("[deleteProductInlineAction] Échec de suppression", error);
+    return {
+      success: false,
+      error: "Impossible de supprimer ce produit.",
+    };
   }
 }
 

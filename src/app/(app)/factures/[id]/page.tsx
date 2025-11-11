@@ -22,8 +22,6 @@ import {
   type FlashMessage,
 } from "@/components/ui/flash-messages";
 
-export const dynamic = "force-dynamic";
-
 const STATUS_LABELS: Record<InvoiceStatus, string> = {
   BROUILLON: "Brouillon",
   ENVOYEE: "Envoyée",

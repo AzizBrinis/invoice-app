@@ -1,6 +1,8 @@
+import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { z } from "zod";
+import { ClientSource, Prisma } from "@prisma/client";
 
 export const clientSchema = z.object({
   id: z.string().optional(),
@@ -12,6 +14,8 @@ export const clientSchema = z.object({
   vatNumber: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
   isActive: z.boolean().default(true),
+  source: z.nativeEnum(ClientSource).default(ClientSource.MANUAL),
+  leadMetadata: z.record(z.string(), z.any()).nullable().optional(),
 });
 
 export type ClientInput = z.infer<typeof clientSchema>;
@@ -24,15 +28,59 @@ export type ClientFilters = {
 };
 
 const DEFAULT_PAGE_SIZE = 10;
+const MAX_PAGE_SIZE = 50;
+const CLIENT_FILTER_CACHE_SECONDS = 60;
 
-export async function listClients(filters: ClientFilters = {}) {
+const clientFilterSelect = Prisma.validator<Prisma.ClientSelect>()({
+  id: true,
+  displayName: true,
+});
+
+const clientListSelect = Prisma.validator<Prisma.ClientSelect>()({
+  id: true,
+  displayName: true,
+  companyName: true,
+  email: true,
+  phone: true,
+  vatNumber: true,
+  isActive: true,
+  updatedAt: true,
+});
+
+export type ClientListItem = Prisma.ClientGetPayload<{
+  select: typeof clientListSelect;
+}>;
+
+const clientFilterTag = (tenantId: string) => `clients:filters:${tenantId}`;
+
+function normalizeLeadMetadata(
+  value: Record<string, unknown> | null | undefined,
+): Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  return value === null ? Prisma.JsonNull : (value as Prisma.InputJsonValue);
+}
+
+export async function listClients(
+  filters: ClientFilters = {},
+): Promise<{
+  items: ClientListItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  pageCount: number;
+}> {
   const { id: userId } = await requireUser();
   const {
     search,
-    page = 1,
-    pageSize = DEFAULT_PAGE_SIZE,
+    page: rawPage = 1,
+    pageSize: rawPageSize = DEFAULT_PAGE_SIZE,
     isActive = "all",
   } = filters;
+
+  const page = rawPage > 0 ? rawPage : 1;
+  const pageSize = Math.min(Math.max(rawPageSize, 1), MAX_PAGE_SIZE);
 
   const where = {
     userId,
@@ -56,6 +104,7 @@ export async function listClients(filters: ClientFilters = {}) {
       orderBy: { displayName: "asc" },
       skip: (page - 1) * pageSize,
       take: pageSize,
+      select: clientListSelect,
     }),
     prisma.client.count({ where }),
   ]);
@@ -67,6 +116,29 @@ export async function listClients(filters: ClientFilters = {}) {
     pageSize,
     pageCount: Math.ceil(total / pageSize),
   };
+}
+
+export async function listClientFilterOptions() {
+  const user = await requireUser();
+  const tenantId = (user as { tenantId?: string | null }).tenantId ?? user.id;
+
+  const runQuery = () =>
+    prisma.client.findMany({
+      where: { userId: tenantId },
+      orderBy: { displayName: "asc" },
+      select: clientFilterSelect,
+    });
+
+  if (process.env.NODE_ENV === "test") {
+    return runQuery();
+  }
+
+  const cached = unstable_cache(runQuery, ["clients", "filters", tenantId], {
+    tags: [clientFilterTag(tenantId)],
+    revalidate: CLIENT_FILTER_CACHE_SECONDS,
+  });
+
+  return cached();
 }
 
 export async function getClient(id: string) {
@@ -85,10 +157,12 @@ export async function createClient(input: ClientInput) {
   const payload = clientSchema.parse(input);
   const { id: _id, ...data } = payload;
   void _id;
+  const { leadMetadata, ...rest } = data;
   return prisma.client.create({
     data: {
       userId,
-      ...data,
+      ...rest,
+      leadMetadata: normalizeLeadMetadata(leadMetadata),
     },
   });
 }
@@ -104,11 +178,13 @@ export async function updateClient(id: string, input: ClientInput) {
   const payload = clientSchema.parse({ ...input, id });
   const { id: _id, ...data } = payload;
   void _id;
+  const { leadMetadata, ...rest } = data;
   return prisma.client.update({
     where: { id },
     data: {
-      ...data,
+      ...rest,
       userId,
+      leadMetadata: normalizeLeadMetadata(leadMetadata),
     },
   });
 }

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { load as loadHtml } from "cheerio";
 import UAParser from "ua-parser-js";
 import type {
@@ -8,6 +8,7 @@ import type {
   MessagingEmailLinkRecipient,
   MessagingEmailRecipient,
   MessagingRecipientType,
+  Prisma,
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getAppBaseUrl } from "@/lib/env";
@@ -99,6 +100,106 @@ type LinkDescriptor = {
 const OPEN_DEDUP_WINDOW_MS = 2 * 60 * 1000; // 2 minutes
 const CLICK_DEDUP_WINDOW_MS = 5 * 1000; // 5 seconds
 
+const PROXY_OPEN_UA_HINTS = [
+  /googleimageproxy/i,
+  /google-web-preview/i,
+  /google\-prox/i,
+  /bingpreview/i,
+  /preview\-fetcher/i,
+  /linkpreview/i,
+  /lightningrenderer/i,
+];
+
+const AUTOMATION_OPEN_UA_HINTS = [
+  /curl\//i,
+  /wget\//i,
+  /python-requests/i,
+  /java\//i,
+  /okhttp\//i,
+  /postmanruntime/i,
+];
+
+const LINK_SCANNER_UA_HINTS = [
+  /proofpoint/i,
+  /barracuda/i,
+  /mimecast/i,
+  /symantec/i,
+  /messagelabs/i,
+  /trend[\s-]?micro/i,
+  /kaspersky/i,
+  /bitdefender/i,
+  /fortinet/i,
+  /sophos/i,
+  /fireeye/i,
+  /mailguard/i,
+  /urlscanner/i,
+];
+
+const HIDDEN_BLOCK_STYLE =
+  "display:block !important;width:1px !important;height:1px !important;overflow:hidden !important;line-height:1px !important;font-size:1px !important;opacity:0 !important;";
+const HIDDEN_INLINE_STYLE =
+  "display:inline-block !important;width:1px !important;height:1px !important;overflow:hidden !important;line-height:1px !important;font-size:1px !important;opacity:0 !important;";
+const PIXEL_IMAGE_STYLE =
+  `${HIDDEN_INLINE_STYLE}outline:none !important;border:0 !important;-ms-interpolation-mode:bicubic;max-width:1px !important;max-height:1px !important;`;
+
+function matchesUserAgentHints(
+  userAgent: string | null | undefined,
+  patterns: RegExp[],
+): boolean {
+  if (!userAgent) {
+    return false;
+  }
+  return patterns.some((pattern) => pattern.test(userAgent));
+}
+
+function shouldSuppressOpenEvent(userAgent: string | null | undefined): boolean {
+  return matchesUserAgentHints(userAgent, AUTOMATION_OPEN_UA_HINTS);
+}
+
+function isProxyOpenUserAgent(userAgent: string | null | undefined): boolean {
+  return matchesUserAgentHints(userAgent, PROXY_OPEN_UA_HINTS);
+}
+
+function shouldSuppressClickEvent(userAgent: string | null | undefined): boolean {
+  return matchesUserAgentHints(userAgent, LINK_SCANNER_UA_HINTS);
+}
+
+function hashFingerprint(value: string | null | undefined): string | null {
+  const normalized = value?.trim();
+  if (!normalized) {
+    return null;
+  }
+  return createHash("sha256").update(normalized).digest("hex");
+}
+
+function isSelfOpen(params: {
+  viewerUserId: string | null | undefined;
+  emailUserId: string;
+  viewerSessionHash: string | null;
+  senderSessionHash: string | null;
+  viewerIpHash: string | null;
+  senderIpHash: string | null;
+}): boolean {
+  if (params.viewerUserId && params.viewerUserId === params.emailUserId) {
+    return true;
+  }
+  if (
+    params.viewerSessionHash &&
+    params.senderSessionHash &&
+    params.viewerSessionHash === params.senderSessionHash
+  ) {
+    return true;
+  }
+  if (
+    params.viewerIpHash &&
+    params.senderIpHash &&
+    params.viewerIpHash === params.senderIpHash
+  ) {
+    return true;
+  }
+  return false;
+}
+
 function extractTrackableLinks(html: string): LinkDescriptor[] {
   const $ = loadHtml(html);
   const descriptors: LinkDescriptor[] = [];
@@ -121,6 +222,45 @@ function extractTrackableLinks(html: string): LinkDescriptor[] {
   return descriptors;
 }
 
+function appendQueryParam(url: string, key: string, value: string): string {
+  const [base, hash] = url.split("#");
+  const separator = base.includes("?") ? "&" : "?";
+  const augmented = `${base}${separator}${key}=${encodeURIComponent(value)}`;
+  return hash ? `${augmented}#${hash}` : augmented;
+}
+
+function buildOpenPixelMarkup(openPixelUrl: string): string {
+  const baseImg = appendQueryParam(openPixelUrl, "variant", "img");
+  const fallbackImg = appendQueryParam(openPixelUrl, "variant", "fallback");
+  const backgroundImg = appendQueryParam(openPixelUrl, "variant", "bg");
+  const noscriptImg = appendQueryParam(openPixelUrl, "variant", "noscript");
+  const tableBg = appendQueryParam(openPixelUrl, "variant", "table");
+  const msoBg = appendQueryParam(openPixelUrl, "variant", "mso");
+  const fontProbe = appendQueryParam(openPixelUrl, "variant", "font");
+  const cssProbe = appendQueryParam(openPixelUrl, "variant", "css");
+  const importProbe = appendQueryParam(openPixelUrl, "variant", "import");
+
+  const scope = createHash("sha1").update(openPixelUrl).digest("hex").slice(0, 10);
+  const fontFamily = `et-font-${scope}`;
+  const className = `et-probe-${scope}`;
+
+  const hiddenContainerStyle = `${HIDDEN_BLOCK_STYLE}margin:0 !important;padding:0 !important;`; // keeps footprint predictable
+
+  return [
+    `<img src="${baseImg}" alt="" width="1" height="1" style="${PIXEL_IMAGE_STYLE}" data-tracking="open-pixel"/>`,
+    `<div aria-hidden="true" style="${hiddenContainerStyle}">`,
+    `<img src="${fallbackImg}" alt="" width="1" height="1" style="${PIXEL_IMAGE_STYLE}" data-tracking="open-pixel-fallback"/>`,
+    `</div>`,
+    `<span aria-hidden="true" style="${HIDDEN_INLINE_STYLE}background:url('${backgroundImg}') no-repeat 0 0 / 1px 1px;"></span>`,
+    `<noscript><img src="${noscriptImg}" alt="" width="1" height="1" style="${PIXEL_IMAGE_STYLE}" data-tracking="open-pixel-noscript"/></noscript>`,
+    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="1" height="1" aria-hidden="true" style="mso-hide:all;line-height:0 !important;font-size:0 !important;border-collapse:collapse !important;"><tr><td background="${tableBg}" style="padding:0;margin:0;line-height:0;font-size:0;width:1px;height:1px;">&nbsp;</td></tr></table>`,
+    `<!--[if mso]><v:rect xmlns:v="urn:schemas-microsoft-com:vml" fill="true" stroke="false" style="width:1px;height:1px;"><v:fill type="frame" src="${msoBg}" color="#ffffff" /><v:textbox style="mso-fit-shape-to-text:true" inset="0,0,0,0"><p style="font-size:1px;line-height:1px;color:#ffffff;">&nbsp;</p></v:textbox></v:rect><![endif]-->`,
+    `<style type="text/css">@font-face { font-family:'${fontFamily}'; src:url('${fontProbe}') format('woff2'); font-weight:400; font-style:normal; font-display:block; } .${className} { font-family:'${fontFamily}', monospace !important; font-size:1px !important; line-height:1px !important; color:transparent !important; display:inline-block !important; width:1px !important; height:1px !important; overflow:hidden !important; letter-spacing:0 !important; } .${className}::after { content:''; display:block !important; width:1px !important; height:1px !important; background-image:url('${cssProbe}'); background-repeat:no-repeat !important; background-size:1px 1px !important; }</style>`,
+    `<style type="text/css">@import url('${importProbe}');</style>`,
+    `<span class="${className}" aria-hidden="true">et</span>`,
+  ].join("");
+}
+
 function injectTrackingIntoHtml(params: {
   html: string;
   openPixelUrl: string | null;
@@ -130,8 +270,7 @@ function injectTrackingIntoHtml(params: {
   const $ = loadHtml(html);
 
   if (openPixelUrl) {
-    const pixelElement =
-      `<img src="${openPixelUrl}" alt="" width="1" height="1" style="display:none;max-height:1px !important;max-width:1px !important;" />`;
+    const pixelElement = buildOpenPixelMarkup(openPixelUrl);
     const body = $("body");
     if (body.length) {
       body.append(pixelElement);
@@ -161,7 +300,12 @@ function injectTrackingIntoHtml(params: {
     : `<!DOCTYPE html>\n${serialized}`;
 }
 
-function createDeviceSummary(event: MessagingEmailEvent): EmailTrackingDevice {
+type DeviceEventLike = Pick<
+  MessagingEmailEvent,
+  "deviceFamily" | "deviceType" | "occurredAt"
+>;
+
+function createDeviceSummary(event: DeviceEventLike): EmailTrackingDevice {
   return {
     deviceFamily: event.deviceFamily,
     deviceType: event.deviceType,
@@ -197,6 +341,46 @@ function parseDevice(userAgent: string | null | undefined): {
   };
 }
 
+async function ensureImplicitOpenFromClick(params: {
+  tx: Prisma.TransactionClient;
+  recipient: MessagingEmailRecipient;
+  occurredAt: Date;
+  device: { deviceFamily: string | null; deviceType: string | null };
+  userAgent: string | null;
+}) {
+  const { tx, recipient, occurredAt, device, userAgent } = params;
+  const updated = await tx.messagingEmailRecipient.updateMany({
+    where: { id: recipient.id, openCount: 0 },
+    data: {
+      openCount: { increment: 1 },
+      firstOpenedAt: recipient.firstOpenedAt ?? occurredAt,
+      lastOpenedAt: occurredAt,
+    },
+  });
+
+  if (updated.count > 0) {
+    await tx.messagingEmailEvent.create({
+      data: {
+        emailId: recipient.emailId,
+        recipientId: recipient.id,
+        type: "OPEN",
+        userAgent,
+        deviceFamily: device.deviceFamily,
+        deviceType: device.deviceType,
+        occurredAt,
+      },
+    });
+
+    console.log("[email-tracking] inferred open from click", {
+      recipientId: recipient.id,
+      emailId: recipient.emailId,
+      userAgent: userAgent ?? null,
+      deviceFamily: device.deviceFamily,
+      deviceType: device.deviceType,
+    });
+  }
+}
+
 export async function prepareEmailTracking(params: {
   userId: string;
   messageId: string;
@@ -205,6 +389,8 @@ export async function prepareEmailTracking(params: {
   html: string;
   recipients: RecipientInput[];
   trackingEnabled: boolean;
+  senderSessionToken?: string | null;
+  senderIpAddress?: string | null;
 }): Promise<PrepareEmailTrackingResult> {
   const {
     userId,
@@ -214,6 +400,8 @@ export async function prepareEmailTracking(params: {
     html,
     recipients,
     trackingEnabled,
+    senderSessionToken,
+    senderIpAddress,
   } = params;
 
   if (!recipients.length) {
@@ -222,6 +410,8 @@ export async function prepareEmailTracking(params: {
 
   const baseUrl = trackingEnabled ? getAppBaseUrl() : null;
   const linkDescriptors = trackingEnabled ? extractTrackableLinks(html) : [];
+  const senderSessionHash = hashFingerprint(senderSessionToken);
+  const senderIpHash = hashFingerprint(senderIpAddress);
 
   return await prisma.$transaction(async (tx) => {
     const email = await tx.messagingEmail.create({
@@ -231,6 +421,8 @@ export async function prepareEmailTracking(params: {
         subject,
         sentAt,
         trackingEnabled,
+        senderSessionHash,
+        senderIpHash,
         recipients: {
           create: recipients.map((recipient) => ({
             address: recipient.address,
@@ -249,6 +441,7 @@ export async function prepareEmailTracking(params: {
 
     let linkRecords: MessagingEmailLink[] = [];
     const linkRecipientTokens = new Map<string, Map<number, string>>();
+    const linkRecipientRows: Prisma.MessagingEmailLinkRecipientCreateManyInput[] = [];
 
     if (trackingEnabled && linkDescriptors.length > 0) {
       linkRecords = await Promise.all(
@@ -269,12 +462,20 @@ export async function prepareEmailTracking(params: {
         for (const linkRecord of linkRecords) {
           const token = randomUUID();
           map.set(linkRecord.position, token);
-          await tx.messagingEmailLinkRecipient.create({
-            data: {
-              linkId: linkRecord.id,
-              recipientId: recipient.id,
-              token,
-            },
+          linkRecipientRows.push({
+            linkId: linkRecord.id,
+            recipientId: recipient.id,
+            token,
+          });
+        }
+      }
+
+      if (linkRecipientRows.length) {
+        const BATCH_SIZE = 500;
+        for (let index = 0; index < linkRecipientRows.length; index += BATCH_SIZE) {
+          const batch = linkRecipientRows.slice(index, index + BATCH_SIZE);
+          await tx.messagingEmailLinkRecipient.createMany({
+            data: batch,
           });
         }
       }
@@ -332,12 +533,59 @@ export async function recordOpenEvent(params: {
   token: string;
   userAgent: string | null;
   ipAddress: string | null;
+  sessionToken?: string | null;
+  viewerUserId?: string | null;
 }): Promise<MessagingEmailRecipient | null> {
   const recipient = await prisma.messagingEmailRecipient.findUnique({
     where: { openToken: params.token },
+    include: {
+      email: {
+        select: {
+          id: true,
+          userId: true,
+          senderSessionHash: true,
+          senderIpHash: true,
+        },
+      },
+    },
   });
   if (!recipient) {
     return null;
+  }
+  const email = recipient.email;
+
+  const proxyHit = isProxyOpenUserAgent(params.userAgent);
+
+  if (shouldSuppressOpenEvent(params.userAgent)) {
+    console.log("[email-tracking] automated open ignored", {
+      recipientId: recipient.id,
+      emailId: recipient.emailId,
+      address: recipient.address,
+      userAgent: params.userAgent ?? null,
+      ipAddress: params.ipAddress ?? null,
+    });
+    return recipient;
+  }
+
+  if (
+    email &&
+    isSelfOpen({
+      viewerUserId: params.viewerUserId,
+      emailUserId: email.userId,
+      viewerSessionHash: hashFingerprint(params.sessionToken),
+      senderSessionHash: email.senderSessionHash,
+      viewerIpHash: hashFingerprint(params.ipAddress),
+      senderIpHash: email.senderIpHash,
+    })
+  ) {
+    console.log("[email-tracking] sender open ignored", {
+      recipientId: recipient.id,
+      emailId: recipient.emailId,
+      userId: email.userId,
+      viewerUserId: params.viewerUserId ?? null,
+      ipAddress: params.ipAddress ?? null,
+    });
+    return recipient;
   }
 
   const now = new Date();
@@ -382,6 +630,7 @@ export async function recordOpenEvent(params: {
     deviceFamily: device.deviceFamily,
     deviceType: device.deviceType,
     ipAddress: params.ipAddress ?? null,
+    viaProxy: proxyHit,
   });
 
   await prisma.$transaction(async (tx) => {
@@ -431,6 +680,22 @@ export async function recordClickEvent(params: {
   if (!linkRecipient || !linkRecipient.link || !linkRecipient.recipient) {
     console.warn("[email-tracking] click token introuvable", { token: params.token });
     return null;
+  }
+
+  if (shouldSuppressClickEvent(params.userAgent)) {
+    console.log("[email-tracking] automated click ignored", {
+      linkRecipientId: linkRecipient.id,
+      recipientId: linkRecipient.recipientId,
+      emailId: linkRecipient.link.emailId,
+      url: linkRecipient.link.url,
+      userAgent: params.userAgent ?? null,
+      ipAddress: params.ipAddress ?? null,
+    });
+    return {
+      url: linkRecipient.link.url,
+      linkRecipient,
+      recipient: linkRecipient.recipient,
+    };
   }
 
   const now = new Date();
@@ -503,6 +768,14 @@ export async function recordClickEvent(params: {
         deviceType: device.deviceType,
         occurredAt: now,
       },
+    });
+
+    await ensureImplicitOpenFromClick({
+      tx,
+      recipient: linkRecipient.recipient,
+      occurredAt: now,
+      device,
+      userAgent: params.userAgent,
     });
   });
 
@@ -577,12 +850,10 @@ export async function getEmailTrackingSummaries(params: {
   return summaries;
 }
 
-export async function getEmailTrackingDetail(params: {
-  userId: string;
-  messageId: string;
-}): Promise<EmailTrackingDetail | null> {
-  const { userId, messageId } = params;
-
+async function loadEmailTrackingDetail(
+  userId: string,
+  messageId: string,
+): Promise<EmailTrackingDetail | null> {
   const email = await prisma.messagingEmail.findUnique({
     where: {
       userId_messageId: {
@@ -591,34 +862,44 @@ export async function getEmailTrackingDetail(params: {
       },
     },
     include: {
-      recipients: true,
-      links: true,
+      recipients: {
+        include: {
+          events: {
+            select: {
+              id: true,
+              type: true,
+              userAgent: true,
+              deviceFamily: true,
+              deviceType: true,
+              occurredAt: true,
+            },
+            orderBy: { occurredAt: "desc" },
+          },
+        },
+      },
+      links: {
+        include: {
+          recipients: {
+            select: {
+              id: true,
+              recipientId: true,
+              clickCount: true,
+              lastClickedAt: true,
+              recipient: {
+                select: {
+                  id: true,
+                  address: true,
+                },
+              },
+            },
+          },
+        },
+      },
     },
   });
 
   if (!email) {
     return null;
-  }
-
-  const events = await prisma.messagingEmailEvent.findMany({
-    where: { emailId: email.id },
-    orderBy: { occurredAt: "desc" },
-  });
-
-  const linkRecipients = await prisma.messagingEmailLinkRecipient.findMany({
-    where: { link: { emailId: email.id } },
-    include: {
-      link: true,
-      recipient: true,
-    },
-  });
-
-  const eventsByRecipient = new Map<string, MessagingEmailEvent[]>();
-  for (const event of events) {
-    if (!event.recipientId) continue;
-    const bucket = eventsByRecipient.get(event.recipientId) ?? [];
-    bucket.push(event);
-    eventsByRecipient.set(event.recipientId, bucket);
   }
 
   const recipientDetails: EmailTrackingRecipientDetail[] =
@@ -641,7 +922,7 @@ export async function getEmailTrackingDetail(params: {
           : null,
       };
 
-      const recipientEvents = eventsByRecipient.get(recipient.id) ?? [];
+      const recipientEvents = recipient.events ?? [];
       const deviceMap = new Map<string, EmailTrackingDevice>();
       for (const event of recipientEvents) {
         const key = `${event.deviceFamily ?? "unknown"}::${
@@ -664,19 +945,15 @@ export async function getEmailTrackingDetail(params: {
 
   const linkDetails: EmailTrackingLinkDetail[] = email.links
     .map((link) => {
-      const targets = linkRecipients.filter(
-        (entry) => entry.linkId === link.id,
-      );
-
-      const totalClicks = targets.reduce(
+      const totalClicks = link.recipients.reduce(
         (acc, entry) => acc + entry.clickCount,
         0,
       );
 
-      const perRecipient = targets
+      const perRecipient = link.recipients
         .map((entry) => ({
           recipientId: entry.recipientId,
-          address: entry.recipient.address,
+          address: entry.recipient?.address ?? "",
           clickCount: entry.clickCount,
           lastClickedAt: entry.lastClickedAt
             ? entry.lastClickedAt.toISOString()
@@ -715,3 +992,36 @@ export async function getEmailTrackingDetail(params: {
     links: linkDetails,
   };
 }
+
+const TRACKING_DETAIL_CACHE_TTL_MS = 30 * 1000;
+const trackingDetailCache = new Map<
+  string,
+  { data: EmailTrackingDetail | null; expiresAt: number }
+>();
+
+export async function getEmailTrackingDetail(params: {
+  userId: string;
+  messageId: string;
+}): Promise<EmailTrackingDetail | null> {
+  const cacheKey = `${params.userId}::${params.messageId}`;
+  const cached = trackingDetailCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.data;
+  }
+  const data = await loadEmailTrackingDetail(params.userId, params.messageId);
+  trackingDetailCache.set(cacheKey, {
+    data,
+    expiresAt: Date.now() + TRACKING_DETAIL_CACHE_TTL_MS,
+  });
+  return data;
+}
+
+export const __emailTrackingInternals = {
+  buildOpenPixelMarkup,
+  shouldSuppressOpenEvent,
+  isProxyOpenUserAgent,
+  shouldSuppressClickEvent,
+  hashFingerprint,
+  isSelfOpen,
+  injectTrackingIntoHtml,
+};

@@ -1,9 +1,8 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { revalidatePath } from "next/cache";
+import { revalidateTag } from "next/cache";
 import { ZodError } from "zod";
-import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
 import {
   invoiceInputSchema,
   createInvoice,
@@ -12,10 +11,12 @@ import {
   changeInvoiceStatus,
   recordPayment,
   deletePayment,
-  reconcileInvoiceStatus,
+  invoiceListTag,
+  invoiceDetailTag,
+  invoiceStatsTag,
 } from "@/server/invoices";
 import { InvoiceStatus, UserRole } from "@prisma/client";
-import { toCents } from "@/lib/money";
+import { isUniqueConstraintViolation } from "@/lib/db-errors";
 import { sendInvoiceEmail } from "@/server/email";
 import { getMessagingSettingsSummary } from "@/server/messaging";
 import { prisma } from "@/lib/prisma";
@@ -90,6 +91,18 @@ function redirectWithFeedback(
   return redirect(href);
 }
 
+function revalidateInvoiceData(
+  user: { id: string; tenantId?: string | null },
+  invoiceId?: string,
+) {
+  const tenantId = user.tenantId ?? user.id;
+  revalidateTag(invoiceListTag(tenantId), "max");
+  revalidateTag(invoiceStatsTag(tenantId), "max");
+  if (invoiceId) {
+    revalidateTag(invoiceDetailTag(tenantId, invoiceId), "max");
+  }
+}
+
 function normalizeZodInvoiceErrors(error: ZodError): {
   fieldErrors: Partial<Record<string, string>>;
   issueMap: Record<string, string>;
@@ -127,14 +140,13 @@ export async function submitInvoiceFormAction(
   formData: FormData,
 ): Promise<InvoiceFormState> {
   try {
-    await requireBillingAccess();
+    const user = await requireBillingAccess();
     const payload = parsePayload(formData);
     const invoiceId = formData.get("invoiceId")?.toString() || undefined;
 
     if (invoiceId) {
       const updated = await updateInvoice(invoiceId, payload);
-      revalidatePath("/factures");
-      revalidatePath(`/factures/${invoiceId}`);
+      revalidateInvoiceData(user, invoiceId);
       return {
         status: "success",
         message: "Facture mise à jour",
@@ -143,8 +155,7 @@ export async function submitInvoiceFormAction(
     }
 
     const created = await createInvoice(payload);
-    revalidatePath("/factures");
-    revalidatePath(`/factures/${created.id}`);
+    revalidateInvoiceData(user, created.id);
     return {
       status: "success",
       message: "Facture créée",
@@ -162,12 +173,10 @@ export async function submitInvoiceFormAction(
       };
     }
 
-    if (
-      error instanceof PrismaClientKnownRequestError &&
-      error.code === "P2002"
-    ) {
-      const target = Array.isArray(error.meta?.target)
-        ? (error.meta?.target as string[])
+    if (isUniqueConstraintViolation(error)) {
+      const targetMeta = (error as { meta?: { target?: unknown } }).meta?.target;
+      const target = Array.isArray(targetMeta)
+        ? targetMeta.filter((entry): entry is string => typeof entry === "string")
         : [];
       const fieldErrors: Partial<Record<string, string>> = {};
       if (target.includes("number")) {
@@ -190,12 +199,12 @@ export async function submitInvoiceFormAction(
 }
 
 export async function createInvoiceAction(formData: FormData) {
-  await requireBillingAccess();
+  const user = await requireBillingAccess();
   const redirectTarget = resolveRedirectTarget(formData, "/factures");
   try {
     const payload = parsePayload(formData);
-    await createInvoice(payload);
-    revalidatePath("/factures");
+    const created = await createInvoice(payload);
+    revalidateInvoiceData(user, created.id);
     redirectWithFeedback(redirectTarget, {
       message: "Facture créée avec succès",
     });
@@ -215,12 +224,12 @@ export async function createInvoiceAction(formData: FormData) {
 }
 
 export async function updateInvoiceAction(id: string, formData: FormData) {
-  await requireBillingAccess();
+  const user = await requireBillingAccess();
   const redirectTarget = resolveRedirectTarget(formData, "/factures");
   try {
     const payload = parsePayload(formData);
-    await updateInvoice(id, payload);
-    revalidatePath("/factures");
+    const updated = await updateInvoice(id, payload);
+    revalidateInvoiceData(user, updated.id);
     redirectWithFeedback(redirectTarget, {
       message: "Facture mise à jour",
     });
@@ -240,14 +249,11 @@ export async function updateInvoiceAction(id: string, formData: FormData) {
 }
 
 export async function deleteInvoiceAction(id: string, formData?: FormData) {
-  await requireBillingAccess();
+  const user = await requireBillingAccess();
   const redirectTarget = resolveRedirectTarget(formData, "/factures");
   try {
     const outcome = await deleteInvoice(id);
-    revalidatePath("/factures");
-    if (outcome !== "deleted") {
-      revalidatePath(`/factures/${id}`);
-    }
+    revalidateInvoiceData(user, id);
     const message =
       outcome === "deleted"
         ? "Facture supprimée"
@@ -281,13 +287,11 @@ async function changeInvoiceStatusActionInternal(
   status: InvoiceStatus,
   formData?: FormData,
 ) {
-  await requireBillingAccess();
+  const user = await requireBillingAccess();
   const redirectTarget = resolveRedirectTarget(formData, "/factures");
   try {
     await changeInvoiceStatus(id, status);
-    await reconcileInvoiceStatus(id, { preserveStatus: status });
-    revalidatePath("/factures");
-    revalidatePath(`/factures/${id}`);
+    revalidateInvoiceData(user, id);
     redirectWithFeedback(redirectTarget, {
       message: "Statut de la facture mis à jour",
     });
@@ -317,25 +321,15 @@ export async function recordPaymentAction(formData: FormData) {
       throw new Error("Informations de paiement incomplètes");
     }
 
-    const invoice = await prisma.invoice.findFirst({
-      where: { id: invoiceId, userId: user.id },
-      select: { currency: true },
-    });
-
-    if (!invoice) {
-      throw new Error("Facture introuvable");
-    }
-
     await recordPayment({
       invoiceId,
-      amountCents: toCents(amount, invoice.currency),
+      amount,
       method,
       date: new Date(date),
       note,
     });
 
-    await reconcileInvoiceStatus(invoiceId);
-    revalidatePath(`/factures/${invoiceId}`);
+    revalidateInvoiceData(user, invoiceId);
     redirectWithFeedback(redirectTarget, {
       message: "Paiement enregistré",
     });
@@ -355,15 +349,14 @@ export async function deletePaymentAction(
   invoiceId: string,
   formData?: FormData,
 ) {
-  await requireBillingAccess();
+  const user = await requireBillingAccess();
   const redirectTarget = resolveRedirectTarget(
     formData,
     `/factures/${invoiceId}`,
   );
   try {
     await deletePayment(paymentId);
-    await reconcileInvoiceStatus(invoiceId);
-    revalidatePath(`/factures/${invoiceId}`);
+    revalidateInvoiceData(user, invoiceId);
     redirectWithFeedback(redirectTarget, {
       message: "Paiement supprimé",
     });
@@ -398,7 +391,6 @@ export async function sendInvoiceEmailAction(id: string, formData: FormData) {
   }
   try {
     await sendInvoiceEmail({ invoiceId: id, to, subject });
-    revalidatePath(`/factures/${id}`);
     redirectWithFeedback(redirectTarget, {
       message: "Facture envoyée par e-mail",
     });
@@ -413,7 +405,6 @@ export async function sendInvoiceEmailAction(id: string, formData: FormData) {
     const feedbackMessage = needsConfig
       ? "Veuillez configurer la messagerie (SMTP/IMAP) avant d'envoyer des factures."
       : "Échec de l'envoi de l'e-mail. Veuillez réessayer.";
-    revalidatePath(`/factures/${id}`);
     redirectWithFeedback(redirectTarget, needsConfig ? { warning: feedbackMessage } : { error: feedbackMessage });
   }
 }

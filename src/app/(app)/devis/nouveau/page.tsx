@@ -1,26 +1,23 @@
 import Link from "next/link";
-import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { QuoteEditor } from "@/app/(app)/devis/quote-editor";
 import { createQuoteAction } from "@/app/(app)/devis/actions";
-import { getSettings } from "@/server/settings";
 import { SUPPORTED_CURRENCIES, type CurrencyCode } from "@/lib/currency";
 import { normalizeTaxConfiguration } from "@/lib/taxes";
+import {
+  getQuoteFilterClients,
+  getQuoteFormProducts,
+  getQuoteFormSettings,
+} from "@/server/quotes";
 
 export const dynamic = "force-dynamic";
 
 export default async function NouveauDevisPage() {
   const user = await requireUser();
   const [clients, products, settings] = await Promise.all([
-    prisma.client.findMany({
-      where: { userId: user.id },
-      orderBy: { displayName: "asc" },
-    }),
-    prisma.product.findMany({
-      where: { userId: user.id, isActive: true },
-      orderBy: { name: "asc" },
-    }),
-    getSettings(user.id),
+    getQuoteFilterClients(user.id),
+    getQuoteFormProducts(user.id),
+    getQuoteFormSettings(user.id),
   ]);
 
   return (

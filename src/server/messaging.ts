@@ -6,6 +6,7 @@ import {
   type ListResponse,
   type FetchMessageObject,
 } from "imapflow";
+import { headers } from "next/headers";
 import nodemailer, { type Transporter } from "nodemailer";
 import MailComposer from "nodemailer/lib/mail-composer";
 import addressParser from "nodemailer/lib/addressparser";
@@ -13,7 +14,7 @@ import { simpleParser, type Attachment, type ParsedMail } from "mailparser";
 import { randomUUID } from "node:crypto";
 import type { MessagingAutoReplyType, MessagingRecipientType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { requireUser } from "@/lib/auth";
+import { getSessionTokenFromCookie, requireUser } from "@/lib/auth";
 import { decryptSecret, encryptSecret } from "@/server/secure-credentials";
 import { analyzeAndHandleSpam } from "@/server/spam-detection";
 import { sanitizeEmailHtml } from "@/lib/email-html";
@@ -299,7 +300,7 @@ export type SmtpConnectionConfig = {
   fromEmail?: string | null;
 };
 
-type MessagingCredentials = {
+export type MessagingCredentials = {
   fromEmail: string | null;
   senderName: string | null;
   senderLogoUrl: string | null;
@@ -1187,7 +1188,7 @@ async function appendMessageToSentMailbox(params: {
   });
 }
 
-async function getMessagingCredentials(
+export async function getMessagingCredentials(
   providedUserId?: string,
 ): Promise<MessagingCredentials> {
   const userId = await resolveUserId(providedUserId);
@@ -2546,14 +2547,40 @@ export async function sendEmailMessage(
   params: ComposeEmailInput,
 ): Promise<SentMailboxAppendResult> {
   const userId = await resolveUserId();
-  return sendEmailMessageForUser(userId, params);
+  let senderSessionToken: string | null = null;
+  try {
+    senderSessionToken = await getSessionTokenFromCookie();
+  } catch {
+    senderSessionToken = null;
+  }
+
+  let senderIpAddress: string | null = null;
+  try {
+    const headersList = await headers();
+    senderIpAddress =
+      headersList.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+      headersList.get("x-real-ip")?.trim() ??
+      null;
+  } catch {
+    senderIpAddress = null;
+  }
+
+  return sendEmailMessageForUser(userId, params, {
+    senderSessionToken,
+    senderIpAddress,
+  });
 }
 
 export async function sendEmailMessageForUser(
   userId: string,
   params: ComposeEmailInput,
+  options?: {
+    senderSessionToken?: string | null;
+    senderIpAddress?: string | null;
+    credentials?: MessagingCredentials;
+  },
 ): Promise<SentMailboxAppendResult> {
-  const credentials = await getMessagingCredentials(userId);
+  const credentials = options?.credentials ?? (await getMessagingCredentials(userId));
   if (!credentials.smtp) {
     throw new Error(
       "Le serveur SMTP n'est pas configuré. Veuillez compléter les paramètres avant d'envoyer un message.",
@@ -2608,6 +2635,8 @@ export async function sendEmailMessageForUser(
     html: baseHtml,
     recipients: recipientInputs,
     trackingEnabled,
+    senderSessionToken: options?.senderSessionToken ?? null,
+    senderIpAddress: options?.senderIpAddress ?? null,
   });
 
   const baseMailOptions: nodemailer.SendMailOptions = {

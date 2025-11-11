@@ -322,6 +322,33 @@ async function seed() {
     }),
   );
 
+  const featuredProductIds = products.slice(0, 4).map((product) => product.id);
+  await prisma.websiteConfig.create({
+    data: {
+      userId: adminUser.id,
+      slug: "catalogue-demo",
+      templateKey: "dev-agency",
+      heroEyebrow: "Catalogue public",
+      heroTitle: "Solutions métiers clé en main",
+      heroSubtitle:
+        "Publiez vos services, présentez votre expertise et capturez des prospects qualifiés directement depuis votre propre domaine.",
+      aboutTitle: "À propos",
+      aboutBody:
+        "Nous accompagnons les PME tunisiennes sur toutes les étapes clés : cadrage, intégration, support et formation. Notre équipe s'engage sur la transparence des prix et la qualité d'exécution.",
+      contactBlurb:
+        "Besoin d'un devis ou d'une démonstration ? Écrivez-nous et nous revenons vers vous sous 24h.",
+      contactEmailOverride: "contact@demo.tn",
+      contactPhoneOverride: "+216 71 100 200",
+      leadNotificationEmail: "contact@demo.tn",
+      leadThanksMessage:
+        "Merci ! Nous reprenons contact très rapidement pour préciser votre besoin.",
+      seoTitle: "Catalogue public — Société Démonstration Tunisie",
+      seoDescription:
+        "Découvrez les prestations et produits de Société Démonstration Tunisie et capturez vos prospects en ligne.",
+      featuredProductIds: featuredProductIds as Prisma.JsonArray,
+    },
+  });
+
   await prisma.numberingSequence.createMany({
     data: [
       {

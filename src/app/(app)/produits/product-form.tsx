@@ -32,6 +32,7 @@ type ProductFormProps = {
     vatRate?: number;
     defaultDiscountRate?: number | null;
     isActive?: boolean;
+    isListedInCatalog?: boolean;
   };
   redirectTo?: string;
 };
@@ -131,7 +132,7 @@ export function ProductForm({
         />
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="space-y-2">
           <label htmlFor="category" className="label">
             Catégorie
@@ -173,6 +174,25 @@ export function ProductForm({
             <option value="false">Inactif</option>
           </select>
         </div>
+        <div className="space-y-2">
+          <label htmlFor="isListedInCatalog" className="label">
+            Catalogue public
+          </label>
+          <select
+            id="isListedInCatalog"
+            name="isListedInCatalog"
+            className="input"
+            defaultValue={
+              defaultValues?.isListedInCatalog === false ? "false" : "true"
+            }
+          >
+            <option value="true">Visible</option>
+            <option value="false">Masqué</option>
+          </select>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            Masquez un produit si vous ne souhaitez pas l’afficher sur le site.
+          </p>
+      </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">

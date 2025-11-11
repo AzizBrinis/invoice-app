@@ -3,8 +3,10 @@ import { prisma } from "@/lib/prisma";
 import {
   resolveUserId,
   sendEmailMessageForUser,
+  getMessagingCredentials,
   type EmailAttachment,
   type ComposeEmailInput,
+  type MessagingCredentials,
 } from "@/server/messaging";
 
 const WORKER_SYMBOL = Symbol.for("messaging.scheduledEmailWorker");
@@ -200,6 +202,8 @@ async function dispatchDueScheduledEmails(): Promise<void> {
     },
   });
 
+  const credentialCache = new Map<string, MessagingCredentials>();
+
   for (const scheduled of dueEmails) {
     const locked = await prisma.messagingScheduledEmail.updateMany({
       where: { id: scheduled.id, status: MessagingScheduledStatus.PENDING },
@@ -210,6 +214,10 @@ async function dispatchDueScheduledEmails(): Promise<void> {
     }
 
     try {
+      const cachedCredentials = await getCachedMessagingCredentials(
+        scheduled.userId,
+        credentialCache,
+      );
       await sendEmailMessageForUser(scheduled.userId, {
         to: toStringArray(scheduled.to),
         cc: toOptionalArray(scheduled.cc),
@@ -225,7 +233,9 @@ async function dispatchDueScheduledEmails(): Promise<void> {
                 content: Buffer.from(attachment.content),
               }))
             : undefined,
-      } satisfies ComposeEmailInput);
+      } satisfies ComposeEmailInput, {
+        credentials: cachedCredentials,
+      });
 
       await prisma.messagingScheduledEmail.update({
         where: { id: scheduled.id },
@@ -250,6 +260,19 @@ async function dispatchDueScheduledEmails(): Promise<void> {
       );
     }
   }
+}
+
+async function getCachedMessagingCredentials(
+  userId: string,
+  cache: Map<string, MessagingCredentials>,
+) {
+  const cached = cache.get(userId);
+  if (cached) {
+    return cached;
+  }
+  const credentials = await getMessagingCredentials(userId);
+  cache.set(userId, credentials);
+  return credentials;
 }
 
 function truncateMessage(value: string, length = 300): string {

@@ -1,3 +1,4 @@
+import { unstable_cache, revalidateTag } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { QuoteStatus, Prisma, InvoiceStatus } from "@prisma/client";
@@ -78,6 +79,154 @@ export type QuoteFilters = {
 };
 
 const DEFAULT_PAGE_SIZE = 10;
+const QUOTE_LIST_REVALIDATE_SECONDS = 30;
+const QUOTE_FORM_CACHE_SECONDS = 60;
+const isTestEnv = process.env.NODE_ENV === "test";
+
+type NormalizedQuoteFilters = {
+  search?: string;
+  status: QuoteStatus | "all";
+  clientId?: string;
+  issueDateFrom?: string;
+  issueDateTo?: string;
+  page: number;
+  pageSize: number;
+};
+
+const quoteListTag = (userId: string) => `quotes:list:${userId}`;
+
+const quoteFilterClientsSelect = Prisma.validator<Prisma.ClientSelect>()({
+  id: true,
+  displayName: true,
+});
+
+const quoteProductSelect = Prisma.validator<Prisma.ProductSelect>()({
+  id: true,
+  name: true,
+  priceHTCents: true,
+  vatRate: true,
+  unit: true,
+  defaultDiscountRate: true,
+});
+
+function normalizeQuoteFilters(filters: QuoteFilters = {}): NormalizedQuoteFilters {
+  const page = Math.max(1, filters.page ?? 1);
+  const pageSize = Math.min(100, Math.max(1, filters.pageSize ?? DEFAULT_PAGE_SIZE));
+  const status = filters.status ?? "all";
+  const search = filters.search?.trim();
+  return {
+    search: search ? search : undefined,
+    status,
+    clientId: filters.clientId ?? undefined,
+    issueDateFrom: filters.issueDateFrom ? filters.issueDateFrom.toISOString() : undefined,
+    issueDateTo: filters.issueDateTo ? filters.issueDateTo.toISOString() : undefined,
+    page,
+    pageSize,
+  };
+}
+
+function serializeFilters(filters: NormalizedQuoteFilters) {
+  return JSON.stringify(filters);
+}
+
+function deserializeFilters(filters: NormalizedQuoteFilters): QuoteFilters {
+  return {
+    search: filters.search,
+    status: filters.status,
+    clientId: filters.clientId,
+    issueDateFrom: filters.issueDateFrom ? new Date(filters.issueDateFrom) : undefined,
+    issueDateTo: filters.issueDateTo ? new Date(filters.issueDateTo) : undefined,
+  };
+}
+
+function revalidateQuotes(userId: string) {
+  if (isTestEnv) {
+    return;
+  }
+  revalidateTag(quoteListTag(userId), "max");
+}
+
+export async function getQuoteFilterClients(userId: string) {
+  const runQuery = () =>
+    prisma.client.findMany({
+      where: { userId },
+      orderBy: { displayName: "asc" },
+      select: quoteFilterClientsSelect,
+    });
+
+  if (isTestEnv) {
+    return runQuery();
+  }
+
+  try {
+    const cached = unstable_cache(runQuery, ["quotes", "filter-clients", userId], {
+      revalidate: QUOTE_FORM_CACHE_SECONDS,
+    });
+
+    return await cached();
+  } catch (error) {
+    if (process.env.NODE_ENV === "development") {
+      console.warn(
+        "[getQuoteFilterClients] cache fallback:",
+        (error as Error).message,
+      );
+    }
+    return runQuery();
+  }
+}
+
+export async function getQuoteFormProducts(userId: string) {
+  const runQuery = () =>
+    prisma.product.findMany({
+      where: { userId, isActive: true },
+      orderBy: { name: "asc" },
+      select: quoteProductSelect,
+    });
+
+  if (isTestEnv) {
+    return runQuery();
+  }
+
+  try {
+    const cached = unstable_cache(runQuery, ["quotes", "form-products", userId], {
+      revalidate: QUOTE_FORM_CACHE_SECONDS,
+    });
+
+    return await cached();
+  } catch (error) {
+    if (process.env.NODE_ENV === "development") {
+      console.warn(
+        "[getQuoteFormProducts] cache fallback:",
+        (error as Error).message,
+      );
+    }
+    return runQuery();
+  }
+}
+
+export async function getQuoteFormSettings(userId: string) {
+  const runQuery = () => getSettings(userId);
+
+  if (isTestEnv) {
+    return runQuery();
+  }
+
+  try {
+    const cached = unstable_cache(runQuery, ["quotes", "form-settings", userId], {
+      revalidate: QUOTE_FORM_CACHE_SECONDS,
+    });
+
+    return await cached();
+  } catch (error) {
+    if (process.env.NODE_ENV === "development") {
+      console.warn(
+        "[getQuoteFormSettings] cache fallback:",
+        (error as Error).message,
+      );
+    }
+    return runQuery();
+  }
+}
 
 function toJsonInput(
   value: Prisma.JsonValue | null | undefined,
@@ -139,12 +288,13 @@ function buildWhere(filters: QuoteFilters): Prisma.QuoteWhereInput {
     ...(search
       ? {
           OR: [
-            { number: { contains: search } },
-            { reference: { contains: search } },
+            { number: { contains: search, mode: "insensitive" } },
+            { reference: { contains: search, mode: "insensitive" } },
             {
               client: {
                 displayName: {
                   contains: search,
+                  mode: "insensitive",
                 },
               },
             },
@@ -154,23 +304,31 @@ function buildWhere(filters: QuoteFilters): Prisma.QuoteWhereInput {
   } satisfies Prisma.QuoteWhereInput;
 }
 
-export async function listQuotes(filters: QuoteFilters = {}) {
-  const { id: userId } = await requireUser();
-  const { page = 1, pageSize = DEFAULT_PAGE_SIZE } = filters;
+async function fetchQuotesFromDb(userId: string, filters: NormalizedQuoteFilters) {
+  const whereFilters = deserializeFilters(filters);
   const where: Prisma.QuoteWhereInput = {
     userId,
-    ...buildWhere(filters),
+    ...buildWhere(whereFilters),
   };
+  const pageSize = filters.pageSize;
+  const page = filters.page;
 
   const [items, total] = await Promise.all([
     prisma.quote.findMany({
       where,
       include: {
-        client: true,
+        client: {
+          select: quoteFilterClientsSelect,
+        },
       },
-      orderBy: {
-        issueDate: "desc",
-      },
+      orderBy: [
+        {
+          issueDate: "desc",
+        },
+        {
+          id: "desc",
+        },
+      ],
       skip: (page - 1) * pageSize,
       take: pageSize,
     }),
@@ -184,6 +342,36 @@ export async function listQuotes(filters: QuoteFilters = {}) {
     pageSize,
     pageCount: Math.ceil(total / pageSize),
   };
+}
+
+export async function listQuotes(filters: QuoteFilters = {}, userId?: string) {
+  const resolvedUserId = userId ?? (await requireUser()).id;
+  const normalizedFilters = normalizeQuoteFilters(filters);
+
+  if (isTestEnv) {
+    return fetchQuotesFromDb(resolvedUserId, normalizedFilters);
+  }
+
+  try {
+    const cached = unstable_cache(
+      () => fetchQuotesFromDb(resolvedUserId, normalizedFilters),
+      ["quotes", "list", resolvedUserId, serializeFilters(normalizedFilters)],
+      {
+        revalidate: QUOTE_LIST_REVALIDATE_SECONDS,
+        tags: [quoteListTag(resolvedUserId)],
+      },
+    );
+
+    return await cached();
+  } catch (error) {
+    if (process.env.NODE_ENV === "development") {
+      console.warn(
+        "[listQuotes] falling back to uncached mode:",
+        (error as Error).message,
+      );
+    }
+    return fetchQuotesFromDb(resolvedUserId, normalizedFilters);
+  }
 }
 
 function computeTotalsFromLines(
@@ -301,21 +489,32 @@ function mapLineData(
   };
 }
 
-export async function getQuote(id: string) {
-  const { id: userId } = await requireUser();
-  return prisma.quote.findFirst({
+export async function getQuote(id: string, providedUserId?: string) {
+  const userId = providedUserId ?? (await requireUser()).id;
+
+  const baseQuotePromise = prisma.quote.findFirst({
     where: { id, userId },
     include: {
       client: true,
-      lines: {
-        orderBy: { position: "asc" },
-        include: {
-          product: true,
-        },
-      },
       invoice: true,
     },
   });
+
+  const linesPromise = prisma.quoteLine.findMany({
+    where: { quoteId: id, quote: { userId } },
+    orderBy: { position: "asc" },
+  });
+
+  const [quote, lines] = await Promise.all([baseQuotePromise, linesPromise]);
+
+  if (!quote) {
+    return null;
+  }
+
+  return {
+    ...quote,
+    lines,
+  };
 }
 
 export async function createQuote(input: QuoteInput) {
@@ -345,7 +544,7 @@ export async function createQuoteForUser(userId: string, input: QuoteInput) {
     payload.taxes,
   );
 
-  const number = payload.number ?? (await nextQuoteNumber(userId));
+  const number = payload.number ?? (await nextQuoteNumber(userId, settings));
 
   const quote = await prisma.quote.create({
     data: {
@@ -384,6 +583,7 @@ export async function createQuoteForUser(userId: string, input: QuoteInput) {
     },
   });
 
+  revalidateQuotes(userId);
   return quote;
 }
 
@@ -457,6 +657,7 @@ export async function updateQuote(id: string, input: QuoteInput) {
     return updated;
   });
 
+  revalidateQuotes(userId);
   return quote;
 }
 
@@ -468,10 +669,12 @@ export async function changeQuoteStatus(id: string, status: QuoteStatus) {
   if (!existing) {
     throw new Error("Devis introuvable");
   }
-  return prisma.quote.update({
+  const updated = await prisma.quote.update({
     where: { id },
     data: { status },
   });
+  revalidateQuotes(userId);
+  return updated;
 }
 
 export async function deleteQuote(id: string) {
@@ -485,6 +688,7 @@ export async function deleteQuote(id: string) {
   await prisma.quote.delete({
     where: { id },
   });
+  revalidateQuotes(userId);
 }
 
 export async function duplicateQuote(id: string) {
@@ -504,7 +708,7 @@ export async function duplicateQuote(id: string) {
 
   const number = await nextQuoteNumber(userId);
 
-  return prisma.quote.create({
+  const duplicated = await prisma.quote.create({
     data: {
       userId,
       number,
@@ -553,6 +757,9 @@ export async function duplicateQuote(id: string) {
       lines: true,
     },
   });
+
+  revalidateQuotes(userId);
+  return duplicated;
 }
 
 export async function convertQuoteToInvoice(id: string) {
@@ -640,5 +847,6 @@ export async function convertQuoteToInvoiceForUser(userId: string, id: string) {
     return createdInvoice;
   });
 
+  revalidateQuotes(userId);
   return invoice;
 }

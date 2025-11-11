@@ -3,8 +3,10 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider          = "postgresql"
+  url               = env("DATABASE_URL")
+  directUrl         = env("DIRECT_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
 }
 
 model User {
@@ -32,6 +34,7 @@ model User {
   savedResponses MessagingSavedResponse[]
   autoReplyLogs MessagingAutoReplyLog[]
   scheduledEmails MessagingScheduledEmail[]
+  websiteConfig WebsiteConfig?
 }
 
 enum UserRole {
@@ -83,6 +86,50 @@ model CompanySettings {
   updatedAt              DateTime       @updatedAt
   invoiceTemplate        PdfTemplate?   @relation("InvoiceTemplate", fields: [invoiceTemplateId], references: [id])
   quoteTemplate          PdfTemplate?   @relation("QuoteTemplate", fields: [quoteTemplateId], references: [id])
+}
+
+model WebsiteConfig {
+  id                      String             @id @default(cuid())
+  userId                  String             @unique
+  user                    User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  slug                    String             @unique
+  templateKey             String             @default("dev-agency")
+  previewToken            String             @unique @default(cuid())
+  heroEyebrow             String?
+  heroTitle               String             @default("Découvrez nos solutions")
+  heroSubtitle            String?
+  heroPrimaryCtaLabel     String?            @default("Demander un devis")
+  heroSecondaryCtaLabel   String?            @default("Télécharger la plaquette")
+  heroSecondaryCtaUrl     String?
+  aboutTitle              String?
+  aboutBody               String?
+  contactBlurb            String?
+  contactEmailOverride    String?
+  contactPhoneOverride    String?
+  contactAddressOverride  String?
+  seoTitle                String?
+  seoDescription          String?
+  seoKeywords             String?
+  socialImageUrl          String?
+  socialLinks             Json?
+  theme                   WebsiteThemeMode   @default(SYSTEM)
+  accentColor             String             @default("#2563eb")
+  showPrices              Boolean            @default(true)
+  showInactiveProducts    Boolean            @default(false)
+  featuredProductIds      Json?
+  leadNotificationEmail   String?
+  leadAutoTag             String?
+  leadThanksMessage       String?
+  spamProtectionEnabled   Boolean            @default(true)
+  customDomain            String?            @unique
+  domainStatus            WebsiteDomainStatus @default(PENDING)
+  domainVerificationCode  String             @unique @default(cuid())
+  domainVerifiedAt        DateTime?
+  domainActivatedAt       DateTime?
+  published               Boolean            @default(false)
+  previewPath             String             @default("catalogue")
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
 }
 
 model MessagingSettings {
@@ -163,6 +210,18 @@ enum MessagingAutoReplyType {
   VACATION
 }
 
+enum WebsiteDomainStatus {
+  PENDING
+  VERIFIED
+  ACTIVE
+}
+
+enum WebsiteThemeMode {
+  SYSTEM
+  LIGHT
+  DARK
+}
+
 model MessagingAutoReplyLog {
   id              String                  @id @default(cuid())
   userId          String
@@ -223,6 +282,8 @@ model MessagingEmail {
   subject         String?
   sentAt          DateTime
   trackingEnabled Boolean                    @default(false)
+  senderSessionHash String?
+  senderIpHash     String?
   createdAt       DateTime                   @default(now())
   updatedAt       DateTime                   @updatedAt
   recipients      MessagingEmailRecipient[]
@@ -374,12 +435,20 @@ model Client {
   vatNumber    String?
   notes        String?
   isActive     Boolean   @default(true)
+  source       ClientSource @default(MANUAL)
+  leadMetadata Json?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   quotes       Quote[]
   invoices     Invoice[]
 
   @@index([userId, displayName])
+}
+
+enum ClientSource {
+  MANUAL
+  IMPORT
+  WEBSITE_LEAD
 }
 
 model Product {
@@ -396,6 +465,7 @@ model Product {
   vatRate              Float
   defaultDiscountRate  Float?
   isActive             Boolean       @default(true)
+  isListedInCatalog    Boolean       @default(true)
   createdAt            DateTime      @default(now())
   updatedAt            DateTime      @updatedAt
   quoteLines           QuoteLine[]
@@ -438,6 +508,9 @@ model Quote {
   @@unique([userId, number])
   @@index([userId, status])
   @@index([userId, clientId])
+  @@index([userId, issueDate, id])
+  @@index([userId, number])
+  @@index([userId, reference])
 }
 
 enum QuoteStatus {
@@ -504,8 +577,16 @@ model Invoice {
   payments                  Payment[]
 
   @@unique([userId, number])
-  @@index([userId, status])
-  @@index([userId, clientId])
+  @@index([userId, issueDate(sort: Desc), id(sort: Desc)], map: "Invoice_userId_issueDate_idx")
+  @@index(
+    [userId, status, issueDate(sort: Desc), id(sort: Desc)],
+    map: "Invoice_userId_status_issueDate_idx"
+  )
+  @@index(
+    [userId, clientId, issueDate(sort: Desc), id(sort: Desc)],
+    map: "Invoice_userId_clientId_issueDate_idx"
+  )
+  @@index([userId, dueDate, id(sort: Desc)], map: "Invoice_userId_dueDate_idx")
 }
 
 enum InvoiceStatus {

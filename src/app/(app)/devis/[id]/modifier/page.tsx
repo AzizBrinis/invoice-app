@@ -1,12 +1,15 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
-import { getQuote } from "@/server/quotes";
+import {
+  getQuote,
+  getQuoteFilterClients,
+  getQuoteFormProducts,
+  getQuoteFormSettings,
+} from "@/server/quotes";
 import { QuoteEditor } from "@/app/(app)/devis/quote-editor";
 import { updateQuoteAction, sendQuoteEmailAction } from "@/app/(app)/devis/actions";
 import { Input } from "@/components/ui/input";
-import { getSettings } from "@/server/settings";
 import { SUPPORTED_CURRENCIES, type CurrencyCode } from "@/lib/currency";
 import { normalizeTaxConfiguration } from "@/lib/taxes";
 import { FormSubmitButton } from "@/components/ui/form-submit-button";
@@ -43,7 +46,8 @@ export default async function EditDevisPage({
     ? await searchParams
     : searchParams;
 
-  const quote = await getQuote(resolvedParams.id);
+  const user = await requireUser();
+  const quote = await getQuote(resolvedParams.id, user.id);
 
   if (!quote) {
     notFound();
@@ -70,17 +74,10 @@ export default async function EditDevisPage({
     flashMessages.push({ variant: "error", title: errorMessage });
   }
 
-  const user = await requireUser();
   const [clients, products, settings, messagingSummary] = await Promise.all([
-    prisma.client.findMany({
-      where: { userId: user.id },
-      orderBy: { displayName: "asc" },
-    }),
-    prisma.product.findMany({
-      where: { userId: user.id },
-      orderBy: { name: "asc" },
-    }),
-    getSettings(user.id),
+    getQuoteFilterClients(user.id),
+    getQuoteFormProducts(user.id),
+    getQuoteFormSettings(user.id),
     getMessagingSettingsSummary(user.id),
   ]);
 

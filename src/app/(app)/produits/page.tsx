@@ -1,16 +1,13 @@
-import { clsx } from "clsx";
+import { Suspense } from "react";
 import Link from "next/link";
-import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
-import { listProducts } from "@/server/products";
 import {
-  deleteProductAction,
-  importProductsAction,
-} from "@/app/(app)/produits/actions";
+  listProducts,
+  listProductCategories,
+} from "@/server/products";
+import { importProductsAction } from "@/app/(app)/produits/actions";
 import { Button } from "@/components/ui/button";
 import { ExportButton } from "@/components/export-button";
-import { formatCurrency } from "@/lib/formatters";
-import { fromCents } from "@/lib/money";
 import { getSettings } from "@/server/settings";
 import type { CurrencyCode } from "@/lib/currency";
 import { FormSubmitButton } from "@/components/ui/form-submit-button";
@@ -19,6 +16,8 @@ import {
   FlashMessages,
   type FlashMessage,
 } from "@/components/ui/flash-messages";
+import { ProductsPageSkeleton } from "@/components/skeletons";
+import { ProductsInteractiveShell } from "@/app/(app)/produits/products-interactive-shell";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +44,18 @@ export default async function ProduitsPage({
 }: {
   searchParams: SearchParams | Promise<SearchParams>;
 }) {
+  return (
+    <Suspense fallback={<ProductsPageSkeleton />}>
+      <ProduitsPageContent searchParams={searchParams} />
+    </Suspense>
+  );
+}
+
+async function ProduitsPageContent({
+  searchParams,
+}: {
+  searchParams: SearchParams | Promise<SearchParams>;
+}) {
   const resolvedSearchParams = isPromise<SearchParams>(searchParams)
     ? await searchParams
     : searchParams;
@@ -67,30 +78,30 @@ export default async function ProduitsPage({
 
   const page = Number(pageParam ?? "1") || 1;
   const isActive = parseBooleanFilter(statutParam);
+  const statutValue =
+    isActive === "all"
+      ? "all"
+      : isActive
+        ? "actifs"
+        : "inactifs";
 
   const user = await requireUser();
-  const [products, categories, settings] = await Promise.all([
-    listProducts({
-      search: search || undefined,
-      category: categorieParam,
-      isActive,
-      page,
-    }),
-    prisma.product.findMany({
-      where: { userId: user.id, category: { not: null } },
-      distinct: ["category"],
-      orderBy: { category: "asc" },
-      select: { category: true },
-    }),
+  const [products, categoriesRaw, settings] = await Promise.all([
+    listProducts(
+      {
+        search: search || undefined,
+        category: categorieParam,
+        isActive,
+        page,
+        pageSize: 25,
+      },
+      user.id,
+    ),
+    listProductCategories(user.id),
     getSettings(user.id),
   ]);
 
-  const categoryOptions = [
-    "all",
-    ...categories
-      .map((item) => item.category)
-      .filter((value): value is string => Boolean(value)),
-  ];
+  const categoryOptions = ["all", ...categoriesRaw];
   const currencyCode = settings.defaultCurrency as CurrencyCode;
   const successMessage = Array.isArray(resolvedSearchParams?.message)
     ? resolvedSearchParams.message[0]
@@ -187,204 +198,14 @@ export default async function ProduitsPage({
         <input type="hidden" name="redirectTo" value={redirectBase} />
       </form>
 
-      <form className="card grid gap-4 p-4 sm:grid-cols-4 sm:items-end">
-        <div className="sm:col-span-2">
-          <label className="label" htmlFor="recherche">
-            Recherche
-          </label>
-          <input
-            className="input"
-            type="search"
-            id="recherche"
-            name="recherche"
-            defaultValue={search}
-            placeholder="Nom, SKU, catégorie..."
-          />
-        </div>
-        <div>
-          <label className="label" htmlFor="categorie">
-            Catégorie
-          </label>
-          <select
-            id="categorie"
-            name="categorie"
-            className="input"
-            defaultValue={categorieParam}
-          >
-            {categoryOptions.map((option) => (
-              <option key={option} value={option}>
-                {option === "all" ? "Toutes" : option}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="label" htmlFor="statut">
-            Statut
-          </label>
-          <select
-            id="statut"
-            name="statut"
-            className="input"
-            defaultValue={statutParam ?? "all"}
-          >
-            <option value="all">Tous</option>
-            <option value="actifs">Actifs</option>
-            <option value="inactifs">Inactifs</option>
-          </select>
-        </div>
-        <Button type="submit" variant="secondary" className="sm:col-span-4 sm:w-fit">
-          Filtrer
-        </Button>
-      </form>
-
-      <div className="card overflow-hidden">
-        <table className="min-w-full divide-y divide-zinc-200 text-sm dark:divide-zinc-800">
-          <thead className="bg-zinc-50 text-xs uppercase text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
-            <tr>
-              <th className="px-4 py-3 text-left">Produit</th>
-              <th className="px-4 py-3 text-left">Catégorie</th>
-              <th className="px-4 py-3 text-right">Prix HT</th>
-              <th className="px-4 py-3 text-right">Prix TTC</th>
-              <th className="px-4 py-3 text-left">TVA</th>
-              <th className="px-4 py-3 text-left">Remise</th>
-              <th className="px-4 py-3 text-left">Statut</th>
-              <th className="px-4 py-3 text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-            {products.items.map((product) => (
-              <tr
-                key={product.id}
-                className="transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800"
-              >
-                <td className="px-4 py-3">
-                  <div className="font-medium text-zinc-900 dark:text-zinc-100">{product.name}</div>
-                  <div className="text-xs text-zinc-500 dark:text-zinc-400">SKU : {product.sku}</div>
-                </td>
-                <td className="px-4 py-3 text-zinc-600 dark:text-zinc-300">
-                  {product.category ?? "—"}
-                </td>
-                <td className="px-4 py-3 text-right text-zinc-600 dark:text-zinc-300">
-                  {formatCurrency(fromCents(product.priceHTCents, currencyCode), currencyCode)}
-                </td>
-                <td className="px-4 py-3 text-right text-zinc-800 dark:text-zinc-100">
-                  {formatCurrency(fromCents(product.priceTTCCents, currencyCode), currencyCode)}
-                </td>
-                <td className="px-4 py-3 text-zinc-600 dark:text-zinc-300">{product.vatRate}%</td>
-                <td className="px-4 py-3 text-zinc-600 dark:text-zinc-300">
-                  {product.defaultDiscountRate != null
-                    ? `${product.defaultDiscountRate}%`
-                    : "—"}
-                </td>
-                <td className="px-4 py-3">
-                  <span
-                    className={clsx(
-                      "inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors",
-                      product.isActive
-                        ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200"
-                        : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300",
-                    )}
-                  >
-                    {product.isActive ? "Actif" : "Inactif"}
-                  </span>
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex justify-end gap-2">
-                    <Button asChild variant="secondary" className="px-2 py-1 text-xs">
-                      <Link href={`/produits/${product.id}/modifier`}>Modifier</Link>
-                    </Button>
-                    <form action={deleteProductAction.bind(null, product.id)}>
-                      <FormSubmitButton
-                        variant="ghost"
-                        className="px-2 py-1 text-xs text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
-                      >
-                        Supprimer
-                      </FormSubmitButton>
-                      <input type="hidden" name="redirectTo" value={redirectBase} />
-                    </form>
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {products.items.length === 0 && (
-              <tr>
-                <td
-                  colSpan={8}
-                  className="px-4 py-8 text-center text-sm text-zinc-500 dark:text-zinc-400"
-                >
-                  Aucun produit trouvé avec ces critères.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {products.pageCount > 1 && (
-        <div className="flex items-center justify-center gap-2">
-          <ProductPaginationLink
-            page={products.page - 1}
-            disabled={products.page <= 1}
-            search={search}
-            statut={statutParam ?? "all"}
-            categorie={categorieParam}
-          >
-            Précédent
-          </ProductPaginationLink>
-          <span className="text-sm text-zinc-600 dark:text-zinc-300">
-            Page {products.page} / {products.pageCount}
-          </span>
-          <ProductPaginationLink
-            page={products.page + 1}
-            disabled={products.page >= products.pageCount}
-            search={search}
-            statut={statutParam ?? "all"}
-            categorie={categorieParam}
-          >
-            Suivant
-          </ProductPaginationLink>
-        </div>
-      )}
+      <ProductsInteractiveShell
+        initialData={products}
+        initialSearch={search}
+        initialCategory={categorieParam}
+        initialStatus={statutValue}
+        categories={categoryOptions}
+        currencyCode={currencyCode}
+      />
     </div>
-  );
-}
-
-function ProductPaginationLink({
-  page,
-  disabled,
-  search,
-  statut,
-  categorie,
-  children,
-}: {
-  page: number;
-  disabled: boolean;
-  search: string;
-  statut: string;
-  categorie: string;
-  children: React.ReactNode;
-}) {
-  if (disabled) {
-    return (
-      <span className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs text-zinc-400 dark:border-zinc-800 dark:text-zinc-500">
-        {children}
-      </span>
-    );
-  }
-
-  const params = new URLSearchParams();
-  if (search) params.set("recherche", search);
-  if (statut) params.set("statut", statut);
-  if (categorie) params.set("categorie", categorie);
-  params.set("page", String(page));
-
-  return (
-    <Link
-      href={`/produits?${params.toString()}`}
-      className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-800"
-    >
-      {children}
-    </Link>
   );
 }

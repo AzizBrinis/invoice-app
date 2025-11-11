@@ -14,6 +14,7 @@ import {
   Settings,
   Mail,
   ChevronDown,
+  Globe,
   type LucideIcon,
 } from "lucide-react";
 
@@ -24,7 +25,8 @@ export type NavIcon =
   | "invoices"
   | "products"
   | "clients"
-  | "settings";
+  | "settings"
+  | "website";
 
 export type NavChildItem = {
   label: string;
@@ -46,6 +48,7 @@ export const NAV_ICON_MAP: Record<NavIcon, LucideIcon> = {
   products: Package,
   clients: Users,
   settings: Settings,
+  website: Globe,
 };
 
 export function SidebarNav({ items }: { items: NavItem[] }) {

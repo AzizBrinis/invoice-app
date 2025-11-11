@@ -19,6 +19,7 @@ describePdf("PDF generation", () => {
     const invoice = await prisma.invoice.create({
       data: {
         number: `TEST-${Date.now()}`,
+        userId: client.userId,
         clientId: client.id,
         status: "ENVOYEE",
         issueDate: new Date(),

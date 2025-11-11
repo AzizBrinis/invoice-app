@@ -1,8 +1,7 @@
 import { Suspense } from "react";
 import Link from "next/link";
-import { prisma } from "@/lib/prisma";
-import { requireUser } from "@/lib/auth";
 import { listInvoices } from "@/server/invoices";
+import { listClientFilterOptions } from "@/server/clients";
 import {
   changeInvoiceStatusAction,
   deleteInvoiceAction,
@@ -20,8 +19,6 @@ import {
   FlashMessages,
   type FlashMessage,
 } from "@/components/ui/flash-messages";
-
-export const dynamic = "force-dynamic";
 
 const STATUS_LABELS: Record<InvoiceStatus, string> = {
   BROUILLON: "Brouillon",
@@ -98,7 +95,6 @@ async function FacturesPageContent({
 }: {
   searchParams: SearchParams | Promise<SearchParams>;
 }) {
-  const user = await requireUser();
   const resolvedSearchParams = isPromise<SearchParams>(searchParams)
     ? await searchParams
     : searchParams;
@@ -152,21 +148,19 @@ async function FacturesPageContent({
     });
   }
 
-  const [invoices, clients] = await Promise.all([
-    listInvoices({
-      search: search || undefined,
-      status: statutParam,
-      clientId: clientParam,
-      issueDateFrom: issueFrom ? new Date(issueFrom) : undefined,
-      issueDateTo: issueTo ? new Date(issueTo) : undefined,
+  const [loadResult, clientOptions] = await Promise.all([
+    loadInvoices({
+      search,
+      statutParam,
+      clientParam,
+      issueFrom,
+      issueTo,
       page,
     }),
-    prisma.client.findMany({
-      where: { userId: user.id },
-      orderBy: { displayName: "asc" },
-      select: { id: true, displayName: true },
-    }),
+    loadClientOptions(),
   ]);
+  const invoices = loadResult.invoices;
+  const loadError = loadResult.error;
 
   const searchQuery = new URLSearchParams();
   if (search) searchQuery.set("recherche", search);
@@ -192,6 +186,13 @@ async function FacturesPageContent({
       ) : null}
       {errorMessage ? (
         <Alert variant="error" title={errorMessage} />
+      ) : null}
+      {loadError ? (
+        <Alert
+          variant="error"
+          title={loadError}
+          description="Actualisez la page ou contactez le support si le problème persiste."
+        />
       ) : null}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -256,14 +257,10 @@ async function FacturesPageContent({
           <label className="label" htmlFor="client">
             Client
           </label>
-          <select id="client" name="client" className="input" defaultValue={clientParam ?? ""}>
-            <option value="">Tous</option>
-            {clients.map((client) => (
-              <option key={client.id} value={client.id}>
-                {client.displayName}
-              </option>
-            ))}
-          </select>
+          <ClientFilterSelect
+            defaultValue={clientParam ?? ""}
+            clients={clientOptions}
+          />
         </div>
         <div className="space-y-2">
           <label className="label" htmlFor="du">
@@ -389,7 +386,7 @@ async function FacturesPageContent({
         </table>
       </div>
 
-      {invoices.pageCount > 1 && (
+      {(invoices.hasMore || invoices.page > 1) && (
         <div className="flex items-center justify-center gap-2">
           <InvoicePaginationLink
             label="Précédent"
@@ -402,12 +399,17 @@ async function FacturesPageContent({
             issueTo={issueTo ?? ""}
           />
           <span className="text-sm text-zinc-600 dark:text-zinc-300">
-            Page {invoices.page} / {invoices.pageCount}
+            Page {invoices.page}
+            {typeof invoices.pageCount === "number"
+              ? ` / ${invoices.pageCount}`
+              : invoices.hasMore
+                ? " +"
+                : ""}
           </span>
           <InvoicePaginationLink
             label="Suivant"
             page={invoices.page + 1}
-            disabled={invoices.page >= invoices.pageCount}
+            disabled={!invoices.hasMore}
             search={search}
             statut={statutParam}
             client={clientParam ?? ""}
@@ -418,6 +420,66 @@ async function FacturesPageContent({
       )}
     </div>
   );
+}
+
+async function loadInvoices({
+  search,
+  statutParam,
+  clientParam,
+  issueFrom,
+  issueTo,
+  page,
+}: {
+  search: string;
+  statutParam: InvoiceStatus | "all";
+  clientParam: string | undefined;
+  issueFrom: string | undefined;
+  issueTo: string | undefined;
+  page: number;
+}) {
+  try {
+    const [invoices] = await Promise.all([
+      listInvoices(
+        {
+          search: search || undefined,
+          status: statutParam,
+          clientId: clientParam,
+          issueDateFrom: issueFrom ? new Date(issueFrom) : undefined,
+          issueDateTo: issueTo ? new Date(issueTo) : undefined,
+          page,
+        },
+        { includeTotals: false },
+      ),
+    ]);
+    return {
+      invoices,
+      error: null as string | null,
+    };
+  } catch (error) {
+    console.error("[FacturesPage] Unable to load invoices", error);
+    return {
+      invoices: {
+        items: [],
+        total: null,
+        page,
+        pageSize: 0,
+        pageCount: null,
+        hasMore: false,
+      },
+      error:
+        "Impossible de charger vos factures pour le moment. Merci de réessayer.",
+    };
+  }
+}
+
+async function loadClientOptions() {
+  try {
+    const clients = await listClientFilterOptions();
+    return clients;
+  } catch (error) {
+    console.error("[FacturesPage] Unable to load client filters", error);
+    return null;
+  }
 }
 
 function InvoicePaginationLink({
@@ -462,5 +524,57 @@ function InvoicePaginationLink({
     >
       {label}
     </Link>
+  );
+}
+
+function ClientFilterSelect({
+  defaultValue,
+  clients,
+}: {
+  defaultValue?: string;
+  clients: Awaited<ReturnType<typeof listClientFilterOptions>> | null;
+}) {
+  if (!clients) {
+    return (
+      <ClientFilterFallback
+        defaultValue={defaultValue}
+        label="Clients indisponibles"
+      />
+    );
+  }
+  return (
+    <select
+      id="client"
+      name="client"
+      className="input"
+      defaultValue={defaultValue ?? ""}
+    >
+      <option value="">Tous</option>
+      {clients.map((client) => (
+        <option key={client.id} value={client.id}>
+          {client.displayName}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function ClientFilterFallback({
+  defaultValue,
+  label = "Chargement…",
+}: {
+  defaultValue?: string;
+  label?: string;
+}) {
+  return (
+    <select
+      id="client"
+      name="client"
+      className="input"
+      defaultValue={defaultValue ?? ""}
+      disabled
+    >
+      <option value="">{label}</option>
+    </select>
   );
 }

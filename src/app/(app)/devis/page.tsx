@@ -1,8 +1,7 @@
 import { Suspense } from "react";
 import Link from "next/link";
-import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
-import { listQuotes } from "@/server/quotes";
+import { listQuotes, getQuoteFilterClients } from "@/server/quotes";
 import {
   changeQuoteStatusAction,
   deleteQuoteAction,
@@ -159,12 +158,8 @@ async function DevisPageContent({
       issueDateFrom: issueFrom ? new Date(issueFrom) : undefined,
       issueDateTo: issueTo ? new Date(issueTo) : undefined,
       page,
-    }),
-    prisma.client.findMany({
-      where: { userId: user.id },
-      orderBy: { displayName: "asc" },
-      select: { id: true, displayName: true },
-    }),
+    }, user.id),
+    getQuoteFilterClients(user.id),
   ]);
 
   const searchQuery = new URLSearchParams();

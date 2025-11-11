@@ -2,6 +2,11 @@ import { prisma } from "@/lib/prisma";
 import { getSettings } from "@/server/settings";
 import { requireUser } from "@/lib/auth";
 
+type NumberingOverrides = {
+  prefix?: string;
+  resetAnnually?: boolean;
+};
+
 function formatNumber(
   prefix: string,
   year: number,
@@ -15,16 +20,28 @@ function formatNumber(
   return `${prefix}-${padded}`;
 }
 
-async function nextNumber(type: "DEVIS" | "FACTURE", providedUserId?: string) {
-  const userId =
-    providedUserId ?? (await requireUser()).id;
-  const settings = await getSettings(userId);
+async function nextNumber(
+  type: "DEVIS" | "FACTURE",
+  providedUserId?: string,
+  overrides?: NumberingOverrides,
+) {
+  const userId = providedUserId ?? (await requireUser()).id;
   const isQuote = type === "DEVIS";
-  const prefix = isQuote
-    ? settings.quoteNumberPrefix
-    : settings.invoiceNumberPrefix;
-  const resetAnnually = settings.resetNumberingAnnually;
-  const year = resetAnnually ? new Date().getFullYear() : 0;
+
+  let prefix = overrides?.prefix;
+  let resetAnnually = overrides?.resetAnnually;
+
+  if (prefix === undefined || resetAnnually === undefined) {
+    const settings = await getSettings(userId);
+    prefix = isQuote
+      ? settings.quoteNumberPrefix
+      : settings.invoiceNumberPrefix;
+    resetAnnually = settings.resetNumberingAnnually;
+  }
+
+  const resolvedPrefix = prefix ?? (isQuote ? "DEV" : "FAC");
+  const resolvedResetAnnually = Boolean(resetAnnually);
+  const year = resolvedResetAnnually ? new Date().getFullYear() : 0;
 
   const number = await prisma.$transaction(async (tx) => {
     const existing = await tx.numberingSequence.findFirst({
@@ -41,37 +58,64 @@ async function nextNumber(type: "DEVIS" | "FACTURE", providedUserId?: string) {
           userId,
           type,
           year,
-          prefix,
+          prefix: resolvedPrefix,
           counter: 1,
         },
       });
 
-      return formatNumber(prefix, created.year, created.counter, resetAnnually);
+      return formatNumber(
+        resolvedPrefix,
+        created.year,
+        created.counter,
+        resolvedResetAnnually,
+      );
     }
 
     const updated = await tx.numberingSequence.update({
       where: { id: existing.id },
       data: {
-        prefix,
+        prefix: resolvedPrefix,
         counter: { increment: 1 },
       },
     });
 
     return formatNumber(
-      prefix,
+      resolvedPrefix,
       updated.year,
       updated.counter,
-      resetAnnually,
+      resolvedResetAnnually,
     );
   });
 
   return number;
 }
 
-export async function nextQuoteNumber(userId?: string) {
-  return nextNumber("DEVIS", userId);
+type QuoteNumberingSettings = {
+  quoteNumberPrefix: string;
+  resetNumberingAnnually: boolean;
+};
+
+type InvoiceNumberingSettings = {
+  invoiceNumberPrefix: string;
+  resetNumberingAnnually: boolean;
+};
+
+export async function nextQuoteNumber(
+  userId?: string,
+  settings?: QuoteNumberingSettings,
+) {
+  return nextNumber("DEVIS", userId, {
+    prefix: settings?.quoteNumberPrefix,
+    resetAnnually: settings?.resetNumberingAnnually,
+  });
 }
 
-export async function nextInvoiceNumber(userId?: string) {
-  return nextNumber("FACTURE", userId);
+export async function nextInvoiceNumber(
+  userId?: string,
+  settings?: InvoiceNumberingSettings,
+) {
+  return nextNumber("FACTURE", userId, {
+    prefix: settings?.invoiceNumberPrefix,
+    resetAnnually: settings?.resetNumberingAnnually,
+  });
 }
