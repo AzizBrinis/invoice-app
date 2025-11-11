@@ -17,6 +17,7 @@
 4. Ouvrez `http://localhost:3000`.
 
 Consultez `DEPLOY.md` pour les instructions de mise en production sur Vercel.
+Le build déclenché par Vercel (`npm run vercel-build`) s’appuie sur `scripts/run-vercel-build.cjs`, qui exécute `prisma generate`, tente `prisma migrate deploy` puis `next build`, en sautant automatiquement l’étape migration si la base est momentanément injoignable (voir le détail dans `DEPLOY.md`).
 
 ### Migration SQLite → Supabase Postgres
 
