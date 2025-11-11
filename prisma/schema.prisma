@@ -578,14 +578,8 @@ model Invoice {
 
   @@unique([userId, number])
   @@index([userId, issueDate(sort: Desc), id(sort: Desc)], map: "Invoice_userId_issueDate_idx")
-  @@index(
-    [userId, status, issueDate(sort: Desc), id(sort: Desc)],
-    map: "Invoice_userId_status_issueDate_idx"
-  )
-  @@index(
-    [userId, clientId, issueDate(sort: Desc), id(sort: Desc)],
-    map: "Invoice_userId_clientId_issueDate_idx"
-  )
+  @@index([userId, status, issueDate(sort: Desc), id(sort: Desc)], map: "Invoice_userId_status_issueDate_idx")
+  @@index([userId, clientId, issueDate(sort: Desc), id(sort: Desc)], map: "Invoice_userId_clientId_issueDate_idx")
   @@index([userId, dueDate, id(sort: Desc)], map: "Invoice_userId_dueDate_idx")
 }
 
