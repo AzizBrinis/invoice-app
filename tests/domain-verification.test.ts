@@ -21,22 +21,43 @@ const BASE_OPTIONS = {
   cnameTarget: "edge.example.com",
 };
 
+const VERIFICATION_HOST = `_verification.${BASE_OPTIONS.domain}`;
+
 describe("domain verification", () => {
   beforeEach(() => {
     resolveTxtMock.mockReset();
     resolveCnameMock.mockReset();
-    resolveTxtMock.mockResolvedValue([["verification=code-123"]]);
+    resolveTxtMock.mockImplementation(async (host) => {
+      if (host === VERIFICATION_HOST) {
+        return [["verification=code-123"]];
+      }
+      throw Object.assign(new Error("ENOTFOUND"), { code: "ENOTFOUND" });
+    });
     resolveCnameMock.mockResolvedValue(["edge.example.com"]);
   });
 
-  it("accepts valid TXT + CNAME", async () => {
+  it("accepts valid TXT + CNAME on the _verification host", async () => {
     await expect(assertCustomDomainRecords(BASE_OPTIONS)).resolves.toBeUndefined();
-    expect(resolveTxtMock).toHaveBeenCalledWith(BASE_OPTIONS.domain);
+    expect(resolveTxtMock).toHaveBeenCalledWith(VERIFICATION_HOST);
     expect(resolveCnameMock).toHaveBeenCalledWith(BASE_OPTIONS.domain);
   });
 
-  it("fails when TXT record is missing", async () => {
-    resolveTxtMock.mockResolvedValue([["v=spf1 include:test"]]);
+  it("accepts legacy TXT records on the root host", async () => {
+    resolveTxtMock.mockImplementation(async (host) => {
+      if (host === BASE_OPTIONS.domain) {
+        return [["verification=code-123"]];
+      }
+      throw Object.assign(new Error("ENOTFOUND"), { code: "ENOTFOUND" });
+    });
+    await expect(assertCustomDomainRecords(BASE_OPTIONS)).resolves.toBeUndefined();
+    expect(resolveTxtMock).toHaveBeenCalledWith(VERIFICATION_HOST);
+    expect(resolveTxtMock).toHaveBeenCalledWith(BASE_OPTIONS.domain);
+  });
+
+  it("fails when TXT record is missing everywhere", async () => {
+    resolveTxtMock.mockImplementation(async () => {
+      throw Object.assign(new Error("ENOTFOUND"), { code: "ENOTFOUND" });
+    });
     await expect(assertCustomDomainRecords(BASE_OPTIONS)).rejects.toMatchObject({
       code: "TXT_NOT_FOUND",
     } satisfies Partial<DomainVerificationError>);

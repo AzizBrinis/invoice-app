@@ -2,6 +2,7 @@ import { Resolver } from "dns/promises";
 
 const resolver = new Resolver();
 const VERIFICATION_PREFIX = "verification=";
+const VERIFICATION_HOST_PREFIX = "_verification.";
 
 export type DomainRecordCheckOptions = {
   domain: string;
@@ -60,45 +61,68 @@ function isDnsNotFound(error: unknown): boolean {
   return code === "ENOTFOUND" || code === "ENODATA";
 }
 
-async function assertTxtRecord(domain: string, expectedCode: string) {
-  let records: string[][];
+async function readTxtRecords(host: string) {
   try {
-    records = await resolver.resolveTxt(domain);
+    const records = await resolver.resolveTxt(host);
+    return {
+      host,
+      values: flattenTxtRecords(records),
+    };
   } catch (error) {
     if (isDnsNotFound(error)) {
-      throw new DomainVerificationError(
-        "TXT_NOT_FOUND",
-        `Aucun enregistrement TXT "verification=${expectedCode}" n’a été trouvé sur ${domain}. Ajoutez-le puis relancez la vérification.`,
-      );
+      return null;
     }
     throw new DomainVerificationError(
       "TXT_LOOKUP_FAILED",
-      `Impossible de lire les enregistrements TXT de ${domain}. Patientez quelques minutes et réessayez.`,
+      `Impossible de lire les enregistrements TXT de ${host}. Patientez quelques minutes et réessayez.`,
       { cause: error },
     );
   }
-  const flattened = flattenTxtRecords(records);
-  const verificationEntries = flattened.filter((value) =>
+}
+
+function extractVerificationEntries(values: string[]) {
+  return values.filter((value) =>
     value.toLowerCase().startsWith(VERIFICATION_PREFIX),
   );
-  if (!verificationEntries.length) {
-    throw new DomainVerificationError(
-      "TXT_NOT_FOUND",
-      `Ajoutez un enregistrement TXT "verification=${expectedCode}" sur ${domain} avant de poursuivre.`,
+}
+
+async function assertTxtRecord(domain: string, expectedCode: string) {
+  const verificationHost = `${VERIFICATION_HOST_PREFIX}${domain}`;
+  const candidates = [verificationHost, domain];
+  let mismatch: { host: string; values: string[] } | null = null;
+
+  for (const host of candidates) {
+    const result = await readTxtRecords(host);
+    if (!result) {
+      continue;
+    }
+    const entries = extractVerificationEntries(result.values);
+    if (!entries.length) {
+      continue;
+    }
+    const match = entries.find(
+      (value) => value.slice(VERIFICATION_PREFIX.length) === expectedCode,
     );
+    if (match) {
+      return;
+    }
+    mismatch = { host, values: entries };
   }
-  const match = verificationEntries.find(
-    (value) => value.slice(VERIFICATION_PREFIX.length) === expectedCode,
-  );
-  if (!match) {
-    const values = verificationEntries.map((value) =>
-      value.slice(VERIFICATION_PREFIX.length),
-    );
+
+  if (mismatch) {
+    const values = mismatch.values
+      .map((value) => value.slice(VERIFICATION_PREFIX.length))
+      .join(", ");
     throw new DomainVerificationError(
       "TXT_MISMATCH",
-      `Le TXT verification=${values.join(", ")} ne correspond pas au code attendu (${expectedCode}).`,
+      `Le TXT sur ${mismatch.host} contient verification=${values}, attendez verification=${expectedCode}.`,
     );
   }
+
+  throw new DomainVerificationError(
+    "TXT_NOT_FOUND",
+    `Ajoutez un TXT verification=${expectedCode} sur ${verificationHost} (le sous-domaine _verification évite le conflit avec le CNAME).`,
+  );
 }
 
 async function assertCnameRecord(domain: string, cnameTarget: string) {

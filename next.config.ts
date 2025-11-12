@@ -1,11 +1,16 @@
 import type { NextConfig } from "next";
 
+const tracingIncludes = [
+  "./node_modules/.prisma/client",
+  "./node_modules/@sparticuz/chromium",
+];
+
 const nextConfig: NextConfig = {
   typedRoutes: true,
   outputFileTracingIncludes: {
-    "/(app)": ["./node_modules/.prisma/client"],
-    "/api": ["./node_modules/.prisma/client"],
-    "/": ["./node_modules/.prisma/client"],
+    "/(app)": tracingIncludes,
+    "/api": tracingIncludes,
+    "/": tracingIncludes,
   },
 };
 

@@ -36,6 +36,9 @@ export function DomainCard({
   edgeDomain,
   verificationCode,
 }: DomainCardProps) {
+  const verificationHost = customDomain
+    ? `_verification.${customDomain}`
+    : "_verification.votre-domaine.com";
   const [domainState, domainAction] = useActionState<
     DomainFormState,
     FormData
@@ -120,9 +123,16 @@ export function DomainCard({
         <p className="font-medium text-zinc-900 dark:text-white">
           Enregistrement TXT de vérification
         </p>
+        <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+          Hôte : <code>{verificationHost}</code>
+        </p>
         <div className="mt-2 rounded border border-dashed border-zinc-300 bg-white px-3 py-2 font-mono text-xs dark:border-zinc-700 dark:bg-zinc-900">
           verification={verificationCode}
         </div>
+        <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+          Ce sous-domaine `_verification` permet d’ajouter un TXT en parallèle du
+          CNAME.
+        </p>
       </div>
       <div className="flex flex-wrap gap-3">
         <Button

@@ -89,7 +89,8 @@ Les pixels d'ouverture et liens de suivi doivent être accessibles via une URL H
 - Configurez également `VERCEL_PROJECT_ID`, `VERCEL_TOKEN` (et `VERCEL_TEAM_ID` si vous travaillez dans une Team) pour que l’activation puisse enregistrer automatiquement chaque domaine auprès de Vercel et éviter les erreurs `DEPLOYMENT_NOT_FOUND`.
 - Lier un domaine :
   1. Ajoutez votre domaine dans le formulaire “Domaine personnalisé”.
-  2. Créez un CNAME vers `CATALOG_EDGE_DOMAIN` et un enregistrement TXT `verification=<domainVerificationCode>`.
-  3. Cliquez sur **Vérifier** : l’application contrôle les enregistrements TXT/CNAME et bloque la progression tant qu’ils ne sont pas corrects.
-  4. Cliquez sur **Activer** : le domaine est rattaché au projet Vercel avant de passer en statut _Active_, ce qui évite les 404 `DEPLOYMENT_NOT_FOUND`.
+  2. Créez un CNAME vers `CATALOG_EDGE_DOMAIN`.
+  3. Ajoutez un TXT `verification=<domainVerificationCode>` sur `_verification.<votre-domaine>` (ex. `_verification.www.exemple.com`). Ce sous-domaine dédié évite le conflit CNAME + TXT.
+  4. Cliquez sur **Vérifier** : l’application contrôle les enregistrements TXT/CNAME et bloque la progression tant qu’ils ne sont pas corrects.
+  5. Cliquez sur **Activer** : le domaine est rattaché au projet Vercel avant de passer en statut _Active_, ce qui évite les 404 `DEPLOYMENT_NOT_FOUND`.
 - Flux de données : chaque soumission du formulaire (nom, email, téléphone, besoin) crée un client `source=WEBSITE_LEAD` dans l’onglet Clients, avec les besoins en note et les métadonnées (domaine, chemin, IP). Une notification e-mail est envoyée à l’adresse configurée et le formulaire applique une protection anti-spam (honeypot, détection de liens/anomalies, anti double soumission).
