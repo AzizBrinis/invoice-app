@@ -7,17 +7,22 @@ import {
   type CatalogPayload,
 } from "@/server/website";
 
-type CataloguePageProps = {
-  params: { segments?: string[] };
-  searchParams?: Record<string, string | string[] | undefined>;
-};
+type CataloguePageParams = { segments?: string[] };
+type CataloguePageSearchParams = Record<string, string | string[] | undefined>;
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
+export const dynamicParams = true;
+export const fetchCache = "force-no-store";
 
 async function resolvePayload(
-  params: CataloguePageProps["params"],
-  searchParams: CataloguePageProps["searchParams"],
+  rawParams: CataloguePageParams | Promise<CataloguePageParams>,
+  rawSearchParams:
+    | CataloguePageSearchParams
+    | Promise<CataloguePageSearchParams>,
 ) {
+  const params = await rawParams;
+  const searchParams = await rawSearchParams;
   const domainParam = searchParams?.domain;
   const fixedDomain = Array.isArray(domainParam)
     ? domainParam[0]
@@ -43,7 +48,12 @@ async function resolvePayload(
 export async function generateMetadata({
   params,
   searchParams,
-}: CataloguePageProps): Promise<Metadata> {
+}: {
+  params: CataloguePageParams | Promise<CataloguePageParams>;
+  searchParams:
+    | CataloguePageSearchParams
+    | Promise<CataloguePageSearchParams>;
+}): Promise<Metadata> {
   const resolved = await resolvePayload(params, searchParams);
   if (!resolved.payload) {
     return {};
@@ -75,7 +85,12 @@ export async function generateMetadata({
 export default async function CatalogueCatchAllPage({
   params,
   searchParams,
-}: CataloguePageProps) {
+}: {
+  params: CataloguePageParams | Promise<CataloguePageParams>;
+  searchParams:
+    | CataloguePageSearchParams
+    | Promise<CataloguePageSearchParams>;
+}) {
   const resolved = await resolvePayload(params, searchParams);
   if (!resolved.payload) {
     notFound();
