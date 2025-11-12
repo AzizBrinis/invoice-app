@@ -9,8 +9,6 @@ import {
   type MessagingCredentials,
 } from "@/server/messaging";
 
-const WORKER_SYMBOL = Symbol.for("messaging.scheduledEmailWorker");
-const WORKER_INTERVAL_MS = 60 * 1000;
 const DISPATCH_BATCH_SIZE = 10;
 
 type JsonArray = Prisma.JsonArray;
@@ -302,29 +300,3 @@ function toOptionalArray(
   const array = toStringArray(value);
   return array.length ? array : undefined;
 }
-
-function ensureScheduledEmailWorker() {
-  if (typeof globalThis === "undefined") {
-    return;
-  }
-  if (process.env.NODE_ENV === "test") {
-    return;
-  }
-  if (process.env.SCHEDULED_EMAIL_WORKER_DISABLED === "1") {
-    return;
-  }
-  const globalRef = globalThis as typeof globalThis & {
-    [WORKER_SYMBOL]?: NodeJS.Timeout;
-  };
-  if (globalRef[WORKER_SYMBOL]) {
-    return;
-  }
-  const interval = setInterval(() => {
-    dispatchDueScheduledEmails().catch((error) =>
-      console.warn("Échec du traitement des e-mails planifiés:", error),
-    );
-  }, WORKER_INTERVAL_MS);
-  globalRef[WORKER_SYMBOL] = interval;
-}
-
-ensureScheduledEmailWorker();

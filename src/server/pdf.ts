@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
-import puppeteer, { type Browser } from "puppeteer";
+import chromium from "@sparticuz/chromium";
+import puppeteer, { type Browser, type Viewport } from "puppeteer";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { getSettings } from "@/server/settings";
@@ -41,6 +42,21 @@ type DocumentWithRelations = InvoiceWithRelations | QuoteWithRelations;
 let browserPromise: Promise<Browser> | null = null;
 let cachedCss: string | null = null;
 
+const basePuppeteerArgs = ["--allow-file-access-from-files"];
+const serverlessViewport: Viewport = {
+  width: 1920,
+  height: 1080,
+  deviceScaleFactor: 1,
+  isMobile: false,
+  hasTouch: false,
+  isLandscape: true,
+};
+const isServerlessEnvironment =
+  Boolean(process.env.AWS_REGION) ||
+  Boolean(process.env.AWS_EXECUTION_ENV) ||
+  Boolean(process.env.VERCEL) ||
+  Boolean(process.env.LAMBDA_TASK_ROOT);
+
 function escapeHtml(value: string | null | undefined) {
   if (!value) return "";
   return value
@@ -74,16 +90,36 @@ async function fetchCompanySettings(userId: string) {
 
 async function getBrowser() {
   if (!browserPromise) {
-    const puppeteerArgs = ["--allow-file-access-from-files"];
-    if (process.env.PUPPETEER_DISABLE_SANDBOX === "true") {
-      puppeteerArgs.push("--no-sandbox", "--disable-setuid-sandbox");
-    }
-    browserPromise = puppeteer.launch({
-      headless: true,
-      args: puppeteerArgs,
-    });
+    browserPromise = isServerlessEnvironment
+      ? launchServerlessBrowser()
+      : launchLocalBrowser();
   }
   return browserPromise;
+}
+
+async function launchLocalBrowser() {
+  const args = [...basePuppeteerArgs];
+  if (process.env.PUPPETEER_DISABLE_SANDBOX === "true") {
+    args.push("--no-sandbox", "--disable-setuid-sandbox");
+  }
+  return puppeteer.launch({
+    headless: true,
+    args,
+  });
+}
+
+async function launchServerlessBrowser() {
+  const executablePath = await chromium.executablePath();
+  if (!executablePath) {
+    throw new Error("Chromium executable path not found for serverless PDF generation.");
+  }
+  const args = Array.from(new Set([...chromium.args, ...basePuppeteerArgs]));
+  return puppeteer.launch({
+    args,
+    defaultViewport: serverlessViewport,
+    executablePath,
+    headless: "shell",
+  });
 }
 
 async function renderPdfFromHtml(html: string) {

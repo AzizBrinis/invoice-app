@@ -6,7 +6,7 @@
    npm install
    ```
 
-2. Copiez `.env.example` vers `.env` et renseignez les secrets requis (PostgreSQL, SMTP, cookies, URLs).
+2. Copiez `.env.example` vers `.env` et renseignez les secrets requis (PostgreSQL, SMTP, cookies, URLs). Si vous déployez sur Vercel, ajoutez également `PRISMA_ACCELERATE_URL` (clé Prisma Accelerate/Data Proxy) pour que les fonctions serverless réutilisent des connexions persistantes au lieu d'ouvrir un socket PostgreSQL à chaque requête.
 
 3. Lancez le serveur de développement :
 
@@ -18,6 +18,22 @@
 
 Consultez `DEPLOY.md` pour les instructions de mise en production sur Vercel.
 Le build déclenché par Vercel (`npm run vercel-build`) s’appuie sur `scripts/run-vercel-build.cjs`, qui exécute `prisma generate`, tente `prisma migrate deploy` puis `next build`, en sautant automatiquement l’étape migration si la base est momentanément injoignable (voir le détail dans `DEPLOY.md`).
+
+#### Messagerie toujours active (auto-réponses + envois planifiés)
+
+Les réponses automatiques (SLA 24h et mode vacances) et les e-mails planifiés passent désormais par une file de jobs persistante (`BackgroundJob`). Vercel Cron appelle `/api/cron/messaging` toutes les minutes (voir `vercel.json`), ce qui :
+
+- alimente la file (`messaging.dispatchScheduledEmails`, `messaging.syncInboxAutoReplies`);
+- exécute les jobs en appliquant l’exponential backoff + la déduplication (un job par utilisateur et par créneau);
+- expose les métriques via `/api/jobs/metrics` (voir Observability ci-dessous).
+
+En local, aucun Cron externe n’existe : appelez simplement `curl http://localhost:3000/api/cron/messaging` pendant que `npm run dev` tourne (le token n’est pas requis si `CRON_SECRET_TOKEN` n’est pas défini). En production, définissez `CRON_SECRET_TOKEN` et configurez Vercel Cron (ou tout scheduler HTTP) pour envoyer un header `Authorization: Bearer <token>`.
+
+#### Observabilité & alertes jobs
+
+- `GET /api/jobs/metrics?token=<CRON_SECRET_TOKEN>` retourne : totaux par statut, prochains jobs planifiés et les 20 derniers événements (`ENQUEUED`, `STARTED`, `SUCCEEDED`, `RETRY_SCHEDULED`, `FAILED`, `DEDUPED`). Pratique pour brancher un dashboard ou vérifier la saturation de la file.
+- `console.info` journalise chaque tick Cron (`[cron] Messagerie …`) et `console.warn`/`console.error` remontent les tentatives échouées dans les logs Vercel.
+- Définissez `JOBS_ALERT_WEBHOOK_URL` pour recevoir un POST JSON lorsque qu’un job passe définitivement en `FAILED` après tous les retries (exponential backoff jusqu’à 1h). Cela peut pointer vers Slack, Teams, etc.
 
 ### Migration SQLite → Supabase Postgres
 
@@ -70,8 +86,10 @@ Les pixels d'ouverture et liens de suivi doivent être accessibles via une URL H
 - Utilisez `/preview` (bouton “Prévisualiser”) pour valider la mise en page en développement : cette route est réservée aux utilisateurs authentifiés et n’enregistre pas les leads.
 - Pour rendre vos produits visibles, activez l’option **Catalogue public** dans chaque fiche produit. Le panneau récapitulatif de la page Site web indique combien d’items sont publiés.
 - Par défaut, votre site est accessible via `APP_URL/catalogue/<slug>`. Définissez `APP_HOSTNAMES` (liste de domaines réservés à l’application) et `CATALOG_EDGE_DOMAIN` (cible CNAME) dans `.env` pour activer l’hébergement multi-domaine.
+- Configurez également `VERCEL_PROJECT_ID`, `VERCEL_TOKEN` (et `VERCEL_TEAM_ID` si vous travaillez dans une Team) pour que l’activation puisse enregistrer automatiquement chaque domaine auprès de Vercel et éviter les erreurs `DEPLOYMENT_NOT_FOUND`.
 - Lier un domaine :
   1. Ajoutez votre domaine dans le formulaire “Domaine personnalisé”.
   2. Créez un CNAME vers `CATALOG_EDGE_DOMAIN` et un enregistrement TXT `verification=<domainVerificationCode>`.
-  3. Cliquez sur **Vérifier**, puis **Activer**. Le statut progresse de _Pending_ → _Verified_ → _Active_. Une fois actif, votre site répond directement sur le domaine personnalisé tout en continuant à être accessible via l’URL slug.
+  3. Cliquez sur **Vérifier** : l’application contrôle les enregistrements TXT/CNAME et bloque la progression tant qu’ils ne sont pas corrects.
+  4. Cliquez sur **Activer** : le domaine est rattaché au projet Vercel avant de passer en statut _Active_, ce qui évite les 404 `DEPLOYMENT_NOT_FOUND`.
 - Flux de données : chaque soumission du formulaire (nom, email, téléphone, besoin) crée un client `source=WEBSITE_LEAD` dans l’onglet Clients, avec les besoins en note et les métadonnées (domaine, chemin, IP). Une notification e-mail est envoyée à l’adresse configurée et le formulaire applique une protection anti-spam (honeypot, détection de liens/anomalies, anti double soumission).

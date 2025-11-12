@@ -35,6 +35,7 @@ model User {
   savedResponses MessagingSavedResponse[]
   autoReplyLogs MessagingAutoReplyLog[]
   scheduledEmails MessagingScheduledEmail[]
+  messagingInboxSyncState MessagingInboxSyncState?
   websiteConfig WebsiteConfig?
 }
 
@@ -165,6 +166,16 @@ model MessagingSettings {
   updatedAt         DateTime @updatedAt
 }
 
+model MessagingInboxSyncState {
+  userId               String  @id
+  user                 User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastInboxAutoReplyUid Int?
+  lastInboxSyncAt      DateTime?
+  lastAutoReplyAt      DateTime?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
 enum SavedResponseFormat {
   PLAINTEXT
   HTML
@@ -209,6 +220,23 @@ enum MessagingScheduledStatus {
 enum MessagingAutoReplyType {
   STANDARD
   VACATION
+}
+
+enum BackgroundJobStatus {
+  PENDING
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+enum BackgroundJobEventType {
+  ENQUEUED
+  DEDUPED
+  STARTED
+  SUCCEEDED
+  FAILED
+  RETRY_SCHEDULED
 }
 
 enum WebsiteDomainStatus {
@@ -368,6 +396,41 @@ model MessagingEmailEvent {
   @@index([emailId, occurredAt])
   @@index([recipientId])
   @@index([linkRecipientId])
+}
+
+model BackgroundJob {
+  id             String             @id @default(cuid())
+  type           String
+  payload        Json?
+  dedupeKey      String?
+  priority       Int                @default(0)
+  runAt          DateTime           @default(now())
+  status         BackgroundJobStatus @default(PENDING)
+  attempts       Int                @default(0)
+  maxAttempts    Int                @default(5)
+  retryBackoffMs Int                @default(60000)
+  lastError      String?
+  lockedAt       DateTime?
+  lastRunAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  events         BackgroundJobEvent[]
+
+  @@index([status, runAt])
+  @@index([runAt])
+  @@unique([type, dedupeKey])
+}
+
+model BackgroundJobEvent {
+  id        String                @id @default(cuid())
+  jobId     String
+  job       BackgroundJob         @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  type      BackgroundJobEventType
+  detail    Json?
+  createdAt DateTime              @default(now())
+
+  @@index([jobId, createdAt])
 }
 
 model SpamDetectionLog {

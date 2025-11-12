@@ -12,7 +12,11 @@ import MailComposer from "nodemailer/lib/mail-composer";
 import addressParser from "nodemailer/lib/addressparser";
 import { simpleParser, type Attachment, type ParsedMail } from "mailparser";
 import { randomUUID } from "node:crypto";
-import type { MessagingAutoReplyType, MessagingRecipientType } from "@prisma/client";
+import type {
+  MessagingAutoReplyType,
+  MessagingRecipientType,
+  MessagingInboxSyncState,
+} from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getSessionTokenFromCookie, requireUser } from "@/lib/auth";
 import { decryptSecret, encryptSecret } from "@/server/secure-credentials";
@@ -40,6 +44,18 @@ const RECIPIENT_TYPE_MAP = {
   bcc: "BCC",
 } as const satisfies Record<"to" | "cc" | "bcc", MessagingRecipientType>;
 const AUTO_REPLY_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+const AUTO_REPLY_BOOTSTRAP_LOOKBACK = 150;
+const AUTO_REPLY_FETCH_LIMIT = 200;
+
+type AutoReplyProcessMode = "process" | "skip";
+
+type AutoReplyProcessResult = {
+  scanned: number;
+  considered: number;
+  replied: number;
+  lastSeenUid: number;
+  bootstrapped: boolean;
+};
 
 function parseRecipientList(
   entries: string[] | undefined,
@@ -1737,19 +1753,67 @@ async function processAutoReplies(params: {
   client: ImapFlow;
   credentials: MessagingCredentials;
   messages: MailboxListItem[];
-}): Promise<void> {
+  options?: {
+    bootstrapMode?: AutoReplyProcessMode;
+    existingState?: MessagingInboxSyncState | null;
+  };
+}): Promise<AutoReplyProcessResult> {
   const { userId, client, credentials, messages } = params;
+  const bootstrapMode = params.options?.bootstrapMode ?? "process";
+  const providedState = params.options?.existingState ?? null;
+  const syncState =
+    providedState ??
+    (await prisma.messagingInboxSyncState.findUnique({
+      where: { userId },
+    }));
+  const lastSeenUid = syncState?.lastInboxAutoReplyUid ?? 0;
+  const selection = selectAutoReplyCandidates(messages, lastSeenUid, bootstrapMode);
+  const summary: AutoReplyProcessResult = {
+    scanned: messages.length,
+    considered: selection.candidates.length,
+    replied: 0,
+    lastSeenUid: selection.highestUid,
+    bootstrapped: selection.bootstrapped,
+  };
+
   const smtp = credentials.smtp;
-  if (!smtp || !messages.length) {
-    return;
+  if (!smtp) {
+    await persistInboxSyncState({
+      userId,
+      highestUid: selection.highestUid,
+      hadReply: false,
+      previousState: syncState ?? null,
+    });
+    if (selection.candidates.length) {
+      console.warn(
+        "Réponses automatiques ignorées car SMTP est incomplet pour l'utilisateur",
+        userId,
+      );
+    }
+    return summary;
+  }
+
+  if (!selection.candidates.length) {
+    await persistInboxSyncState({
+      userId,
+      highestUid: selection.highestUid,
+      hadReply: false,
+      previousState: syncState ?? null,
+    });
+    return summary;
   }
 
   const now = new Date();
   const vacationActive = isVacationModeActive(credentials.vacation, now);
-  const standardEnabled =
-    credentials.autoReply.enabled && !vacationActive;
+  const standardEnabled = credentials.autoReply.enabled && !vacationActive;
   if (!vacationActive && !standardEnabled) {
-    return;
+    await persistInboxSyncState({
+      userId,
+      highestUid: selection.highestUid,
+      hadReply: false,
+      previousState: syncState ?? null,
+    });
+    return summary;
   }
 
   const ownAddress = normalizeEmailAddress(
@@ -1765,7 +1829,7 @@ async function processAutoReplies(params: {
     parsed: ParsedMail;
   }> = [];
 
-  for (const entry of messages) {
+  for (const entry of selection.candidates) {
     const metadata = await loadIncomingMessageMetadata(client, entry.uid);
     if (!metadata) {
       continue;
@@ -1795,7 +1859,13 @@ async function processAutoReplies(params: {
   }
 
   if (!metadataEntries.length) {
-    return;
+    await persistInboxSyncState({
+      userId,
+      highestUid: selection.highestUid,
+      hadReply: false,
+      previousState: syncState ?? null,
+    });
+    return summary;
   }
 
   const uniqueSenders = Array.from(
@@ -1913,10 +1983,197 @@ async function processAutoReplies(params: {
         replyType,
         sentAt: logEntry.sentAt,
       });
+      summary.replied += 1;
     } catch (error) {
       console.warn("Impossible d'envoyer une réponse automatique:", error);
     }
   }
+
+  await persistInboxSyncState({
+    userId,
+    highestUid: selection.highestUid,
+    hadReply: summary.replied > 0,
+    previousState: syncState ?? null,
+  });
+
+  return summary;
+}
+
+function selectAutoReplyCandidates(
+  messages: MailboxListItem[],
+  lastSeenUid: number,
+  mode: AutoReplyProcessMode,
+) {
+  const highestUid = messages.reduce(
+    (max, entry) => Math.max(max, entry.uid, 0),
+    lastSeenUid,
+  );
+  const bootstrapping = lastSeenUid === 0;
+  if (bootstrapping && mode === "skip") {
+    return {
+      candidates: [] as MailboxListItem[],
+      highestUid,
+      bootstrapped: true,
+    };
+  }
+  const candidates =
+    lastSeenUid > 0
+      ? messages.filter((entry) => entry.uid > lastSeenUid)
+      : messages;
+  return {
+    candidates,
+    highestUid,
+    bootstrapped: false,
+  };
+}
+
+async function persistInboxSyncState(options: {
+  userId: string;
+  highestUid: number;
+  hadReply: boolean;
+  previousState: MessagingInboxSyncState | null;
+}) {
+  const now = new Date();
+  const highest = options.highestUid > 0 ? options.highestUid : null;
+  const lastAutoReplyAt = options.hadReply
+    ? now
+    : options.previousState?.lastAutoReplyAt ?? null;
+  await prisma.messagingInboxSyncState.upsert({
+    where: { userId: options.userId },
+    create: {
+      userId: options.userId,
+      lastInboxAutoReplyUid: highest,
+      lastInboxSyncAt: now,
+      lastAutoReplyAt,
+    },
+    update: {
+      lastInboxAutoReplyUid: highest,
+      lastInboxSyncAt: now,
+      lastAutoReplyAt,
+    },
+  });
+}
+
+export async function runAutomatedReplySweepForUser(
+  userId: string,
+  options?: {
+    bootstrapMode?: AutoReplyProcessMode;
+    maxBootstrapWindow?: number;
+  },
+): Promise<AutoReplyProcessResult> {
+  const credentials = await getMessagingCredentials(userId);
+  if (!credentials.imap) {
+    return {
+      scanned: 0,
+      considered: 0,
+      replied: 0,
+      lastSeenUid: 0,
+      bootstrapped: false,
+    } satisfies AutoReplyProcessResult;
+  }
+
+  const mailbox: Mailbox = "inbox";
+  const spamFilteringEnabled = credentials.spamFilterEnabled !== false;
+
+  return withImapClient(credentials.imap, async (client) => {
+    const opened = await openMailbox(client, mailbox, true);
+
+    try {
+      const syncState = await prisma.messagingInboxSyncState.findUnique({
+        where: { userId },
+      });
+      const lastSeenUid = syncState?.lastInboxAutoReplyUid ?? 0;
+      const nextUid = opened.info.uidNext ?? null;
+      const startUid = computeAutoReplyStartUid({
+        lastSeenUid,
+        nextUid,
+        maxBootstrapWindow: options?.maxBootstrapWindow ?? AUTO_REPLY_BOOTSTRAP_LOOKBACK,
+      });
+
+      let fetchedMessages: MailboxListItem[] = [];
+      const shouldFetch =
+        nextUid === null ||
+        startUid < (typeof nextUid === "number" ? Math.max(1, nextUid) : 1);
+
+      if (shouldFetch) {
+        const range = { uid: `${startUid}:*` };
+        for await (const message of client.fetch(range, {
+          envelope: true,
+          internalDate: true,
+          flags: true,
+          bodyStructure: true,
+        })) {
+          fetchedMessages.push(
+            createMailboxListItem(
+              message as unknown as Parameters<
+                typeof createMailboxListItem
+              >[0],
+            ),
+          );
+          if (
+            lastSeenUid === 0 &&
+            AUTO_REPLY_FETCH_LIMIT > 0 &&
+            fetchedMessages.length >= AUTO_REPLY_FETCH_LIMIT
+          ) {
+            break;
+          }
+        }
+
+        fetchedMessages.sort(
+          (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+        );
+
+        if (mailbox === "inbox" && spamFilteringEnabled && fetchedMessages.length) {
+          const filteredMessages: MailboxListItem[] = [];
+          for (const entry of fetchedMessages) {
+            try {
+              const analysis = await analyzeAndHandleSpam({
+                userId,
+                client,
+                mailbox,
+                uid: entry.uid,
+                spamFilteringEnabled,
+              });
+              if (!analysis.movedToSpam) {
+                filteredMessages.push(entry);
+              }
+            } catch (error) {
+              console.warn("Analyse de spam impossible:", error);
+              filteredMessages.push(entry);
+            }
+          }
+          fetchedMessages = filteredMessages;
+        }
+      }
+
+      return await processAutoReplies({
+        userId,
+        client,
+        credentials,
+        messages: fetchedMessages,
+        options: {
+          bootstrapMode: options?.bootstrapMode ?? "skip",
+          existingState: syncState ?? null,
+        },
+      });
+    } finally {
+      await client.mailboxClose().catch(() => undefined);
+      opened.release();
+    }
+  });
+}
+
+function computeAutoReplyStartUid(options: {
+  lastSeenUid: number;
+  nextUid: number | null;
+  maxBootstrapWindow: number;
+}): number {
+  if (options.lastSeenUid > 0) {
+    return options.lastSeenUid + 1;
+  }
+  const reference = Math.max(1, (options.nextUid ?? 1) - 1);
+  const window = Math.max(1, options.maxBootstrapWindow);
+  return Math.max(1, reference - window);
 }
 
 export async function fetchMailboxMessages(params: {
@@ -2803,3 +3060,8 @@ export async function testSmtpConnection(
     throw formatError("Échec du test SMTP", error);
   }
 }
+
+export const __testables = {
+  selectAutoReplyCandidates,
+  computeAutoReplyStartUid,
+};

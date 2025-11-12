@@ -10,6 +10,13 @@ import {
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { getAppBaseUrl, getCatalogEdgeDomain } from "@/lib/env";
+import { assertCustomDomainRecords, DomainVerificationError } from "@/lib/domain-verification";
+import {
+  ensureVercelProjectDomain,
+  removeVercelProjectDomain,
+  MissingVercelConfigError,
+  VercelApiError,
+} from "@/lib/vercel-api";
 import { sendEmailMessageForUser } from "@/server/messaging";
 import { getSettings } from "@/server/settings";
 import {
@@ -428,6 +435,8 @@ export async function requestCustomDomain(
     data: {
       customDomain: normalized,
       domainStatus: WebsiteDomainStatus.PENDING,
+      domainVerifiedAt: null,
+      domainActivatedAt: null,
       published: false,
     },
   });
@@ -438,6 +447,27 @@ export async function verifyCustomDomain(userId?: string) {
   const config = await ensureWebsiteConfig(resolvedUserId);
   if (!config.customDomain) {
     throw new Error("Aucun domaine à vérifier.");
+  }
+  if (config.domainStatus === WebsiteDomainStatus.ACTIVE) {
+    throw new Error(
+      "Ce domaine est déjà actif. Déconnectez-le avant de relancer la vérification.",
+    );
+  }
+  const edgeDomain = getCatalogEdgeDomain();
+  try {
+    await assertCustomDomainRecords({
+      domain: config.customDomain,
+      verificationCode: config.domainVerificationCode,
+      cnameTarget: edgeDomain,
+    });
+  } catch (error) {
+    if (error instanceof DomainVerificationError) {
+      throw error;
+    }
+    console.error("[website] DNS verification failed", error);
+    throw new Error(
+      "Impossible de vérifier les enregistrements DNS pour le moment. Réessayez d’ici quelques minutes.",
+    );
   }
   return prisma.websiteConfig.update({
     where: { id: config.id },
@@ -454,6 +484,32 @@ export async function activateCustomDomain(userId?: string) {
   if (!config.customDomain) {
     throw new Error("Aucun domaine configuré.");
   }
+  if (config.domainStatus === WebsiteDomainStatus.PENDING) {
+    throw new Error("Vérifiez le domaine avant de l’activer.");
+  }
+  try {
+    await ensureVercelProjectDomain(config.customDomain);
+  } catch (error) {
+    if (error instanceof MissingVercelConfigError) {
+      throw new Error(error.message);
+    }
+    if (error instanceof VercelApiError) {
+      console.error("[website] Vercel domain linking failed", {
+        domain: config.customDomain,
+        code: error.code,
+        status: error.status,
+        requestId: error.requestId,
+      });
+      const requestHint = error.requestId ? ` (req ${error.requestId})` : "";
+      throw new Error(
+        `Vercel a refusé le domaine : ${error.message}${requestHint}`,
+      );
+    }
+    console.error("[website] Unexpected domain activation error", error);
+    throw new Error(
+      "Impossible d’activer le domaine pour le moment. Réessayez plus tard.",
+    );
+  }
   return prisma.websiteConfig.update({
     where: { id: config.id },
     data: {
@@ -467,6 +523,14 @@ export async function activateCustomDomain(userId?: string) {
 export async function disconnectCustomDomain(userId?: string) {
   const resolvedUserId = await resolveUserId(userId);
   const config = await ensureWebsiteConfig(resolvedUserId);
+  if (config.customDomain) {
+    removeVercelProjectDomain(config.customDomain).catch((error) => {
+      console.warn("[website] Failed to remove project domain", {
+        domain: config.customDomain,
+        error,
+      });
+    });
+  }
   return prisma.websiteConfig.update({
     where: { id: config.id },
     data: {

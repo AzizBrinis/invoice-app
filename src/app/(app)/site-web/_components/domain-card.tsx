@@ -128,7 +128,7 @@ export function DomainCard({
         <Button
           type="button"
           variant="secondary"
-          disabled={pending || !customDomain}
+          disabled={pending || !customDomain || status === "ACTIVE"}
           loading={pending && pendingAction === "verify"}
           onClick={() => runSecondaryAction("verify", verifyDomainAction)}
         >

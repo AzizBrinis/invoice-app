@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { simpleParser, type ParsedMail } from "mailparser";
 import type { ImapFlow, MessageAddressObject } from "imapflow";
 import { prisma } from "@/lib/prisma";
@@ -241,22 +242,52 @@ async function logDetection(options: {
   messageId?: string | null;
   userId: string;
 }) {
-  await prisma.spamDetectionLog.create({
-    data: {
-      userId: options.userId,
-      mailbox: options.mailbox,
-      targetMailbox: options.targetMailbox,
-      uid: options.uid,
-      subject: options.subject,
-      sender: options.sender,
-      score: Math.round(options.score),
-      threshold: SPAM_THRESHOLD,
-      reasons: options.reasons,
-      autoMoved: options.autoMoved,
-      manual: options.manual,
-      messageId: options.messageId ?? undefined,
-    },
-  });
+  const data = {
+    userId: options.userId,
+    mailbox: options.mailbox,
+    targetMailbox: options.targetMailbox,
+    uid: options.uid,
+    subject: options.subject,
+    sender: options.sender,
+    score: Math.round(options.score),
+    threshold: SPAM_THRESHOLD,
+    reasons: options.reasons,
+    autoMoved: options.autoMoved,
+    manual: options.manual,
+    messageId: options.messageId ?? undefined,
+  };
+
+  try {
+    await prisma.spamDetectionLog.create({ data });
+    return;
+  } catch (error) {
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002" &&
+      (typeof error.meta?.target === "string"
+        ? error.meta.target.includes("SpamDetectionLog")
+        : Array.isArray(error.meta?.target) &&
+          error.meta.target.some((target) => target.includes("SpamDetectionLog")))
+    ) {
+      await resetSpamDetectionLogSequence();
+      await prisma.spamDetectionLog.create({ data });
+      return;
+    }
+    throw error;
+  }
+}
+
+async function resetSpamDetectionLogSequence() {
+  try {
+    await prisma.$executeRawUnsafe(`
+      SELECT setval(
+        pg_get_serial_sequence('"SpamDetectionLog"', 'id'),
+        COALESCE((SELECT MAX("id") FROM "SpamDetectionLog"), 0)
+      );
+    `);
+  } catch (sequenceError) {
+    console.warn("Failed to reset SpamDetectionLog sequence", sequenceError);
+  }
 }
 
 function calculateScore(parsed: ParsedMail, options: {
