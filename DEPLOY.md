@@ -32,12 +32,14 @@ Le script `scripts/run-vercel-build.cjs` saute automatiquement l’étape _migra
 
 Pour `VERCEL_TOKEN`, créez un token personnel depuis **Account Settings → Tokens** (ou **Team Settings** si applicable) et ajoutez également `VERCEL_PROJECT_ID` (fourni automatiquement sur Vercel) ainsi que `VERCEL_TEAM_ID` si le projet appartient à une équipe. Sans ces variables, l’action **Activer** ne pourra pas rattacher le domaine et Vercel renverra `DEPLOYMENT_NOT_FOUND`.
 
-#### Planification Messagerie (Vercel Cron)
+#### Planification Messagerie (GitHub Actions gratuite)
 
-- `vercel.json` déclare un Cron (`*/1 * * * *`) qui cible `/api/cron/messaging`. Activez la fonctionnalité “Cron Jobs” sur votre projet Vercel (onglet **Settings → Cron Jobs**) pour qu’elle soit créée automatiquement lors du prochain `vercel deploy`.
-- Réglez `CRON_SECRET_TOKEN` et copiez le même token dans la configuration Cron (header `Authorization: Bearer <token>`). Sans ce header, l’API renvoie 401 en production.
-- Les métriques peuvent être interrogées via `/api/jobs/metrics?token=<CRON_SECRET_TOKEN>` pour exposer l’état de la file ou brancher un dashboard externe.
-- Facultatif : configurez `JOBS_ALERT_WEBHOOK_URL` pour recevoir une notification HTTP (JSON) lorsqu’un job échoue définitivement après les retries (exponential backoff).
+- Le workflow `.github/workflows/messaging-cron.yml` s’exécute toutes les 5 minutes (planification GitHub Actions gratuite) et déclenche un `POST` sur `/api/cron/messaging`.
+- Dans votre dépôt GitHub, ajoutez deux secrets :
+  - `CRON_ENDPOINT` → `https://invoice-app-v0.vercel.app/api/cron/messaging` (ou l’URL de préproduction).
+  - `CRON_SECRET_TOKEN` → même valeur que la variable d’environnement Vercel du même nom.
+- Le workflow échoue si un secret est manquant ou si l’API renvoie une erreur HTTP. Consultez l’onglet **Actions** pour voir les logs gratuits (trigger manuel via `workflow_dispatch` possible).
+- Les métriques restent accessibles via `/api/jobs/metrics?token=<CRON_SECRET_TOKEN>` et `JOBS_ALERT_WEBHOOK_URL` continue d’envoyer des alertes en cas d’échec définitif.
 
 #### Supabase et réseaux IPv4 (Vercel, GitHub Actions…)
 

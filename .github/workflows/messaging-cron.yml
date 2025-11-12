@@ -1,0 +1,31 @@
+name: Messaging Cron
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping-cron-endpoint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Call messaging cron endpoint
+        env:
+          CRON_ENDPOINT: ${{ secrets.CRON_ENDPOINT }}
+          CRON_SECRET_TOKEN: ${{ secrets.CRON_SECRET_TOKEN }}
+        run: |
+          if [ -z "$CRON_ENDPOINT" ]; then
+            echo "CRON_ENDPOINT secret is not set" >&2
+            exit 1
+          fi
+          if [ -z "$CRON_SECRET_TOKEN" ]; then
+            echo "CRON_SECRET_TOKEN secret is not set" >&2
+            exit 1
+          fi
+          echo "Triggering messaging cron at $CRON_ENDPOINT"
+          curl --fail --show-error --silent \
+            -X POST \
+            -H "Authorization: Bearer $CRON_SECRET_TOKEN" \
+            "$CRON_ENDPOINT" \
+            | jq '.'

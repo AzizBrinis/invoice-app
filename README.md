@@ -21,18 +21,18 @@ Le build déclenché par Vercel (`npm run vercel-build`) s’appuie sur `scripts
 
 #### Messagerie toujours active (auto-réponses + envois planifiés)
 
-Les réponses automatiques (SLA 24h et mode vacances) et les e-mails planifiés passent désormais par une file de jobs persistante (`BackgroundJob`). Vercel Cron appelle `/api/cron/messaging` toutes les minutes (voir `vercel.json`), ce qui :
+Les réponses automatiques (SLA 24h et mode vacances) et les e-mails planifiés passent désormais par une file de jobs persistante (`BackgroundJob`). Le workflow GitHub Actions `.github/workflows/messaging-cron.yml` (gratuit) appelle `/api/cron/messaging` toutes les 5 minutes, ce qui :
 
 - alimente la file (`messaging.dispatchScheduledEmails`, `messaging.syncInboxAutoReplies`);
 - exécute les jobs en appliquant l’exponential backoff + la déduplication (un job par utilisateur et par créneau);
 - expose les métriques via `/api/jobs/metrics` (voir Observability ci-dessous).
 
-En local, aucun Cron externe n’existe : appelez simplement `curl http://localhost:3000/api/cron/messaging` pendant que `npm run dev` tourne (le token n’est pas requis si `CRON_SECRET_TOKEN` n’est pas défini). En production, définissez `CRON_SECRET_TOKEN` et configurez Vercel Cron (ou tout scheduler HTTP) pour envoyer un header `Authorization: Bearer <token>`.
+En local, aucun Cron externe n’existe : appelez simplement `curl http://localhost:3000/api/cron/messaging` pendant que `npm run dev` tourne (le token n’est pas requis si `CRON_SECRET_TOKEN` n’est pas défini). En production, définissez `CRON_SECRET_TOKEN`, exposez `CRON_ENDPOINT=https://invoice-app.../api/cron/messaging` en secret GitHub et laissez GitHub Actions (ou n’importe quel scheduler HTTP gratuit, type UptimeRobot) frapper l’URL avec `Authorization: Bearer <token>`.
 
 #### Observabilité & alertes jobs
 
 - `GET /api/jobs/metrics?token=<CRON_SECRET_TOKEN>` retourne : totaux par statut, prochains jobs planifiés et les 20 derniers événements (`ENQUEUED`, `STARTED`, `SUCCEEDED`, `RETRY_SCHEDULED`, `FAILED`, `DEDUPED`). Pratique pour brancher un dashboard ou vérifier la saturation de la file.
-- `console.info` journalise chaque tick Cron (`[cron] Messagerie …`) et `console.warn`/`console.error` remontent les tentatives échouées dans les logs Vercel.
+- `console.info` journalise chaque tick Cron (`[cron] Messagerie …`) et `console.warn`/`console.error` remontent les tentatives échouées dans les logs Vercel (et dans les logs GitHub Actions lors des appels `curl`).
 - Définissez `JOBS_ALERT_WEBHOOK_URL` pour recevoir un POST JSON lorsque qu’un job passe définitivement en `FAILED` après tous les retries (exponential backoff jusqu’à 1h). Cela peut pointer vers Slack, Teams, etc.
 
 ### Migration SQLite → Supabase Postgres
