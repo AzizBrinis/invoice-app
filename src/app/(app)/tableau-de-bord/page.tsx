@@ -1,7 +1,6 @@
 import { Suspense } from "react";
-import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
-import { getDashboardMetrics } from "@/server/analytics";
+import { getDashboardPayload } from "@/server/analytics";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import { fromCents } from "@/lib/money";
 import { Badge } from "@/components/ui/badge";
@@ -39,25 +38,9 @@ async function DashboardPageContent() {
   const settings = await getSettings(user.id);
   const dashboardCurrency = settings.defaultCurrency as CurrencyCode;
 
-  const [metrics, recentInvoices, recentQuotes] = await Promise.all([
-    getDashboardMetrics(dashboardCurrency),
-    prisma.invoice.findMany({
-      where: { userId: user.id },
-      orderBy: { issueDate: "desc" },
-      take: 5,
-      include: {
-        client: true,
-      },
-    }),
-    prisma.quote.findMany({
-      where: { userId: user.id },
-      orderBy: { issueDate: "desc" },
-      take: 5,
-      include: {
-        client: true,
-      },
-    }),
-  ]);
+  const { metrics, recentInvoices, recentQuotes } = await getDashboardPayload(
+    dashboardCurrency,
+  );
 
   return (
     <div className="space-y-8">

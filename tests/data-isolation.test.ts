@@ -38,6 +38,29 @@ let activeUser: User;
 let alphaFixture: IsolationFixture;
 let betaFixture: IsolationFixture;
 
+async function streamToString(stream: ReadableStream<Uint8Array>) {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let output = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    output += decoder.decode(value, { stream: true });
+  }
+
+  output += decoder.decode();
+  return output;
+}
+
+async function readCsv(
+  exporter: () => Promise<ReadableStream<Uint8Array>>,
+) {
+  return streamToString(await exporter());
+}
+
 vi.mock("@/lib/auth", async () => {
   const actual = await vi.importActual<typeof import("@/lib/auth")>(
     "@/lib/auth",
@@ -291,10 +314,10 @@ describe("tenant data isolation", () => {
 
   it("scopes exports to the current user only", async () => {
     activeUser = alphaFixture.user;
-    const alphaInvoiceCsv = await exportInvoicesCsv();
-    const alphaQuoteCsv = await exportQuotesCsv();
-    const alphaProductCsv = await exportProductsCsv();
-    const alphaClientCsv = await exportClientsCsv();
+    const alphaInvoiceCsv = await readCsv(exportInvoicesCsv);
+    const alphaQuoteCsv = await readCsv(exportQuotesCsv);
+    const alphaProductCsv = await readCsv(exportProductsCsv);
+    const alphaClientCsv = await readCsv(exportClientsCsv);
 
     expect(alphaInvoiceCsv).toContain(alphaFixture.invoiceNumber);
     expect(alphaInvoiceCsv).not.toContain(betaFixture.invoiceNumber);
@@ -308,10 +331,10 @@ describe("tenant data isolation", () => {
     expect(alphaClientCsv).not.toContain(betaFixture.clientName);
 
     activeUser = betaFixture.user;
-    const betaInvoiceCsv = await exportInvoicesCsv();
-    const betaQuoteCsv = await exportQuotesCsv();
-    const betaProductCsv = await exportProductsCsv();
-    const betaClientCsv = await exportClientsCsv();
+    const betaInvoiceCsv = await readCsv(exportInvoicesCsv);
+    const betaQuoteCsv = await readCsv(exportQuotesCsv);
+    const betaProductCsv = await readCsv(exportProductsCsv);
+    const betaClientCsv = await readCsv(exportClientsCsv);
 
     expect(betaInvoiceCsv).toContain(betaFixture.invoiceNumber);
     expect(betaInvoiceCsv).not.toContain(alphaFixture.invoiceNumber);

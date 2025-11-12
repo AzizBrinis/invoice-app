@@ -11,8 +11,8 @@ export async function GET() {
     );
   }
 
-  const csv = await exportClientsCsv();
-  return new NextResponse(csv, {
+  const csvStream = await exportClientsCsv();
+  return new NextResponse(csvStream, {
     status: 200,
     headers: {
       "Content-Type": "text/csv; charset=utf-8",

@@ -4,7 +4,7 @@ import { requireUser } from "@/lib/auth";
 import { endOfMonth, startOfMonth, subMonths } from "date-fns";
 import { formatInTimeZone, fromZonedTime, toZonedTime } from "date-fns-tz";
 import { invoiceStatsTag } from "@/server/invoices";
-import type { InvoiceStatus } from "@prisma/client";
+import { Prisma, type InvoiceStatus } from "@prisma/client";
 
 const TUNIS_TIMEZONE = "Africa/Tunis";
 const DASHBOARD_REVALIDATE_SECONDS = 30;
@@ -16,6 +16,32 @@ const REVENUE_STATUSES: InvoiceStatus[] = [
   "RETARD",
 ];
 const ALL_CURRENCY_KEY = "__ALL__";
+const RECENT_ITEMS_LIMIT = 5;
+
+type RevenueHistorySlot = {
+  label: string;
+  startUtc: Date;
+  endUtc: Date;
+};
+
+type RevenueHistoryPoint = {
+  month: string;
+  amountCents: number;
+};
+
+type DashboardMetrics = {
+  revenueThisMonthCents: number;
+  overdueInvoices: number;
+  outstandingAmountCents: number;
+  pendingQuotes: number;
+  revenueHistory: RevenueHistoryPoint[];
+};
+
+type DashboardPayload = {
+  metrics: DashboardMetrics;
+  recentInvoices: Awaited<ReturnType<typeof fetchRecentInvoices>>;
+  recentQuotes: Awaited<ReturnType<typeof fetchRecentQuotes>>;
+};
 
 function getCurrentZonedDate() {
   return toZonedTime(new Date(), TUNIS_TIMEZONE);
@@ -32,14 +58,14 @@ function getMonthBoundaries(zonedDate: Date) {
   };
 }
 
-export async function getDashboardMetrics(currency?: string) {
+export async function getDashboardPayload(currency?: string) {
   const user = await requireUser();
   const tenantId = resolveTenantId(user);
   const currencyKey = currency ?? ALL_CURRENCY_KEY;
 
   const cached = unstable_cache(
-    async () => computeDashboardMetrics(tenantId, currency),
-    ["dashboard-metrics", tenantId, currencyKey],
+    async () => computeDashboardPayload(tenantId, currency),
+    ["dashboard-payload", tenantId, currencyKey],
     {
       revalidate: DASHBOARD_REVALIDATE_SECONDS,
       tags: [invoiceStatsTag(tenantId)],
@@ -49,145 +75,192 @@ export async function getDashboardMetrics(currency?: string) {
   return cached();
 }
 
+export async function getDashboardMetrics(currency?: string) {
+  const payload = await getDashboardPayload(currency);
+  return payload.metrics;
+}
+
 function resolveTenantId(user: { id: string; tenantId?: string | null }) {
   return user.tenantId ?? user.id;
 }
 
-async function computeDashboardMetrics(tenantId: string, currency?: string) {
+async function computeDashboardPayload(
+  tenantId: string,
+  currency?: string,
+): Promise<DashboardPayload> {
   const zonedNow = getCurrentZonedDate();
   const { startUtc: monthStart, endUtc: monthEnd } = getMonthBoundaries(zonedNow);
-  const currencyFilter = currency
-    ? {
-        currency,
-      }
-    : {};
+  const historySlots = getRevenueHistorySlots(zonedNow);
+  const historyRangeStart = historySlots[0].startUtc;
+  const historyRangeEnd = historySlots[historySlots.length - 1].endUtc;
 
-  const [
-    revenueThisMonth,
-    overdueCount,
-    outstandingAmount,
-    pendingQuotes,
-    revenueHistory,
-  ] = await Promise.all([
-    prisma.invoice.aggregate({
-      where: {
-        userId: tenantId,
-        issueDate: {
-          gte: monthStart,
-          lte: monthEnd,
-        },
-        ...currencyFilter,
-        status: {
-          in: REVENUE_STATUSES,
-        },
-      },
-      _sum: {
-        amountPaidCents: true,
-      },
+  const [metrics, recentInvoices, recentQuotes] = await Promise.all([
+    fetchDashboardStats({
+      tenantId,
+      currency,
+      monthStart,
+      monthEnd,
+      historySlots,
+      historyRangeStart,
+      historyRangeEnd,
     }),
-    prisma.invoice.count({
-      where: {
-        userId: tenantId,
-        ...currencyFilter,
-        status: "RETARD",
-      },
-    }),
-    prisma.invoice.aggregate({
-      where: {
-        userId: tenantId,
-        ...currencyFilter,
-        status: {
-          in: ["ENVOYEE", "PARTIELLE", "RETARD"],
-        },
-      },
-      _sum: {
-        totalTTCCents: true,
-        amountPaidCents: true,
-      },
-    }),
-    prisma.quote.count({
-      where: {
-        userId: tenantId,
-        ...currencyFilter,
-        status: {
-          in: ["ENVOYE", "BROUILLON"],
-        },
-      },
-    }),
-    buildRevenueHistory(tenantId, currency, zonedNow),
+    fetchRecentInvoices(tenantId),
+    fetchRecentQuotes(tenantId),
   ]);
 
-  const unpaidSum =
-    (outstandingAmount._sum.totalTTCCents ?? 0) -
-    (outstandingAmount._sum.amountPaidCents ?? 0);
-
   return {
-    revenueThisMonthCents: revenueThisMonth._sum.amountPaidCents ?? 0,
-    overdueInvoices: overdueCount,
-    outstandingAmountCents: unpaidSum,
-    pendingQuotes,
-    revenueHistory,
+    metrics,
+    recentInvoices,
+    recentQuotes,
   };
 }
 
-async function buildRevenueHistory(
-  tenantId: string,
-  currency: string | undefined,
-  referenceDate: Date,
-) {
-  const monthSlots = getRevenueHistorySlots(referenceDate);
-  const currencyFilter = currency
-    ? {
-        currency,
-      }
-    : {};
+async function fetchDashboardStats(params: {
+  tenantId: string;
+  currency?: string;
+  monthStart: Date;
+  monthEnd: Date;
+  historySlots: RevenueHistorySlot[];
+  historyRangeStart: Date;
+  historyRangeEnd: Date;
+}): Promise<DashboardMetrics> {
+  const {
+    tenantId,
+    currency,
+    monthStart,
+    monthEnd,
+    historySlots,
+    historyRangeStart,
+    historyRangeEnd,
+  } = params;
 
-  const { startUtc: rangeStart } = monthSlots[0];
-  const { endUtc: rangeEnd } = monthSlots[monthSlots.length - 1];
+  const [statsRow] = await prisma.$queryRaw<Array<{
+    revenue_this_month_cents: bigint | null;
+    overdue_invoices: number | null;
+    outstanding_amount_cents: bigint | null;
+    pending_quotes: number | null;
+  }>>`
+    WITH filtered_invoices AS (
+      SELECT "issueDate", "status", "amountPaidCents", "totalTTCCents"
+      FROM "Invoice"
+      WHERE "userId" = ${tenantId}
+      ${currencyCondition(currency)}
+    )
+    SELECT
+      COALESCE(
+        SUM(
+          CASE
+            WHEN "status" IN ('PAYEE', 'PARTIELLE', 'ENVOYEE', 'RETARD')
+              AND "issueDate" BETWEEN ${monthStart} AND ${monthEnd}
+            THEN "amountPaidCents"
+            ELSE 0
+          END
+        ),
+        0
+      )::bigint AS revenue_this_month_cents,
+      COUNT(*) FILTER (WHERE "status" = 'RETARD')::int AS overdue_invoices,
+      COALESCE(
+        SUM(
+          CASE
+            WHEN "status" IN ('ENVOYEE', 'PARTIELLE', 'RETARD')
+            THEN ("totalTTCCents" - "amountPaidCents")
+            ELSE 0
+          END
+        ),
+        0
+      )::bigint AS outstanding_amount_cents,
+      (
+        SELECT COUNT(*)::int
+        FROM "Quote"
+        WHERE "userId" = ${tenantId}
+        ${currencyCondition(currency)}
+          AND "status" IN ('ENVOYE', 'BROUILLON')
+      ) AS pending_quotes
+    FROM filtered_invoices;
+  `;
 
-  const rows = await prisma.invoice.findMany({
-    where: {
-      userId: tenantId,
-      issueDate: {
-        gte: rangeStart,
-        lte: rangeEnd,
-      },
-      ...currencyFilter,
-      status: {
-        in: REVENUE_STATUSES,
-      },
-    },
-    select: {
-      issueDate: true,
-      amountPaidCents: true,
+  const historyRows = await prisma.$queryRaw<Array<{
+    month: string;
+    amount_cents: bigint;
+  }>>`
+    SELECT
+      to_char(
+        date_trunc(
+          'month',
+          timezone(${TUNIS_TIMEZONE}, ("issueDate" AT TIME ZONE 'UTC'))
+        ),
+        'YYYY-MM'
+      ) AS month,
+      SUM("amountPaidCents")::bigint AS amount_cents
+    FROM "Invoice"
+    WHERE "userId" = ${tenantId}
+      ${currencyCondition(currency)}
+      AND "status" IN ('PAYEE', 'PARTIELLE', 'ENVOYEE', 'RETARD')
+      AND "issueDate" BETWEEN ${historyRangeStart} AND ${historyRangeEnd}
+    GROUP BY 1
+    ORDER BY 1;
+  `;
+
+  const revenuesByMonth = new Map<string, number>();
+  for (const row of historyRows) {
+    revenuesByMonth.set(row.month, toNumber(row.amount_cents));
+  }
+
+  const history: RevenueHistoryPoint[] = historySlots.map((slot) => ({
+    month: slot.label,
+    amountCents: revenuesByMonth.get(slot.label) ?? 0,
+  }));
+
+  return {
+    revenueThisMonthCents: toNumber(statsRow?.revenue_this_month_cents),
+    overdueInvoices: statsRow?.overdue_invoices ?? 0,
+    outstandingAmountCents: toNumber(statsRow?.outstanding_amount_cents),
+    pendingQuotes: statsRow?.pending_quotes ?? 0,
+    revenueHistory: history,
+  };
+}
+
+async function fetchRecentInvoices(tenantId: string) {
+  return prisma.invoice.findMany({
+    where: { userId: tenantId },
+    orderBy: { issueDate: "desc" },
+    take: RECENT_ITEMS_LIMIT,
+    include: {
+      client: true,
     },
   });
+}
 
-  const buckets = new Map<string, number>();
-  for (const slot of monthSlots) {
-    buckets.set(slot.label, 0);
-  }
-
-  for (const row of rows) {
-    const zonedIssueDate = toZonedTime(row.issueDate, TUNIS_TIMEZONE);
-    const label = formatInTimeZone(zonedIssueDate, TUNIS_TIMEZONE, "yyyy-MM");
-    if (buckets.has(label)) {
-      const current = buckets.get(label) ?? 0;
-      buckets.set(label, current + row.amountPaidCents);
-    }
-  }
-
-  return monthSlots.map((slot) => ({
-    month: slot.label,
-    amountCents: buckets.get(slot.label) ?? 0,
-  }));
+async function fetchRecentQuotes(tenantId: string) {
+  return prisma.quote.findMany({
+    where: { userId: tenantId },
+    orderBy: { issueDate: "desc" },
+    take: RECENT_ITEMS_LIMIT,
+    include: {
+      client: true,
+    },
+  });
 }
 
 function getRevenueHistorySlots(reference: Date) {
-  const slots: Array<{ label: string; startUtc: Date; endUtc: Date }> = [];
+  const slots: RevenueHistorySlot[] = [];
   for (let i = REVENUE_HISTORY_MONTHS - 1; i >= 0; i -= 1) {
     const target = subMonths(reference, i);
     slots.push(getMonthBoundaries(target));
   }
   return slots;
+}
+
+function currencyCondition(currency?: string) {
+  if (!currency) {
+    return Prisma.sql``;
+  }
+  return Prisma.sql`AND "currency" = ${currency}`;
+}
+
+function toNumber(value?: bigint | number | null) {
+  if (typeof value === "bigint") {
+    return Number(value);
+  }
+  return value ?? 0;
 }

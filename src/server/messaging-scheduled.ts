@@ -9,6 +9,16 @@ import {
   type MessagingCredentials,
 } from "@/server/messaging";
 
+function assertLegacyWorkerFlagDisabled() {
+  if (process.env.SCHEDULED_EMAIL_WORKER_ENABLED === "1") {
+    const message =
+      "SCHEDULED_EMAIL_WORKER_ENABLED is no longer supported. Use the /api/cron/messaging endpoint (triggered via GitHub Actions or another scheduler) instead of starting a worker inside serverless runtimes.";
+    throw new Error(message);
+  }
+}
+
+assertLegacyWorkerFlagDisabled();
+
 const DISPATCH_BATCH_SIZE = 10;
 
 type JsonArray = Prisma.JsonArray;

@@ -1,3 +1,5 @@
+import { cache } from "react";
+import { unstable_cache, revalidateTag } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { requireUser } from "@/lib/auth";
@@ -108,6 +110,58 @@ export const settingsSchema = z.object({
 
 export type SettingsInput = z.infer<typeof settingsSchema>;
 
+const settingsInclude = {
+  invoiceTemplate: true,
+  quoteTemplate: true,
+} as const;
+
+const SETTINGS_CACHE_SECONDS = 60;
+const settingsTag = (userId: string) => `settings:${userId}`;
+
+const fetchSettings = cache(async (userId: string) =>
+  prisma.companySettings.findUnique({
+    where: { userId },
+    include: settingsInclude,
+  }),
+);
+
+function normalizeSettings<T extends { taxConfiguration?: unknown }>(
+  settings: T,
+) {
+  const normalizedTaxConfig = normalizeTaxConfiguration(
+    (settings as { taxConfiguration?: unknown }).taxConfiguration,
+  );
+
+  return {
+    ...settings,
+    taxConfiguration: normalizedTaxConfig,
+  };
+}
+
+async function readCachedSettings(userId: string) {
+  if (process.env.NODE_ENV === "test") {
+    return fetchSettings(userId);
+  }
+
+  const cached = unstable_cache(
+    () => fetchSettings(userId),
+    ["settings", userId],
+    {
+      revalidate: SETTINGS_CACHE_SECONDS,
+      tags: [settingsTag(userId)],
+    },
+  );
+
+  return cached();
+}
+
+function revalidateSettings(userId: string) {
+  if (process.env.NODE_ENV === "test") {
+    return;
+  }
+  revalidateTag(settingsTag(userId), "max");
+}
+
 async function resolveUserId(userId?: string) {
   if (userId) {
     return userId;
@@ -118,23 +172,10 @@ async function resolveUserId(userId?: string) {
 
 export async function getSettings(userId?: string) {
   const resolvedUserId = await resolveUserId(userId);
-  const settings = await prisma.companySettings.findUnique({
-    where: { userId: resolvedUserId },
-    include: {
-      invoiceTemplate: true,
-      quoteTemplate: true,
-    },
-  });
+  const settings = await readCachedSettings(resolvedUserId);
 
   if (settings) {
-    const normalizedTaxConfig = normalizeTaxConfiguration(
-      (settings as { taxConfiguration?: unknown }).taxConfiguration,
-    );
-
-    return {
-      ...settings,
-      taxConfiguration: normalizedTaxConfig,
-    };
+    return normalizeSettings(settings);
   }
 
   const created = await prisma.companySettings.upsert({
@@ -155,18 +196,11 @@ export async function getSettings(userId?: string) {
       signaturePosition: "bottom-right",
     },
     update: {},
-    include: {
-      invoiceTemplate: true,
-      quoteTemplate: true,
-    },
+    include: settingsInclude,
   });
-  const normalizedTaxConfig = normalizeTaxConfiguration(
-    (created as { taxConfiguration?: unknown }).taxConfiguration,
-  );
-  return {
-    ...created,
-    taxConfiguration: normalizedTaxConfig,
-  };
+
+  revalidateSettings(resolvedUserId);
+  return normalizeSettings(created);
 }
 
 export async function updateSettings(input: SettingsInput, userId?: string) {
@@ -186,11 +220,9 @@ export async function updateSettings(input: SettingsInput, userId?: string) {
       ...rest,
       taxConfiguration: normalizedTaxConfig,
     },
-    include: {
-      invoiceTemplate: true,
-      quoteTemplate: true,
-    },
+    include: settingsInclude,
   });
 
+  revalidateSettings(resolvedUserId);
   return settings;
 }
