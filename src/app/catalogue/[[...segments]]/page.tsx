@@ -12,6 +12,8 @@ type CataloguePageProps = {
   searchParams?: Record<string, string | string[] | undefined>;
 };
 
+export const dynamic = "force-dynamic";
+
 async function resolvePayload(
   params: CataloguePageProps["params"],
   searchParams: CataloguePageProps["searchParams"],
