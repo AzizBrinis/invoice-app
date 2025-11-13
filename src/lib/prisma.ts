@@ -4,26 +4,35 @@ const globalForPrisma = globalThis as unknown as {
   prisma?: PrismaClient;
 };
 
-if (!process.env.DATABASE_URL) {
+const isTestEnv = process.env.NODE_ENV === "test";
+const baseDatabaseUrl = process.env.DATABASE_URL?.trim();
+const testDatabaseUrl = process.env.TEST_DATABASE_URL?.trim();
+const databaseUrl = (isTestEnv ? testDatabaseUrl : baseDatabaseUrl)?.trim();
+
+if (!databaseUrl) {
+  const missingKey = isTestEnv ? "TEST_DATABASE_URL" : "DATABASE_URL";
   throw new Error(
-    "DATABASE_URL must be defined. Update your .env or Vercel environment to point to the production database.",
+    `${missingKey} must be defined. Update your environment configuration to point to a valid PostgreSQL database.`,
   );
 }
 
-const accelerateUrl = process.env.PRISMA_ACCELERATE_URL?.trim();
+// Ensure downstream consumers (including Prisma CLI) see the resolved URL.
+process.env.DATABASE_URL = databaseUrl;
+
+const accelerateUrl =
+  !isTestEnv && process.env.PRISMA_ACCELERATE_URL?.trim()
+    ? process.env.PRISMA_ACCELERATE_URL.trim()
+    : null;
 
 const prismaClientOptions: Prisma.PrismaClientOptions = {
   log:
     process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
-};
-
-if (accelerateUrl) {
-  prismaClientOptions.datasources = {
+  datasources: {
     db: {
-      url: accelerateUrl,
+      url: accelerateUrl ?? databaseUrl,
     },
-  };
-}
+  },
+};
 
 export const prisma =
   globalForPrisma.prisma ?? new PrismaClient(prismaClientOptions);

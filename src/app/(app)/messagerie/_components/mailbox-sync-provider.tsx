@@ -19,11 +19,27 @@ import {
   invalidateMailboxCache,
   setMailboxCacheUser,
   clearMailboxCache,
+  beginMailboxSync,
+  endMailboxSync,
 } from "@/app/(app)/messagerie/_state/mailbox-store";
 
 const MAILBOXES = MAILBOX_KEYS;
 const BACKGROUND_SYNC_INTERVAL = 3 * 60 * 1000;
 const VISIBILITY_SYNC_DELAY = 2000;
+const INITIAL_SYNC_DELAY_MS = 200;
+const ALWAYS_SYNC_MAILBOXES: Mailbox[] = ["inbox"];
+type MailboxCacheState =
+  ReturnType<typeof getMailboxStoreSnapshot>["mailboxes"][Mailbox];
+
+function shouldBackgroundSync(
+  mailbox: Mailbox,
+  cache: MailboxCacheState | undefined,
+) {
+  if (ALWAYS_SYNC_MAILBOXES.includes(mailbox)) {
+    return true;
+  }
+  return cache?.active ?? false;
+}
 
 function createInitialSyncStatus(): Record<Mailbox, boolean> {
   return MAILBOXES.reduce<Record<Mailbox, boolean>>(
@@ -61,13 +77,6 @@ export function MailboxSyncProvider({
   useMailboxStore(() => null);
   const { addToast } = useToast();
   const router = useRouter();
-
-  useEffect(() => {
-    clearMailboxCache();
-    return () => {
-      clearMailboxCache(userId);
-    };
-  }, [userId]);
 
   const safeActionCall = useCallback(
     async <T,>(action: () => Promise<ActionResult<T>>): Promise<ActionResult<T> | null> => {
@@ -109,31 +118,39 @@ export function MailboxSyncProvider({
 
   const synchronizeSnapshot = useCallback(
     async (mailbox: Mailbox) => {
-      const result = await safeActionCall(() =>
-        fetchMailboxPageAction({
-          mailbox,
-          page: 1,
-        }),
-      );
-      if (!result || !result.success) {
+      const acquired = beginMailboxSync(mailbox);
+      if (!acquired) {
         return;
       }
-      if (!result.data) {
-        addToast({
-          variant: "error",
-          title: "Réponse invalide du serveur (snapshot).",
+      try {
+        const result = await safeActionCall(() =>
+          fetchMailboxPageAction({
+            mailbox,
+            page: 1,
+          }),
+        );
+        if (!result || !result.success) {
+          return;
+        }
+        if (!result.data) {
+          addToast({
+            variant: "error",
+            title: "Réponse invalide du serveur (snapshot).",
+          });
+          return;
+        }
+        const payload = result.data;
+        replaceMailboxMessages(mailbox, {
+          messages: payload.messages,
+          page: payload.page,
+          pageSize: payload.pageSize,
+          hasMore: payload.hasMore,
+          totalMessages: payload.totalMessages,
         });
-        return;
+        handleAutoMoved(mailbox, payload.autoMoved);
+      } finally {
+        endMailboxSync(mailbox);
       }
-      const payload = result.data;
-      replaceMailboxMessages(mailbox, {
-        messages: payload.messages,
-        page: payload.page,
-        pageSize: payload.pageSize,
-        hasMore: payload.hasMore,
-        totalMessages: payload.totalMessages,
-      });
-      handleAutoMoved(mailbox, payload.autoMoved);
     },
     [addToast, handleAutoMoved, safeActionCall],
   );
@@ -148,6 +165,9 @@ export function MailboxSyncProvider({
       try {
         const snapshot = getMailboxStoreSnapshot();
         const cached = snapshot.mailboxes[mailbox];
+        if (!shouldBackgroundSync(mailbox, cached)) {
+          return;
+        }
         if (!cached.initialized || !cached.latestUid) {
           await synchronizeSnapshot(mailbox);
           return;
@@ -222,6 +242,7 @@ export function MailboxSyncProvider({
     }
 
     let cancelled = false;
+    let initialSyncTimer: number | null = null;
 
     const syncAll = () => {
       if (cancelled) return;
@@ -230,7 +251,25 @@ export function MailboxSyncProvider({
       });
     };
 
-    syncAll();
+    const scheduleInitialSync = () => {
+      if (cancelled) return;
+      const snapshot = getMailboxStoreSnapshot();
+      const needsHydrationDelay = MAILBOXES.every((mailbox) => {
+        const cache = snapshot.mailboxes[mailbox];
+        return (
+          !cache.initialized &&
+          cache.messages.length === 0 &&
+          cache.lastSync === null
+        );
+      });
+      if (needsHydrationDelay) {
+        initialSyncTimer = window.setTimeout(syncAll, INITIAL_SYNC_DELAY_MS);
+      } else {
+        syncAll();
+      }
+    };
+
+    scheduleInitialSync();
 
     const interval = window.setInterval(syncAll, BACKGROUND_SYNC_INTERVAL);
 
@@ -254,6 +293,9 @@ export function MailboxSyncProvider({
       window.clearInterval(interval);
       window.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("focus", syncAll);
+      if (initialSyncTimer) {
+        window.clearTimeout(initialSyncTimer);
+      }
       if (visibilityTimeoutRef.current) {
         window.clearTimeout(visibilityTimeoutRef.current);
       }

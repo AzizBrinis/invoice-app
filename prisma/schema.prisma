@@ -123,6 +123,8 @@ model WebsiteConfig {
   leadAutoTag             String?
   leadThanksMessage       String?
   spamProtectionEnabled   Boolean            @default(true)
+  builderConfig           Json               @default("{}")
+  builderVersionHistory   Json               @default("[]")
   customDomain            String?            @unique
   domainStatus            WebsiteDomainStatus @default(PENDING)
   domainVerificationCode  String             @unique @default(cuid())

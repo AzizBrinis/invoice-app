@@ -76,12 +76,45 @@ export type QuoteFilters = {
   issueDateTo?: Date;
   page?: number;
   pageSize?: number;
+  sort?: QuoteSort;
 };
 
 const DEFAULT_PAGE_SIZE = 10;
 const QUOTE_LIST_REVALIDATE_SECONDS = 30;
 const QUOTE_FORM_CACHE_SECONDS = 60;
 const isTestEnv = process.env.NODE_ENV === "test";
+
+const QUOTE_SORT_CONFIG = {
+  "issue-desc": [
+    { issueDate: "desc" },
+    { id: "desc" },
+  ],
+  "issue-asc": [
+    { issueDate: "asc" },
+    { id: "asc" },
+  ],
+  "total-desc": [
+    { totalTTCCents: "desc" },
+    { id: "desc" },
+  ],
+  "total-asc": [
+    { totalTTCCents: "asc" },
+    { id: "asc" },
+  ],
+  "status-asc": [
+    { status: "asc" },
+    { issueDate: "desc" },
+    { id: "desc" },
+  ],
+  "client-asc": [
+    { client: { displayName: "asc" } },
+    { issueDate: "desc" },
+    { id: "desc" },
+  ],
+} as const satisfies Record<string, Prisma.QuoteOrderByWithRelationInput[]>;
+
+export type QuoteSort = keyof typeof QUOTE_SORT_CONFIG;
+export const DEFAULT_QUOTE_SORT: QuoteSort = "issue-desc";
 
 type NormalizedQuoteFilters = {
   search?: string;
@@ -91,6 +124,7 @@ type NormalizedQuoteFilters = {
   issueDateTo?: string;
   page: number;
   pageSize: number;
+  sort: QuoteSort;
 };
 
 const quoteListTag = (userId: string) => `quotes:list:${userId}`;
@@ -114,14 +148,24 @@ function normalizeQuoteFilters(filters: QuoteFilters = {}): NormalizedQuoteFilte
   const pageSize = Math.min(100, Math.max(1, filters.pageSize ?? DEFAULT_PAGE_SIZE));
   const status = filters.status ?? "all";
   const search = filters.search?.trim();
+  const sort = filters.sort && filters.sort in QUOTE_SORT_CONFIG ? filters.sort : DEFAULT_QUOTE_SORT;
+  const issueDateFrom =
+    filters.issueDateFrom instanceof Date && !Number.isNaN(filters.issueDateFrom.valueOf())
+      ? filters.issueDateFrom
+      : undefined;
+  const issueDateTo =
+    filters.issueDateTo instanceof Date && !Number.isNaN(filters.issueDateTo.valueOf())
+      ? filters.issueDateTo
+      : undefined;
   return {
     search: search ? search : undefined,
     status,
     clientId: filters.clientId ?? undefined,
-    issueDateFrom: filters.issueDateFrom ? filters.issueDateFrom.toISOString() : undefined,
-    issueDateTo: filters.issueDateTo ? filters.issueDateTo.toISOString() : undefined,
+    issueDateFrom: issueDateFrom ? issueDateFrom.toISOString() : undefined,
+    issueDateTo: issueDateTo ? issueDateTo.toISOString() : undefined,
     page,
     pageSize,
+    sort,
   };
 }
 
@@ -136,6 +180,7 @@ function deserializeFilters(filters: NormalizedQuoteFilters): QuoteFilters {
     clientId: filters.clientId,
     issueDateFrom: filters.issueDateFrom ? new Date(filters.issueDateFrom) : undefined,
     issueDateTo: filters.issueDateTo ? new Date(filters.issueDateTo) : undefined,
+    sort: filters.sort,
   };
 }
 
@@ -202,6 +247,35 @@ export async function getQuoteFormProducts(userId: string) {
     }
     return runQuery();
   }
+}
+
+export async function searchQuoteProducts(
+  userId: string,
+  search?: string | null,
+  take: number = 20,
+) {
+  const limit = Math.min(50, Math.max(1, take));
+  const query = search?.trim();
+  return prisma.product.findMany({
+    where: {
+      userId,
+      isActive: true,
+      ...(query
+        ? {
+            OR: [
+              { name: { contains: query, mode: "insensitive" } },
+              { sku: { contains: query, mode: "insensitive" } },
+            ],
+          }
+        : {}),
+    },
+    orderBy: [
+      { name: "asc" },
+      { id: "asc" },
+    ],
+    take: limit,
+    select: quoteProductSelect,
+  });
 }
 
 export async function getQuoteFormSettings(userId: string) {
@@ -312,6 +386,7 @@ async function fetchQuotesFromDb(userId: string, filters: NormalizedQuoteFilters
   };
   const pageSize = filters.pageSize;
   const page = filters.page;
+  const orderBy = QUOTE_SORT_CONFIG[filters.sort] ?? QUOTE_SORT_CONFIG[DEFAULT_QUOTE_SORT];
 
   const [items, total] = await Promise.all([
     prisma.quote.findMany({
@@ -321,14 +396,7 @@ async function fetchQuotesFromDb(userId: string, filters: NormalizedQuoteFilters
           select: quoteFilterClientsSelect,
         },
       },
-      orderBy: [
-        {
-          issueDate: "desc",
-        },
-        {
-          id: "desc",
-        },
-      ],
+      orderBy,
       skip: (page - 1) * pageSize,
       take: pageSize,
     }),
@@ -677,6 +745,28 @@ export async function changeQuoteStatus(id: string, status: QuoteStatus) {
   return updated;
 }
 
+export async function changeQuotesStatusBulk(
+  ids: string[],
+  status: QuoteStatus,
+) {
+  const uniqueIds = Array.from(
+    new Set(ids.filter((value): value is string => Boolean(value))),
+  );
+  if (uniqueIds.length === 0) {
+    return 0;
+  }
+  const { id: userId } = await requireUser();
+  const result = await prisma.quote.updateMany({
+    where: {
+      id: { in: uniqueIds },
+      userId,
+    },
+    data: { status },
+  });
+  revalidateQuotes(userId);
+  return result.count;
+}
+
 export async function deleteQuote(id: string) {
   const { id: userId } = await requireUser();
   const existing = await prisma.quote.findFirst({
@@ -689,6 +779,24 @@ export async function deleteQuote(id: string) {
     where: { id },
   });
   revalidateQuotes(userId);
+}
+
+export async function deleteQuotesBulk(ids: string[]) {
+  const uniqueIds = Array.from(
+    new Set(ids.filter((value): value is string => Boolean(value))),
+  );
+  if (uniqueIds.length === 0) {
+    return 0;
+  }
+  const { id: userId } = await requireUser();
+  const result = await prisma.quote.deleteMany({
+    where: {
+      id: { in: uniqueIds },
+      userId,
+    },
+  });
+  revalidateQuotes(userId);
+  return result.count;
 }
 
 export async function duplicateQuote(id: string) {

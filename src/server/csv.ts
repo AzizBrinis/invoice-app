@@ -236,6 +236,34 @@ const quoteHeaders: CsvHeader<QuoteCsvRow>[] = [
   { key: "currency", label: "Devise" },
 ];
 
+function mapQuoteToCsvRow(quote: {
+  number: string;
+  status: string;
+  issueDate: Date;
+  validUntil: Date | null;
+  subtotalHTCents: number;
+  totalTTCCents: number;
+  currency: string;
+  client: { displayName: string };
+}): QuoteCsvRow {
+  return {
+    number: quote.number,
+    client: quote.client.displayName,
+    status: quote.status,
+    issueDate: formatDate(quote.issueDate),
+    validUntil: quote.validUntil ? formatDate(quote.validUntil) : "",
+    totalHT: formatCurrency(
+      fromCents(quote.subtotalHTCents, quote.currency),
+      quote.currency as CurrencyCode,
+    ),
+    totalTTC: formatCurrency(
+      fromCents(quote.totalTTCCents, quote.currency),
+      quote.currency as CurrencyCode,
+    ),
+    currency: quote.currency,
+  };
+}
+
 async function* quoteRows(userId: string) {
   for await (const quote of paginateModel((cursor) =>
     prisma.quote.findMany({
@@ -268,28 +296,57 @@ async function* quoteRows(userId: string) {
         : {}),
     }),
   )) {
-    yield {
-      number: quote.number,
-      client: quote.client.displayName,
-      status: quote.status,
-      issueDate: formatDate(quote.issueDate),
-      validUntil: quote.validUntil ? formatDate(quote.validUntil) : "",
-      totalHT: formatCurrency(
-        fromCents(quote.subtotalHTCents, quote.currency),
-        quote.currency as CurrencyCode,
-      ),
-      totalTTC: formatCurrency(
-        fromCents(quote.totalTTCCents, quote.currency),
-        quote.currency as CurrencyCode,
-      ),
-      currency: quote.currency,
-    };
+    yield mapQuoteToCsvRow(quote);
   }
 }
 
 export async function exportQuotesCsv() {
   const { id: userId } = await requireUser();
   return streamCsv<QuoteCsvRow>(quoteHeaders, () => quoteRows(userId));
+}
+
+async function* selectedQuoteRows(userId: string, ids: string[]) {
+  if (ids.length === 0) {
+    return;
+  }
+  const quotes = await prisma.quote.findMany({
+    where: {
+      userId,
+      id: { in: ids },
+    },
+    orderBy: [
+      { issueDate: "desc" },
+      { id: "desc" },
+    ],
+    select: {
+      number: true,
+      status: true,
+      issueDate: true,
+      validUntil: true,
+      subtotalHTCents: true,
+      totalTTCCents: true,
+      currency: true,
+      client: {
+        select: {
+          displayName: true,
+        },
+      },
+    },
+  });
+  for (const quote of quotes) {
+    yield mapQuoteToCsvRow(quote);
+  }
+}
+
+export async function exportSelectedQuotesCsv(ids: string[]) {
+  const uniqueIds = Array.from(new Set(ids.filter((value) => value)));
+  if (uniqueIds.length === 0) {
+    throw new Error("Aucun devis sélectionné.");
+  }
+  const { id: userId } = await requireUser();
+  return streamCsv<QuoteCsvRow>(quoteHeaders, () =>
+    selectedQuoteRows(userId, uniqueIds),
+  );
 }
 
 type InvoiceCsvRow = {

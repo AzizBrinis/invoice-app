@@ -43,6 +43,12 @@ import {
   markMailboxMessageSeen,
   removeMailboxMessage,
   invalidateMailboxCache,
+  MAILBOX_CACHE_TTL_MS,
+  MAILBOX_DETAIL_TTL_MS,
+  markMailboxActive,
+  beginMailboxSync,
+  endMailboxSync,
+  cacheMessageDetail,
 } from "@/app/(app)/messagerie/_state/mailbox-store";
 import type { LucideIcon } from "lucide-react";
 
@@ -212,25 +218,30 @@ export function MailboxClient({
     useState<string | null>(null);
   const [movingTarget, setMovingTarget] = useState<Mailbox | null>(null);
   const previewUrlRef = useRef<Record<string, string>>({});
+  const staleRefreshPendingRef = useRef(false);
   const [storeHydrated, setStoreHydrated] = useState(false);
 
   useEffect(() => {
     setStoreHydrated(true);
   }, []);
 
-  const pageSizeFromStore =
-    storeHydrated && mailboxState.initialized
-      ? mailboxState.pageSize
-      : initialPage?.pageSize ?? 20;
-  const messages =
-    storeHydrated && mailboxState.initialized
-      ? mailboxState.messages
-      : initialPage?.messages ?? [];
+  useEffect(() => {
+    markMailboxActive(mailbox);
+  }, [mailbox]);
+
+  const storeHasMessages =
+    storeHydrated && mailboxState.messages.length > 0;
+  const preferStoreState =
+    storeHydrated && (mailboxState.initialized || storeHasMessages);
+  const pageSizeFromStore = preferStoreState
+    ? mailboxState.pageSize
+    : initialPage?.pageSize ?? 20;
+  const messages = preferStoreState
+    ? mailboxState.messages
+    : initialPage?.messages ?? [];
   const hasMessages = messages.length > 0;
-  const hasMoreMessages = mailboxState.initialized
-    ? storeHydrated
-      ? mailboxState.hasMore
-      : initialPage?.hasMore ?? false
+  const hasMoreMessages = preferStoreState
+    ? mailboxState.hasMore
     : initialPage?.hasMore ?? false;
 
   const safeActionCall = useCallback(
@@ -279,6 +290,24 @@ export function MailboxClient({
     const parsed = Number.parseInt(raw, 10);
     return Number.isNaN(parsed) ? null : parsed;
   }, [searchParams]);
+
+  const cachedDetailEntry = useMailboxStore(
+    useCallback(
+      (state) => {
+        if (!selectedUid) {
+          return null;
+        }
+        return state.messageDetails[mailbox]?.[selectedUid] ?? null;
+      },
+      [mailbox, selectedUid],
+    ),
+  );
+
+  const cachedDetail =
+    cachedDetailEntry &&
+    Date.now() - cachedDetailEntry.fetchedAt <= MAILBOX_DETAIL_TTL_MS
+      ? cachedDetailEntry.detail
+      : null;
 
   const moveOptions = useMemo(
     () => MAILBOX_MOVE_OPTIONS[mailbox] ?? [],
@@ -344,9 +373,109 @@ export function MailboxClient({
       return;
     }
 
+    if (mailboxState.syncing) {
+      setInitialLoading(true);
+      return;
+    }
+
     let isCancelled = false;
+    let released = false;
+    const releaseSync = () => {
+      if (!released) {
+        endMailboxSync(mailbox);
+        released = true;
+      }
+    };
+
+    const acquired = beginMailboxSync(mailbox);
+    if (!acquired) {
+      setInitialLoading(true);
+      return;
+    }
     setInitialLoading(true);
     const loadInitial = async () => {
+      try {
+        const result = await safeActionCall(() =>
+          fetchMailboxPageAction({
+            mailbox,
+            page: 1,
+            pageSize: pageSizeFromStore,
+          }),
+        );
+        if (!result || isCancelled) {
+          if (!result) {
+            setListError("Erreur de synchronisation des messages.");
+          }
+          return;
+        }
+        if (result.success) {
+          const payload = result.data;
+          if (!payload) {
+            setListError("Réponse invalide du serveur.");
+            return;
+          }
+          initializeMailboxCache(mailbox, {
+            messages: payload.messages,
+            page: payload.page,
+            pageSize: payload.pageSize,
+            hasMore: payload.hasMore,
+            totalMessages: payload.totalMessages,
+          });
+          processAutoMoved(payload.autoMoved);
+          setListError(null);
+        } else {
+          setListError(result.message);
+          addToast({
+            variant: "error",
+            title: result.message,
+          });
+        }
+      } finally {
+        setInitialLoading(false);
+        releaseSync();
+      }
+    };
+
+    void loadInitial();
+
+    return () => {
+      isCancelled = true;
+      releaseSync();
+    };
+  }, [
+    mailbox,
+    mailboxState.initialized,
+    mailboxState.syncing,
+    initialPage,
+    initialError,
+    pageSizeFromStore,
+    safeActionCall,
+    addToast,
+    processAutoMoved,
+  ]);
+
+  useEffect(() => {
+    if (
+      !storeHydrated ||
+      !mailboxState.initialized ||
+      mailboxState.lastSync === null
+    ) {
+      return;
+    }
+    if (Date.now() - mailboxState.lastSync <= MAILBOX_CACHE_TTL_MS) {
+      return;
+    }
+    if (staleRefreshPendingRef.current) {
+      return;
+    }
+    const acquired = beginMailboxSync(mailbox);
+    if (!acquired) {
+      return;
+    }
+    staleRefreshPendingRef.current = true;
+    let cancelled = false;
+
+    const refreshStaleCache = async () => {
       const result = await safeActionCall(() =>
         fetchMailboxPageAction({
           mailbox,
@@ -354,52 +483,38 @@ export function MailboxClient({
           pageSize: pageSizeFromStore,
         }),
       );
-      if (!result || isCancelled) {
-        setInitialLoading(false);
-        if (!result) {
-          setListError("Erreur de synchronisation des messages.");
-        }
+      if (cancelled) {
         return;
       }
-      if (result.success) {
-        const payload = result.data;
-        if (!payload) {
-          setListError("Réponse invalide du serveur.");
-          return;
-        }
-        initializeMailboxCache(mailbox, {
-          messages: payload.messages,
-          page: payload.page,
-          pageSize: payload.pageSize,
-          hasMore: payload.hasMore,
-          totalMessages: payload.totalMessages,
+      if (result && result.success && result.data) {
+        replaceMailboxMessages(mailbox, {
+          messages: result.data.messages,
+          page: result.data.page,
+          pageSize: result.data.pageSize,
+          hasMore: result.data.hasMore,
+          totalMessages: result.data.totalMessages,
         });
-        processAutoMoved(payload.autoMoved);
+        processAutoMoved(result.data.autoMoved);
         setListError(null);
-      } else {
-        setListError(result.message);
-        addToast({
-          variant: "error",
-          title: result.message,
-        });
       }
-      setInitialLoading(false);
     };
 
-    void loadInitial();
+    void refreshStaleCache().finally(() => {
+      staleRefreshPendingRef.current = false;
+      endMailboxSync(mailbox);
+    });
 
     return () => {
-      isCancelled = true;
+      cancelled = true;
     };
   }, [
     mailbox,
     mailboxState.initialized,
-    initialPage,
-    initialError,
+    mailboxState.lastSync,
     pageSizeFromStore,
-    safeActionCall,
-    addToast,
     processAutoMoved,
+    safeActionCall,
+    storeHydrated,
   ]);
 
   useEffect(() => {
@@ -410,11 +525,20 @@ export function MailboxClient({
       return;
     }
 
-    let isCancelled = false;
-    const loadDetail = async () => {
-      setDetail(null);
-      setDetailLoading(true);
+    if (cachedDetail) {
+      setDetail(cachedDetail);
       setDetailError(null);
+      setDetailLoading(false);
+      markMailboxMessageSeen(mailbox, selectedUid);
+      return;
+    }
+
+    let isCancelled = false;
+    setDetail(null);
+    setDetailLoading(true);
+    setDetailError(null);
+
+    const loadDetail = async () => {
       try {
         const result = await safeActionCall(() =>
           fetchMessageDetailAction({
@@ -422,17 +546,17 @@ export function MailboxClient({
             uid: selectedUid,
           }),
         );
-        if (!result || isCancelled) return;
-        if (result.success) {
-          if (!result.data) {
-            setDetailError("Message introuvable.");
-            return;
-          }
+        if (!result || isCancelled) {
+          return;
+        }
+        if (result.success && result.data) {
+          cacheMessageDetail(mailbox, result.data);
           setDetail(result.data);
+          setDetailError(null);
           markMailboxMessageSeen(mailbox, selectedUid);
         } else {
           const errorMessage =
-            result.message ?? "Échec de chargement du message.";
+            result?.message ?? "Échec de chargement du message.";
           setDetailError(errorMessage);
           addToast({
             variant: "error",
@@ -455,7 +579,13 @@ export function MailboxClient({
     return () => {
       isCancelled = true;
     };
-  }, [mailbox, selectedUid, safeActionCall, addToast]);
+  }, [
+    addToast,
+    cachedDetail,
+    mailbox,
+    safeActionCall,
+    selectedUid,
+  ]);
 
   const handleSelectMessage = useCallback(
     (uid: number) => {

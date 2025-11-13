@@ -1,6 +1,14 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import {
+  useMemo,
+  useRef,
+  useState,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+} from "react";
 import { useFormStatus } from "react-dom";
 import type { Quote, QuoteLine, QuoteStatus } from "@prisma/client";
 import { calculateDocumentTotals, calculateLineTotals } from "@/lib/documents";
@@ -10,6 +18,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import type { Client, Product } from "@prisma/client";
+import { Spinner } from "@/components/ui/spinner";
+import { createPortal } from "react-dom";
 import {
   CURRENCY_CODES,
   type CurrencyInfo,
@@ -40,7 +50,6 @@ type QuoteEditorProps = {
   action: (formData: FormData) => void;
   submitLabel: string;
   clients: QuoteEditorClient[];
-  products: QuoteEditorProduct[];
   defaultCurrency: CurrencyCode;
   currencyOptions: CurrencyInfo[];
   taxConfiguration: TaxConfiguration;
@@ -56,6 +65,8 @@ const STATUS_OPTIONS: Array<{ value: QuoteStatus; label: string }> = [
   { value: "EXPIRE", label: "Expiré" },
 ];
 
+const productCache = new Map<string, QuoteEditorProduct>();
+
 function normalizeCurrencyCode(
   value: string | null | undefined,
   fallback: CurrencyCode,
@@ -70,10 +81,10 @@ function normalizeCurrencyCode(
   return fallback;
 }
 
-function SubmitButton({ label }: { label: string }) {
+function SubmitButton({ label, disabled }: { label: string; disabled?: boolean }) {
   const { pending } = useFormStatus();
   return (
-    <Button type="submit" loading={pending}>
+    <Button type="submit" loading={pending} disabled={disabled}>
       {label}
     </Button>
   );
@@ -83,7 +94,6 @@ export function QuoteEditor({
   action,
   submitLabel,
   clients,
-  products,
   defaultCurrency,
   currencyOptions,
   taxConfiguration,
@@ -94,6 +104,9 @@ export function QuoteEditor({
     defaultQuote?.currency,
     defaultCurrency,
   );
+  const isNewQuote = !defaultQuote;
+  const hasClients = clients.length > 0;
+  const selectionBlocked = !hasClients && isNewQuote;
   const quoteTaxConfig = defaultQuote?.taxConfiguration
     ? normalizeTaxConfiguration(defaultQuote.taxConfiguration)
     : null;
@@ -166,7 +179,7 @@ export function QuoteEditor({
               ? line.fodecRate ?? taxConfiguration.fodec.rate
               : null,
         }))
-    : [createEmptyLine(products[0], defaultLineFodecRate, initialCurrency)];
+    : [createEmptyLine(undefined, defaultLineFodecRate, initialCurrency)];
 
   const [lines, setLines] = useState<QuoteLineForm[]>(initialLines);
   const payloadRef = useRef<HTMLInputElement>(null);
@@ -259,12 +272,8 @@ export function QuoteEditor({
       ? fromCents(globalDiscountAppliedCents, currency)
       : globalDiscountAmountManual;
 
-  const handleProductSelect = (index: number, productId: string) => {
-    const product = products.find((p) => p.id === productId);
-    if (!product) {
-      handleLineChange(index, { productId: null });
-      return;
-    }
+  const applyProductToLine = (index: number, product: QuoteEditorProduct) => {
+    productCache.set(product.id, product);
     handleLineChange(index, {
       productId: product.id,
       description: product.name,
@@ -283,7 +292,7 @@ export function QuoteEditor({
   };
 
   const addLine = () => {
-    setLines((prev) => [...prev, createEmptyLine(products[0], defaultLineFodecRate, currency)]);
+    setLines((prev) => [...prev, createEmptyLine(undefined, defaultLineFodecRate, currency)]);
   };
 
   const removeLine = (index: number) => {
@@ -365,8 +374,18 @@ export function QuoteEditor({
     >
       <input ref={payloadRef} type="hidden" name="payload" />
       <input type="hidden" name="redirectTo" value={target} />
-      <section className="card space-y-4 p-6">
-        <div className="grid gap-4 sm:grid-cols-3">
+      {selectionBlocked ? (
+        <div className="card border border-dashed border-amber-200 bg-amber-50/50 p-6 text-sm text-amber-900 dark:border-amber-400/40 dark:bg-amber-500/10 dark:text-amber-100">
+          <p className="font-semibold">Aucun client disponible</p>
+          <p className="mt-1">Ajoutez un client avant de créer un devis.</p>
+          <Button asChild className="mt-4 w-fit" variant="secondary">
+            <Link href="/clients/nouveau">Créer un client</Link>
+          </Button>
+        </div>
+      ) : null}
+      <fieldset disabled={selectionBlocked} className="space-y-6">
+        <section className="card space-y-4 p-6">
+          <div className="grid gap-4 sm:grid-cols-3">
           <div className="space-y-2">
             <label className="label" htmlFor="clientId">
               Client
@@ -378,12 +397,19 @@ export function QuoteEditor({
               value={clientId}
               onChange={(event) => setClientId(event.target.value)}
               required
+              disabled={selectionBlocked && !defaultQuote}
             >
-              {clients.map((client) => (
-                <option key={client.id} value={client.id}>
-                  {client.displayName}
-                </option>
-              ))}
+              {hasClients ? (
+                clients.map((client) => (
+                  <option key={client.id} value={client.id}>
+                    {client.displayName}
+                  </option>
+                ))
+              ) : defaultQuote ? (
+                <option value={defaultQuote.clientId ?? ""}>Client associé</option>
+              ) : (
+                <option value="">Aucun client disponible</option>
+              )}
             </select>
           </div>
           <div className="space-y-2">
@@ -577,18 +603,17 @@ export function QuoteEditor({
                     className="transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800"
                   >
                     <td className="px-3 py-2">
-                      <select
-                        className="input"
-                        value={line.productId ?? ""}
-                        onChange={(event) => handleProductSelect(index, event.target.value)}
-                      >
-                        <option value="">Personnalisé</option>
-                        {products.map((product) => (
-                          <option key={product.id} value={product.id}>
-                            {product.name}
-                          </option>
-                        ))}
-                      </select>
+                      <ProductSearchInput
+                        lineKey={line.id ?? `line-${index}`}
+                        selectedProductId={line.productId ?? null}
+                        initialLabel={line.productId ? line.description ?? "" : ""}
+                        onProductSelect={(product) => applyProductToLine(index, product)}
+                        onClearSelection={() =>
+                          handleLineChange(index, {
+                            productId: null,
+                          })
+                        }
+                      />
                     </td>
                     <td className="px-3 py-2">
                       <Textarea
@@ -833,9 +858,238 @@ export function QuoteEditor({
       </section>
 
       <div className="flex justify-end">
-        <SubmitButton label={submitLabel} />
+        <SubmitButton label={submitLabel} disabled={selectionBlocked} />
       </div>
+      </fieldset>
     </form>
+  );
+}
+
+type ProductSearchInputProps = {
+  lineKey: string;
+  selectedProductId: string | null;
+  initialLabel: string;
+  onProductSelect: (product: QuoteEditorProduct) => void;
+  onClearSelection: () => void;
+};
+
+function ProductSearchInput({
+  lineKey,
+  selectedProductId,
+  initialLabel,
+  onProductSelect,
+  onClearSelection,
+}: ProductSearchInputProps) {
+  const [query, setQuery] = useState(initialLabel ?? "");
+  const [options, setOptions] = useState<QuoteEditorProduct[]>([]);
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const fetchController = useRef<AbortController | null>(null);
+  const fetchSeq = useRef(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement | null>(null);
+  const [dropdownRect, setDropdownRect] = useState<{
+    top: number;
+    left: number;
+    width: number;
+  } | null>(null);
+  const previousSelection = useRef<string | null>(selectedProductId);
+
+  const fetchProducts = useCallback(
+    async (term: string) => {
+      fetchController.current?.abort();
+      const controller = new AbortController();
+      fetchController.current = controller;
+      fetchSeq.current += 1;
+      const currentSeq = fetchSeq.current;
+      setLoading(true);
+      try {
+        const params = new URLSearchParams();
+        if (term) {
+          params.set("q", term);
+        }
+        params.set("limit", "20");
+        const response = await fetch(`/api/products/search?${params.toString()}`, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          throw new Error("Échec de la recherche produit");
+        }
+        const data = (await response.json()) as { items?: QuoteEditorProduct[] };
+        if (currentSeq === fetchSeq.current) {
+          const items = data.items ?? [];
+          items.forEach((item) => productCache.set(item.id, item));
+          setOptions(items);
+        }
+      } catch (error) {
+        if ((error as Error).name !== "AbortError") {
+          console.error("[ProductSearchInput] fetch failed", error);
+        }
+      } finally {
+        if (currentSeq === fetchSeq.current) {
+          setLoading(false);
+        }
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (previousSelection.current !== selectedProductId) {
+      setQuery(initialLabel ?? "");
+      previousSelection.current = selectedProductId;
+    }
+  }, [initialLabel, selectedProductId]);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const handle = window.setTimeout(() => {
+      fetchProducts(query);
+    }, 250);
+    return () => window.clearTimeout(handle);
+  }, [open, query, fetchProducts]);
+
+  const updateDropdownRect = useCallback(() => {
+    if (!containerRef.current) {
+      setDropdownRect(null);
+      return;
+    }
+    const rect = containerRef.current.getBoundingClientRect();
+    setDropdownRect({
+      top: rect.bottom + window.scrollY,
+      left: rect.left + window.scrollX,
+      width: rect.width,
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!open) {
+      return;
+    }
+    updateDropdownRect();
+    const handle = () => updateDropdownRect();
+    window.addEventListener("resize", handle);
+    window.addEventListener("scroll", handle, true);
+    return () => {
+      window.removeEventListener("resize", handle);
+      window.removeEventListener("scroll", handle, true);
+    };
+  }, [open, updateDropdownRect]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    function handleClick(event: MouseEvent) {
+      const target = event.target as Node;
+      if (
+        !containerRef.current?.contains(target) &&
+        !dropdownRef.current?.contains(target)
+      ) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  const handleSelect = (product: QuoteEditorProduct) => {
+    setQuery(product.name);
+    setOpen(false);
+    onProductSelect(product);
+  };
+
+  const handleClear = () => {
+    setQuery("");
+    setOpen(false);
+    onClearSelection();
+  };
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <Input
+        id={`product-search-${lineKey}`}
+        value={query}
+        onChange={(event) => {
+          setQuery(event.target.value);
+          if (!open) {
+            setOpen(true);
+          }
+        }}
+        onFocus={() => {
+          setOpen(true);
+          if (!options.length) {
+            fetchProducts(query);
+          }
+        }}
+        placeholder="Rechercher un produit"
+        autoComplete="off"
+      />
+      {query ? (
+        <button
+          type="button"
+          onClick={handleClear}
+          className="absolute inset-y-0 right-2 flex items-center text-xs text-zinc-500 hover:text-zinc-700 dark:text-zinc-300 dark:hover:text-zinc-100"
+        >
+          Effacer
+        </button>
+      ) : null}
+      {open && dropdownRect && mounted
+        ? createPortal(
+            <div
+              ref={dropdownRef}
+              className="max-h-64 min-w-[220px] overflow-auto rounded-md border border-zinc-200 bg-white p-2 shadow-lg focus:outline-none dark:border-zinc-700 dark:bg-zinc-900"
+              style={{
+                position: "absolute",
+                top: dropdownRect.top,
+                left: dropdownRect.left,
+                width: dropdownRect.width,
+                zIndex: 1000,
+              }}
+            >
+              {loading ? (
+                <div className="flex justify-center py-4">
+                  <Spinner size="sm" label="Recherche..." />
+                </div>
+              ) : options.length > 0 ? (
+                <div className="space-y-1">
+                  {options.map((product) => (
+                    <button
+                      key={product.id}
+                      type="button"
+                      className="w-full rounded-md px-2 py-1 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                      onClick={() => handleSelect(product)}
+                    >
+                      <div className="font-medium">{product.name}</div>
+                      <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                        {product.unit} — TVA {product.vatRate}%
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="px-2 py-3 text-center text-sm text-zinc-500 dark:text-zinc-400">
+                  Aucun produit trouvé.
+                </p>
+              )}
+              <div className="mt-2 border-t border-dashed border-zinc-200 pt-2 dark:border-zinc-700">
+                <Button type="button" variant="ghost" className="w-full px-2 py-1 text-xs" onClick={handleClear}>
+                  Utiliser une ligne personnalisée
+                </Button>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+    </div>
   );
 }
 

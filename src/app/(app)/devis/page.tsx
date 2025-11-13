@@ -1,26 +1,26 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { requireUser } from "@/lib/auth";
-import { listQuotes, getQuoteFilterClients } from "@/server/quotes";
+import { listQuotes, getQuoteFilterClients, DEFAULT_QUOTE_SORT } from "@/server/quotes";
+import type { QuoteSort } from "@/server/quotes";
 import {
   changeQuoteStatusAction,
   deleteQuoteAction,
   duplicateQuoteAction,
   convertQuoteToInvoiceAction,
+  bulkDeleteQuotesAction,
+  bulkChangeQuotesStatusAction,
 } from "@/app/(app)/devis/actions";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { formatCurrency, formatDate } from "@/lib/formatters";
-import { fromCents } from "@/lib/money";
 import { QuoteStatus } from "@prisma/client";
 import { QuotesPageSkeleton } from "@/components/skeletons";
 import { ExportButton } from "@/components/export-button";
-import { FormSubmitButton } from "@/components/ui/form-submit-button";
 import { Alert } from "@/components/ui/alert";
 import {
   FlashMessages,
   type FlashMessage,
 } from "@/components/ui/flash-messages";
+import { QuoteTableClient } from "@/app/(app)/devis/quotes-table-client";
 
 export const dynamic = "force-dynamic";
 
@@ -40,19 +40,16 @@ const QUOTE_STATUS_VALUES: readonly QuoteStatus[] = [
   "EXPIRE",
 ];
 
-function statusVariant(status: QuoteStatus) {
-  switch (status) {
-    case "ACCEPTE":
-      return "success" as const;
-    case "REFUSE":
-    case "EXPIRE":
-      return "danger" as const;
-    case "ENVOYE":
-      return "info" as const;
-    default:
-      return "neutral" as const;
-  }
-}
+const SORT_OPTIONS: Array<{ value: QuoteSort; label: string }> = [
+  { value: "issue-desc", label: "Date d'émission ↓" },
+  { value: "issue-asc", label: "Date d'émission ↑" },
+  { value: "total-desc", label: "Montant TTC ↓" },
+  { value: "total-asc", label: "Montant TTC ↑" },
+  { value: "status-asc", label: "Statut A→Z" },
+  { value: "client-asc", label: "Client A→Z" },
+];
+
+const SORT_VALUES = SORT_OPTIONS.map((option) => option.value);
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -77,6 +74,29 @@ function parseStatusParam(
     return "all";
   }
   return isQuoteStatus(candidate) ? candidate : "all";
+}
+
+function isQuoteSort(value: string): value is QuoteSort {
+  return SORT_VALUES.includes(value as QuoteSort);
+}
+
+function parseSortParam(value: string | string[] | undefined): QuoteSort {
+  const candidate = Array.isArray(value) ? value[0] : value;
+  if (!candidate) {
+    return DEFAULT_QUOTE_SORT;
+  }
+  return isQuoteSort(candidate) ? candidate : DEFAULT_QUOTE_SORT;
+}
+
+function parseDateInput(value: string | undefined) {
+  if (!value) {
+    return undefined;
+  }
+  const timestamp = Date.parse(value);
+  if (Number.isNaN(timestamp)) {
+    return undefined;
+  }
+  return new Date(timestamp);
 }
 
 export default function DevisPage({
@@ -117,6 +137,7 @@ async function DevisPageContent({
   const pageParam = Array.isArray(resolvedSearchParams?.page)
     ? resolvedSearchParams.page[0]
     : (resolvedSearchParams?.page as string | undefined);
+  const sortParam = parseSortParam(resolvedSearchParams?.tri);
 
   const page = Number(pageParam ?? "1") || 1;
 
@@ -150,14 +171,18 @@ async function DevisPageContent({
     });
   }
 
+  const issueFromDate = parseDateInput(issueFrom);
+  const issueToDate = parseDateInput(issueTo);
+
   const [quotes, clients] = await Promise.all([
     listQuotes({
       search: search || undefined,
       status: statutParam,
       clientId: clientParam,
-      issueDateFrom: issueFrom ? new Date(issueFrom) : undefined,
-      issueDateTo: issueTo ? new Date(issueTo) : undefined,
+      issueDateFrom: issueFromDate,
+      issueDateTo: issueToDate,
       page,
+      sort: sortParam,
     }, user.id),
     getQuoteFilterClients(user.id),
   ]);
@@ -170,24 +195,46 @@ async function DevisPageContent({
   if (clientParam) searchQuery.set("client", clientParam);
   if (issueFrom) searchQuery.set("du", issueFrom);
   if (issueTo) searchQuery.set("au", issueTo);
+  if (sortParam && sortParam !== DEFAULT_QUOTE_SORT) {
+    searchQuery.set("tri", sortParam);
+  }
   if (page > 1) searchQuery.set("page", String(page));
 
   const redirectBase = searchQuery.toString()
     ? `/devis?${searchQuery.toString()}`
     : "/devis";
 
+  const normalizeDate = (value: Date | string | null | undefined) => {
+    if (!value) return null;
+    if (value instanceof Date) {
+      return value.toISOString();
+    }
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.valueOf()) ? null : parsed.toISOString();
+  };
+
+  const tableQuotes = quotes.items.map((quote) => ({
+    id: quote.id,
+    number: quote.number,
+    reference: quote.reference,
+    issueDate: normalizeDate(quote.issueDate) ?? new Date().toISOString(),
+    validUntil: normalizeDate(quote.validUntil),
+    totalTTCCents: quote.totalTTCCents,
+    currency: quote.currency,
+    status: quote.status,
+    clientName: quote.client?.displayName ?? "—",
+  }));
+
+  const bulkStatusOptions = Object.entries(STATUS_LABELS).map(
+    ([value, label]) => ({
+      value: value as QuoteStatus,
+      label,
+    }),
+  );
+
   return (
     <div className="space-y-6">
       <FlashMessages messages={flashMessages} />
-      {successMessage ? (
-        <Alert variant="success" title={successMessage} />
-      ) : null}
-      {warningMessage ? (
-        <Alert variant="warning" title={warningMessage} />
-      ) : null}
-      {errorMessage ? (
-        <Alert variant="error" title={errorMessage} />
-      ) : null}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">Devis</h1>
@@ -210,7 +257,7 @@ async function DevisPageContent({
         </div>
       </div>
 
-      <form className="card grid gap-4 p-4 sm:grid-cols-5 sm:items-end">
+      <form className="card grid gap-4 p-4 sm:grid-cols-6 sm:items-end">
         <div className="sm:col-span-2">
           <label className="label" htmlFor="recherche">
             Recherche
@@ -223,6 +270,19 @@ async function DevisPageContent({
             defaultValue={search}
             placeholder="Numéro, client, référence..."
           />
+        </div>
+        <div className="sm:col-span-2">
+          <label className="label" htmlFor="client">
+            Client
+          </label>
+          <select id="client" name="client" className="input" defaultValue={clientParam ?? ""}>
+            <option value="">Tous</option>
+            {clients.map((client) => (
+              <option key={client.id} value={client.id}>
+                {client.displayName}
+              </option>
+            ))}
+          </select>
         </div>
         <div>
           <label className="label" htmlFor="statut">
@@ -243,14 +303,13 @@ async function DevisPageContent({
           </select>
         </div>
         <div>
-          <label className="label" htmlFor="client">
-            Client
+          <label className="label" htmlFor="tri">
+            Tri
           </label>
-          <select id="client" name="client" className="input" defaultValue={clientParam ?? ""}>
-            <option value="">Tous</option>
-            {clients.map((client) => (
-              <option key={client.id} value={client.id}>
-                {client.displayName}
+          <select id="tri" name="tri" className="input" defaultValue={sortParam}>
+            {SORT_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
               </option>
             ))}
           </select>
@@ -267,112 +326,29 @@ async function DevisPageContent({
           </label>
           <input className="input" type="date" id="au" name="au" defaultValue={issueTo ?? ""} />
         </div>
-        <Button type="submit" variant="secondary" className="sm:col-span-5 sm:w-fit">
+        <Button type="submit" variant="secondary" className="sm:col-span-6 sm:w-fit">
           Filtrer
         </Button>
       </form>
 
-      <div className="card overflow-hidden">
-        <table className="min-w-full divide-y divide-zinc-200 text-sm dark:divide-zinc-800">
-          <thead className="bg-zinc-50 text-xs uppercase text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
-            <tr>
-              <th className="px-4 py-3 text-left">Numéro</th>
-              <th className="px-4 py-3 text-left">Client</th>
-              <th className="px-4 py-3 text-left">Émission</th>
-              <th className="px-4 py-3 text-left">Validité</th>
-              <th className="px-4 py-3 text-right">Total TTC</th>
-              <th className="px-4 py-3 text-left">Statut</th>
-              <th className="px-4 py-3 text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-            {quotes.items.map((quote) => (
-              <tr
-                key={quote.id}
-                className="transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800"
-              >
-                <td className="px-4 py-3">
-                  <div className="font-medium text-zinc-900 dark:text-zinc-100">{quote.number}</div>
-                  <div className="text-xs text-zinc-500 dark:text-zinc-400">{quote.reference ?? "—"}</div>
-                </td>
-                <td className="px-4 py-3 text-zinc-600 dark:text-zinc-300">{quote.client?.displayName}</td>
-                <td className="px-4 py-3 text-zinc-600 dark:text-zinc-300">{formatDate(quote.issueDate)}</td>
-                <td className="px-4 py-3 text-zinc-600 dark:text-zinc-300">
-                  {quote.validUntil ? formatDate(quote.validUntil) : "—"}
-                </td>
-                <td className="px-4 py-3 text-right text-zinc-900 dark:text-zinc-100">
-                  {formatCurrency(fromCents(quote.totalTTCCents, quote.currency), quote.currency)}
-                </td>
-                <td className="px-4 py-3">
-                  <Badge variant={statusVariant(quote.status)}>{STATUS_LABELS[quote.status]}</Badge>
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex flex-wrap justify-end gap-2">
-                    <Button asChild variant="secondary" className="px-2 py-1 text-xs">
-                      <Link href={`/devis/${quote.id}/modifier`}>Éditer</Link>
-                    </Button>
-                    <form action={duplicateQuoteAction.bind(null, quote.id)}>
-                    <FormSubmitButton
-                      variant="ghost"
-                      className="px-2 py-1 text-xs text-zinc-600 dark:text-zinc-300"
-                    >
-                      Dupliquer
-                    </FormSubmitButton>
-                    <input type="hidden" name="redirectTo" value={redirectBase} />
-                  </form>
-                  <Button
-                    asChild
-                    variant="ghost"
-                    className="px-2 py-1 text-xs text-blue-600 dark:text-blue-400"
-                    >
-                      <Link href={`/api/devis/${quote.id}/pdf`} target="_blank">
-                        PDF
-                      </Link>
-                    </Button>
-                  <form action={convertQuoteToInvoiceAction.bind(null, quote.id)}>
-                    <FormSubmitButton
-                      variant="ghost"
-                      className="px-2 py-1 text-xs text-blue-600 dark:text-blue-400"
-                    >
-                      Convertir
-                    </FormSubmitButton>
-                    <input type="hidden" name="redirectTo" value={redirectBase} />
-                  </form>
-                  <form action={deleteQuoteAction.bind(null, quote.id)}>
-                    <FormSubmitButton
-                      variant="ghost"
-                      className="px-2 py-1 text-xs text-red-600 dark:text-red-400"
-                    >
-                      Supprimer
-                    </FormSubmitButton>
-                    <input type="hidden" name="redirectTo" value={redirectBase} />
-                  </form>
-                  <form action={changeQuoteStatusAction.bind(null, quote.id, QuoteStatus.ACCEPTE)}>
-                    <FormSubmitButton
-                      variant="ghost"
-                      className="px-2 py-1 text-xs text-emerald-600 dark:text-emerald-400"
-                    >
-                      Marquer accepté
-                    </FormSubmitButton>
-                    <input type="hidden" name="redirectTo" value={redirectBase} />
-                  </form>
-                </div>
-              </td>
-            </tr>
-            ))}
-            {quotes.items.length === 0 && (
-              <tr>
-                <td
-                  colSpan={7}
-                  className="px-4 py-10 text-center text-sm text-zinc-500 dark:text-zinc-400"
-                >
-                  Aucun devis trouvé.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <QuoteTableClient
+        quotes={tableQuotes}
+        redirectBase={redirectBase}
+        statusLabels={STATUS_LABELS}
+        duplicateAction={duplicateQuoteAction}
+        convertAction={convertQuoteToInvoiceAction}
+        deleteAction={deleteQuoteAction}
+        changeStatusAction={changeQuoteStatusAction}
+        bulkDeleteAction={bulkDeleteQuotesAction}
+        bulkStatusAction={bulkChangeQuotesStatusAction}
+        statusOptions={bulkStatusOptions}
+        search={search}
+        statut={statutParam}
+        client={clientParam ?? ""}
+        issueFrom={issueFrom ?? undefined}
+        issueTo={issueTo ?? undefined}
+        sort={sortParam}
+      />
 
       {quotes.pageCount > 1 && (
         <div className="flex items-center justify-center gap-2">
@@ -385,6 +361,7 @@ async function DevisPageContent({
             client={clientParam ?? ""}
             issueFrom={issueFrom ?? ""}
             issueTo={issueTo ?? ""}
+            sort={sortParam}
           />
           <span className="text-sm text-zinc-600 dark:text-zinc-300">
             Page {quotes.page} / {quotes.pageCount}
@@ -398,6 +375,7 @@ async function DevisPageContent({
             client={clientParam ?? ""}
             issueFrom={issueFrom ?? ""}
             issueTo={issueTo ?? ""}
+            sort={sortParam}
           />
         </div>
       )}
@@ -414,6 +392,7 @@ function QuotePaginationLink({
   client,
   issueFrom,
   issueTo,
+  sort,
 }: {
   label: string;
   page: number;
@@ -423,6 +402,7 @@ function QuotePaginationLink({
   client: string;
   issueFrom: string;
   issueTo: string;
+  sort: QuoteSort;
 }) {
   if (disabled) {
     return (
@@ -437,6 +417,7 @@ function QuotePaginationLink({
   if (client) params.set("client", client);
   if (issueFrom) params.set("du", issueFrom);
   if (issueTo) params.set("au", issueTo);
+  if (sort && sort !== DEFAULT_QUOTE_SORT) params.set("tri", sort);
   params.set("page", String(page));
 
   return (

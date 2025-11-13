@@ -24,6 +24,15 @@ import {
   type WebsiteTemplateKey,
 } from "@/lib/website/templates";
 import { DEFAULT_PRIMARY_CTA_LABEL } from "@/lib/website/defaults";
+import {
+  applyThemeFallbacks,
+  builderConfigSchema,
+  builderVersionHistorySchema,
+  createDefaultBuilderConfig,
+  type WebsiteBuilderConfig,
+  type WebsiteBuilderVersionEntry,
+} from "@/lib/website/builder";
+import { generateId } from "@/lib/id";
 
 const slugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const hexColorPattern = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
@@ -169,6 +178,7 @@ export type CatalogWebsiteSummary = {
     logoData: string | null;
   };
   metadata: CatalogWebsiteMetadata;
+  builder: WebsiteBuilderConfig;
 };
 
 export type CatalogPayload = {
@@ -177,6 +187,11 @@ export type CatalogPayload = {
     featured: CatalogProduct[];
     all: CatalogProduct[];
   };
+};
+
+export type WebsiteBuilderState = {
+  config: WebsiteBuilderConfig;
+  history: WebsiteBuilderVersionEntry[];
 };
 
 export type WebsiteLeadInput = z.input<typeof leadSchema> & {
@@ -328,6 +343,27 @@ async function ensureWebsiteConfig(userId: string) {
       contactPhoneOverride: settings?.phone,
       leadNotificationEmail: settings?.email,
       accentColor: "#2563eb",
+      builderConfig: createDefaultBuilderConfig({
+        heroEyebrow: "Catalogue public",
+        heroTitle: settings?.companyName
+          ? `Catalogue — ${settings.companyName}`
+          : "Présentez vos prestations",
+        heroSubtitle:
+          "Publiez vos produits, rassurez vos prospects et capturez les demandes en direct.",
+        heroPrimaryCtaLabel: DEFAULT_PRIMARY_CTA_LABEL,
+        heroSecondaryCtaLabel: "Télécharger la plaquette",
+        heroSecondaryCtaUrl: "/catalogue",
+        aboutTitle: settings?.companyName
+          ? `Pourquoi ${settings.companyName} ?`
+          : "Notre expertise",
+        aboutBody:
+          "Nous aidons les entreprises ambitieuses à concevoir et déployer des expériences numériques efficaces.",
+        contactBlurb:
+          settings?.address ??
+          "Ajoutez ici votre argumentaire commercial et vos garanties.",
+        accentColor: "#2563eb",
+      }),
+      builderVersionHistory: [],
     },
   });
 }
@@ -652,6 +688,7 @@ async function buildCatalogPayloadFromWebsite(
     companyName: settings.companyName,
     path: options?.path,
   });
+  const builderConfig = resolveBuilderConfigFromWebsite(website);
   return {
     website: {
       id: website.id,
@@ -685,6 +722,7 @@ async function buildCatalogPayloadFromWebsite(
         logoData: settings.logoData,
       },
       metadata,
+      builder: builderConfig,
     },
     products: {
       featured,
@@ -714,6 +752,55 @@ export async function getCatalogPayloadByDomain(domain: string, path?: string | 
     return null;
   }
   return buildCatalogPayloadFromWebsite(website, { path });
+}
+
+export async function getWebsiteBuilderState(userId?: string): Promise<WebsiteBuilderState> {
+  const resolvedUserId = await resolveUserId(userId);
+  const website = await ensureWebsiteConfig(resolvedUserId);
+  return {
+    config: resolveBuilderConfigFromWebsite(website),
+    history: resolveBuilderHistoryFromWebsite(website),
+  };
+}
+
+export async function saveWebsiteBuilderConfig(
+  input: WebsiteBuilderConfig,
+  userId?: string,
+): Promise<WebsiteBuilderState> {
+  const resolvedUserId = await resolveUserId(userId);
+  const website = await ensureWebsiteConfig(resolvedUserId);
+  const parsed = builderConfigSchema.parse(input);
+  const accent = parsed.theme?.accent ?? website.accentColor ?? "#2563eb";
+  const normalizedNext = applyThemeFallbacks(parsed, accent);
+  const previousConfig = resolveBuilderConfigFromWebsite(website);
+  const previousSerialized = JSON.stringify(previousConfig);
+  const nextSerialized = JSON.stringify(normalizedNext);
+  if (previousSerialized === nextSerialized) {
+    return {
+      config: previousConfig,
+      history: resolveBuilderHistoryFromWebsite(website),
+    };
+  }
+  const history = resolveBuilderHistoryFromWebsite(website);
+  const revision: WebsiteBuilderVersionEntry = {
+    id: generateId("revision"),
+    savedAt: new Date().toISOString(),
+    label: "Version précédente",
+    snapshot: previousConfig,
+  };
+  const nextHistory = [revision, ...history].slice(0, 3);
+  const updated = await prisma.websiteConfig.update({
+    where: { id: website.id },
+    data: {
+      builderConfig: normalizedNext as Prisma.JsonObject,
+      builderVersionHistory: nextHistory as Prisma.JsonArray,
+      accentColor: accent,
+    },
+  });
+  return {
+    config: resolveBuilderConfigFromWebsite(updated),
+    history: nextHistory,
+  };
 }
 
 export async function recordWebsiteLead(input: WebsiteLeadInput) {
@@ -911,6 +998,47 @@ export async function getWebsiteProductStats(userId?: string) {
   return getCachedWebsiteProductStats(resolvedUserId);
 }
 
+function buildDefaultBuilderOptions(website: WebsiteConfig) {
+  return {
+    heroEyebrow: website.heroEyebrow,
+    heroTitle: website.heroTitle,
+    heroSubtitle: website.heroSubtitle,
+    heroPrimaryCtaLabel: website.heroPrimaryCtaLabel,
+    heroSecondaryCtaLabel: website.heroSecondaryCtaLabel,
+    heroSecondaryCtaUrl: website.heroSecondaryCtaUrl,
+    aboutTitle: website.aboutTitle,
+    aboutBody: website.aboutBody,
+    contactBlurb: website.contactBlurb,
+    accentColor: website.accentColor,
+  };
+}
+
+function resolveBuilderConfigFromWebsite(
+  website: WebsiteConfig,
+) {
+  const parsed = builderConfigSchema.safeParse(
+    website.builderConfig,
+  );
+  const base = parsed.success
+    ? parsed.data
+    : createDefaultBuilderConfig(
+      buildDefaultBuilderOptions(website),
+    );
+  return applyThemeFallbacks(base, website.accentColor);
+}
+
+function resolveBuilderHistoryFromWebsite(
+  website: WebsiteConfig,
+) {
+  const parsed = builderVersionHistorySchema.safeParse(
+    website.builderVersionHistory,
+  );
+  if (!parsed.success) {
+    return [];
+  }
+  return parsed.data.slice(0, 3);
+}
+
 export async function listWebsiteProductSummaries(
   filters: WebsiteProductListFilters = {},
   userId?: string,
@@ -963,6 +1091,8 @@ export async function getWebsiteAdminPayload(userId?: string) {
       const slugPreviewUrl = `${appBaseUrl}/catalogue/${website.slug}`;
       const previewUrl = `${appBaseUrl}/preview`;
       const edgeDomain = getCatalogEdgeDomain();
+      const builderConfig = resolveBuilderConfigFromWebsite(website);
+      const builderHistory = resolveBuilderHistoryFromWebsite(website);
       return {
         website,
         company: settings,
@@ -980,6 +1110,10 @@ export async function getWebsiteAdminPayload(userId?: string) {
           customDomain: website.customDomain,
           totalProducts: productStats.totalProducts,
           listedProducts: productStats.listedProducts,
+        },
+        builder: {
+          config: builderConfig,
+          history: builderHistory,
         },
       };
     },

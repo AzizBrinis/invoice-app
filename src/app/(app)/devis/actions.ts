@@ -11,6 +11,8 @@ import {
   duplicateQuote,
   changeQuoteStatus,
   convertQuoteToInvoice,
+  deleteQuotesBulk,
+  changeQuotesStatusBulk,
 } from "@/server/quotes";
 import { QuoteStatus } from "@prisma/client";
 import { sendQuoteEmail } from "@/server/email";
@@ -53,6 +55,13 @@ function redirectWithFeedback(
   const nextQuery = params.toString();
   const href = (nextQuery ? `${path}?${nextQuery}` : path) as Route;
   return redirect(href);
+}
+
+function extractIds(formData: FormData) {
+  return formData
+    .getAll("quoteIds")
+    .map((value) => value?.toString() ?? "")
+    .filter((value) => value.length > 0);
 }
 
 export async function createQuoteAction(formData: FormData) {
@@ -220,5 +229,61 @@ export async function sendQuoteEmailAction(id: string, formData: FormData) {
       : "Échec de l'envoi de l'e-mail. Veuillez réessayer.";
     revalidatePath(`/devis/${id}/modifier`);
     redirectWithFeedback(redirectTarget, needsConfig ? { warning: feedbackMessage } : { error: feedbackMessage });
+  }
+}
+
+export async function bulkDeleteQuotesAction(formData: FormData) {
+  const redirectTarget = resolveRedirectTarget(formData, "/devis");
+  const ids = extractIds(formData);
+  if (ids.length === 0) {
+    redirectWithFeedback(redirectTarget, {
+      warning: "Sélectionnez au moins un devis.",
+    });
+  }
+  try {
+    const deleted = await deleteQuotesBulk(ids);
+    revalidatePath("/devis");
+    redirectWithFeedback(redirectTarget, {
+      message: `${deleted} devis supprimé${deleted > 1 ? "s" : ""}`,
+    });
+  } catch (error) {
+    if (isRedirectError(error)) {
+      throw error;
+    }
+    console.error("[bulkDeleteQuotesAction] Échec de suppression groupée", error);
+    redirectWithFeedback(redirectTarget, {
+      error: "Impossible de supprimer ces devis pour le moment.",
+    });
+  }
+}
+
+export async function bulkChangeQuotesStatusAction(formData: FormData) {
+  const redirectTarget = resolveRedirectTarget(formData, "/devis");
+  const statusValue = formData.get("status")?.toString() ?? "";
+  const ids = extractIds(formData);
+  if (ids.length === 0) {
+    redirectWithFeedback(redirectTarget, {
+      warning: "Sélectionnez au moins un devis.",
+    });
+  }
+  if (!Object.values(QuoteStatus).includes(statusValue as QuoteStatus)) {
+    redirectWithFeedback(redirectTarget, {
+      error: "Statut de devis invalide.",
+    });
+  }
+  try {
+    const updated = await changeQuotesStatusBulk(ids, statusValue as QuoteStatus);
+    revalidatePath("/devis");
+    redirectWithFeedback(redirectTarget, {
+      message: `${updated} devis mis à jour`,
+    });
+  } catch (error) {
+    if (isRedirectError(error)) {
+      throw error;
+    }
+    console.error("[bulkChangeQuotesStatusAction] Échec de mise à jour groupée", error);
+    redirectWithFeedback(redirectTarget, {
+      error: "Impossible de mettre à jour ces devis.",
+    });
   }
 }

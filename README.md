@@ -19,6 +19,28 @@
 Consultez `DEPLOY.md` pour les instructions de mise en production sur Vercel.
 Le build déclenché par Vercel (`npm run vercel-build`) s’appuie sur `scripts/run-vercel-build.cjs`, qui exécute `prisma generate`, tente `prisma migrate deploy` puis `next build`, en sautant automatiquement l’étape migration si la base est momentanément injoignable (voir le détail dans `DEPLOY.md`).
 
+## Tests
+
+Vitest n’utilise plus la base production : créez une base PostgreSQL locale (Docker, Supabase local ou cluster de dev) et exposez-la via `TEST_DATABASE_URL`.
+
+1. Copiez `.env.example` vers `.env.test`, renseignez `TEST_DATABASE_URL`, `DIRECT_URL` et `SHADOW_DATABASE_URL` vers votre instance locale :
+   ```bash
+   cp .env.example .env.test
+   # Exemple Docker
+   docker run --name invoices-db-test -p 6543:5432 -e POSTGRES_PASSWORD=postgres -d postgres:16
+   ```
+2. Exécutez les migrations sur cette base :
+   ```bash
+   TEST_DATABASE_URL="postgresql://postgres:postgres@localhost:6543/invoices_test" \
+   npx prisma migrate deploy
+   ```
+3. Lancez les tests :
+   ```bash
+   npm test
+   ```
+
+Le fichier `tests/setup-test-env.ts` charge automatiquement `.env.test` et remplace la connexion Prisma par la base déclarée. Sans `TEST_DATABASE_URL`, la suite échoue immédiatement pour éviter toute connexion accidentelle à la production.
+
 #### Messagerie toujours active (auto-réponses + envois planifiés)
 
 Les réponses automatiques (SLA 24h et mode vacances) et les e-mails planifiés passent désormais par une file de jobs persistante (`BackgroundJob`). Le workflow GitHub Actions `.github/workflows/messaging-cron.yml` (gratuit) appelle `/api/cron/messaging` toutes les 5 minutes, ce qui :

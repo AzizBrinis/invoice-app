@@ -46,6 +46,8 @@ const RECIPIENT_TYPE_MAP = {
 const AUTO_REPLY_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const AUTO_REPLY_BOOTSTRAP_LOOKBACK = 150;
 const AUTO_REPLY_FETCH_LIMIT = 200;
+const SPAM_ANALYSIS_CONCURRENCY = 4;
+const AUTO_REPLY_METADATA_CONCURRENCY = 4;
 
 type AutoReplyProcessMode = "process" | "skip";
 
@@ -56,6 +58,28 @@ type AutoReplyProcessResult = {
   lastSeenUid: number;
   bootstrapped: boolean;
 };
+
+async function runConcurrentBatches<T>(
+  items: readonly T[],
+  limit: number,
+  worker: (item: T) => Promise<void>,
+) {
+  if (!items.length) {
+    return;
+  }
+  const chunkSize = Math.max(1, limit);
+  for (let index = 0; index < items.length; index += chunkSize) {
+    const batch = items.slice(index, index + chunkSize);
+    const settled = await Promise.allSettled(
+      batch.map((item) => worker(item)),
+    );
+    settled.forEach((result) => {
+      if (result.status === "rejected") {
+        console.warn("Tâche de traitement concurrente échouée:", result.reason);
+      }
+    });
+  }
+}
 
 function parseRecipientList(
   entries: string[] | undefined,
@@ -183,6 +207,13 @@ export type MessageParticipant = {
   address: string | null;
 };
 
+type PrefetchedRawMessage = {
+  uid: number;
+  envelope: MessageEnvelopeObject | null;
+  source: Buffer | Uint8Array | string;
+  internalDate: Date | string | null;
+};
+
 type ImapAddress = MessageAddressObject & {
   mailbox?: string | null;
   host?: string | null;
@@ -197,6 +228,68 @@ export type MailboxPageResult = {
   messages: MailboxListItem[];
   autoMoved?: AutoMovedSummary[];
 };
+
+function buildUidSequence(uids: number[]): string {
+  if (!uids.length) {
+    return "";
+  }
+  const sorted = Array.from(new Set(uids)).sort((a, b) => a - b);
+  const ranges: string[] = [];
+  let start = sorted[0];
+  let prev = start;
+  for (let i = 1; i < sorted.length; i += 1) {
+    const current = sorted[i];
+    if (current === prev + 1) {
+      prev = current;
+      continue;
+    }
+    ranges.push(start === prev ? `${start}` : `${start}:${prev}`);
+    start = current;
+    prev = current;
+  }
+  ranges.push(start === prev ? `${start}` : `${start}:${prev}`);
+  return ranges.join(",");
+}
+
+async function fetchRawMessages(
+  client: ImapFlow,
+  uids: number[],
+): Promise<Map<number, PrefetchedRawMessage>> {
+  const map = new Map<number, PrefetchedRawMessage>();
+  const query = buildUidSequence(uids);
+  if (!query.length) {
+    return map;
+  }
+  for await (const message of client.fetch(
+    { uid: query },
+    {
+      source: true,
+      envelope: true,
+      internalDate: true,
+    },
+  )) {
+    const fetched = message as FetchMessageObject & {
+      source?: Buffer | Uint8Array | string;
+      envelope?: MessageEnvelopeObject;
+    };
+    if (
+      !fetched ||
+      !fetched.source ||
+      typeof message.uid !== "number" ||
+      Number.isNaN(message.uid)
+    ) {
+      continue;
+    }
+    const uid = message.uid;
+    map.set(uid, {
+      uid,
+      envelope: fetched.envelope ?? null,
+      source: fetched.source,
+      internalDate: fetched.internalDate ?? null,
+    });
+  }
+  return map;
+}
 
 export type AutoMovedSummary = {
   uid: number;
@@ -242,6 +335,108 @@ function createMailboxListItem(message: {
     seen: message.flags?.has("\\Seen") ?? false,
     hasAttachments: hasAttachments(message.bodyStructure),
     tracking: null,
+  };
+}
+
+type SpamFilterResult = {
+  remaining: MailboxListItem[];
+  autoMoved: AutoMovedSummary[];
+  newlyMovedCount: number;
+};
+
+async function filterSpamCandidates(options: {
+  userId: string;
+  mailbox: Mailbox;
+  items: MailboxListItem[];
+  client: ImapFlow;
+  spamFilteringEnabled: boolean;
+  prefetchedMessages?: Map<number, PrefetchedRawMessage> | null;
+}): Promise<SpamFilterResult> {
+  if (
+    options.mailbox !== "inbox" ||
+    !options.spamFilteringEnabled ||
+    options.items.length === 0
+  ) {
+    return {
+      remaining: options.items,
+      autoMoved: [],
+      newlyMovedCount: 0,
+    };
+  }
+
+  const uids = Array.from(
+    new Set(
+      options.items
+        .map((item) => item.uid)
+        .filter((uid): uid is number => typeof uid === "number" && uid > 0),
+    ),
+  );
+  const alreadyLogged = new Set<number>();
+  if (uids.length) {
+    const logs = await prisma.spamDetectionLog.findMany({
+      where: {
+        userId: options.userId,
+        mailbox: options.mailbox,
+        uid: { in: uids },
+        manual: false,
+      },
+      select: { uid: true },
+    });
+    logs.forEach((entry) => alreadyLogged.add(entry.uid));
+  }
+
+  const candidates = options.items.filter(
+    (item) => !alreadyLogged.has(item.uid),
+  );
+
+  if (!candidates.length) {
+    return {
+      remaining: options.items,
+      autoMoved: [],
+      newlyMovedCount: 0,
+    };
+  }
+
+  const removedUids = new Set<number>();
+  const autoMoved: AutoMovedSummary[] = [];
+  let newlyMovedCount = 0;
+
+  await runConcurrentBatches(
+    candidates,
+    SPAM_ANALYSIS_CONCURRENCY,
+    async (entry) => {
+      const analysis = await analyzeAndHandleSpam({
+        userId: options.userId,
+        client: options.client,
+        mailbox: options.mailbox,
+        uid: entry.uid,
+        spamFilteringEnabled: options.spamFilteringEnabled,
+        prefetched: options.prefetchedMessages?.get(entry.uid),
+      });
+      if (analysis.movedToSpam) {
+        removedUids.add(entry.uid);
+        newlyMovedCount += 1;
+        if (!analysis.alreadyLogged) {
+          autoMoved.push({
+            uid: entry.uid,
+            subject: entry.subject,
+            from: entry.from,
+            score: analysis.score,
+            target: "spam",
+          });
+        }
+      }
+    },
+  );
+
+  const remaining = options.items.filter(
+    (item) => !removedUids.has(item.uid),
+  );
+
+  return {
+    remaining,
+    autoMoved,
+    newlyMovedCount,
   };
 }
 
@@ -396,6 +591,19 @@ const MAILBOX_CANDIDATES: Record<Mailbox, string[]> = {
     "[Gmail]/Junk",
   ],
 };
+
+function isAutoReplyFeatureEnabled(
+  credentials: MessagingCredentials,
+  referenceDate: Date = new Date(),
+): boolean {
+  if (!credentials.smtp) {
+    return false;
+  }
+  if (credentials.autoReply.enabled) {
+    return true;
+  }
+  return isVacationModeActive(credentials.vacation, referenceDate);
+}
 
 const MAILBOX_SPECIAL_USE: Partial<Record<Mailbox, string>> = {
   inbox: "\\Inbox",
@@ -1697,15 +1905,22 @@ function isVacationModeActive(
 async function loadIncomingMessageMetadata(
   client: ImapFlow,
   uid: number,
+  prefetched?: PrefetchedRawMessage | null,
 ): Promise<IncomingMessageMetadata | null> {
-  const fetched = await client.fetchOne(
-    uid,
-    {
-      envelope: true,
-      source: true,
-    },
-    { uid: true },
-  );
+  const fetched =
+    prefetched && prefetched.source
+      ? {
+          envelope: prefetched.envelope,
+          source: prefetched.source,
+        }
+      : await client.fetchOne(
+          uid,
+          {
+            envelope: true,
+            source: true,
+          },
+          { uid: true },
+        );
 
   if (
     !fetched ||
@@ -1753,12 +1968,13 @@ async function processAutoReplies(params: {
   client: ImapFlow;
   credentials: MessagingCredentials;
   messages: MailboxListItem[];
+  prefetchedMessages?: Map<number, PrefetchedRawMessage> | null;
   options?: {
     bootstrapMode?: AutoReplyProcessMode;
     existingState?: MessagingInboxSyncState | null;
   };
 }): Promise<AutoReplyProcessResult> {
-  const { userId, client, credentials, messages } = params;
+  const { userId, client, credentials, messages, prefetchedMessages } = params;
   const bootstrapMode = params.options?.bootstrapMode ?? "process";
   const providedState = params.options?.existingState ?? null;
   const syncState =
@@ -1829,34 +2045,42 @@ async function processAutoReplies(params: {
     parsed: ParsedMail;
   }> = [];
 
-  for (const entry of selection.candidates) {
-    const metadata = await loadIncomingMessageMetadata(client, entry.uid);
-    if (!metadata) {
-      continue;
-    }
-    const targetAddress = metadata.replyToAddress ?? metadata.fromAddress;
-    if (!targetAddress) {
-      continue;
-    }
-    const normalized = normalizeEmailAddress(targetAddress);
-    if (!normalized) {
-      continue;
-    }
-    if (ownAddress && normalized === ownAddress) {
-      continue;
-    }
-    if (shouldSkipAutoResponse(metadata.parsed, targetAddress)) {
-      continue;
-    }
-    metadataEntries.push({
-      uid: entry.uid,
-      messageId: metadata.messageId,
-      subject: metadata.subject,
-      targetAddress,
-      normalizedAddress: normalized,
-      parsed: metadata.parsed,
-    });
-  }
+  await runConcurrentBatches(
+    selection.candidates,
+    AUTO_REPLY_METADATA_CONCURRENCY,
+    async (entry) => {
+      const metadata = await loadIncomingMessageMetadata(
+        client,
+        entry.uid,
+        prefetchedMessages?.get(entry.uid),
+      );
+      if (!metadata) {
+        return;
+      }
+      const targetAddress = metadata.replyToAddress ?? metadata.fromAddress;
+      if (!targetAddress) {
+        return;
+      }
+      const normalized = normalizeEmailAddress(targetAddress);
+      if (!normalized) {
+        return;
+      }
+      if (ownAddress && normalized === ownAddress) {
+        return;
+      }
+      if (shouldSkipAutoResponse(metadata.parsed, targetAddress)) {
+        return;
+      }
+      metadataEntries.push({
+        uid: entry.uid,
+        messageId: metadata.messageId,
+        subject: metadata.subject,
+        targetAddress,
+        normalizedAddress: normalized,
+        parsed: metadata.parsed,
+      });
+    },
+  );
 
   if (!metadataEntries.length) {
     await persistInboxSyncState({
@@ -2074,6 +2298,16 @@ export async function runAutomatedReplySweepForUser(
 
   const mailbox: Mailbox = "inbox";
   const spamFilteringEnabled = credentials.spamFilterEnabled !== false;
+  const autoReplyFeatureEnabled = isAutoReplyFeatureEnabled(credentials);
+  if (!autoReplyFeatureEnabled) {
+    return {
+      scanned: 0,
+      considered: 0,
+      replied: 0,
+      lastSeenUid: 0,
+      bootstrapped: false,
+    } satisfies AutoReplyProcessResult;
+  }
 
   return withImapClient(credentials.imap, async (client) => {
     const opened = await openMailbox(client, mailbox, true);
@@ -2091,6 +2325,7 @@ export async function runAutomatedReplySweepForUser(
       });
 
       let fetchedMessages: MailboxListItem[] = [];
+      let prefetchedMessages: Map<number, PrefetchedRawMessage> | null = null;
       const shouldFetch =
         nextUid === null ||
         startUid < (typeof nextUid === "number" ? Math.max(1, nextUid) : 1);
@@ -2123,6 +2358,17 @@ export async function runAutomatedReplySweepForUser(
           (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
         );
 
+        if (mailbox === "inbox" && fetchedMessages.length) {
+          try {
+            prefetchedMessages = await fetchRawMessages(
+              client,
+              fetchedMessages.map((item) => item.uid),
+            );
+          } catch (error) {
+            console.warn("Impossible de précharger les messages IMAP:", error);
+          }
+        }
+
         if (mailbox === "inbox" && spamFilteringEnabled && fetchedMessages.length) {
           const filteredMessages: MailboxListItem[] = [];
           for (const entry of fetchedMessages) {
@@ -2133,6 +2379,7 @@ export async function runAutomatedReplySweepForUser(
                 mailbox,
                 uid: entry.uid,
                 spamFilteringEnabled,
+                prefetched: prefetchedMessages?.get(entry.uid),
               });
               if (!analysis.movedToSpam) {
                 filteredMessages.push(entry);
@@ -2151,6 +2398,7 @@ export async function runAutomatedReplySweepForUser(
         client,
         credentials,
         messages: fetchedMessages,
+        prefetchedMessages,
         options: {
           bootstrapMode: options?.bootstrapMode ?? "skip",
           existingState: syncState ?? null,
@@ -2246,34 +2494,41 @@ export async function fetchMailboxMessages(params: {
 
       let filteredItems = items;
       const autoMoved: AutoMovedSummary[] = [];
+      let newlyMovedCount = 0;
 
-      if (params.mailbox === "inbox" && items.length && spamFilteringEnabled) {
-        for (const entry of [...items]) {
-          try {
-            const analysis = await analyzeAndHandleSpam({
-              userId,
-              client,
-              mailbox: params.mailbox,
-              uid: entry.uid,
-              spamFilteringEnabled,
-            });
-            if (analysis.movedToSpam && !analysis.alreadyLogged) {
-              autoMoved.push({
-                uid: entry.uid,
-                subject: entry.subject,
-                from: entry.from,
-                score: analysis.score,
-                target: "spam",
-              });
-              filteredItems = filteredItems.filter((item) => item.uid !== entry.uid);
-            }
-          } catch (error) {
-            console.warn("Analyse de spam impossible:", error);
-          }
+      let prefetchedMessages: Map<number, PrefetchedRawMessage> | null = null;
+      const shouldPrefetchRawMessages =
+        params.mailbox === "inbox" &&
+        items.length > 0 &&
+        spamFilteringEnabled;
+      if (shouldPrefetchRawMessages) {
+        try {
+          prefetchedMessages = await fetchRawMessages(
+            client,
+            items.map((item) => item.uid),
+          );
+        } catch (error) {
+          console.warn("Impossible de précharger les messages IMAP:", error);
         }
       }
 
-      const adjustedTotal = Math.max(0, totalMessages - autoMoved.length);
+      if (params.mailbox === "inbox" && items.length && spamFilteringEnabled) {
+        const result = await filterSpamCandidates({
+          userId,
+          mailbox: params.mailbox,
+          items: filteredItems,
+          client,
+          spamFilteringEnabled,
+          prefetchedMessages,
+        });
+        filteredItems = result.remaining;
+        if (result.autoMoved.length) {
+          autoMoved.push(...result.autoMoved);
+        }
+        newlyMovedCount = result.newlyMovedCount;
+      }
+
+      const adjustedTotal = Math.max(0, totalMessages - newlyMovedCount);
 
       const messageIds = filteredItems
         .map((item) => item.messageId)
@@ -2338,6 +2593,7 @@ export async function fetchMailboxUpdates(params: {
   }
 
   const spamFilteringEnabled = credentials.spamFilterEnabled !== false;
+  const autoReplyFeatureEnabled = isAutoReplyFeatureEnabled(credentials);
 
   if (params.sinceUid <= 0) {
     return {
@@ -2386,42 +2642,49 @@ export async function fetchMailboxUpdates(params: {
 
       let filteredItems = items;
       const autoMoved: AutoMovedSummary[] = [];
+      let newlyMovedCount = 0;
+
+      let prefetchedMessages: Map<number, PrefetchedRawMessage> | null = null;
+      const shouldPrefetchRawMessages =
+        params.mailbox === "inbox" &&
+        items.length > 0 &&
+        (spamFilteringEnabled || autoReplyFeatureEnabled);
+      if (shouldPrefetchRawMessages) {
+        try {
+          prefetchedMessages = await fetchRawMessages(
+            client,
+            items.map((item) => item.uid),
+          );
+        } catch (error) {
+          console.warn("Impossible de précharger les messages IMAP:", error);
+        }
+      }
 
       if (params.mailbox === "inbox" && items.length && spamFilteringEnabled) {
-        for (const entry of [...items]) {
-          try {
-            const analysis = await analyzeAndHandleSpam({
-              userId,
-              client,
-              mailbox: params.mailbox,
-              uid: entry.uid,
-              spamFilteringEnabled,
-            });
-            if (analysis.movedToSpam && !analysis.alreadyLogged) {
-              autoMoved.push({
-                uid: entry.uid,
-                subject: entry.subject,
-                from: entry.from,
-                score: analysis.score,
-                target: "spam",
-              });
-              filteredItems = filteredItems.filter((item) => item.uid !== entry.uid);
-            }
-          } catch (error) {
-            console.warn("Analyse de spam impossible:", error);
-          }
+        const result = await filterSpamCandidates({
+          userId,
+          mailbox: params.mailbox,
+          items: filteredItems,
+          client,
+          spamFilteringEnabled,
+          prefetchedMessages,
+        });
+        filteredItems = result.remaining;
+        if (result.autoMoved.length) {
+          autoMoved.push(...result.autoMoved);
         }
+        newlyMovedCount = result.newlyMovedCount;
       }
 
       const adjustedTotal =
         typeof totalMessages === "number"
-          ? Math.max(0, totalMessages - autoMoved.length)
+          ? Math.max(0, totalMessages - newlyMovedCount)
           : totalMessages;
 
       if (
         params.mailbox === "inbox" &&
         filteredItems.length &&
-        spamFilteringEnabled
+        autoReplyFeatureEnabled
       ) {
         try {
           await processAutoReplies({
@@ -2429,6 +2692,7 @@ export async function fetchMailboxUpdates(params: {
             client,
             credentials,
             messages: filteredItems,
+            prefetchedMessages,
           });
         } catch (error) {
           console.warn("Impossible d'envoyer les réponses automatiques:", error);

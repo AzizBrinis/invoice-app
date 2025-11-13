@@ -1,5 +1,12 @@
 import { useSyncExternalStore } from "react";
-import type { Mailbox, MailboxListItem } from "@/server/messaging";
+import type {
+  Mailbox,
+  MailboxListItem,
+  MessageDetail,
+} from "@/server/messaging";
+
+export const MAILBOX_CACHE_TTL_MS = 2 * 60 * 1000; // 2 minutes
+export const MAILBOX_DETAIL_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 export const MAILBOX_KEYS: Mailbox[] = [
   "inbox",
@@ -18,10 +25,18 @@ type MailboxCache = {
   lastSync: number | null;
   latestUid: number | null;
   totalMessages: number | null;
+  syncing: boolean;
+  active: boolean;
+};
+
+type CachedMessageDetail = {
+  detail: MessageDetail;
+  fetchedAt: number;
 };
 
 type StoreState = {
   mailboxes: Record<Mailbox, MailboxCache>;
+  messageDetails: Record<Mailbox, Record<number, CachedMessageDetail>>;
 };
 
 type MailboxUpdateOptions = {
@@ -41,7 +56,19 @@ const defaultMailboxCache = (): MailboxCache => ({
   lastSync: null,
   latestUid: null,
   totalMessages: null,
+  syncing: false,
+  active: false,
 });
+
+function createEmptyDetailsState(): Record<Mailbox, Record<number, CachedMessageDetail>> {
+  return MAILBOX_KEYS.reduce<Record<Mailbox, Record<number, CachedMessageDetail>>>(
+    (acc, key) => {
+      acc[key] = {};
+      return acc;
+    },
+    {} as Record<Mailbox, Record<number, CachedMessageDetail>>,
+  );
+}
 
 const STORAGE_KEY_PREFIX = "mailbox-cache-v2";
 
@@ -63,7 +90,10 @@ function createInitialState(): StoreState {
     },
     {} as Record<Mailbox, MailboxCache>,
   );
-  return { mailboxes: entries };
+  return {
+    mailboxes: entries,
+    messageDetails: createEmptyDetailsState(),
+  };
 }
 
 const initialState: StoreState = createInitialState();
@@ -124,7 +154,10 @@ function hydrateFromStorage() {
       },
       {} as Record<Mailbox, MailboxCache>,
     );
-    store.state = { mailboxes };
+    store.state = {
+      mailboxes,
+      messageDetails: createEmptyDetailsState(),
+    };
   } catch (error) {
     console.error("Impossible de restaurer le cache de messagerie:", error);
   }
@@ -272,7 +305,8 @@ export function initializeMailboxCache(
     totalMessages: number | null;
   },
 ) {
-  updateMailbox(mailbox, () => ({
+  updateMailbox(mailbox, (current) => ({
+    ...current,
     messages: [...payload.messages],
     page: payload.page,
     pageSize: payload.pageSize,
@@ -281,6 +315,7 @@ export function initializeMailboxCache(
     lastSync: Date.now(),
     latestUid: computeLatestUid(payload.messages),
     totalMessages: payload.totalMessages,
+    syncing: false,
   }));
 }
 
@@ -304,6 +339,7 @@ export function replaceMailboxMessages(
     lastSync: Date.now(),
     latestUid: computeLatestUid(payload.messages),
     totalMessages: payload.totalMessages,
+    syncing: false,
   }));
 }
 
@@ -316,19 +352,33 @@ export function appendMailboxMessages(
     return;
   }
   updateMailbox(mailbox, (current) => {
+    const existingUids = new Set(
+      current.messages.map((item) => item.uid),
+    );
+    let uniqueAdditions = 0;
+    for (const item of additions) {
+      if (!existingUids.has(item.uid)) {
+        uniqueAdditions += 1;
+      }
+    }
     const mergedMessages = additions.length
       ? mergeMessages(current.messages, additions)
       : current.messages;
+    const nextTotal =
+      typeof metadata.totalMessages === "number"
+        ? metadata.totalMessages
+        : typeof current.totalMessages === "number" && uniqueAdditions
+          ? current.totalMessages + uniqueAdditions
+          : current.totalMessages;
     return {
       ...current,
       messages: mergedMessages,
-      page: metadata.page ?? current.page,
+      page: metadata.page ?? (current.initialized ? current.page : 1),
       pageSize: metadata.pageSize ?? current.pageSize,
       hasMore: metadata.hasMore ?? current.hasMore,
       lastSync: metadata.lastSync ?? Date.now(),
       latestUid: computeLatestUid(mergedMessages),
-      totalMessages:
-        metadata.totalMessages ?? current.totalMessages,
+      totalMessages: nextTotal,
     };
   });
 }
@@ -404,5 +454,79 @@ export function useMailboxStore<T>(
     store.subscribe.bind(store),
     () => selector(store.getState()),
     () => selector(store.getState()),
+  );
+}
+
+export function isMailboxCacheStale(cache: MailboxCache | undefined, now: number = Date.now()) {
+  if (!cache || !cache.initialized || cache.lastSync === null) {
+    return true;
+  }
+  return now - cache.lastSync > MAILBOX_CACHE_TTL_MS;
+}
+
+export function cacheMessageDetail(
+  mailbox: Mailbox,
+  detail: MessageDetail,
+) {
+  store.setState((previous) => ({
+    ...previous,
+    messageDetails: {
+      ...previous.messageDetails,
+      [mailbox]: {
+        ...previous.messageDetails[mailbox],
+        [detail.uid]: {
+          detail,
+          fetchedAt: Date.now(),
+        },
+      },
+    },
+  }));
+}
+
+export function getCachedMessageDetail(mailbox: Mailbox, uid: number) {
+  const entry = store.getState().messageDetails[mailbox]?.[uid];
+  if (!entry) {
+    return null;
+  }
+  if (Date.now() - entry.fetchedAt > MAILBOX_DETAIL_TTL_MS) {
+    return null;
+  }
+  return entry.detail;
+}
+
+export function markMailboxActive(mailbox: Mailbox) {
+  updateMailbox(mailbox, (current) =>
+    current.active
+      ? current
+      : {
+          ...current,
+          active: true,
+        },
+  );
+}
+
+export function beginMailboxSync(mailbox: Mailbox): boolean {
+  let acquired = false;
+  updateMailbox(mailbox, (current) => {
+    if (current.syncing) {
+      return current;
+    }
+    acquired = true;
+    return {
+      ...current,
+      syncing: true,
+    };
+  });
+  return acquired;
+}
+
+export function endMailboxSync(mailbox: Mailbox) {
+  updateMailbox(mailbox, (current) =>
+    current.syncing
+      ? {
+          ...current,
+          syncing: false,
+        }
+      : current,
   );
 }

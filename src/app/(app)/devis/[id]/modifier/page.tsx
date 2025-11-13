@@ -4,7 +4,6 @@ import { requireUser } from "@/lib/auth";
 import {
   getQuote,
   getQuoteFilterClients,
-  getQuoteFormProducts,
   getQuoteFormSettings,
 } from "@/server/quotes";
 import { QuoteEditor } from "@/app/(app)/devis/quote-editor";
@@ -74,9 +73,8 @@ export default async function EditDevisPage({
     flashMessages.push({ variant: "error", title: errorMessage });
   }
 
-  const [clients, products, settings, messagingSummary] = await Promise.all([
+  const [clients, settings, messagingSummary] = await Promise.all([
     getQuoteFilterClients(user.id),
-    getQuoteFormProducts(user.id),
     getQuoteFormSettings(user.id),
     getMessagingSettingsSummary(user.id),
   ]);
@@ -94,9 +92,6 @@ export default async function EditDevisPage({
   return (
     <div className="space-y-6">
       <FlashMessages messages={flashMessages} />
-      {successMessage ? <Alert variant="success" title={successMessage} /> : null}
-      {warningMessage ? <Alert variant="warning" title={warningMessage} /> : null}
-      {errorMessage ? <Alert variant="error" title={errorMessage} /> : null}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
@@ -117,7 +112,6 @@ export default async function EditDevisPage({
         action={updateQuoteAction.bind(null, quote.id)}
         submitLabel="Mettre à jour le devis"
         clients={clients}
-        products={products}
         defaultCurrency={settings.defaultCurrency as CurrencyCode}
         currencyOptions={SUPPORTED_CURRENCIES}
         taxConfiguration={normalizeTaxConfiguration(settings.taxConfiguration)}

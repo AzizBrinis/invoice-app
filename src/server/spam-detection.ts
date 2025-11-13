@@ -1,6 +1,10 @@
 import { Prisma } from "@prisma/client";
 import { simpleParser, type ParsedMail } from "mailparser";
-import type { ImapFlow, MessageAddressObject } from "imapflow";
+import type {
+  ImapFlow,
+  MessageAddressObject,
+  MessageEnvelopeObject,
+} from "imapflow";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 
@@ -370,6 +374,7 @@ export async function analyzeAndHandleSpam(options: {
   mailbox: SpamMailbox;
   uid: number;
   spamFilteringEnabled?: boolean;
+  prefetched?: PrefetchedSpamMessage | null;
 }): Promise<SpamAnalysisResult> {
   const {
     userId: providedUserId,
@@ -377,6 +382,7 @@ export async function analyzeAndHandleSpam(options: {
     mailbox,
     uid,
     spamFilteringEnabled = true,
+    prefetched,
   } = options;
 
   if (!spamFilteringEnabled) {
@@ -406,18 +412,25 @@ export async function analyzeAndHandleSpam(options: {
     };
   }
 
-  const result = await client.fetchOne(
-    uid,
-    {
-      envelope: true,
-      internalDate: true,
-      flags: true,
-      source: true,
-    },
-    { uid: true },
-  );
+  let result =
+    prefetched && prefetched.source
+      ? {
+          envelope: prefetched.envelope ?? null,
+          internalDate: prefetched.internalDate ?? null,
+          source: prefetched.source,
+        }
+      : await client.fetchOne(
+          uid,
+          {
+            envelope: true,
+            internalDate: true,
+            flags: true,
+            source: true,
+          },
+          { uid: true },
+        );
 
-  if (!result) {
+  if (!result || !("source" in result) || !result.source) {
     return {
       score: 0,
       reasons: ["Message introuvable"],
@@ -426,16 +439,18 @@ export async function analyzeAndHandleSpam(options: {
     };
   }
 
-  if (!result.source) {
-    return { score: 0, reasons: ["Source introuvable"], movedToSpam: false, alreadyLogged: false };
-  }
-
-  const parsed = await simpleParser(result.source);
-  const subject = result.envelope?.subject ?? parsed.subject ?? "";
-  const from = result.envelope?.from?.[0] as ImapAddress | undefined;
+  const rawSource =
+    typeof result.source === "string"
+      ? result.source
+      : Buffer.isBuffer(result.source)
+        ? result.source
+        : Buffer.from(result.source);
+  const parsed = await simpleParser(rawSource);
+  const envelope = (result.envelope as MessageEnvelopeObject | undefined) ?? null;
+  const subject = envelope?.subject ?? parsed.subject ?? "";
+  const from = envelope?.from?.[0] as ImapAddress | undefined;
   const fromAddress = formatEnvelopeAddress(from) ?? parsed.from?.text ?? null;
-  const replyTo =
-    result.envelope?.replyTo?.[0] as ImapAddress | undefined;
+  const replyTo = envelope?.replyTo?.[0] as ImapAddress | undefined;
   const replyToAddress =
     formatEnvelopeAddress(replyTo) ?? parsed.replyTo?.text ?? null;
 
@@ -547,4 +562,9 @@ export const __testables = {
   hasSuspiciousAttachments,
   isDomainBlacklisted,
   normalize,
+};
+export type PrefetchedSpamMessage = {
+  source: Buffer | Uint8Array | string;
+  envelope?: MessageEnvelopeObject | null;
+  internalDate?: Date | string | null;
 };

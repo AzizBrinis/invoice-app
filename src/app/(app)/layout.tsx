@@ -40,6 +40,13 @@ const NAV_ITEMS: NavItem[] = [
     label: "Site web",
     href: "/site-web",
     icon: "website",
+    children: [
+      { label: "Vue d’ensemble", href: "/site-web" },
+      {
+        label: "Personnalisation avancée",
+        href: "/site-web/personnalisation-avancee",
+      },
+    ],
   },
   {
     label: "Clients",

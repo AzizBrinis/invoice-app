@@ -6,7 +6,6 @@ import { SUPPORTED_CURRENCIES, type CurrencyCode } from "@/lib/currency";
 import { normalizeTaxConfiguration } from "@/lib/taxes";
 import {
   getQuoteFilterClients,
-  getQuoteFormProducts,
   getQuoteFormSettings,
 } from "@/server/quotes";
 
@@ -14,9 +13,8 @@ export const dynamic = "force-dynamic";
 
 export default async function NouveauDevisPage() {
   const user = await requireUser();
-  const [clients, products, settings] = await Promise.all([
+  const [clients, settings] = await Promise.all([
     getQuoteFilterClients(user.id),
-    getQuoteFormProducts(user.id),
     getQuoteFormSettings(user.id),
   ]);
 
@@ -37,7 +35,6 @@ export default async function NouveauDevisPage() {
         action={createQuoteAction}
         submitLabel="Enregistrer le devis"
         clients={clients}
-        products={products}
         defaultCurrency={settings.defaultCurrency as CurrencyCode}
         currencyOptions={SUPPORTED_CURRENCIES}
         taxConfiguration={normalizeTaxConfiguration(settings.taxConfiguration)}
