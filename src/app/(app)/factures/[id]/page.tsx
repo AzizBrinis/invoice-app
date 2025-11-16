@@ -21,6 +21,7 @@ import {
   FlashMessages,
   type FlashMessage,
 } from "@/components/ui/flash-messages";
+import { DocumentEmailForm } from "@/components/documents/document-email-form";
 
 const STATUS_LABELS: Record<InvoiceStatus, string> = {
   BROUILLON: "Brouillon",
@@ -109,6 +110,20 @@ export default async function FactureDetailPage({
       ? formatCurrency(fromCents(invoice.globalDiscountAmountCents, invoice.currency), invoice.currency)
       : null;
   const hasGlobalDiscount = globalDiscountRateLabel != null || globalDiscountAmount != null;
+  const toNumber = (value: unknown): number => {
+    if (typeof value === "number") {
+      return value;
+    }
+    if (
+      value &&
+      typeof value === "object" &&
+      "toNumber" in value &&
+      typeof (value as { toNumber?: unknown }).toNumber === "function"
+    ) {
+      return (value as { toNumber: () => number }).toNumber();
+    }
+    return Number(value ?? 0);
+  };
   const taxSummary: Array<{
     type?: string;
     label?: string;
@@ -132,6 +147,45 @@ export default async function FactureDetailPage({
             : 0,
       }))
     : [];
+  const lineSummaries = invoice.lines.map((line) => {
+    const quantity = toNumber(line.quantity);
+    const quantityLabel =
+      typeof line.quantity === "number"
+        ? line.quantity.toString()
+        : line.quantity &&
+            typeof line.quantity === "object" &&
+            "toString" in line.quantity &&
+            typeof (line.quantity as { toString?: unknown }).toString === "function"
+          ? (line.quantity as { toString: () => string }).toString()
+          : quantity.toString();
+    const unitPriceHTCents = toNumber(line.unitPriceHTCents);
+    const totalHTCents = toNumber(line.totalHTCents);
+    const totalTTCCents = toNumber(line.totalTTCCents);
+    const vatRateValue =
+      typeof line.vatRate === "number" ? line.vatRate : toNumber(line.vatRate);
+    const discountRate =
+      line.discountRate != null ? toNumber(line.discountRate) : null;
+    const storedDiscountCents =
+      line.discountAmountCents != null ? toNumber(line.discountAmountCents) : null;
+    const baseAmountCents = Math.max(0, Math.round(quantity * unitPriceHTCents));
+    const discountAmountCents =
+      storedDiscountCents != null
+        ? storedDiscountCents
+        : Math.max(0, baseAmountCents - totalHTCents);
+    const hasDiscount =
+      (discountRate != null && discountRate > 0) || discountAmountCents > 0;
+    return {
+      line,
+      quantity,
+      unitPriceHTCents,
+      totalTTCCents,
+      vatRate: vatRateValue,
+      discountRate,
+      discountAmountCents,
+      hasDiscount,
+      quantityLabel,
+    };
+  });
 
   const redirectBase = `/factures/${invoice.id}`;
 
@@ -141,7 +195,7 @@ export default async function FactureDetailPage({
       {successMessage ? <Alert variant="success" title={successMessage} /> : null}
       {warningMessage ? <Alert variant="warning" title={warningMessage} /> : null}
       {errorMessage ? <Alert variant="error" title={errorMessage} /> : null}
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
             Facture {invoice.number}
@@ -150,14 +204,22 @@ export default async function FactureDetailPage({
             Émise le {formatDate(invoice.issueDate)} — Client : {invoice.client.displayName}
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Badge variant={STATUS_VARIANTS[invoice.status]}>
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+          <Badge variant={STATUS_VARIANTS[invoice.status]} className="w-full justify-center sm:w-auto">
             {STATUS_LABELS[invoice.status]}
           </Badge>
-          <Button asChild variant="secondary">
+          <Button
+            asChild
+            variant="secondary"
+            className="w-full justify-center sm:w-auto"
+          >
             <Link href={`/factures/${invoice.id}/modifier`}>Modifier</Link>
           </Button>
-          <Button asChild variant="ghost" className="text-blue-600 dark:text-blue-400">
+          <Button
+            asChild
+            variant="ghost"
+            className="w-full justify-center text-blue-600 dark:text-blue-400 sm:w-auto"
+          >
             <Link href={`/api/factures/${invoice.id}/pdf`} target="_blank">
               Télécharger PDF
             </Link>
@@ -219,35 +281,62 @@ export default async function FactureDetailPage({
 
       {taxSummary.length > 0 && (
         <section className="card overflow-hidden">
-          <div className="border-b border-zinc-200 dark:border-zinc-800 px-4 py-3">
+          <div className="border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
             <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">Résumé fiscal</h2>
           </div>
-          <table className="min-w-full divide-y divide-zinc-200 text-sm dark:divide-zinc-800">
-            <thead className="bg-zinc-50 dark:bg-zinc-900 text-xs uppercase text-zinc-500 dark:text-zinc-400">
-              <tr>
-                <th className="px-4 py-3 text-left">Taxe</th>
-                <th className="px-4 py-3 text-left">Base</th>
-                <th className="px-4 py-3 text-left">Taux</th>
-                <th className="px-4 py-3 text-right">Montant</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-              {taxSummary.map((entry, index) => (
-                <tr key={`${entry.type ?? "tax"}-${entry.rate ?? index}`}>
-                  <td className="px-4 py-3 text-zinc-700 dark:text-zinc-300">{entry.label ?? entry.type ?? "Taxe"}</td>
-                  <td className="px-4 py-3 text-zinc-600 dark:text-zinc-300">
-                    {formatCurrency(fromCents(entry.baseCents ?? 0, invoice.currency), invoice.currency)}
-                  </td>
-                  <td className="px-4 py-3 text-zinc-600 dark:text-zinc-300">
-                    {entry.rate != null ? `${entry.rate}%` : "—"}
-                  </td>
-                  <td className="px-4 py-3 text-right text-zinc-800 dark:text-zinc-100">
-                    {formatCurrency(fromCents(entry.amountCents ?? 0, invoice.currency), invoice.currency)}
-                  </td>
+          <div className="hidden lg:block">
+            <table className="min-w-full divide-y divide-zinc-200 text-sm dark:divide-zinc-800">
+              <thead className="bg-zinc-50 text-xs uppercase text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
+                <tr>
+                  <th className="px-4 py-3 text-left">Taxe</th>
+                  <th className="px-4 py-3 text-left">Base</th>
+                  <th className="px-4 py-3 text-left">Taux</th>
+                  <th className="px-4 py-3 text-right">Montant</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                {taxSummary.map((entry, index) => (
+                  <tr key={`${entry.type ?? "tax"}-${entry.rate ?? index}`}>
+                    <td className="px-4 py-3 text-zinc-700 dark:text-zinc-300">{entry.label ?? entry.type ?? "Taxe"}</td>
+                    <td className="px-4 py-3 text-zinc-600 dark:text-zinc-300">
+                      {formatCurrency(fromCents(entry.baseCents ?? 0, invoice.currency), invoice.currency)}
+                    </td>
+                    <td className="px-4 py-3 text-zinc-600 dark:text-zinc-300">
+                      {entry.rate != null ? `${entry.rate}%` : "—"}
+                    </td>
+                    <td className="px-4 py-3 text-right text-zinc-800 dark:text-zinc-100">
+                      {formatCurrency(fromCents(entry.amountCents ?? 0, invoice.currency), invoice.currency)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="space-y-3 px-4 py-4 lg:hidden">
+            {taxSummary.map((entry, index) => (
+              <div
+                key={`tax-card-${entry.type ?? "tax"}-${entry.rate ?? index}`}
+                className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                      {entry.label ?? entry.type ?? "Taxe"}
+                    </p>
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                      Base: {formatCurrency(fromCents(entry.baseCents ?? 0, invoice.currency), invoice.currency)}
+                    </p>
+                  </div>
+                  <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                    {formatCurrency(fromCents(entry.amountCents ?? 0, invoice.currency), invoice.currency)}
+                  </p>
+                </div>
+                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                  Taux: {entry.rate != null ? `${entry.rate}%` : "—"}
+                </p>
+              </div>
+            ))}
+          </div>
         </section>
       )}
 
@@ -255,7 +344,7 @@ export default async function FactureDetailPage({
         <div className="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 px-4 py-3">
           <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">Lignes</h2>
         </div>
-        <table className="min-w-full divide-y divide-zinc-200 text-sm dark:divide-zinc-800">
+        <table className="hidden min-w-full divide-y divide-zinc-200 text-sm dark:divide-zinc-800 lg:table">
           <thead className="bg-zinc-50 dark:bg-zinc-900 text-xs uppercase text-zinc-500 dark:text-zinc-400">
             <tr>
               <th className="px-4 py-3 text-left">Description</th>
@@ -267,53 +356,26 @@ export default async function FactureDetailPage({
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-            {invoice.lines.map((line) => {
-              const toNumber = (value: unknown): number => {
-                if (typeof value === "number") {
-                  return value;
-                }
-                if (
-                  value &&
-                  typeof value === "object" &&
-                  "toNumber" in value &&
-                  typeof (value as { toNumber?: unknown }).toNumber === "function"
-                ) {
-                  return (value as { toNumber: () => number }).toNumber();
-                }
-                return Number(value ?? 0);
-              };
-
-              const quantity = toNumber(line.quantity);
-              const unitPriceHTCents = toNumber(line.unitPriceHTCents);
-              const totalHTCents = toNumber(line.totalHTCents);
-              const discountRate =
-                line.discountRate != null ? toNumber(line.discountRate) : null;
-              const storedDiscountCents =
-                line.discountAmountCents != null
-                  ? toNumber(line.discountAmountCents)
-                  : null;
-              const baseAmountCents = Math.max(
-                0,
-                Math.round(quantity * unitPriceHTCents),
-              );
-              const discountAmountCents =
-                storedDiscountCents != null
-                  ? storedDiscountCents
-                  : Math.max(0, baseAmountCents - totalHTCents);
-              const hasDiscount =
-                (discountRate != null && discountRate > 0) ||
-                discountAmountCents > 0;
-
-              return (
+            {lineSummaries.map(
+              ({
+                line,
+                unitPriceHTCents,
+                totalTTCCents,
+                vatRate,
+                discountRate,
+                discountAmountCents,
+                hasDiscount,
+                quantityLabel,
+              }) => (
                 <tr key={line.id}>
                   <td className="px-4 py-3 text-zinc-700 dark:text-zinc-300">
-                    <div className="font-medium text-zinc-800 dark:text-zinc-100">{line.description}</div>
+                    <div className="font-medium text-zinc-800 dark:text-zinc-100">{line.description ?? "—"}</div>
                   </td>
-                  <td className="px-4 py-3 text-right text-zinc-600 dark:text-zinc-300">{line.quantity}</td>
+                  <td className="px-4 py-3 text-right text-zinc-600 dark:text-zinc-300">{quantityLabel}</td>
                   <td className="px-4 py-3 text-right text-zinc-600 dark:text-zinc-300">
-                    {formatCurrency(fromCents(line.unitPriceHTCents, invoice.currency), invoice.currency)}
+                    {formatCurrency(fromCents(unitPriceHTCents, invoice.currency), invoice.currency)}
                   </td>
-                  <td className="px-4 py-3 text-right text-zinc-600 dark:text-zinc-300">{line.vatRate}%</td>
+                  <td className="px-4 py-3 text-right text-zinc-600 dark:text-zinc-300">{vatRate}%</td>
                   <td className="px-4 py-3 text-right text-zinc-600 dark:text-zinc-300">
                     {hasDiscount ? (
                       <div className="flex flex-col items-end">
@@ -341,13 +403,95 @@ export default async function FactureDetailPage({
                     )}
                   </td>
                   <td className="px-4 py-3 text-right font-medium text-zinc-900 dark:text-zinc-100">
-                    {formatCurrency(fromCents(line.totalTTCCents, invoice.currency), invoice.currency)}
+                    {formatCurrency(fromCents(totalTTCCents, invoice.currency), invoice.currency)}
                   </td>
                 </tr>
-              );
-            })}
+              ),
+            )}
           </tbody>
         </table>
+        <div className="space-y-4 px-4 py-4 lg:hidden">
+          {lineSummaries.map(
+            ({
+              line,
+              unitPriceHTCents,
+              totalTTCCents,
+              vatRate,
+              discountRate,
+              discountAmountCents,
+              hasDiscount,
+              quantityLabel,
+            }) => (
+              <article
+                key={`line-card-${line.id}`}
+                className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800"
+              >
+                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                      {line.description ?? "—"}
+                    </p>
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                      {quantityLabel} × {formatCurrency(fromCents(unitPriceHTCents, invoice.currency), invoice.currency)} HT
+                    </p>
+                  </div>
+                  <p className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+                    {formatCurrency(fromCents(totalTTCCents, invoice.currency), invoice.currency)}
+                  </p>
+                </div>
+                <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+                  <div>
+                    <dt className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                      {`Quantité (${line.unit ?? "unité"})`}
+                    </dt>
+                    <dd className="text-zinc-700 dark:text-zinc-300">{quantityLabel}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">TVA</dt>
+                    <dd className="text-zinc-700 dark:text-zinc-300">{vatRate}%</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                      Prix unitaire HT
+                    </dt>
+                    <dd className="text-zinc-700 dark:text-zinc-300">
+                      {formatCurrency(fromCents(unitPriceHTCents, invoice.currency), invoice.currency)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Remise</dt>
+                    <dd className="text-zinc-700 dark:text-zinc-300">
+                      {hasDiscount ? (
+                        <div className="flex flex-col">
+                          {discountRate != null && discountRate > 0 ? (
+                            <span>{discountRate}%</span>
+                          ) : null}
+                          {discountAmountCents > 0 ? (
+                            <span
+                              className={
+                                discountRate != null && discountRate > 0
+                                  ? "text-xs text-zinc-500 dark:text-zinc-400"
+                                  : undefined
+                              }
+                            >
+                              -
+                              {formatCurrency(
+                                fromCents(discountAmountCents, invoice.currency),
+                                invoice.currency,
+                              )}
+                            </span>
+                          ) : null}
+                        </div>
+                      ) : (
+                        "—"
+                      )}
+                    </dd>
+                  </div>
+                </dl>
+              </article>
+            ),
+          )}
+        </div>
       </section>
 
       <section className="grid gap-4 lg:grid-cols-3">
@@ -463,41 +607,14 @@ export default async function FactureDetailPage({
             description="Veuillez configurer la messagerie (SMTP/IMAP) avant d'envoyer des factures."
           />
         ) : null}
-        <form action={sendInvoiceEmailAction.bind(null, invoice.id)} className="grid gap-4 sm:grid-cols-2">
-          <input type="hidden" name="redirectTo" value={redirectBase} />
-          <div className="space-y-1 sm:col-span-1">
-            <label htmlFor="email" className="label">
-              Destinataire
-            </label>
-            <Input
-              id="email"
-              name="email"
-              type="email"
-              defaultValue={invoice.client.email ?? ""}
-              required
-              disabled={emailDisabled}
-            />
-          </div>
-          <div className="space-y-1 sm:col-span-1">
-            <label htmlFor="subject" className="label">
-              Objet
-            </label>
-            <Input
-              id="subject"
-              name="subject"
-              defaultValue={`Facture ${invoice.number}`}
-              disabled={emailDisabled}
-            />
-          </div>
-          <p className="sm:col-span-2 text-sm text-zinc-500 dark:text-zinc-400">
-            Le message sera généré automatiquement à partir de votre modèle HTML enregistré.
-          </p>
-          <div className="sm:col-span-2 flex justify-end">
-            <FormSubmitButton disabled={emailDisabled}>
-              Envoyer la facture
-            </FormSubmitButton>
-          </div>
-        </form>
+        <DocumentEmailForm
+          action={sendInvoiceEmailAction.bind(null, invoice.id)}
+          defaultEmail={invoice.client.email ?? ""}
+          defaultSubject={`Facture ${invoice.number}`}
+          disabled={emailDisabled}
+          submitLabel="Envoyer la facture"
+          helperText="Le message sera généré automatiquement à partir de votre modèle HTML enregistré."
+        />
       </section>
     </div>
   );

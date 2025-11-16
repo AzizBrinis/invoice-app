@@ -1,9 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { listClients, type ClientFilters } from "@/server/clients";
 
-const CACHE_MAX_AGE_SECONDS = 30;
-const CACHE_SWR_SECONDS = 60;
-
 function parseStatusFilter(
   value: string | null,
 ): ClientFilters["isActive"] {
@@ -31,7 +28,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(result, {
       headers: {
-        "Cache-Control": `private, max-age=${CACHE_MAX_AGE_SECONDS}, stale-while-revalidate=${CACHE_SWR_SECONDS}`,
+        "Cache-Control": "private, no-store",
       },
     });
   } catch (error) {

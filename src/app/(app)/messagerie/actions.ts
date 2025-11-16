@@ -153,6 +153,8 @@ const composeSchema = z
     bodyFormat: z.enum(["plain", "html"]).default("plain"),
     quotedHtml: z.string().optional().transform((value) => value ?? ""),
     quotedText: z.string().optional().transform((value) => value ?? ""),
+    quotedHeaderHtml: z.string().optional().transform((value) => value ?? ""),
+    quotedHeaderText: z.string().optional().transform((value) => value ?? ""),
   })
   .superRefine((data, ctx) => {
     const plain = data.body.trim();
@@ -336,19 +338,43 @@ function convertPlainTextToHtml(value: string): string {
 function buildQuotedSection(
   quotedHtml: string,
   quotedText: string,
+  quotedHeaderHtml: string,
+  quotedHeaderText: string,
 ): string {
-  const hasQuotedHtml = quotedHtml.trim().length > 0;
-  const quotedSection = hasQuotedHtml
-    ? quotedHtml
-    : quotedText.trim().length > 0
+  const trimmedHeaderHtml = quotedHeaderHtml.trim();
+  const trimmedHeaderText = quotedHeaderText.trim();
+  const headerBlock = trimmedHeaderHtml.length
+    ? trimmedHeaderHtml
+    : trimmedHeaderText.length
+      ? `<p style="margin:0 0 8px;font-size:13px;line-height:1.5;color:#475569;font-weight:600;">${escapeHtml(
+          trimmedHeaderText,
+        )}</p>`
+      : `<p style="margin:0 0 8px;font-size:13px;line-height:1.5;color:#475569;font-weight:600;">Message original</p>`;
+
+  const trimmedHtml = quotedHtml.trim();
+  const trimmedText = quotedText.trim();
+  const quotedSection = trimmedHtml.length
+    ? trimmedHtml
+    : trimmedText.length > 0
       ? `<div>${convertPlainTextToHtml(quotedText)}</div>`
-      : '';
+      : "";
 
   if (!quotedSection) {
     return "";
   }
 
-  return `<div style="margin-top:24px;padding-left:16px;border-left:2px solid #cbd5f5;background-color:#f1f5f9;border-radius:8px;"><p style="margin:0 0 8px;font-weight:600;color:#334155;">Message original</p>${quotedSection}</div>`;
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-top:24px;">
+    <tr>
+      <td style="padding:0;">
+        <div style="padding:16px;border-left:2px solid #cbd5f5;background-color:#f8fafc;border-radius:10px;">
+          ${headerBlock}
+          <blockquote style="margin:0;padding-left:12px;border-left:2px solid #cbd5f5;">
+            ${quotedSection}
+          </blockquote>
+        </div>
+      </td>
+    </tr>
+  </table>`;
 }
 
 function buildEmailHtml(
@@ -357,13 +383,20 @@ function buildEmailHtml(
   format: "plain" | "html",
   quotedHtml: string,
   quotedText: string,
+  quotedHeaderHtml: string,
+  quotedHeaderText: string,
 ): string {
   const baseContent =
     format === "html" && bodyHtml.trim().length > 0
       ? bodyHtml.trim()
       : `<div>${convertPlainTextToHtml(bodyPlain.trimEnd())}</div>`;
 
-  const quotedBlock = buildQuotedSection(quotedHtml, quotedText);
+  const quotedBlock = buildQuotedSection(
+    quotedHtml,
+    quotedText,
+    quotedHeaderHtml,
+    quotedHeaderText,
+  );
   if (!quotedBlock) {
     return baseContent;
   }
@@ -939,6 +972,8 @@ async function buildPreparedComposePayload(
     isHtmlBody ? "html" : "plain",
     parsed.quotedHtml,
     parsed.quotedText,
+    parsed.quotedHeaderHtml,
+    parsed.quotedHeaderText,
   );
 
   let primaryText = isHtmlBody ? stripHtml(htmlBody) : plainBody.trimEnd();
@@ -954,11 +989,17 @@ async function buildPreparedComposePayload(
     textParts.push(primaryText);
   }
   const trimmedQuotedText = parsed.quotedText.trim();
+  const trimmedHeaderText = parsed.quotedHeaderText.trim();
   if (trimmedQuotedText.length > 0) {
     if (textParts.length) {
       textParts.push("");
     }
-    textParts.push("----- Message d'origine -----", trimmedQuotedText);
+    if (trimmedHeaderText.length > 0) {
+      textParts.push(trimmedHeaderText);
+    } else {
+      textParts.push("----- Message d'origine -----");
+    }
+    textParts.push(trimmedQuotedText);
   }
 
   const textPayload = textParts.length ? textParts.join("\n") : " ";

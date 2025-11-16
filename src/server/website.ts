@@ -33,6 +33,8 @@ import {
   type WebsiteBuilderVersionEntry,
 } from "@/lib/website/builder";
 import { generateId } from "@/lib/id";
+import { revalidateClientFilters } from "@/server/clients";
+import { revalidateQuoteFilterClients } from "@/server/quotes";
 
 const slugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const hexColorPattern = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
@@ -874,6 +876,8 @@ export async function recordWebsiteLead(input: WebsiteLeadInput) {
       },
     },
   });
+  revalidateClientFilters(website.userId);
+  revalidateQuoteFilterClients(website.userId);
 
   const notificationEmail =
     website.leadNotificationEmail ??

@@ -1,0 +1,8 @@
+<svg width="320" height="140" viewBox="0 0 320 140" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="320" height="140" rx="28" fill="#FFF7ED" />
+  <path d="M70 70C70 45 90 40 110 55C130 70 150 95 175 95C200 95 210 75 210 55" stroke="#FB923C" stroke-width="10" stroke-linecap="round" fill="none" />
+  <path d="M210 55C210 80 230 95 250 85C265 77 280 60 280 45" stroke="#F97316" stroke-width="10" stroke-linecap="round" fill="none" />
+  <text x="80" y="120" font-family="'Inter', 'Segoe UI', sans-serif" font-size="36" font-weight="700" fill="#9A3412">
+    LOOP
+  </text>
+</svg>

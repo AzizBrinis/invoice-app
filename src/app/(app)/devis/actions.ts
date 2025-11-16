@@ -15,10 +15,15 @@ import {
   changeQuotesStatusBulk,
 } from "@/server/quotes";
 import { QuoteStatus } from "@prisma/client";
-import { sendQuoteEmail } from "@/server/email";
 import { getMessagingSettingsSummary } from "@/server/messaging";
+import { queueQuoteEmailJob } from "@/server/document-email-jobs";
+import { requireUser } from "@/lib/auth";
 import { isRedirectError } from "@/lib/next";
 import type { Route } from "next";
+import type {
+  DocumentEmailActionInput,
+  DocumentEmailActionResult,
+} from "@/types/document-email";
 
 function parsePayload(formData: FormData) {
   const rawPayload = formData.get("payload");
@@ -192,43 +197,63 @@ export async function convertQuoteToInvoiceAction(
   }
 }
 
-export async function sendQuoteEmailAction(id: string, formData: FormData) {
-  const to = formData.get("email")?.toString();
-  const subject = formData.get("subject")?.toString() || undefined;
-  const messagingSummary = await getMessagingSettingsSummary();
-  const redirectTarget = resolveRedirectTarget(
-    formData,
-    `/devis/${id}/modifier`,
-  );
+export async function sendQuoteEmailAction(
+  id: string,
+  input: DocumentEmailActionInput,
+): Promise<DocumentEmailActionResult> {
+  const user = await requireUser();
+  const messagingSummary = await getMessagingSettingsSummary(user.id);
+  const email = input.email?.trim() ?? "";
+  const subject = input.subject?.trim();
+
   if (!messagingSummary.smtpConfigured) {
-    redirectWithFeedback(redirectTarget, {
-      warning: "Veuillez configurer la messagerie (SMTP/IMAP) avant d'envoyer des devis.",
-    });
+    return {
+      status: "config-missing",
+      variant: "warning",
+      message:
+        "Veuillez configurer la messagerie (SMTP/IMAP) avant d'envoyer des devis.",
+    };
   }
-  if (!to) {
-    redirectWithFeedback(redirectTarget, {
-      error: "Adresse e-mail requise",
-    });
+
+  if (!email) {
+    return {
+      status: "invalid",
+      variant: "error",
+      message: "Adresse e-mail requise.",
+    };
   }
+
   try {
-    await sendQuoteEmail({ quoteId: id, to, subject });
-    revalidatePath(`/devis/${id}/modifier`);
-    redirectWithFeedback(redirectTarget, {
-      message: "Devis envoyé par e-mail",
+    const queueResult = await queueQuoteEmailJob({
+      userId: user.id,
+      quoteId: id,
+      to: email,
+      subject,
     });
-  } catch (error) {
-    if (isRedirectError(error)) {
-      throw error;
+    if (queueResult.deduped) {
+      return {
+        status: "duplicate",
+        variant: "warning",
+        message: "Un envoi est déjà en cours pour ce devis.",
+        jobId: queueResult.jobId,
+        deduped: true,
+      };
     }
-    console.error("[sendQuoteEmailAction] Échec d'envoi", error);
-    const rawMessage =
-      error instanceof Error ? error.message : "Échec de l'envoi de l'e-mail. Veuillez réessayer.";
-    const needsConfig = /smtp|messagerie/i.test(rawMessage);
-    const feedbackMessage = needsConfig
-      ? "Veuillez configurer la messagerie (SMTP/IMAP) avant d'envoyer des devis."
-      : "Échec de l'envoi de l'e-mail. Veuillez réessayer.";
-    revalidatePath(`/devis/${id}/modifier`);
-    redirectWithFeedback(redirectTarget, needsConfig ? { warning: feedbackMessage } : { error: feedbackMessage });
+    return {
+      status: "queued",
+      variant: "success",
+      message: "Devis en cours d'envoi en arrière-plan.",
+      jobId: queueResult.jobId,
+      deduped: false,
+    };
+  } catch (error) {
+    console.error("[sendQuoteEmailAction] Échec de mise en file", error);
+    return {
+      status: "error",
+      variant: "error",
+      message:
+        "Impossible de planifier cet envoi. Veuillez réessayer dans un instant.",
+    };
   }
 }
 

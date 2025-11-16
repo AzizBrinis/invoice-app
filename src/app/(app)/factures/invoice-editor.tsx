@@ -74,6 +74,19 @@ function normalizeCurrencyCode(
   return fallback;
 }
 
+function formatDateInputValue(
+  value: Date | string | null | undefined,
+  fallback = "",
+): string {
+  if (!value) {
+    return fallback;
+  }
+  const date = typeof value === "string" ? new Date(value) : value;
+  return Number.isNaN(date.getTime())
+    ? fallback
+    : date.toISOString().slice(0, 10);
+}
+
 function SubmitButton({ label }: { label: string }) {
   const { pending } = useFormStatus();
   return (
@@ -109,12 +122,15 @@ export function InvoiceEditor({
   const [clientId, setClientId] = useState(defaultInvoice?.clientId ?? clients[0]?.id ?? "");
   const [status, setStatus] = useState<InvoiceStatus>(defaultInvoice?.status ?? "BROUILLON");
   const [reference, setReference] = useState(defaultInvoice?.reference ?? "");
-  const [issueDate, setIssueDate] = useState(
-    defaultInvoice ? defaultInvoice.issueDate.toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10),
-  );
-  const [dueDate, setDueDate] = useState(
-    defaultInvoice?.dueDate ? defaultInvoice.dueDate.toISOString().slice(0, 10) : "",
-  );
+  const today = formatDateInputValue(new Date());
+  const initialIssueDate = defaultInvoice
+    ? formatDateInputValue(defaultInvoice.issueDate, today)
+    : today;
+  const initialDueDate = defaultInvoice?.dueDate
+    ? formatDateInputValue(defaultInvoice.dueDate)
+    : "";
+  const [issueDate, setIssueDate] = useState(initialIssueDate);
+  const [dueDate, setDueDate] = useState(initialDueDate);
   const [currency, setCurrency] = useState<CurrencyCode>(initialCurrency);
   const [globalDiscountRate, setGlobalDiscountRate] = useState<number | "">(
     defaultInvoice?.globalDiscountRate ?? "",
@@ -671,19 +687,226 @@ export function InvoiceEditor({
             </div>
           </div>
         </div>
+        <div className="space-y-4 md:hidden">
+          {lines.map((line, index) => {
+            const computed = totals.computedLines[index];
+            const lineError = lineErrors.get(index) ?? {};
+            const productInputId = `mobile-product-${index}`;
+            const descriptionId = `mobile-description-${index}`;
+            const quantityId = `mobile-quantity-${index}`;
+            const unitId = `mobile-unit-${index}`;
+            const unitPriceId = `mobile-unit-price-${index}`;
+            const discountId = `mobile-discount-${index}`;
+            const fodecId = `mobile-fodec-${index}`;
+            const vatId = `mobile-vat-${index}`;
+            return (
+              <article
+                key={`mobile-line-${index}`}
+                className="rounded-xl border border-zinc-200 bg-white p-4 text-sm shadow-sm dark:border-zinc-800 dark:bg-zinc-900/40"
+              >
+                <div className="space-y-4">
+                  <div className="space-y-1">
+                    <label className="label" htmlFor={productInputId}>
+                      Produit
+                    </label>
+                    <select
+                      id={productInputId}
+                      className="input"
+                      value={line.productId ?? ""}
+                      onChange={(event) => handleProductSelect(index, event.target.value)}
+                    >
+                      <option value="">Personnalisé</option>
+                      {products.map((product) => (
+                        <option key={product.id} value={product.id}>
+                          {product.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="label" htmlFor={descriptionId}>
+                      Description
+                    </label>
+                    <Textarea
+                      id={descriptionId}
+                      rows={3}
+                      value={line.description}
+                      onChange={(event) => handleLineChange(index, { description: event.target.value })}
+                      aria-invalid={Boolean(lineError.description) || undefined}
+                      data-invalid={lineError.description ? "true" : undefined}
+                    />
+                    {lineError.description ? (
+                      <p className="text-xs text-red-600 dark:text-red-400">{lineError.description}</p>
+                    ) : null}
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-1">
+                      <label className="label" htmlFor={quantityId}>
+                        Quantité
+                      </label>
+                      <Input
+                        id={quantityId}
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        value={line.quantity}
+                        onChange={(event) => handleLineChange(index, { quantity: Number(event.target.value) })}
+                        aria-invalid={Boolean(lineError.quantity) || undefined}
+                        data-invalid={lineError.quantity ? "true" : undefined}
+                      />
+                      {lineError.quantity ? (
+                        <p className="text-xs text-red-600 dark:text-red-400">{lineError.quantity}</p>
+                      ) : null}
+                    </div>
+                    <div className="space-y-1">
+                      <label className="label" htmlFor={unitId}>
+                        Unité
+                      </label>
+                      <Input
+                        id={unitId}
+                        value={line.unit}
+                        onChange={(event) => handleLineChange(index, { unit: event.target.value })}
+                        aria-invalid={Boolean(lineError.unit) || undefined}
+                        data-invalid={lineError.unit ? "true" : undefined}
+                      />
+                      {lineError.unit ? (
+                        <p className="text-xs text-red-600 dark:text-red-400">{lineError.unit}</p>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-1">
+                      <label className="label" htmlFor={unitPriceId}>
+                        {`Prix HT (${currency})`}
+                      </label>
+                      <Input
+                        id={unitPriceId}
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={line.unitPrice}
+                        onChange={(event) => handleLineChange(index, { unitPrice: Number(event.target.value) })}
+                        aria-invalid={Boolean(lineError.unitPrice) || undefined}
+                        data-invalid={lineError.unitPrice ? "true" : undefined}
+                      />
+                      {lineError.unitPrice ? (
+                        <p className="text-xs text-red-600 dark:text-red-400">{lineError.unitPrice}</p>
+                      ) : null}
+                    </div>
+                    <div className="space-y-1">
+                      <label className="label" htmlFor={discountId}>
+                        Remise (%)
+                      </label>
+                      <Input
+                        id={discountId}
+                        type="number"
+                        min="0"
+                        step="0.1"
+                        value={line.discountRate ?? ""}
+                        onChange={(event) => handleDiscountRateChange(index, event.target.value)}
+                        aria-invalid={Boolean(lineError.discountRate) || undefined}
+                        data-invalid={lineError.discountRate ? "true" : undefined}
+                      />
+                      {lineError.discountRate ? (
+                        <p className="text-xs text-red-600 dark:text-red-400">{lineError.discountRate}</p>
+                      ) : null}
+                    </div>
+                  </div>
+                  {taxConfiguration.fodec.application === "line" && taxConfiguration.fodec.enabled ? (
+                    <div className="space-y-1">
+                      <label className="label" htmlFor={fodecId}>
+                        FODEC (%)
+                      </label>
+                      <Input
+                        id={fodecId}
+                        type="number"
+                        min="0"
+                        step="0.1"
+                        value={line.fodecRate ?? ""}
+                        onChange={(event) =>
+                          handleLineChange(index, {
+                            fodecRate: event.target.value === "" ? null : Number(event.target.value),
+                          })
+                        }
+                        disabled={!applyFodec}
+                        aria-invalid={Boolean(lineError.fodecRate) || undefined}
+                        data-invalid={lineError.fodecRate ? "true" : undefined}
+                      />
+                      {lineError.fodecRate ? (
+                        <p className="text-xs text-red-600 dark:text-red-400">{lineError.fodecRate}</p>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  <div className="space-y-1">
+                    <label className="label" htmlFor={vatId}>
+                      TVA (%)
+                    </label>
+                    <Input
+                      id={vatId}
+                      type="number"
+                      min="0"
+                      step="0.5"
+                      value={line.vatRate}
+                      onChange={(event) => handleLineChange(index, { vatRate: Number(event.target.value) })}
+                      aria-invalid={Boolean(lineError.vatRate) || undefined}
+                      data-invalid={lineError.vatRate ? "true" : undefined}
+                    />
+                    {lineError.vatRate ? (
+                      <p className="text-xs text-red-600 dark:text-red-400">{lineError.vatRate}</p>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="mt-4 flex flex-col gap-3 border-t border-zinc-200 pt-3 dark:border-zinc-800">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                      Total TTC
+                    </span>
+                    <span className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+                      {formatCurrency(fromCents(computed.totalTTCCents, currency), currency)}
+                    </span>
+                  </div>
+                  <div className="flex flex-col gap-2 min-[420px]:flex-row">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="w-full min-[420px]:w-auto"
+                      onClick={() => duplicateLine(index)}
+                    >
+                      Dupliquer
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="w-full min-[420px]:w-auto text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+                      onClick={() => removeLine(index)}
+                      disabled={lines.length <= 1}
+                    >
+                      Supprimer
+                    </Button>
+                  </div>
+                </div>
+              </article>
+            );
+          })}
+        </div>
       </section>
 
       <section className="card space-y-4 p-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Lignes de facturation</h2>
-          <Button type="button" variant="secondary" onClick={addLine}>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={addLine}
+            className="w-full md:w-auto"
+          >
             Ajouter une ligne
           </Button>
         </div>
         {linesErrorMessage ? (
           <Alert variant="error" title={linesErrorMessage} />
         ) : null}
-        <div className="overflow-x-auto">
+        <div className="hidden md:block md:overflow-x-auto">
           <table className="min-w-full divide-y divide-zinc-200 text-sm dark:divide-zinc-800">
             <thead className="bg-zinc-50 text-xs uppercase text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
               <tr>

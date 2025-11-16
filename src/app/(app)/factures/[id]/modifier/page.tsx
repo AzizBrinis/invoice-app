@@ -49,7 +49,7 @@ export default async function EditFacturePage({
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
             Modifier la facture {invoice.number}
@@ -60,7 +60,7 @@ export default async function EditFacturePage({
         </div>
         <Link
           href="/factures"
-          className="text-sm font-medium text-blue-600 hover:underline dark:text-blue-400"
+          className="text-sm font-medium text-blue-600 hover:underline dark:text-blue-400 md:text-right"
         >
           Retour à la liste
         </Link>

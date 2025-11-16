@@ -81,10 +81,18 @@ function normalizeCurrencyCode(
   return fallback;
 }
 
-function SubmitButton({ label, disabled }: { label: string; disabled?: boolean }) {
+function SubmitButton({
+  label,
+  disabled,
+  className,
+}: {
+  label: string;
+  disabled?: boolean;
+  className?: string;
+}) {
   const { pending } = useFormStatus();
   return (
-    <Button type="submit" loading={pending} disabled={disabled}>
+    <Button type="submit" loading={pending} disabled={disabled} className={className}>
       {label}
     </Button>
   );
@@ -361,6 +369,8 @@ export function QuoteEditor({
   };
 
   const target = redirectTo ?? "/devis";
+  const showLineFodec =
+    taxConfiguration.fodec.application === "line" && taxConfiguration.fodec.enabled;
 
   return (
     <form
@@ -378,76 +388,76 @@ export function QuoteEditor({
         <div className="card border border-dashed border-amber-200 bg-amber-50/50 p-6 text-sm text-amber-900 dark:border-amber-400/40 dark:bg-amber-500/10 dark:text-amber-100">
           <p className="font-semibold">Aucun client disponible</p>
           <p className="mt-1">Ajoutez un client avant de créer un devis.</p>
-          <Button asChild className="mt-4 w-fit" variant="secondary">
+          <Button asChild className="mt-4 w-full sm:w-fit" variant="secondary">
             <Link href="/clients/nouveau">Créer un client</Link>
           </Button>
         </div>
       ) : null}
       <fieldset disabled={selectionBlocked} className="space-y-6">
         <section className="card space-y-4 p-6">
-          <div className="grid gap-4 sm:grid-cols-3">
-          <div className="space-y-2">
-            <label className="label" htmlFor="clientId">
-              Client
-            </label>
-            <select
-              id="clientId"
-              name="clientId"
-              className="input"
-              value={clientId}
-              onChange={(event) => setClientId(event.target.value)}
-              required
-              disabled={selectionBlocked && !defaultQuote}
-            >
-              {hasClients ? (
-                clients.map((client) => (
-                  <option key={client.id} value={client.id}>
-                    {client.displayName}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div className="space-y-2 min-w-0">
+              <label className="label" htmlFor="clientId">
+                Client
+              </label>
+              <select
+                id="clientId"
+                name="clientId"
+                className="input"
+                value={clientId}
+                onChange={(event) => setClientId(event.target.value)}
+                required
+                disabled={selectionBlocked && !defaultQuote}
+              >
+                {hasClients ? (
+                  clients.map((client) => (
+                    <option key={client.id} value={client.id}>
+                      {client.displayName}
+                    </option>
+                  ))
+                ) : defaultQuote ? (
+                  <option value={defaultQuote.clientId ?? ""}>Client associé</option>
+                ) : (
+                  <option value="">Aucun client disponible</option>
+                )}
+              </select>
+            </div>
+            <div className="space-y-2 min-w-0">
+              <label className="label" htmlFor="status">
+                Statut
+              </label>
+              <select
+                id="status"
+                name="status"
+                className="input"
+                value={status}
+                onChange={(event) =>
+                  setStatus(event.target.value as QuoteStatus)
+                }
+              >
+                {STATUS_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
                   </option>
-                ))
-              ) : defaultQuote ? (
-                <option value={defaultQuote.clientId ?? ""}>Client associé</option>
-              ) : (
-                <option value="">Aucun client disponible</option>
-              )}
-            </select>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-2 min-w-0">
+              <label className="label" htmlFor="reference">
+                Référence interne
+              </label>
+              <Input
+                id="reference"
+                name="reference"
+                value={reference}
+                onChange={(event) => setReference(event.target.value)}
+                placeholder="DEV-2025-001"
+              />
+            </div>
           </div>
-          <div className="space-y-2">
-            <label className="label" htmlFor="status">
-              Statut
-            </label>
-            <select
-              id="status"
-              name="status"
-              className="input"
-              value={status}
-              onChange={(event) =>
-                setStatus(event.target.value as QuoteStatus)
-              }
-            >
-              {STATUS_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="space-y-2">
-            <label className="label" htmlFor="reference">
-              Référence interne
-            </label>
-            <Input
-              id="reference"
-              name="reference"
-              value={reference}
-              onChange={(event) => setReference(event.target.value)}
-              placeholder="DEV-2025-001"
-            />
-          </div>
-        </div>
 
-        <div className="grid gap-4 sm:grid-cols-4">
-          <div className="space-y-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
+          <div className="flex flex-col gap-2 min-w-0">
             <label className="label" htmlFor="issueDate">
               Date d&apos;émission
             </label>
@@ -460,7 +470,7 @@ export function QuoteEditor({
               required
             />
           </div>
-          <div className="space-y-2">
+          <div className="flex flex-col gap-2 min-w-0">
             <label className="label" htmlFor="validUntil">
               Validité jusqu&apos;au
             </label>
@@ -472,7 +482,7 @@ export function QuoteEditor({
               onChange={(event) => setValidUntil(event.target.value)}
             />
           </div>
-          <div className="space-y-2">
+          <div className="space-y-2 min-w-0">
             <label className="label" htmlFor="currency">
               Devise
             </label>
@@ -493,8 +503,8 @@ export function QuoteEditor({
             </select>
           </div>
         </div>
-        <div className="grid gap-4 sm:grid-cols-3">
-          <div className="space-y-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div className="space-y-2 min-w-0">
             <label className="label">FODEC</label>
             <div className="flex items-center gap-3">
               <input
@@ -512,7 +522,7 @@ export function QuoteEditor({
             </div>
           </div>
           {taxConfiguration.fodec.application === "document" ? (
-            <div className="space-y-2">
+            <div className="space-y-2 min-w-0">
               <label htmlFor="documentFodecRate" className="label">
                 Taux FODEC (%)
               </label>
@@ -532,12 +542,12 @@ export function QuoteEditor({
               />
             </div>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-2 min-w-0">
               <label className="label">Application</label>
               <p className="text-sm text-zinc-600 dark:text-zinc-300">Appliquée sur chaque ligne</p>
             </div>
           )}
-          <div className="space-y-2">
+          <div className="space-y-2 min-w-0">
             <label className="label">Timbre fiscal</label>
             <div className="space-y-2">
               <div className="flex items-center gap-3">
@@ -570,13 +580,18 @@ export function QuoteEditor({
       </section>
 
       <section className="card space-y-4 p-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Lignes du devis</h2>
-          <Button type="button" variant="secondary" onClick={addLine}>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={addLine}
+            className="w-full sm:w-auto"
+          >
             Ajouter une ligne
           </Button>
         </div>
-        <div className="overflow-x-auto">
+        <div className="hidden overflow-x-auto lg:block">
           <table className="min-w-full divide-y divide-zinc-200 text-sm dark:divide-zinc-800">
             <thead className="bg-zinc-50 dark:bg-zinc-900">
               <tr className="text-xs uppercase text-zinc-500 dark:text-zinc-400">
@@ -586,9 +601,7 @@ export function QuoteEditor({
                 <th className="px-3 py-2 text-left">Unité</th>
                 <th className="px-3 py-2 text-left">{`Prix HT (${currency})`}</th>
                 <th className="px-3 py-2 text-left">Remise (%)</th>
-                {taxConfiguration.fodec.application === "line" && taxConfiguration.fodec.enabled && (
-                  <th className="px-3 py-2 text-left">FODEC (%)</th>
-                )}
+                {showLineFodec ? <th className="px-3 py-2 text-left">FODEC (%)</th> : null}
                 <th className="px-3 py-2 text-left">TVA (%)</th>
                 <th className="px-3 py-2 text-right">Total TTC</th>
                 <th className="px-3 py-2 text-right">Actions</th>
@@ -597,14 +610,15 @@ export function QuoteEditor({
             <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
               {lines.map((line, index) => {
                 const computed = totals.computedLines[index];
+                const lineKey = line.id ?? `line-${index}`;
                 return (
                   <tr
-                    key={index}
+                    key={lineKey}
                     className="transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800"
                   >
                     <td className="px-3 py-2">
                       <ProductSearchInput
-                        lineKey={line.id ?? `line-${index}`}
+                        lineKey={lineKey}
                         selectedProductId={line.productId ?? null}
                         initialLabel={line.productId ? line.description ?? "" : ""}
                         onProductSelect={(product) => applyProductToLine(index, product)}
@@ -652,7 +666,7 @@ export function QuoteEditor({
                         }
                       />
                     </td>
-                    {taxConfiguration.fodec.application === "line" && taxConfiguration.fodec.enabled && (
+                    {showLineFodec ? (
                       <td className="px-3 py-2">
                         <Input
                           type="number"
@@ -670,7 +684,7 @@ export function QuoteEditor({
                           disabled={!applyFodec}
                         />
                       </td>
-                    )}
+                    ) : null}
                     <td className="px-3 py-2">
                       <Input
                         type="number"
@@ -732,13 +746,202 @@ export function QuoteEditor({
             </tbody>
           </table>
         </div>
+        <div className="space-y-4 lg:hidden">
+          {lines.map((line, index) => {
+            const computed = totals.computedLines[index];
+            const lineKey = line.id ?? `line-${index}`;
+            const descriptionId = `line-description-${lineKey}`;
+            const quantityId = `line-quantity-${lineKey}`;
+            const unitId = `line-unit-${lineKey}`;
+            const priceId = `line-price-${lineKey}`;
+            const discountId = `line-discount-${lineKey}`;
+            const fodecId = `line-fodec-${lineKey}`;
+            const vatId = `line-vat-${lineKey}`;
+            return (
+              <div
+                key={`card-${lineKey}`}
+                className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                      Ligne {index + 1}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400">Total TTC</p>
+                    <p className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+                      {formatCurrency(fromCents(computed.totalTTCCents, currency), currency)}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-4 space-y-3">
+                  <div className="space-y-1">
+                    <label className="label" htmlFor={`product-search-${lineKey}`}>
+                      Produit
+                    </label>
+                    <ProductSearchInput
+                      lineKey={lineKey}
+                      selectedProductId={line.productId ?? null}
+                      initialLabel={line.productId ? line.description ?? "" : ""}
+                      onProductSelect={(product) => applyProductToLine(index, product)}
+                      onClearSelection={() =>
+                        handleLineChange(index, {
+                          productId: null,
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="label" htmlFor={descriptionId}>
+                      Description
+                    </label>
+                    <Textarea
+                      id={descriptionId}
+                      rows={3}
+                      value={line.description}
+                      onChange={(event) =>
+                        handleLineChange(index, { description: event.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div className="space-y-1">
+                      <label className="label" htmlFor={quantityId}>
+                        Quantité
+                      </label>
+                      <Input
+                        id={quantityId}
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        value={line.quantity}
+                        onChange={(event) =>
+                          handleLineChange(index, { quantity: Number(event.target.value) })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="label" htmlFor={unitId}>
+                        Unité
+                      </label>
+                      <Input
+                        id={unitId}
+                        value={line.unit}
+                        onChange={(event) => handleLineChange(index, { unit: event.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div className="space-y-1">
+                      <label className="label" htmlFor={priceId}>
+                        {`Prix HT (${currency})`}
+                      </label>
+                      <Input
+                        id={priceId}
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={line.unitPrice}
+                        onChange={(event) =>
+                          handleLineChange(index, { unitPrice: Number(event.target.value) })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="label" htmlFor={discountId}>
+                        Remise (%)
+                      </label>
+                      <Input
+                        id={discountId}
+                        type="number"
+                        min="0"
+                        step="0.1"
+                        value={line.discountRate ?? ""}
+                        onChange={(event) =>
+                          handleDiscountRateChange(index, event.target.value)
+                        }
+                      />
+                      {computed.discountAmountCents > 0 && (
+                        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                          -
+                          {formatCurrency(
+                            fromCents(computed.discountAmountCents, currency),
+                            currency,
+                          )}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  {showLineFodec ? (
+                    <div className="space-y-1">
+                      <label className="label" htmlFor={fodecId}>
+                        FODEC (%)
+                      </label>
+                      <Input
+                        id={fodecId}
+                        type="number"
+                        min="0"
+                        step="0.1"
+                        value={line.fodecRate ?? ""}
+                        onChange={(event) =>
+                          handleLineChange(index, {
+                            fodecRate:
+                              event.target.value === ""
+                                ? null
+                                : Number(event.target.value),
+                          })
+                        }
+                        disabled={!applyFodec}
+                      />
+                    </div>
+                  ) : null}
+                  <div className="space-y-1">
+                    <label className="label" htmlFor={vatId}>
+                      TVA (%)
+                    </label>
+                    <Input
+                      id={vatId}
+                      type="number"
+                      min="0"
+                      step="0.5"
+                      value={line.vatRate}
+                      onChange={(event) =>
+                        handleLineChange(index, { vatRate: Number(event.target.value) })
+                      }
+                    />
+                  </div>
+                </div>
+                <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="w-full sm:w-auto"
+                    onClick={() => duplicateLine(index)}
+                  >
+                    Dupliquer
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="w-full sm:w-auto text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+                    onClick={() => removeLine(index)}
+                    disabled={lines.length <= 1}
+                  >
+                    Supprimer
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-2">
-        <div className="card space-y-4 p-6">
+      <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="card space-y-4 p-6 min-w-0">
           <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Remise globale</h3>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="space-y-2 min-w-0">
               <label className="label" htmlFor="globalDiscountRate">
                 Remise (%)
               </label>
@@ -766,7 +969,7 @@ export function QuoteEditor({
                 }}
               />
             </div>
-            <div className="space-y-2">
+            <div className="space-y-2 min-w-0">
               <label className="label" htmlFor="globalDiscountAmount">
                 {`Remise (${currency})`}
               </label>
@@ -820,7 +1023,7 @@ export function QuoteEditor({
           </div>
         </div>
 
-        <div className="card space-y-4 p-6">
+        <div className="card space-y-4 p-6 min-w-0">
           <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">Récapitulatif</h3>
           <dl className="space-y-2 text-sm text-zinc-600 dark:text-zinc-300">
             <div className="flex items-center justify-between">
@@ -857,10 +1060,14 @@ export function QuoteEditor({
         </div>
       </section>
 
-      <div className="flex justify-end">
-        <SubmitButton label={submitLabel} disabled={selectionBlocked} />
+      <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+        <SubmitButton
+          label={submitLabel}
+          disabled={selectionBlocked}
+          className="w-full sm:w-auto"
+        />
       </div>
-      </fieldset>
+    </fieldset>
     </form>
   );
 }

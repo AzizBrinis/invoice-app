@@ -13,7 +13,9 @@ import type {
   WebsiteBuilderConfig,
   WebsiteBuilderSection,
   WebsiteBuilderMediaAsset,
+  WebsiteBuilderButton,
 } from "@/lib/website/builder";
+import { WEBSITE_MEDIA_PLACEHOLDERS } from "@/lib/website/placeholders";
 import {
   BUILDER_SECTION_TYPES,
   BUILDER_SECTION_LAYOUTS,
@@ -46,6 +48,143 @@ const animationOptions = [
   { label: "Glissé", value: "slide" },
   { label: "Zoom", value: "zoom" },
 ];
+
+type SectionMediaField = {
+  key: "mediaId" | "secondaryMediaId";
+  label: string;
+  description?: string;
+  placeholder?: string;
+};
+
+const SECTION_MEDIA_FIELDS: Partial<Record<WebsiteBuilderSection["type"], SectionMediaField[]>> = {
+  hero: [
+    {
+      key: "mediaId",
+      label: "Visuel du héro",
+      description: "Image large affichée dans le bloc principal.",
+      placeholder: WEBSITE_MEDIA_PLACEHOLDERS.hero,
+    },
+  ],
+  about: [
+    {
+      key: "mediaId",
+      label: "Photo / workspace",
+      description: "Illustration visible dans la section À propos.",
+      placeholder: WEBSITE_MEDIA_PLACEHOLDERS.about,
+    },
+  ],
+};
+
+const SECTION_ITEM_PLACEHOLDERS: Partial<Record<WebsiteBuilderSection["type"], readonly string[]>> = {
+  gallery: WEBSITE_MEDIA_PLACEHOLDERS.gallery,
+  team: WEBSITE_MEDIA_PLACEHOLDERS.team,
+  logos: WEBSITE_MEDIA_PLACEHOLDERS.logos,
+};
+
+function getSectionItemPlaceholder(
+  type: WebsiteBuilderSection["type"],
+  index: number,
+) {
+  const placeholders = SECTION_ITEM_PLACEHOLDERS[type];
+  if (!placeholders?.length) {
+    return null;
+  }
+  return placeholders[index % placeholders.length];
+}
+
+type MediaPlaceholderPickerProps = {
+  label: string;
+  description?: string;
+  value: string | null | undefined;
+  assets: WebsiteBuilderMediaAsset[];
+  fallbackImage?: string | null;
+  onChange: (id: string | null) => void;
+  onUpload?: (files: FileList | null) => void;
+};
+
+function MediaPlaceholderPicker({
+  label,
+  description,
+  value,
+  assets,
+  fallbackImage,
+  onChange,
+  onUpload,
+}: MediaPlaceholderPickerProps) {
+  const selectedAsset = assets.find((asset) => asset.id === value) ?? null;
+  const previewSrc = selectedAsset?.src ?? fallbackImage ?? null;
+  const previewAlt = selectedAsset?.alt ?? label;
+  const unoptimized = Boolean(selectedAsset?.src?.startsWith("data:"));
+
+  return (
+    <div className="space-y-3 rounded-2xl border border-zinc-200 p-4 dark:border-zinc-800">
+      <div>
+        <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{label}</p>
+        {description ? (
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">{description}</p>
+        ) : null}
+      </div>
+      <div className="flex items-center gap-4">
+        <div className="relative h-16 w-16 overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900">
+          {previewSrc ? (
+            <NextImage
+              src={previewSrc}
+              alt={previewAlt}
+              fill
+              sizes="64px"
+              className="object-cover"
+              unoptimized={unoptimized}
+            />
+          ) : (
+            <span className="block text-center text-[11px] text-zinc-400 dark:text-zinc-500">
+              Aucun visuel
+            </span>
+          )}
+        </div>
+        <div className="flex-1 space-y-2 text-xs">
+          <select
+            className="input"
+            value={value ?? ""}
+            onChange={(event) => onChange(event.target.value || null)}
+          >
+            <option value="">Utiliser le placeholder</option>
+            {assets.map((asset) => (
+              <option key={asset.id} value={asset.id}>
+                {asset.alt || asset.id}
+              </option>
+            ))}
+          </select>
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="cursor-pointer text-[11px] font-semibold text-[var(--site-accent)]">
+              Importer
+              <input
+                type="file"
+                accept="image/*"
+                className="sr-only"
+                onChange={(event) => {
+                  const files = event.target.files;
+                  if (files?.length) {
+                    onUpload?.(files);
+                    event.target.value = "";
+                  }
+                }}
+              />
+            </label>
+            {value ? (
+              <button
+                type="button"
+                className="text-[11px] text-red-500"
+                onClick={() => onChange(null)}
+              >
+                Effacer
+              </button>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function serializeConfig(config: WebsiteBuilderConfig) {
   const clone = structuredClone(config);
@@ -119,6 +258,7 @@ export function AdvancedCustomizationClient({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewRef = useRef<HTMLDivElement | null>(null);
   const [, startTransition] = useTransition();
+  const mediaAssets = config.mediaLibrary ?? [];
 
   const markDirty = () => {
     setStatus("saving");
@@ -202,6 +342,9 @@ export function AdvancedCustomizationClient({
     config.sections.find((section) => section.id === selectedSectionId) ??
     config.sections[0] ??
     null;
+  const sectionMediaFields = selectedSection
+    ? SECTION_MEDIA_FIELDS[selectedSection.type] ?? []
+    : [];
 
   function updateSection(
     sectionId: string,
@@ -230,6 +373,27 @@ export function AdvancedCustomizationClient({
               ...section,
               items: section.items?.map((item) =>
                 item.id === itemId ? { ...item, ...changes } : item,
+              ),
+            }
+          : section,
+      ),
+    }));
+  }
+
+  function updateButton(
+    sectionId: string,
+    buttonId: string,
+    changes: Partial<WebsiteBuilderButton>,
+  ) {
+    markDirty();
+    setConfig((prev) => ({
+      ...prev,
+      sections: prev.sections.map((section) =>
+        section.id === sectionId
+          ? {
+              ...section,
+              buttons: section.buttons?.map((button) =>
+                button.id === buttonId ? { ...button, ...changes } : button,
               ),
             }
           : section,
@@ -276,6 +440,12 @@ export function AdvancedCustomizationClient({
       sections: [...prev.sections, clone],
     }));
     setSelectedSectionId(clone.id);
+  }
+
+  function restoreFromSnapshot(snapshot: WebsiteBuilderConfig) {
+    markDirty();
+    setConfig(snapshot);
+    setSelectedSectionId(snapshot.sections[0]?.id ?? "");
   }
 
   function reorderSections(sourceId: string, targetId: string) {
@@ -599,6 +769,13 @@ export function AdvancedCustomizationClient({
                       timeStyle: "short",
                     })}
                   </p>
+                  <button
+                    type="button"
+                    className="mt-1 text-[11px] font-semibold text-[var(--site-accent)]"
+                    onClick={() => restoreFromSnapshot(entry.snapshot)}
+                  >
+                    Restaurer la version
+                  </button>
                 </li>
               ))}
             </ol>
@@ -624,7 +801,7 @@ export function AdvancedCustomizationClient({
               Glissez vos images ou cliquez pour importer.
             </label>
             <div className="space-y-3">
-              {(config.mediaLibrary ?? []).map((asset) => (
+              {mediaAssets.map((asset) => (
                 <div
                   key={asset.id}
                   className="flex items-center gap-3 rounded-2xl border border-zinc-200 p-3 text-sm dark:border-zinc-800"
@@ -665,7 +842,7 @@ export function AdvancedCustomizationClient({
                   </button>
                 </div>
               ))}
-              {(config.mediaLibrary ?? []).length === 0 ? (
+              {mediaAssets.length === 0 ? (
                 <p className="text-xs text-zinc-500 dark:text-zinc-400">
                   Aucun média importé pour le moment.
                 </p>
@@ -739,6 +916,29 @@ export function AdvancedCustomizationClient({
                   }))
                 }
               />
+              {sectionMediaFields.length ? (
+                <div className="grid gap-4 lg:grid-cols-2">
+                  {sectionMediaFields.map((field) => (
+                    <MediaPlaceholderPicker
+                      key={`${selectedSection.id}-${field.key}`}
+                      label={field.label}
+                      description={field.description}
+                      value={selectedSection[field.key] ?? null}
+                      assets={mediaAssets}
+                      fallbackImage={field.placeholder}
+                      onChange={(nextValue) =>
+                        updateSection(
+                          selectedSection.id,
+                          () => ({
+                            [field.key]: nextValue,
+                          }) as Partial<WebsiteBuilderSection>,
+                        )
+                      }
+                      onUpload={(files) => void handleMediaUpload(files)}
+                    />
+                  ))}
+                </div>
+              ) : null}
               <div className="grid gap-4 md:grid-cols-2">
                 <label className="text-xs font-medium text-zinc-600 dark:text-zinc-300">
                   Layout
@@ -800,7 +1000,13 @@ export function AdvancedCustomizationClient({
                       Ajouter
                     </button>
                   </div>
-                  {(selectedSection.items ?? []).map((item) => (
+                  {(selectedSection.items ?? []).map((item, itemIndex) => {
+                    const selectedAsset = mediaAssets.find((asset) => asset.id === item.mediaId) ?? null;
+                    const placeholder = getSectionItemPlaceholder(selectedSection.type, itemIndex);
+                    const itemPreviewSrc = selectedAsset?.src ?? placeholder;
+                    const itemPreviewAlt = selectedAsset?.alt ?? item.title ?? "Illustration";
+                    const itemPreviewUnoptimized = Boolean(selectedAsset?.src?.startsWith("data:"));
+                    return (
                     <div
                       key={item.id}
                       className="rounded-2xl border border-zinc-200 p-4 dark:border-zinc-800"
@@ -862,23 +1068,137 @@ export function AdvancedCustomizationClient({
                           })
                         }
                       />
+                      <div className="mt-3 space-y-2">
+                        <p className="text-xs font-medium uppercase tracking-[0.2em] text-zinc-500 dark:text-zinc-400">
+                          Illustration
+                        </p>
+                        <div className="flex items-center gap-3">
+                          <div className="relative h-14 w-14 overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900">
+                            {itemPreviewSrc ? (
+                              <NextImage
+                                src={itemPreviewSrc}
+                                alt={itemPreviewAlt}
+                                fill
+                                sizes="56px"
+                                className="object-cover"
+                                unoptimized={itemPreviewUnoptimized}
+                              />
+                            ) : (
+                              <span className="block text-center text-[11px] text-zinc-400 dark:text-zinc-500">
+                                Placeholder
+                              </span>
+                            )}
+                          </div>
+                          <select
+                            className="input"
+                            value={item.mediaId ?? ""}
+                            onChange={(event) =>
+                              updateItem(selectedSection.id, item.id, {
+                                mediaId: event.target.value || null,
+                              })
+                            }
+                          >
+                            <option value="">Placeholder par défaut</option>
+                            {mediaAssets.map((asset) => (
+                              <option key={asset.id} value={asset.id}>
+                                {asset.alt || asset.id}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                  })}
+                </div>
+              ) : null}
+              {selectedSection && ["hero", "contact"].includes(selectedSection.type) ? (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs uppercase tracking-[0.3em] text-zinc-500 dark:text-zinc-400">
+                      Boutons
+                    </p>
+                    <button
+                      type="button"
+                      className="text-xs text-[var(--site-accent)] disabled:text-zinc-400 dark:disabled:text-zinc-600"
+                      disabled={(selectedSection.buttons?.length ?? 0) >= 3}
+                      onClick={() =>
+                        updateSection(selectedSection.id, (section) => {
+                          if ((section.buttons?.length ?? 0) >= 3) {
+                            return { buttons: section.buttons };
+                          }
+                          return {
+                            buttons: [
+                              ...(section.buttons ?? []),
+                              {
+                                id: generateId("btn"),
+                                label: "Nouvel appel à l'action",
+                                href: "#contact",
+                                style: "primary",
+                              },
+                            ],
+                          };
+                        })
+                      }
+                    >
+                      Ajouter un bouton
+                    </button>
+                  </div>
+                  {(selectedSection.buttons ?? []).map((button) => (
+                    <div
+                      key={button.id}
+                      className="rounded-2xl border border-zinc-200 p-4 dark:border-zinc-800"
+                    >
+                      <div className="flex items-center justify-between text-xs">
+                        <p className="font-medium text-zinc-700 dark:text-zinc-200">
+                          {button.label || "CTA"}
+                        </p>
+                        <button
+                          type="button"
+                          className="text-red-500"
+                          onClick={() =>
+                            updateSection(selectedSection.id, (section) => ({
+                              buttons: section.buttons?.filter((entry) => entry.id !== button.id),
+                            }))
+                          }
+                        >
+                          Supprimer
+                        </button>
+                      </div>
+                      <Input
+                        className="mt-2"
+                        placeholder="Libellé"
+                        value={button.label ?? ""}
+                        onChange={(event) =>
+                          updateButton(selectedSection.id, button.id, {
+                            label: event.target.value,
+                          })
+                        }
+                      />
+                      <Input
+                        className="mt-2"
+                        placeholder="#contact"
+                        value={button.href ?? ""}
+                        onChange={(event) =>
+                          updateButton(selectedSection.id, button.id, {
+                            href: event.target.value,
+                          })
+                        }
+                      />
                       <label className="mt-2 block text-xs text-zinc-500 dark:text-zinc-400">
-                        Illustration
+                        Style
                         <select
                           className="input mt-1"
-                          value={item.mediaId ?? ""}
+                          value={button.style ?? "primary"}
                           onChange={(event) =>
-                            updateItem(selectedSection.id, item.id, {
-                              mediaId: event.target.value || null,
+                            updateButton(selectedSection.id, button.id, {
+                              style: event.target.value as WebsiteBuilderButton["style"],
                             })
                           }
                         >
-                          <option value="">Aucune</option>
-                          {(config.mediaLibrary ?? []).map((asset) => (
-                            <option key={asset.id} value={asset.id}>
-                              {asset.alt || asset.id}
-                            </option>
-                          ))}
+                          <option value="primary">Principal</option>
+                          <option value="secondary">Secondaire</option>
+                          <option value="ghost">Ghost</option>
                         </select>
                       </label>
                     </div>

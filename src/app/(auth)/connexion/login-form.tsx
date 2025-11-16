@@ -28,7 +28,7 @@ export function LoginForm({ redirectTo }: { redirectTo: string }) {
   }, [addToast, hasFieldError, state?.message]);
 
   return (
-    <form action={formAction} className="space-y-4">
+    <form action={formAction} className="space-y-5">
       <input type="hidden" name="redirectTo" value={redirectTo} />
       {state?.message ? (
         <Alert variant="error" title={state.message} />

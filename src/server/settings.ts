@@ -1,5 +1,3 @@
-import { cache } from "react";
-import { unstable_cache, revalidateTag } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
 import { requireUser } from "@/lib/auth";
@@ -115,15 +113,12 @@ const settingsInclude = {
   quoteTemplate: true,
 } as const;
 
-const SETTINGS_CACHE_SECONDS = 60;
-const settingsTag = (userId: string) => `settings:${userId}`;
-
-const fetchSettings = cache(async (userId: string) =>
-  prisma.companySettings.findUnique({
+async function fetchSettings(userId: string) {
+  return prisma.companySettings.findUnique({
     where: { userId },
     include: settingsInclude,
-  }),
-);
+  });
+}
 
 function normalizeSettings<T extends { taxConfiguration?: unknown }>(
   settings: T,
@@ -139,27 +134,7 @@ function normalizeSettings<T extends { taxConfiguration?: unknown }>(
 }
 
 async function readCachedSettings(userId: string) {
-  if (process.env.NODE_ENV === "test") {
-    return fetchSettings(userId);
-  }
-
-  const cached = unstable_cache(
-    () => fetchSettings(userId),
-    ["settings", userId],
-    {
-      revalidate: SETTINGS_CACHE_SECONDS,
-      tags: [settingsTag(userId)],
-    },
-  );
-
-  return cached();
-}
-
-function revalidateSettings(userId: string) {
-  if (process.env.NODE_ENV === "test") {
-    return;
-  }
-  revalidateTag(settingsTag(userId), "max");
+  return fetchSettings(userId);
 }
 
 async function resolveUserId(userId?: string) {
@@ -178,9 +153,8 @@ export async function getSettings(userId?: string) {
     return normalizeSettings(settings);
   }
 
-  const created = await prisma.companySettings.upsert({
-    where: { userId: resolvedUserId },
-    create: {
+  await prisma.companySettings.createMany({
+    data: {
       userId: resolvedUserId,
       companyName: "Nouvelle société",
       logoData: null,
@@ -195,12 +169,15 @@ export async function getSettings(userId?: string) {
       stampPosition: "bottom-right",
       signaturePosition: "bottom-right",
     },
-    update: {},
-    include: settingsInclude,
+    skipDuplicates: true,
   });
 
-  revalidateSettings(resolvedUserId);
-  return normalizeSettings(created);
+  const ensuredSettings = await fetchSettings(resolvedUserId);
+  if (!ensuredSettings) {
+    throw new Error("Unable to initialize default company settings.");
+  }
+
+  return normalizeSettings(ensuredSettings);
 }
 
 export async function updateSettings(input: SettingsInput, userId?: string) {
@@ -223,6 +200,5 @@ export async function updateSettings(input: SettingsInput, userId?: string) {
     include: settingsInclude,
   });
 
-  revalidateSettings(resolvedUserId);
   return settings;
 }

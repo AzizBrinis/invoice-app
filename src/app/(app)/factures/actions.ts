@@ -17,8 +17,8 @@ import {
 } from "@/server/invoices";
 import { InvoiceStatus, UserRole } from "@prisma/client";
 import { isUniqueConstraintViolation } from "@/lib/db-errors";
-import { sendInvoiceEmail } from "@/server/email";
 import { getMessagingSettingsSummary } from "@/server/messaging";
+import { queueInvoiceEmailJob } from "@/server/document-email-jobs";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import {
@@ -28,6 +28,10 @@ import {
 import { isRedirectError } from "@/lib/next";
 import type { InvoiceFormState } from "@/app/(app)/factures/form-state";
 import type { Route } from "next";
+import type {
+  DocumentEmailActionInput,
+  DocumentEmailActionResult,
+} from "@/types/document-email";
 
 async function requireBillingAccess() {
   const user = await requireUser();
@@ -371,40 +375,61 @@ export async function deletePaymentAction(
   }
 }
 
-export async function sendInvoiceEmailAction(id: string, formData: FormData) {
-  await requireBillingAccess();
-  const messagingSummary = await getMessagingSettingsSummary();
-  const to = formData.get("email")?.toString();
-  const subject = formData.get("subject")?.toString() || undefined;
-  const redirectTarget = resolveRedirectTarget(formData, `/factures/${id}`);
+export async function sendInvoiceEmailAction(
+  id: string,
+  input: DocumentEmailActionInput,
+): Promise<DocumentEmailActionResult> {
+  const user = await requireBillingAccess();
+  const messagingSummary = await getMessagingSettingsSummary(user.id);
+  const email = input.email?.trim() ?? "";
+  const subject = input.subject?.trim();
+
   if (!messagingSummary.smtpConfigured) {
-    redirectWithFeedback(redirectTarget, {
-      warning: "Veuillez configurer la messagerie (SMTP/IMAP) avant d'envoyer des factures.",
-    });
-    return;
+    return {
+      status: "config-missing",
+      variant: "warning",
+      message:
+        "Veuillez configurer la messagerie (SMTP/IMAP) avant d'envoyer des factures.",
+    };
   }
-  if (!to) {
-    redirectWithFeedback(redirectTarget, {
-      error: "Adresse e-mail requise",
-    });
-    return;
+  if (!email) {
+    return {
+      status: "invalid",
+      variant: "error",
+      message: "Adresse e-mail requise.",
+    };
   }
+
   try {
-    await sendInvoiceEmail({ invoiceId: id, to, subject });
-    redirectWithFeedback(redirectTarget, {
-      message: "Facture envoyée par e-mail",
+    const queueResult = await queueInvoiceEmailJob({
+      userId: user.id,
+      invoiceId: id,
+      to: email,
+      subject,
     });
-  } catch (error) {
-    if (isRedirectError(error)) {
-      throw error;
+    if (queueResult.deduped) {
+      return {
+        status: "duplicate",
+        variant: "warning",
+        message: "Un envoi est déjà en cours pour cette facture.",
+        jobId: queueResult.jobId,
+        deduped: true,
+      };
     }
-    console.error("[sendInvoiceEmailAction] Erreur d'envoi", error);
-    const rawMessage =
-      error instanceof Error ? error.message : "Échec de l'envoi de l'e-mail. Veuillez réessayer.";
-    const needsConfig = /smtp|messagerie/i.test(rawMessage);
-    const feedbackMessage = needsConfig
-      ? "Veuillez configurer la messagerie (SMTP/IMAP) avant d'envoyer des factures."
-      : "Échec de l'envoi de l'e-mail. Veuillez réessayer.";
-    redirectWithFeedback(redirectTarget, needsConfig ? { warning: feedbackMessage } : { error: feedbackMessage });
+    return {
+      status: "queued",
+      variant: "success",
+      message: "Facture en cours d'envoi en arrière-plan.",
+      jobId: queueResult.jobId,
+      deduped: false,
+    };
+  } catch (error) {
+    console.error("[sendInvoiceEmailAction] Erreur de mise en file", error);
+    return {
+      status: "error",
+      variant: "error",
+      message:
+        "Impossible de planifier cet envoi. Veuillez réessayer dans un instant.",
+    };
   }
 }

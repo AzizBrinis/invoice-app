@@ -19,6 +19,7 @@ import type { CurrencyCode } from "@/lib/currency";
 import type { ProductListResult } from "@/server/products";
 import { deleteProductInlineAction } from "@/app/(app)/produits/actions";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
+import { useMediaQuery } from "@/hooks/use-media-query";
 
 type ProductsInteractiveShellProps = {
   initialData: ProductListResult;
@@ -182,6 +183,7 @@ export function ProductsInteractiveShell({
   const isInitialRender = useRef(true);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [isPendingDelete, startDeleteTransition] = useTransition();
+  const isDesktopLayout = useMediaQuery("(min-width: 1024px)");
 
   const sortedPages = useMemo(
     () =>
@@ -331,7 +333,7 @@ export function ProductsInteractiveShell({
   }, [inlineMessage]);
 
   const virtualizationEnabled =
-    mergedItems.length > VIRTUALIZATION_THRESHOLD;
+    isDesktopLayout && mergedItems.length > VIRTUALIZATION_THRESHOLD;
   const startIndex = virtualizationEnabled
     ? Math.max(
         0,
@@ -435,6 +437,7 @@ export function ProductsInteractiveShell({
 
   const loadingMore =
     hasNextPage && loadingPages.has(latestMeta.page + 1);
+  const showingEmptyState = !isRefreshing && mergedItems.length === 0;
 
   return (
     <div className="space-y-4">
@@ -527,7 +530,100 @@ export function ProductsInteractiveShell({
           className="max-h-[70vh] overflow-auto"
           aria-live="polite"
         >
-          <table className="min-w-full divide-y divide-zinc-200 text-sm dark:divide-zinc-800">
+          <div className="divide-y divide-zinc-100 dark:divide-zinc-800 lg:hidden">
+            {mergedItems.map((product) => (
+              <article
+                key={product.id}
+                className="flex flex-col gap-3 p-4"
+              >
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                    {product.category ?? "Sans catégorie"}
+                  </p>
+                  <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 break-words">
+                    {product.name}
+                  </h2>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400 break-all">
+                    SKU : {product.sku}
+                  </p>
+                </div>
+                <dl className="grid grid-cols-2 gap-4 text-sm text-zinc-600 dark:text-zinc-300 sm:grid-cols-3">
+                  <div className="space-y-1">
+                    <dt className="text-xs uppercase tracking-wide">Prix HT</dt>
+                    <dd className="text-base font-medium text-zinc-900 dark:text-zinc-100">
+                      {formatCurrency(
+                        fromCents(product.priceHTCents, currencyCode),
+                        currencyCode,
+                      )}
+                    </dd>
+                  </div>
+                  <div className="space-y-1">
+                    <dt className="text-xs uppercase tracking-wide">Prix TTC</dt>
+                    <dd className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+                      {formatCurrency(
+                        fromCents(product.priceTTCCents, currencyCode),
+                        currencyCode,
+                      )}
+                    </dd>
+                  </div>
+                  <div className="space-y-1">
+                    <dt className="text-xs uppercase tracking-wide">TVA</dt>
+                    <dd>{product.vatRate}%</dd>
+                  </div>
+                  <div className="space-y-1">
+                    <dt className="text-xs uppercase tracking-wide">Remise</dt>
+                    <dd>
+                      {product.defaultDiscountRate != null
+                        ? `${product.defaultDiscountRate}%`
+                        : "—"}
+                    </dd>
+                  </div>
+                  <div className="space-y-1">
+                    <dt className="text-xs uppercase tracking-wide">Statut</dt>
+                    <dd>
+                      <span
+                        className={clsx(
+                          "inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors",
+                          product.isActive
+                            ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200"
+                            : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300",
+                        )}
+                      >
+                        {product.isActive ? "Actif" : "Inactif"}
+                      </span>
+                    </dd>
+                  </div>
+                </dl>
+                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                  <Button
+                    asChild
+                    variant="secondary"
+                    className="w-full justify-center sm:w-auto sm:flex-1"
+                    onMouseEnter={() => handlePrefetch(product.id)}
+                  >
+                    <Link href={`/produits/${product.id}/modifier`}>
+                      Modifier
+                    </Link>
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="w-full justify-center text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 sm:w-auto sm:flex-1"
+                    onClick={() => handleDelete(product.id)}
+                    loading={pendingDeleteId === product.id && isPendingDelete}
+                  >
+                    Supprimer
+                  </Button>
+                </div>
+              </article>
+            ))}
+            {showingEmptyState ? (
+              <p className="px-4 py-6 text-center text-sm text-zinc-500 dark:text-zinc-400">
+                Aucun produit trouvé avec ces critères.
+              </p>
+            ) : null}
+          </div>
+          <table className="hidden min-w-full divide-y divide-zinc-200 text-sm dark:divide-zinc-800 lg:table">
             <thead className="bg-zinc-50 text-xs uppercase text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
               <tr>
                 <th className="px-4 py-3 text-left">Produit</th>
@@ -632,7 +728,7 @@ export function ProductsInteractiveShell({
                   />
                 </tr>
               )}
-              {!isRefreshing && mergedItems.length === 0 && (
+              {showingEmptyState && (
                 <tr>
                   <td
                     colSpan={8}

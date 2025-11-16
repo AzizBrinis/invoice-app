@@ -39,7 +39,7 @@ export default async function EditProduitPage({
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
             Modifier le produit
@@ -50,7 +50,7 @@ export default async function EditProduitPage({
         </div>
         <Link
           href="/produits"
-          className="text-sm font-medium text-blue-600 hover:underline dark:text-blue-400"
+          className="inline-flex items-center text-sm font-medium text-blue-600 hover:underline dark:text-blue-400"
         >
           Retour à la liste
         </Link>

@@ -1,0 +1,24 @@
+<svg width="1200" height="900" viewBox="0 0 1200 900" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="heroGradient" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#EEF2FF" />
+      <stop offset="0.5" stop-color="#E0ECFF" />
+      <stop offset="1" stop-color="#F1F5F9" />
+    </linearGradient>
+    <linearGradient id="heroAccent" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#2563EB" stop-opacity="0.85" />
+      <stop offset="1" stop-color="#7C3AED" stop-opacity="0.65" />
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="900" rx="60" fill="url(#heroGradient)" />
+  <circle cx="260" cy="220" r="140" fill="#DBEAFE" />
+  <circle cx="980" cy="180" r="120" fill="#E0E7FF" />
+  <rect x="320" y="320" width="600" height="420" rx="40" fill="white" opacity="0.95" />
+  <rect x="360" y="360" width="220" height="140" rx="24" fill="url(#heroAccent)" opacity="0.85" />
+  <rect x="600" y="360" width="200" height="140" rx="24" fill="#E2E8F0" />
+  <rect x="360" y="520" width="440" height="60" rx="16" fill="#EEF2FF" />
+  <rect x="360" y="600" width="320" height="50" rx="14" fill="#E0E7FF" />
+  <rect x="360" y="670" width="220" height="40" rx="12" fill="#E2E8F0" />
+  <circle cx="920" cy="640" r="130" fill="#C7D2FE" opacity="0.7" />
+  <circle cx="920" cy="640" r="90" fill="url(#heroAccent)" opacity="0.8" />
+</svg>

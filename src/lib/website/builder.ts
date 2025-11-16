@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { generateId } from "@/lib/id";
+import { WEBSITE_MEDIA_PLACEHOLDERS } from "@/lib/website/placeholders";
 
 export const BUILDER_SECTION_TYPES = [
   "hero",
@@ -50,10 +51,31 @@ const builderStatisticSchema = z.object({
   value: z.string().max(40),
 });
 
+function isValidBuilderMediaSrc(value: string) {
+  if (value.startsWith("data:")) {
+    return true;
+  }
+  if (value.startsWith("/")) {
+    return true;
+  }
+  try {
+    new URL(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const builderMediaAssetSchema = z.object({
   id: z.string().default(() => generateId("asset")),
   kind: z.enum(["image", "logo"]).default("image"),
-  src: z.string().url().or(z.string().startsWith("data:")).nullable(),
+  src: z
+    .string()
+    .nullable()
+    .refine(
+      (value) => !value || isValidBuilderMediaSrc(value),
+      "Le média doit être une URL valide, un data URI ou un chemin interne commençant par /.",
+    ),
   alt: z.string().max(160).default(""),
   width: z.number().nullable().optional(),
   height: z.number().nullable().optional(),
@@ -148,6 +170,31 @@ export const builderVersionHistorySchema = z
   .array(builderVersionEntrySchema)
   .default([]);
 
+function createPlaceholderMediaAsset(
+  params: {
+    src: string;
+    alt: string;
+    width: number;
+    height: number;
+    context: string;
+    createdAt: string;
+    kind?: "image" | "logo";
+  },
+): WebsiteBuilderMediaAsset {
+  const aspectRatio = Number((params.width / params.height).toFixed(3));
+  return {
+    id: generateId("asset"),
+    kind: params.kind ?? "image",
+    src: params.src,
+    alt: params.alt,
+    width: params.width,
+    height: params.height,
+    aspectRatio,
+    createdAt: params.createdAt,
+    metadata: { context: params.context },
+  } satisfies WebsiteBuilderMediaAsset;
+}
+
 export const BUILDER_SECTION_LAYOUTS: Record<BuilderSectionType, string[]> = {
   hero: ["split", "center", "image-right"],
   services: ["grid", "list", "stack"],
@@ -197,10 +244,183 @@ export function createDefaultBuilderConfig(
     stats: [],
   }));
 
+  const timestamp = new Date().toISOString();
+  const heroMedia = createPlaceholderMediaAsset({
+    src: WEBSITE_MEDIA_PLACEHOLDERS.hero,
+    alt: "Illustration studio web",
+    width: 1200,
+    height: 900,
+    context: "placeholder:hero",
+    createdAt: timestamp,
+  });
+  const aboutMedia = createPlaceholderMediaAsset({
+    src: WEBSITE_MEDIA_PLACEHOLDERS.about,
+    alt: "Équipe créative au travail",
+    width: 900,
+    height: 900,
+    context: "placeholder:about",
+    createdAt: timestamp,
+  });
+  const galleryLabels = ["Projet Aurora", "Projet Nova", "Projet Atlas"];
+  const galleryShots = WEBSITE_MEDIA_PLACEHOLDERS.gallery.map((src, index) =>
+    createPlaceholderMediaAsset({
+      src,
+      alt: galleryLabels[index] ?? `Projet ${index + 1}`,
+      width: 960,
+      height: 640,
+      context: "placeholder:gallery",
+      createdAt: timestamp,
+    }),
+  );
+  const portraitLabels = ["Portrait Nadia", "Portrait Yanis", "Portrait Lina"];
+  const teamPortraits = WEBSITE_MEDIA_PLACEHOLDERS.team.map((src, index) =>
+    createPlaceholderMediaAsset({
+      src,
+      alt: portraitLabels[index] ?? `Portrait ${index + 1}`,
+      width: 640,
+      height: 800,
+      context: "placeholder:team",
+      createdAt: timestamp,
+    }),
+  );
+  const logoLabels = ["Aurora", "Orbit", "Kosmos", "Loop"];
+  const logoMarks = WEBSITE_MEDIA_PLACEHOLDERS.logos.map((src, index) =>
+    createPlaceholderMediaAsset({
+      src,
+      alt: `Logo ${logoLabels[index] ?? index + 1}`,
+      width: 320,
+      height: 140,
+      context: "placeholder:logo",
+      createdAt: timestamp,
+      kind: "logo",
+    }),
+  );
+
+  const mediaLibrary = [heroMedia, aboutMedia, ...galleryShots, ...teamPortraits, ...logoMarks];
+  const serviceItems = services.length
+    ? services
+    : [
+        {
+          id: generateId("service"),
+          title: "Stratégie & discovery",
+          description: "Sprints de cadrage, personas, roadmap alignée au ROI.",
+          tag: "Discovery",
+          stats: [],
+        },
+        {
+          id: generateId("service"),
+          title: "Design produit",
+          description: "UI systems, animations micro et prototypes testables.",
+          tag: "Design",
+          stats: [],
+        },
+        {
+          id: generateId("service"),
+          title: "Développement web",
+          description: "Apps Next.js, API Node, intégrations CRM & analytics.",
+          tag: "Build",
+          stats: [],
+        },
+      ];
+  const logoItems = logoMarks.map((logo) => ({
+    id: generateId("logo"),
+    title: logo.alt?.replace("Logo ", "") ?? "Marque",
+    mediaId: logo.id,
+    stats: [],
+  }));
+  const galleryItems = [
+    {
+      id: generateId("gallery"),
+      title: "Aurora ERP",
+      description: "Portail client & design system sur-mesure.",
+      mediaId: galleryShots[0]?.id,
+      stats: [],
+    },
+    {
+      id: generateId("gallery"),
+      title: "Nova Assurance",
+      description: "Site marketing multi-langues + SEO.",
+      mediaId: galleryShots[1]?.id,
+      stats: [],
+    },
+    {
+      id: generateId("gallery"),
+      title: "Atlas Mobile",
+      description: "Dashboard data en temps réel.",
+      mediaId: galleryShots[2]?.id,
+      stats: [],
+    },
+  ];
+  const testimonialItems = [
+    {
+      id: generateId("testimonial"),
+      title: "Sarah Ben Salah",
+      description:
+        "Livraison en 8 semaines, trafic multiplié par 2 et leads qualifiés dès la mise en ligne.",
+      tag: "CMO — Atelier Eclipse",
+      stats: [],
+    },
+    {
+      id: generateId("testimonial"),
+      title: "Marc Labbé",
+      description: "Une équipe proactive et fiable, qui sait challenger le scope et tenir les délais.",
+      tag: "CEO — NovaTech",
+      stats: [],
+    },
+  ];
+  const teamItems = teamPortraits.map((portrait, index) => {
+    const profiles = [
+      {
+        title: "Nadia B.",
+        tag: "Lead produit",
+        description: "Ex-Stripe & Alan, facilite les ateliers stratégiques.",
+      },
+      {
+        title: "Yanis H.",
+        tag: "Principal engineer",
+        description: "10 ans sur Next.js, Node et infrastructures serverless.",
+      },
+      {
+        title: "Lina K.",
+        tag: "UX strategist",
+        description: "Pilotage research, tests utilisateurs et analytics.",
+      },
+    ];
+    const profile = profiles[index] ?? profiles[0];
+    return {
+      id: generateId("team"),
+      title: profile.title,
+      tag: profile.tag,
+      description: profile.description,
+      mediaId: portrait.id,
+      stats: [],
+    };
+  });
+  const faqItems = [
+    {
+      id: generateId("faq"),
+      title: "Quel est votre délai moyen ?",
+      description: "Entre 4 et 6 semaines selon la complexité et la disponibilité des contenus.",
+      stats: [],
+    },
+    {
+      id: generateId("faq"),
+      title: "Pouvez-vous travailler avec nos équipes internes ?",
+      description: "Oui, nous co-créons avec vos designers, PO ou développeurs en mode sprint.",
+      stats: [],
+    },
+    {
+      id: generateId("faq"),
+      title: "Proposez-vous un accompagnement long terme ?",
+      description: "Maintenance, optimisation SEO, growth et itérations produit sont proposés en option.",
+      stats: [],
+    },
+  ];
+
   return {
     version: 1,
-    updatedAt: new Date().toISOString(),
-    mediaLibrary: [],
+    updatedAt: timestamp,
+    mediaLibrary,
     theme: {
       accent,
       typography: "modern",
@@ -223,6 +443,7 @@ export function createDefaultBuilderConfig(
         layout: "split",
         animation: "fade",
         visible: true,
+        mediaId: heroMedia.id,
         items: [],
         buttons: [
           {
@@ -235,11 +456,23 @@ export function createDefaultBuilderConfig(
             ? {
                 id: generateId("btn"),
                 label: options.heroSecondaryCtaLabel,
-                href: options.heroSecondaryCtaUrl ?? "#services",
-                style: "ghost",
-              }
-            : null,
+              href: options.heroSecondaryCtaUrl ?? "#services",
+              style: "ghost",
+            }
+          : null,
         ].filter(Boolean) as WebsiteBuilderButton[],
+      },
+      {
+        id: generateId("logos"),
+        type: "logos",
+        eyebrow: "Références",
+        title: "Ils nous confient leurs produits",
+        subtitle: "Scale-ups, industriels et acteurs publics.",
+        layout: "grid",
+        animation: "fade",
+        visible: true,
+        items: logoItems,
+        buttons: [],
       },
       {
         id: generateId("services"),
@@ -250,23 +483,7 @@ export function createDefaultBuilderConfig(
         layout: "grid",
         animation: "fade",
         visible: true,
-        items: services.length
-          ? services
-          : [
-              {
-                id: generateId("service"),
-                title: "Design produit",
-                description: "Interfaces premium, micro-interactions, UX flows.",
-                stats: [],
-              },
-              {
-                id: generateId("service"),
-                title: "Développement web",
-                description:
-                  "Stacks modernes (Next.js) optimisées SEO + performance.",
-                stats: [],
-              },
-            ],
+        items: serviceItems,
         buttons: [],
       },
       {
@@ -279,6 +496,7 @@ export function createDefaultBuilderConfig(
         layout: "split",
         animation: "fade",
         visible: true,
+        mediaId: aboutMedia.id,
         items: [
           {
             id: generateId("stat"),
@@ -286,7 +504,24 @@ export function createDefaultBuilderConfig(
             description: "Ajoutez chiffres clés, certifications ou labels.",
             stats: [],
           },
+          {
+            id: generateId("stat"),
+            title: "98% clients satisfaits",
+            description: "Basé sur les sondages post-livraison.",
+            stats: [],
+          },
         ],
+        buttons: [],
+      },
+      {
+        id: generateId("gallery"),
+        type: "gallery",
+        title: "Études de cas",
+        subtitle: "Projets sélectionnés livrés récemment.",
+        layout: "grid",
+        animation: "fade",
+        visible: true,
+        items: galleryItems,
         buttons: [],
       },
       {
@@ -298,7 +533,29 @@ export function createDefaultBuilderConfig(
         layout: "grid",
         animation: "fade",
         visible: true,
-        items: [],
+        items: testimonialItems,
+        buttons: [],
+      },
+      {
+        id: generateId("team"),
+        type: "team",
+        title: "Une équipe senior",
+        subtitle: "UX, produit et ingénierie dédiés à votre projet.",
+        layout: "grid",
+        animation: "fade",
+        visible: true,
+        items: teamItems,
+        buttons: [],
+      },
+      {
+        id: generateId("faq"),
+        type: "faq",
+        title: "Questions fréquentes",
+        subtitle: "Transparence sur nos pratiques et nos garanties.",
+        layout: "accordion",
+        animation: "fade",
+        visible: true,
+        items: faqItems,
         buttons: [],
       },
       {
@@ -315,9 +572,15 @@ export function createDefaultBuilderConfig(
         buttons: [
           {
             id: generateId("btn"),
-            label: "Écrire au studio",
+            label: "Planifier un appel",
             href: "#contact",
             style: "primary",
+          },
+          {
+            id: generateId("btn"),
+            label: "Télécharger la présentation",
+            href: "#services",
+            style: "ghost",
           },
         ],
       },

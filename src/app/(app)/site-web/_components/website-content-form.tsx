@@ -70,7 +70,7 @@ export function WebsiteContentForm({ defaultValues }: WebsiteContentFormProps) {
       {state.status === "success" && state.message ? (
         <Alert variant="success" title={state.message} />
       ) : null}
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <div>
           <label htmlFor="slug" className="label">
             Slug public
@@ -262,7 +262,7 @@ export function WebsiteContentForm({ defaultValues }: WebsiteContentFormProps) {
         />
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div>
           <label htmlFor="contactEmailOverride" className="label">
             Email affiché
@@ -298,7 +298,7 @@ export function WebsiteContentForm({ defaultValues }: WebsiteContentFormProps) {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div>
           <label htmlFor="leadNotificationEmail" className="label">
             Email notifications leads
@@ -334,8 +334,8 @@ export function WebsiteContentForm({ defaultValues }: WebsiteContentFormProps) {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <label className="flex items-center gap-3 rounded-lg border border-zinc-200 px-4 py-3 text-sm text-zinc-700 dark:border-zinc-800 dark:text-zinc-200">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <label className="flex flex-wrap items-center gap-3 rounded-lg border border-zinc-200 px-4 py-3 text-sm text-zinc-700 dark:border-zinc-800 dark:text-zinc-200">
           <input
             type="checkbox"
             name="showPrices"
@@ -344,7 +344,7 @@ export function WebsiteContentForm({ defaultValues }: WebsiteContentFormProps) {
           />
           Afficher les prix TTC
         </label>
-        <label className="flex items-center gap-3 rounded-lg border border-zinc-200 px-4 py-3 text-sm text-zinc-700 dark:border-zinc-800 dark:text-zinc-200">
+        <label className="flex flex-wrap items-center gap-3 rounded-lg border border-zinc-200 px-4 py-3 text-sm text-zinc-700 dark:border-zinc-800 dark:text-zinc-200">
           <input
             type="checkbox"
             name="showInactiveProducts"
@@ -353,7 +353,7 @@ export function WebsiteContentForm({ defaultValues }: WebsiteContentFormProps) {
           />
           Inclure les produits inactifs
         </label>
-        <label className="flex items-center gap-3 rounded-lg border border-zinc-200 px-4 py-3 text-sm text-zinc-700 dark:border-zinc-800 dark:text-zinc-200">
+        <label className="flex flex-wrap items-center gap-3 rounded-lg border border-zinc-200 px-4 py-3 text-sm text-zinc-700 dark:border-zinc-800 dark:text-zinc-200">
           <input
             type="checkbox"
             name="spamProtectionEnabled"
@@ -413,8 +413,8 @@ export function WebsiteContentForm({ defaultValues }: WebsiteContentFormProps) {
         </div>
       </div>
 
-      <div className="flex justify-end">
-        <FormSubmitButton>
+      <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+        <FormSubmitButton className="w-full sm:w-auto">
           Enregistrer les modifications
         </FormSubmitButton>
       </div>

@@ -334,7 +334,7 @@ export function ParametersClient({ summary, savedResponses }: ParametersClientPr
     hasPreview || (!logoRemoved && hasStoredLogo) || Boolean(logoObjectUrl);
 
   return (
-    <div className="space-y-4">
+    <div className="mx-auto w-full max-w-5xl space-y-4 lg:space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
@@ -368,6 +368,7 @@ export function ParametersClient({ summary, savedResponses }: ParametersClientPr
             variant={trackingEnabled ? "ghost" : "secondary"}
             onClick={handleTrackingToggle}
             loading={updatingTracking}
+            className="w-full sm:w-auto"
           >
             {trackingEnabled ? "Désactiver le suivi" : "Activer le suivi"}
           </Button>
@@ -536,8 +537,12 @@ export function ParametersClient({ summary, savedResponses }: ParametersClientPr
             </div>
           </div>
         </section>
-        <div className="flex justify-end">
-          <Button type="submit" loading={savingAutoReply}>
+        <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+          <Button
+            type="submit"
+            loading={savingAutoReply}
+            className="w-full sm:w-auto"
+          >
             Enregistrer les réponses automatiques
           </Button>
         </div>
@@ -653,9 +658,13 @@ export function ParametersClient({ summary, savedResponses }: ParametersClientPr
             </div>
           </div>
         </section>
-        <div className="flex justify-end">
-          <Button type="submit" loading={savingIdentity}>
-            Enregistrer
+        <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+          <Button
+            type="submit"
+            loading={savingIdentity}
+            className="w-full sm:w-auto"
+          >
+            Enregistrer l&apos;identité
           </Button>
         </div>
       </form>
@@ -875,12 +884,13 @@ export function ParametersClient({ summary, savedResponses }: ParametersClientPr
         </section>
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row">
             <Button
               type="button"
               variant="secondary"
               onClick={handleTestImap}
               loading={testingImap}
+              className="w-full sm:w-auto"
             >
               Tester IMAP
             </Button>
@@ -889,12 +899,17 @@ export function ParametersClient({ summary, savedResponses }: ParametersClientPr
               variant="secondary"
               onClick={handleTestSmtp}
               loading={testingSmtp}
+              className="w-full sm:w-auto"
             >
               Tester SMTP
             </Button>
           </div>
-          <Button type="submit" loading={savingConnections}>
-            Enregistrer
+          <Button
+            type="submit"
+            loading={savingConnections}
+            className="w-full sm:w-auto"
+          >
+            Mettre à jour les identifiants
           </Button>
         </div>
       </form>

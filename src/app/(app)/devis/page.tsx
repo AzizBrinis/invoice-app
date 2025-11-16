@@ -257,8 +257,8 @@ async function DevisPageContent({
         </div>
       </div>
 
-      <form className="card grid gap-4 p-4 sm:grid-cols-6 sm:items-end">
-        <div className="sm:col-span-2">
+      <form className="card grid grid-cols-1 gap-4 p-4 sm:grid-cols-6 sm:items-end">
+        <div className="min-w-0 sm:col-span-2">
           <label className="label" htmlFor="recherche">
             Recherche
           </label>
@@ -271,7 +271,7 @@ async function DevisPageContent({
             placeholder="Numéro, client, référence..."
           />
         </div>
-        <div className="sm:col-span-2">
+        <div className="min-w-0 sm:col-span-2">
           <label className="label" htmlFor="client">
             Client
           </label>
@@ -284,7 +284,7 @@ async function DevisPageContent({
             ))}
           </select>
         </div>
-        <div>
+        <div className="min-w-0">
           <label className="label" htmlFor="statut">
             Statut
           </label>
@@ -302,7 +302,7 @@ async function DevisPageContent({
             ))}
           </select>
         </div>
-        <div>
+        <div className="min-w-0">
           <label className="label" htmlFor="tri">
             Tri
           </label>
@@ -314,13 +314,13 @@ async function DevisPageContent({
             ))}
           </select>
         </div>
-        <div className="space-y-2">
+        <div className="flex flex-col gap-2 min-w-0">
           <label className="label" htmlFor="du">
             Du
           </label>
           <input className="input" type="date" id="du" name="du" defaultValue={issueFrom ?? ""} />
         </div>
-        <div className="space-y-2">
+        <div className="flex flex-col gap-2 min-w-0">
           <label className="label" htmlFor="au">
             Au
           </label>

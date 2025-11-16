@@ -128,6 +128,8 @@ type NormalizedQuoteFilters = {
 };
 
 const quoteListTag = (userId: string) => `quotes:list:${userId}`;
+export const quoteFilterClientsTag = (userId: string) =>
+  `quotes:filter-clients:${userId}`;
 
 const quoteFilterClientsSelect = Prisma.validator<Prisma.ClientSelect>()({
   id: true,
@@ -191,6 +193,13 @@ function revalidateQuotes(userId: string) {
   revalidateTag(quoteListTag(userId), "max");
 }
 
+export function revalidateQuoteFilterClients(userId: string) {
+  if (isTestEnv) {
+    return;
+  }
+  revalidateTag(quoteFilterClientsTag(userId), "max");
+}
+
 export async function getQuoteFilterClients(userId: string) {
   const runQuery = () =>
     prisma.client.findMany({
@@ -205,6 +214,7 @@ export async function getQuoteFilterClients(userId: string) {
 
   try {
     const cached = unstable_cache(runQuery, ["quotes", "filter-clients", userId], {
+      tags: [quoteFilterClientsTag(userId)],
       revalidate: QUOTE_FORM_CACHE_SECONDS,
     });
 

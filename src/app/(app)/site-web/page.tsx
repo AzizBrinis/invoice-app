@@ -72,13 +72,13 @@ export default async function SiteWebPage() {
             mettez à jour le contenu sans coder.
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button asChild variant="secondary">
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap lg:justify-end">
+          <Button asChild variant="secondary" className="w-full sm:w-auto">
             <a href={links.previewUrl} target="_blank" rel="noreferrer">
               Prévisualiser
             </a>
           </Button>
-          <Button asChild>
+          <Button asChild className="w-full sm:w-auto">
             <a
               href={`/catalogue/${website.slug}`}
               target="_blank"

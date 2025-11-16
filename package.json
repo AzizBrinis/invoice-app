@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "vercel-build": "node ./scripts/run-vercel-build.cjs",
+    "vercel-build": "tsx ./scripts/run-vercel-build.ts",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",

@@ -1,3 +1,4 @@
+import { DocumentType, EmailStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { generateQuotePdf, generateInvoicePdf } from "@/server/pdf";
@@ -265,8 +266,10 @@ export async function sendQuoteEmail(params: {
   quoteId: string;
   to: string;
   subject?: string;
+  userId?: string;
+  emailLogId?: string | null;
 }) {
-  const { id: userId } = await requireUser();
+  const userId = params.userId ?? (await requireUser()).id;
   const quote = await prisma.quote.findFirst({
     where: { id: params.quoteId, userId },
     include: {
@@ -275,10 +278,13 @@ export async function sendQuoteEmail(params: {
   });
   if (!quote) throw new Error("Devis introuvable");
 
-  const pdfBuffer = await generateQuotePdf(params.quoteId);
-  const messagingSummary = await getValidatedMessagingSummary(userId);
-  const companySettings = await getSettings(userId);
-  const templateSource = await loadQuoteHtmlTemplate(userId);
+  const [pdfBuffer, messagingSummary, companySettings, templateSource] =
+    await Promise.all([
+      generateQuotePdf(params.quoteId),
+      getValidatedMessagingSummary(userId),
+      getSettings(userId),
+      loadQuoteHtmlTemplate(userId),
+    ]);
 
   const subject =
     params.subject ??
@@ -343,17 +349,14 @@ export async function sendQuoteEmail(params: {
     attachments,
   });
 
-  await prisma.emailLog.create({
-    data: {
-      userId,
-      documentType: "DEVIS",
-      documentId: quote.id,
-      to: params.to,
-      subject,
-      body: sanitizedHtml,
-      sentAt: new Date(),
-      status: "ENVOYE",
-    },
+  await recordEmailLogEntry({
+    emailLogId: params.emailLogId,
+    userId,
+    documentType: DocumentType.DEVIS,
+    documentId: quote.id,
+    to: params.to,
+    subject,
+    body: sanitizedHtml,
   });
 }
 
@@ -361,8 +364,10 @@ export async function sendInvoiceEmail(params: {
   invoiceId: string;
   to: string;
   subject?: string;
+  userId?: string;
+  emailLogId?: string | null;
 }) {
-  const { id: userId } = await requireUser();
+  const userId = params.userId ?? (await requireUser()).id;
   const invoice = await prisma.invoice.findFirst({
     where: { id: params.invoiceId, userId },
     include: {
@@ -372,9 +377,13 @@ export async function sendInvoiceEmail(params: {
   });
   if (!invoice) throw new Error("Facture introuvable");
 
-  const pdfBuffer = await generateInvoicePdf(params.invoiceId);
-  const messagingSummary = await getValidatedMessagingSummary(userId);
-  const companySettings = await getSettings(userId);
+  const [pdfBuffer, messagingSummary, companySettings, templateSource] =
+    await Promise.all([
+      generateInvoicePdf(params.invoiceId),
+      getValidatedMessagingSummary(userId),
+      getSettings(userId),
+      loadInvoiceHtmlTemplate(userId),
+    ]);
 
   const subject =
     params.subject ??
@@ -382,8 +391,6 @@ export async function sendInvoiceEmail(params: {
       fromCents(invoice.totalTTCCents, invoice.currency),
       invoice.currency,
     )}`;
-
-  const templateSource = await loadInvoiceHtmlTemplate(userId);
 
   const invoiceTotal = formatCurrency(
     fromCents(invoice.totalTTCCents, invoice.currency),
@@ -450,16 +457,61 @@ export async function sendInvoiceEmail(params: {
     attachments,
   });
 
+  await recordEmailLogEntry({
+    emailLogId: params.emailLogId,
+    userId,
+    documentType: DocumentType.FACTURE,
+    documentId: invoice.id,
+    to: params.to,
+    subject,
+    body: sanitizedHtml,
+  });
+}
+
+async function recordEmailLogEntry(options: {
+  emailLogId?: string | null;
+  userId: string;
+  documentType: DocumentType;
+  documentId: string;
+  to: string;
+  subject: string;
+  body: string;
+}) {
+  const sentAt = new Date();
+  const updateData = {
+    to: options.to,
+    subject: options.subject,
+    body: options.body,
+    sentAt,
+    status: EmailStatus.ENVOYE,
+    error: null,
+  };
+
+  if (options.emailLogId) {
+    await prisma.emailLog
+      .update({
+        where: { id: options.emailLogId },
+        data: updateData,
+      })
+      .catch(() =>
+        prisma.emailLog.create({
+          data: {
+            ...updateData,
+            userId: options.userId,
+            documentType: options.documentType,
+            documentId: options.documentId,
+          },
+        }),
+      );
+    return;
+  }
+
   await prisma.emailLog.create({
     data: {
-      userId,
-      documentType: "FACTURE",
-      documentId: invoice.id,
-      to: params.to,
-      subject,
-      body: sanitizedHtml,
-      sentAt: new Date(),
-      status: "ENVOYE",
+      ...updateData,
+      userId: options.userId,
+      documentType: options.documentType,
+      documentId: options.documentId,
     },
   });
 }

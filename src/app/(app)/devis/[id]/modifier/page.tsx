@@ -8,16 +8,15 @@ import {
 } from "@/server/quotes";
 import { QuoteEditor } from "@/app/(app)/devis/quote-editor";
 import { updateQuoteAction, sendQuoteEmailAction } from "@/app/(app)/devis/actions";
-import { Input } from "@/components/ui/input";
 import { SUPPORTED_CURRENCIES, type CurrencyCode } from "@/lib/currency";
 import { normalizeTaxConfiguration } from "@/lib/taxes";
-import { FormSubmitButton } from "@/components/ui/form-submit-button";
 import { Alert } from "@/components/ui/alert";
 import { getMessagingSettingsSummary } from "@/server/messaging";
 import {
   FlashMessages,
   type FlashMessage,
 } from "@/components/ui/flash-messages";
+import { DocumentEmailForm } from "@/components/documents/document-email-form";
 
 export const dynamic = "force-dynamic";
 
@@ -79,7 +78,6 @@ export default async function EditDevisPage({
     getMessagingSettingsSummary(user.id),
   ]);
 
-  const redirectBase = `/devis/${quote.id}/modifier`;
   const emailDisabled = !messagingSummary.smtpConfigured;
   if (emailDisabled && !warningMessage) {
     flashMessages.push({
@@ -92,7 +90,7 @@ export default async function EditDevisPage({
   return (
     <div className="space-y-6">
       <FlashMessages messages={flashMessages} />
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
             Modifier le devis {quote.number}
@@ -103,7 +101,7 @@ export default async function EditDevisPage({
         </div>
         <Link
           href="/devis"
-          className="text-sm font-medium text-blue-600 hover:underline dark:text-blue-400"
+          className="text-sm font-medium text-blue-600 hover:underline dark:text-blue-400 sm:self-end"
         >
           Retour à la liste
         </Link>
@@ -129,38 +127,13 @@ export default async function EditDevisPage({
             description="Veuillez configurer la messagerie (SMTP/IMAP) avant d'envoyer des devis."
           />
         ) : null}
-        <form action={sendQuoteEmailAction.bind(null, quote.id)} className="grid gap-4 sm:grid-cols-2">
-          <input type="hidden" name="redirectTo" value={redirectBase} />
-          <div className="space-y-1">
-            <label htmlFor="email" className="text-sm text-zinc-600 dark:text-zinc-300">
-              Destinataire
-            </label>
-            <Input
-              id="email"
-              name="email"
-              type="email"
-              defaultValue={quote.client.email ?? ""}
-              required
-              disabled={emailDisabled}
-            />
-          </div>
-          <div className="space-y-1">
-            <label htmlFor="subject" className="text-sm text-zinc-600 dark:text-zinc-300">
-              Objet
-            </label>
-            <Input
-              id="subject"
-              name="subject"
-              defaultValue={`Devis ${quote.number}`}
-              disabled={emailDisabled}
-            />
-          </div>
-          <div className="sm:col-span-2 flex justify-end">
-            <FormSubmitButton disabled={emailDisabled}>
-              Envoyer le devis
-            </FormSubmitButton>
-          </div>
-        </form>
+        <DocumentEmailForm
+          action={sendQuoteEmailAction.bind(null, quote.id)}
+          defaultEmail={quote.client.email ?? ""}
+          defaultSubject={`Devis ${quote.number}`}
+          disabled={emailDisabled}
+          submitLabel="Envoyer le devis"
+        />
       </section>
     </div>
   );

@@ -1,0 +1,8 @@
+<svg width="320" height="140" viewBox="0 0 320 140" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="320" height="140" rx="28" fill="#ECFEFF" />
+  <circle cx="80" cy="70" r="38" stroke="#0EA5E9" stroke-width="8" />
+  <circle cx="80" cy="70" r="12" fill="#0EA5E9" />
+  <text x="130" y="92" font-family="'Inter', 'Segoe UI', sans-serif" font-size="44" font-weight="600" fill="#0C4A6E">
+    ORBIT
+  </text>
+</svg>

@@ -3,8 +3,17 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { ZodError } from "zod";
-import { clientSchema, createClient, updateClient, deleteClient } from "@/server/clients";
+import {
+  clientSchema,
+  createClient,
+  updateClient,
+  deleteClient,
+  getClientTenantId,
+  revalidateClientFilters,
+} from "@/server/clients";
+import { revalidateQuoteFilterClients } from "@/server/quotes";
 import { isRedirectError } from "@/lib/next";
+import { requireUser } from "@/lib/auth";
 import type { Route } from "next";
 
 function parseClientForm(formData: FormData) {
@@ -52,11 +61,19 @@ function redirectWithFeedback(
   return redirect(href);
 }
 
+function invalidateClientRelatedCaches(user: Awaited<ReturnType<typeof requireUser>>) {
+  const tenantId = getClientTenantId(user);
+  revalidateClientFilters(tenantId);
+  revalidateQuoteFilterClients(user.id);
+}
+
 export async function createClientAction(formData: FormData) {
   const redirectTarget = resolveRedirectTarget(formData, "/clients");
+  const user = await requireUser();
   try {
     const data = parseClientForm(formData);
-    await createClient(data);
+    await createClient(data, user.id);
+    invalidateClientRelatedCaches(user);
     revalidatePath("/clients");
     redirectWithFeedback(redirectTarget, {
       message: "Client créé",
@@ -78,9 +95,11 @@ export async function createClientAction(formData: FormData) {
 
 export async function updateClientAction(id: string, formData: FormData) {
   const redirectTarget = resolveRedirectTarget(formData, "/clients");
+  const user = await requireUser();
   try {
     const data = parseClientForm(formData);
-    await updateClient(id, data);
+    await updateClient(id, data, user.id);
+    invalidateClientRelatedCaches(user);
     revalidatePath("/clients");
     redirectWithFeedback(redirectTarget, {
       message: "Client mis à jour",
@@ -102,8 +121,10 @@ export async function updateClientAction(id: string, formData: FormData) {
 
 export async function deleteClientAction(id: string, formData?: FormData) {
   const redirectTarget = resolveRedirectTarget(formData, "/clients");
+  const user = await requireUser();
   try {
-    await deleteClient(id);
+    await deleteClient(id, user.id);
+    invalidateClientRelatedCaches(user);
     revalidatePath("/clients");
     redirectWithFeedback(redirectTarget, {
       message: "Client supprimé",

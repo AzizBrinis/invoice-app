@@ -9,11 +9,13 @@ import type { CatalogPayload } from "@/server/website";
 import { LeadCaptureForm } from "@/components/website/lead-form";
 import { Button } from "@/components/ui/button";
 import { DEFAULT_PRIMARY_CTA_LABEL } from "@/lib/website/defaults";
+import { WEBSITE_MEDIA_PLACEHOLDERS } from "@/lib/website/placeholders";
 import type {
   WebsiteBuilderSection,
   WebsiteBuilderMediaAsset,
   WebsiteBuilderConfig,
   WebsiteBuilderItem,
+  WebsiteBuilderButton,
 } from "@/lib/website/builder";
 
 type TemplateProps = {
@@ -58,6 +60,7 @@ const cornerMap = {
   rounded: "rounded-3xl",
   extra: "rounded-[32px]",
 };
+
 
 const friendlySectionLabels: Partial<Record<WebsiteBuilderSection["type"], string>> = {
   hero: "Accueil",
@@ -116,6 +119,17 @@ function SectionWrapper({
   );
 }
 
+function resolveButtonClasses(style: WebsiteBuilderButton["style"] | undefined) {
+  switch (style) {
+    case "primary":
+      return "bg-[var(--site-accent)] text-white shadow-lg shadow-[var(--site-accent)]/30 hover:opacity-90 focus-visible:ring-2 focus-visible:ring-[var(--site-accent)]/40";
+    case "secondary":
+      return "border border-[var(--site-accent)]/40 text-[var(--site-accent)] hover:bg-[var(--site-accent)]/10";
+    default:
+      return "border border-black/10 text-zinc-900 hover:bg-black/5 dark:border-white/10 dark:text-white dark:hover:bg-white/10";
+  }
+}
+
 function HeroSection({
   section,
   context,
@@ -125,6 +139,9 @@ function HeroSection({
 }) {
   const media = resolveMedia(section.mediaId, context.mediaLibrary);
   const layout = section.layout ?? "split";
+  const heroImageSrc = media?.src ?? WEBSITE_MEDIA_PLACEHOLDERS.hero;
+  const heroImageAlt = media?.alt ?? section.title ?? "Illustration héro";
+  const heroImageUnoptimized = Boolean(media?.src?.startsWith("data:"));
   const buttons =
     section.buttons && section.buttons.length > 0
       ? section.buttons
@@ -179,11 +196,7 @@ function HeroSection({
                 asChild
                 className={clsx(
                   context.buttonShape,
-                  button.style === "primary"
-                    ? "bg-[var(--site-accent)] text-white shadow-lg shadow-[var(--site-accent)]/30 hover:opacity-90 focus-visible:ring-2 focus-visible:ring-[var(--site-accent)]/40"
-                    : button.style === "secondary"
-                      ? "border border-[var(--site-accent)]/40 text-[var(--site-accent)] hover:bg-[var(--site-accent)]/10"
-                      : "border border-black/10 text-zinc-900 hover:bg-black/5 dark:border-white/10 dark:text-white dark:hover:bg-white/10",
+                  resolveButtonClasses(button.style),
                 )}
               >
                 <a href={button.href ?? "#contact"}>{button.label}</a>
@@ -198,25 +211,17 @@ function HeroSection({
               context.corner,
             )}
           >
-            {media ? (
-              <figure className="relative overflow-hidden rounded-3xl border border-black/5 dark:border-white/10">
-                <Image
-                  src={media.src ?? "/"}
-                  alt={media.alt ?? section.title ?? ""}
-                  width={800}
-                  height={600}
-                  className="h-full w-full object-cover"
-                  unoptimized={media.src?.startsWith("data:")}
-                />
-              </figure>
-            ) : (
-              <div
-                className="h-64 rounded-3xl border border-dashed border-black/10 dark:border-white/10"
-                style={{
-                  background: `linear-gradient(135deg, ${context.accent}11, transparent)`,
-                }}
+            <figure className="relative overflow-hidden rounded-3xl border border-black/5 dark:border-white/10">
+              <Image
+                src={heroImageSrc}
+                alt={heroImageAlt}
+                width={800}
+                height={600}
+                className="h-full w-full object-cover"
+                unoptimized={heroImageUnoptimized}
+                priority
               />
-            )}
+            </figure>
             <div className="mt-6 space-y-2 text-sm text-zinc-600 dark:text-zinc-300">
               <p className="font-semibold text-zinc-900 dark:text-white">
                 {context.website.contact.companyName}
@@ -308,9 +313,13 @@ function ServicesSection({ section, context }: { section: WebsiteBuilderSection;
 
 function AboutSection({ section, context }: { section: WebsiteBuilderSection; context: SectionContext }) {
   const stats = section.items ?? [];
+  const media = resolveMedia(section.mediaId, context.mediaLibrary);
+  const aboutImageSrc = media?.src ?? WEBSITE_MEDIA_PLACEHOLDERS.about;
+  const aboutImageAlt = media?.alt ?? section.title ?? "À propos";
+  const aboutImageUnoptimized = Boolean(media?.src?.startsWith("data:"));
   return (
     <SectionWrapper section={section} context={context}>
-      <div className="grid gap-8 lg:grid-cols-2">
+      <div className="grid gap-8 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <div className="space-y-5">
           <p className="text-sm font-semibold uppercase tracking-[0.3em] text-zinc-500 dark:text-zinc-400">
             {section.eyebrow ?? "Studio"}
@@ -322,26 +331,41 @@ function AboutSection({ section, context }: { section: WebsiteBuilderSection; co
             {section.description ??
               "Racontez votre manifeste, vos valeurs et la manière dont vous collaborez."}
           </p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {stats.map((item) => (
+              <article
+                key={item.id}
+                className={clsx(
+                  "rounded-3xl border border-black/5 bg-white/90 p-5 shadow-sm dark:border-white/10 dark:bg-zinc-900",
+                )}
+              >
+                <p className="text-lg font-semibold text-zinc-900 dark:text-white">{item.title}</p>
+                {item.description ? (
+                  <p className="text-sm text-zinc-600 dark:text-zinc-300">{item.description}</p>
+                ) : null}
+              </article>
+            ))}
+            {stats.length === 0 ? (
+              <p className="rounded-3xl border border-dashed border-black/10 p-5 text-sm text-zinc-500 dark:border-white/10 dark:text-zinc-300">
+                Ajoutez des chiffres ou labels clés.
+              </p>
+            ) : null}
+          </div>
         </div>
-        <div className="grid gap-4 sm:grid-cols-2">
-          {stats.map((item) => (
-            <article
-              key={item.id}
-              className={clsx(
-                "rounded-3xl border border-black/5 bg-white/90 p-5 shadow-sm dark:border-white/10 dark:bg-zinc-900",
-              )}
-            >
-              <p className="text-lg font-semibold text-zinc-900 dark:text-white">{item.title}</p>
-              {item.description ? (
-                <p className="text-sm text-zinc-600 dark:text-zinc-300">{item.description}</p>
-              ) : null}
-            </article>
-          ))}
-          {stats.length === 0 ? (
-            <p className="rounded-3xl border border-dashed border-black/10 p-5 text-sm text-zinc-500 dark:border-white/10 dark:text-zinc-300">
-              Ajoutez des chiffres ou labels clés.
-            </p>
-          ) : null}
+        <div
+          className={clsx(
+            "flex items-center justify-center rounded-3xl border border-black/5 bg-white/70 p-4 dark:border-white/10 dark:bg-zinc-900/60",
+            context.corner,
+          )}
+        >
+          <Image
+            src={aboutImageSrc}
+            alt={aboutImageAlt}
+            width={720}
+            height={900}
+            className="h-full w-full rounded-[28px] object-cover"
+            unoptimized={aboutImageUnoptimized}
+          />
         </div>
       </div>
     </SectionWrapper>
@@ -409,30 +433,26 @@ function TeamSection({ section, context }: { section: WebsiteBuilderSection; con
         </h2>
       </div>
       <div className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-        {items.map((member) => {
+        {items.map((member, index) => {
           const media = resolveMedia(member.mediaId, context.mediaLibrary);
+          const portraitPlaceholder =
+            WEBSITE_MEDIA_PLACEHOLDERS.team[index % WEBSITE_MEDIA_PLACEHOLDERS.team.length];
+          const portraitSrc = media?.src ?? portraitPlaceholder;
+          const portraitAlt = media?.alt ?? member.title ?? "Portrait équipe";
+          const portraitUnoptimized = Boolean(media?.src?.startsWith("data:"));
           return (
             <article
               key={member.id}
               className="rounded-3xl border border-black/5 bg-white/90 p-5 dark:border-white/10 dark:bg-zinc-900"
             >
-              {media ? (
-                <Image
-                  src={media.src ?? "/"}
-                  alt={media.alt ?? member.title ?? ""}
-                  width={400}
-                  height={400}
-                  className="h-48 w-full rounded-2xl object-cover"
-                  unoptimized={media.src?.startsWith("data:")}
-                />
-              ) : (
-                <div
-                  className="h-48 rounded-2xl border border-dashed border-black/10 dark:border-white/10"
-                  style={{
-                    background: `linear-gradient(135deg, ${context.accent}11, transparent)`,
-                  }}
-                />
-              )}
+              <Image
+                src={portraitSrc}
+                alt={portraitAlt}
+                width={400}
+                height={480}
+                className="h-48 w-full rounded-2xl object-cover"
+                unoptimized={portraitUnoptimized}
+              />
               <div className="mt-4">
                 <p className="text-lg font-semibold text-zinc-900 dark:text-white">{member.title}</p>
                 {member.tag ? (
@@ -476,30 +496,28 @@ function GallerySection({ section, context }: { section: WebsiteBuilderSection; 
         </h2>
       </div>
       <div className="mt-8 grid gap-6 sm:grid-cols-2">
-        {items.map((item) => {
+        {items.map((item, index) => {
           const media = resolveMedia(item.mediaId, context.mediaLibrary);
+          const galleryPlaceholder =
+            WEBSITE_MEDIA_PLACEHOLDERS.gallery[
+              index % WEBSITE_MEDIA_PLACEHOLDERS.gallery.length
+            ];
+          const galleryImageSrc = media?.src ?? galleryPlaceholder;
+          const galleryAlt = media?.alt ?? item.title ?? "Projet";
+          const galleryUnoptimized = Boolean(media?.src?.startsWith("data:"));
           return (
             <article
               key={item.id}
               className="group relative overflow-hidden rounded-3xl border border-black/5 shadow-lg dark:border-white/10"
             >
-              {media ? (
-                <Image
-                  src={media.src ?? "/"}
-                  alt={media.alt ?? item.title ?? ""}
-                  width={800}
-                  height={600}
-                  className="h-64 w-full object-cover transition duration-500 group-hover:scale-[1.03]"
-                  unoptimized={media.src?.startsWith("data:")}
-                />
-              ) : (
-                <div
-                  className="h-64 w-full bg-gradient-to-br from-zinc-100 to-zinc-200 dark:from-zinc-900 dark:to-zinc-800"
-                  style={{
-                    background: `linear-gradient(135deg, ${context.accent}22, transparent)`,
-                  }}
-                />
-              )}
+              <Image
+                src={galleryImageSrc}
+                alt={galleryAlt}
+                width={960}
+                height={640}
+                className="h-64 w-full object-cover transition duration-500 group-hover:scale-[1.03]"
+                unoptimized={galleryUnoptimized}
+              />
               <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent opacity-70" />
               <div className="absolute inset-x-0 bottom-0 p-6 text-white">
                 <h3 className="text-lg font-semibold">{item.title}</h3>
@@ -621,27 +639,26 @@ function LogosSection({ section, context }: { section: WebsiteBuilderSection; co
         </h2>
       </div>
       <div className="mt-8 grid gap-6 sm:grid-cols-3">
-        {items.map((item) => {
+        {items.map((item, index) => {
           const media = resolveMedia(item.mediaId, context.mediaLibrary);
+          const logoPlaceholder =
+            WEBSITE_MEDIA_PLACEHOLDERS.logos[index % WEBSITE_MEDIA_PLACEHOLDERS.logos.length];
+          const logoSrc = media?.src ?? logoPlaceholder;
+          const logoAlt = media?.alt ?? item.title ?? "Logo";
+          const logoUnoptimized = Boolean(media?.src?.startsWith("data:"));
           return (
             <div
               key={item.id}
               className="flex h-32 items-center justify-center rounded-2xl border border-black/5 bg-white/80 p-4 dark:border-white/10 dark:bg-zinc-900"
             >
-              {media ? (
-                <Image
-                  src={media.src ?? "/"}
-                  alt={media.alt ?? item.title ?? ""}
-                  width={200}
-                  height={80}
-                  className="max-h-20 object-contain"
-                  unoptimized={media.src?.startsWith("data:")}
-                />
-              ) : (
-                <span className="text-sm font-semibold uppercase tracking-[0.3em] text-zinc-500 dark:text-zinc-400">
-                  {item.title ?? "Logo"}
-                </span>
-              )}
+              <Image
+                src={logoSrc}
+                alt={logoAlt}
+                width={220}
+                height={80}
+                className="max-h-16 object-contain"
+                unoptimized={logoUnoptimized}
+              />
             </div>
           );
         })}
@@ -671,6 +688,22 @@ function ContactSection({ section, context }: { section: WebsiteBuilderSection; 
               context.website.contactBlurb ??
               "Expliquez votre contexte (produit, refonte, renfort d’équipe)."}
           </p>
+          {section.buttons?.length ? (
+            <div className="flex flex-wrap gap-3">
+              {section.buttons.map((button) => (
+                <Button
+                  key={button.id}
+                  asChild
+                  className={clsx(
+                    context.buttonShape,
+                    resolveButtonClasses(button.style),
+                  )}
+                >
+                  <a href={button.href ?? "#contact"}>{button.label}</a>
+                </Button>
+              ))}
+            </div>
+          ) : null}
           <dl className="space-y-3 text-sm">
             {context.website.contact.email ? (
               <div>

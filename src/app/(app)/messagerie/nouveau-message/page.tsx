@@ -30,6 +30,8 @@ type ComposeInitialDraft = {
   body?: string;
   quotedHtml?: string;
   quotedText?: string;
+  quotedHeaderHtml?: string;
+  quotedHeaderText?: string;
 };
 
 const SUPPORTED_MAILBOXES: Mailbox[] = ["inbox", "sent"];
@@ -52,46 +54,46 @@ function formatDateTime(value: string): string {
   if (Number.isNaN(date.getTime())) {
     return value;
   }
-  return new Intl.DateTimeFormat("fr-FR", {
-    dateStyle: "full",
-    timeStyle: "short",
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
   }).format(date);
 }
 
 function buildQuotedSections(detail: MessageDetail): {
   html: string;
   text: string;
+  headerHtml: string;
+  headerText: string;
 } {
-  const metadataParts: string[] = [];
-  if (detail.from) {
-    metadataParts.push(`<div><strong>De :</strong> ${escapeHtml(detail.from)}</div>`);
-  }
-  if (detail.to.length) {
-    metadataParts.push(
-      `<div><strong>À :</strong> ${escapeHtml(detail.to.join(", "))}</div>`,
-    );
-  }
-  if (detail.cc.length) {
-    metadataParts.push(
-      `<div><strong>Cc :</strong> ${escapeHtml(detail.cc.join(", "))}</div>`,
-    );
-  }
-  metadataParts.push(
-    `<div><strong>Date :</strong> ${escapeHtml(formatDateTime(detail.date))}</div>`,
-  );
-  metadataParts.push(
-    `<div><strong>Objet :</strong> ${escapeHtml(detail.subject)}</div>`,
-  );
+  const senderName =
+    detail.fromAddress?.name?.trim() ||
+    detail.from?.trim() ||
+    detail.fromAddress?.address?.trim() ||
+    "the sender";
+  const senderEmail = detail.fromAddress?.address?.trim();
+  const senderLabel =
+    senderEmail && senderEmail.length
+      ? `${senderName} <${senderEmail}>`
+      : senderName;
+
+  const formattedDate = formatDateTime(detail.date);
+  const headerText = `On ${formattedDate}, ${senderLabel} wrote:`;
+  const headerHtml = `<p style="margin:0 0 12px;font-size:13px;line-height:1.5;color:#475569;font-weight:600;">${escapeHtml(
+    headerText,
+  )}</p>`;
 
   const bodyHtml = detail.html
     ? detail.html
     : `<pre style="white-space:pre-wrap;">${escapeHtml(detail.text ?? "")}</pre>`;
-
-  const html = `<div style="margin-bottom:12px;">${metadataParts.join("")}</div>${bodyHtml}`;
   const text =
     detail.text ?? sanitizeHtml(detail.html ?? "", { allowedTags: [], allowedAttributes: {} });
 
-  return { html, text };
+  return { html: bodyHtml, text, headerHtml, headerText };
 }
 
 function prefixSubject(original: string, prefix: string): string {
@@ -178,11 +180,18 @@ function buildInitialDraft(
   detail: MessageDetail,
   senderEmail?: string,
 ): ComposeInitialDraft {
-  const { html: quotedHtml, text: quotedText } = buildQuotedSections(detail);
+  const {
+    html: quotedHtml,
+    text: quotedText,
+    headerHtml: quotedHeaderHtml,
+    headerText: quotedHeaderText,
+  } = buildQuotedSections(detail);
   const baseDraft: ComposeInitialDraft = {
     body: "",
     quotedHtml,
     quotedText,
+    quotedHeaderHtml,
+    quotedHeaderText,
   };
 
   const replyRecipients = participantsToRecipients(

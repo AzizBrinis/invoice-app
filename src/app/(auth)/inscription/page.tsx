@@ -27,8 +27,8 @@ export default async function InscriptionPage({ searchParams }: PageProps) {
     : resolvedParams?.message ?? null;
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-50 via-white to-blue-100 p-6 transition-colors dark:from-zinc-950 dark:via-zinc-950 dark:to-blue-950">
-      <div className="w-full max-w-lg rounded-2xl bg-white p-8 shadow-lg transition-colors dark:border dark:border-zinc-800 dark:bg-zinc-900">
+    <div className="flex min-h-screen w-full items-center justify-center bg-gradient-to-br from-blue-50 via-white to-blue-100 px-4 py-10 transition-colors dark:from-zinc-950 dark:via-zinc-950 dark:to-blue-950 supports-[min-height:100dvh]:min-h-[100dvh] sm:px-6 sm:py-12">
+      <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-lg transition-colors dark:border dark:border-zinc-800 dark:bg-zinc-900 sm:p-8">
         <div className="mb-6 text-center">
           <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-100">
             Créer un compte administrateur

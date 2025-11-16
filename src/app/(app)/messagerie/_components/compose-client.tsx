@@ -85,6 +85,8 @@ type ComposeInitialDraft = {
   body?: string;
   quotedHtml?: string;
   quotedText?: string;
+  quotedHeaderHtml?: string;
+  quotedHeaderText?: string;
 };
 
 type RecipientFieldState = {
@@ -208,6 +210,14 @@ export function ComposeClient({
   );
   const quotedText = useMemo(
     () => initialDraft?.quotedText ?? "",
+    [initialDraft]
+  );
+  const quotedHeaderHtml = useMemo(
+    () => initialDraft?.quotedHeaderHtml ?? "",
+    [initialDraft]
+  );
+  const quotedHeaderText = useMemo(
+    () => initialDraft?.quotedHeaderText ?? "",
     [initialDraft]
   );
 
@@ -896,6 +906,8 @@ export function ComposeClient({
     formData.append("bodyFormat", htmlActive ? "html" : "plain");
     formData.append("quotedHtml", quotedHtml);
     formData.append("quotedText", quotedText);
+    formData.append("quotedHeaderHtml", quotedHeaderHtml);
+    formData.append("quotedHeaderText", quotedHeaderText);
     attachments.forEach((file) => {
       formData.append("attachments", file);
     });
@@ -918,6 +930,8 @@ export function ComposeClient({
     plainBody,
     quotedHtml,
     quotedText,
+    quotedHeaderHtml,
+    quotedHeaderText,
     subject,
     setBccField,
     setCcField,
@@ -1063,18 +1077,17 @@ export function ComposeClient({
 
   return (
     <>
-      <div className="space-y-4">
-        <div>
+      <div className="space-y-4 lg:space-y-5">
+        <div className="space-y-1">
           <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
             Composer un nouveau message
-        </h2>
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          Rédigez votre e-mail, nous gérons l&apos;envoi via vos paramètres
-          SMTP.
-        </p>
-      </div>
+          </h2>
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+            Rédigez votre e-mail, nous gérons l&apos;envoi via vos paramètres SMTP.
+          </p>
+        </div>
 
-      <div className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="mx-auto w-full max-w-5xl rounded-lg border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
         <div className="mb-4 text-xs text-zinc-500 dark:text-zinc-400">
           <span className="font-medium text-zinc-600 dark:text-zinc-300">
             Expéditeur :
@@ -1536,7 +1549,7 @@ export function ComposeClient({
               {attachments.map((file, index) => (
                 <li
                   key={`${file.name}-${file.size}-${index}`}
-                  className="flex items-center justify-between rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-900"
+                  className="flex flex-col gap-3 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-900 sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div className="flex items-center gap-2">
                     <Paperclip className="h-4 w-4 text-zinc-500" />
@@ -1552,7 +1565,7 @@ export function ComposeClient({
                   <Button
                     type="button"
                     variant="ghost"
-                    className="text-xs text-zinc-500 hover:text-red-500 dark:text-zinc-400"
+                    className="w-full text-xs text-zinc-500 hover:text-red-500 dark:text-zinc-400 sm:w-auto"
                     onClick={() => handleRemoveAttachment(index)}
                   >
                     <Trash2 className="h-4 w-4" />
@@ -1565,9 +1578,20 @@ export function ComposeClient({
 
           {(quotedHtml || quotedText) && (
             <div className="space-y-2 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-950/40">
-              <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                Message original
-              </p>
+              {quotedHeaderHtml.trim().length ? (
+                <div
+                  className="text-xs font-semibold text-zinc-500 dark:text-zinc-400"
+                  dangerouslySetInnerHTML={{ __html: quotedHeaderHtml }}
+                />
+              ) : quotedHeaderText.trim().length ? (
+                <p className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+                  {quotedHeaderText}
+                </p>
+              ) : (
+                <p className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+                  Message original
+                </p>
+              )}
               {quotedHtml ? (
                 <div
                   className="prose prose-sm max-w-none text-zinc-700 dark:prose-invert"
@@ -1587,6 +1611,7 @@ export function ComposeClient({
                 type="submit"
                 loading={sending}
                 disabled={!smtpConfigured || sending || !hasPrimaryRecipient}
+                className="w-full sm:w-auto"
               >
                 Envoyer
               </Button>
@@ -1597,6 +1622,7 @@ export function ComposeClient({
                 disabled={
                   !smtpConfigured || sending || scheduling || !hasPrimaryRecipient
                 }
+                className="w-full sm:w-auto"
               >
                 Planifier l&apos;envoi
               </Button>
@@ -1608,7 +1634,7 @@ export function ComposeClient({
             ) : null}
           </div>
         </form>
-      </div>
+        </div>
       </div>
 
       {scheduleDialogOpen ? (

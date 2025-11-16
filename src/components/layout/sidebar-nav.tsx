@@ -51,12 +51,20 @@ export const NAV_ICON_MAP: Record<NavIcon, LucideIcon> = {
   website: Globe,
 };
 
+export const navSubmenuId = (href: string) => {
+  const sanitized = href.replace(/[^a-zA-Z0-9]/g, "-");
+  return `nav-submenu-${sanitized || "root"}`;
+};
+
 export function SidebarNav({ items }: { items: NavItem[] }) {
   const pathname = usePathname();
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   return (
-    <nav className="hidden w-64 flex-shrink-0 border-r border-zinc-200 bg-white px-4 py-6 transition-colors dark:border-zinc-800 dark:bg-zinc-950 lg:flex lg:flex-col">
+    <nav
+      className="hidden w-64 flex-shrink-0 border-r border-zinc-200 bg-white/90 px-4 py-6 transition-all dark:border-zinc-800 dark:bg-zinc-950/90 lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col lg:overflow-y-auto lg:backdrop-blur"
+      aria-label="Navigation principale"
+    >
       <div className="mb-8 px-2">
         <span className="text-sm font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-400">
           Menu principal
@@ -69,6 +77,7 @@ export function SidebarNav({ items }: { items: NavItem[] }) {
           const hasChildren = Boolean(item.children?.length);
           const isExpanded =
             hasChildren && (expanded[item.href] ?? active ?? false);
+          const submenuId = hasChildren ? navSubmenuId(item.href) : undefined;
 
           return (
             <li key={item.href}>
@@ -84,7 +93,7 @@ export function SidebarNav({ items }: { items: NavItem[] }) {
                   href={item.href as Route}
                   className="flex flex-1 items-center gap-3"
                 >
-                  <Icon className="h-4 w-4" />
+                  <Icon aria-hidden="true" className="h-4 w-4" />
                   <span>{item.label}</span>
                 </Link>
                 {hasChildren ? (
@@ -102,8 +111,11 @@ export function SidebarNav({ items }: { items: NavItem[] }) {
                         ? `Masquer les sous-sections ${item.label}`
                         : `Afficher les sous-sections ${item.label}`
                     }
+                    aria-expanded={isExpanded}
+                    aria-controls={submenuId}
                   >
                     <ChevronDown
+                      aria-hidden="true"
                       className={clsx(
                         "h-4 w-4 transition-transform",
                         isExpanded ? "rotate-180" : "",
@@ -113,7 +125,10 @@ export function SidebarNav({ items }: { items: NavItem[] }) {
                 ) : null}
               </div>
               {hasChildren && isExpanded ? (
-                <ul className="mt-1 space-y-1 pl-9">
+                <ul
+                  id={submenuId}
+                  className="mt-1 space-y-1 pl-9"
+                >
                   {item.children!.map((child) => {
                     const childActive = pathname === child.href;
                     return (

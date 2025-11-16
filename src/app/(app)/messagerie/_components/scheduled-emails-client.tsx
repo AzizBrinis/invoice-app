@@ -165,7 +165,7 @@ export function ScheduledEmailsClient({ items }: ScheduledEmailsClientProps) {
         <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
           Utilisez le bouton &quot;Planifier l&apos;envoi&quot; depuis le composeur pour préparer vos prochains e-mails.
         </p>
-        <Button className="mt-4" onClick={handleRefresh}>
+        <Button className="mt-4 w-full sm:w-auto" onClick={handleRefresh}>
           <RefreshCw className="mr-2 h-4 w-4" />
           Actualiser
         </Button>
@@ -231,12 +231,13 @@ export function ScheduledEmailsClient({ items }: ScheduledEmailsClientProps) {
                     value={editingValue}
                     onChange={(event) => setEditingValue(event.target.value)}
                   />
-                  <div className="flex gap-2">
+                  <div className="flex flex-col gap-2 sm:flex-row">
                     <Button
                       type="button"
                       variant="ghost"
                       onClick={() => setEditingId(null)}
                       disabled={isPending}
+                      className="w-full sm:w-auto"
                     >
                       Annuler
                     </Button>
@@ -244,6 +245,7 @@ export function ScheduledEmailsClient({ items }: ScheduledEmailsClientProps) {
                       type="button"
                       onClick={handleReschedule}
                       loading={isPending}
+                      className="w-full sm:w-auto"
                     >
                       Replanifier
                     </Button>
@@ -251,11 +253,11 @@ export function ScheduledEmailsClient({ items }: ScheduledEmailsClientProps) {
                 </div>
               </div>
             ) : null}
-            <div className="mt-4 flex flex-wrap gap-2">
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
               <Button
                 type="button"
                 variant="ghost"
-                className="px-3 py-1.5 text-sm"
+                className="w-full px-3 py-1.5 text-sm sm:w-auto"
                 onClick={() => {
                   setEditingId(entry.id);
                   setEditingValue(toLocalInputValue(entry.sendAt));
@@ -267,7 +269,7 @@ export function ScheduledEmailsClient({ items }: ScheduledEmailsClientProps) {
               <Button
                 type="button"
                 variant="ghost"
-                className="px-3 py-1.5 text-sm"
+                className="w-full px-3 py-1.5 text-sm sm:w-auto"
                 onClick={() => handleCancel(entry.id)}
                 disabled={isPending}
               >

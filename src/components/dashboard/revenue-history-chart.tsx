@@ -22,6 +22,10 @@ const INNER_WIDTH = SVG_WIDTH - MARGIN.left - MARGIN.right;
 const INNER_HEIGHT = SVG_HEIGHT - MARGIN.top - MARGIN.bottom;
 const TOOLTIP_WIDTH = 192;
 const TOOLTIP_HALF_PERCENT = (TOOLTIP_WIDTH / 2 / SVG_WIDTH) * 100;
+const CHART_HEIGHT_RATIO = 0.6;
+const MIN_CHART_HEIGHT = 280;
+const MAX_CHART_HEIGHT = 420;
+const DEFAULT_CHART_HEIGHT = 320;
 
 type ChartPoint = {
   index: number;
@@ -31,6 +35,8 @@ type ChartPoint = {
   y: number;
   ratioY: number;
   percentX: number;
+  interactionLeftPercent: number;
+  interactionWidthPercent: number;
 };
 
 const monthLabelFormatter = new Intl.DateTimeFormat("fr-FR", {
@@ -107,6 +113,7 @@ export function RevenueHistoryChart({
   currency,
 }: RevenueHistoryChartProps) {
   const chartRef = useRef<HTMLDivElement | null>(null);
+  const [chartWidth, setChartWidth] = useState(0);
   const [mounted, setMounted] = useState(false);
   const [activeIndex, setActiveIndex] = useState(
     Math.max(history.length - 1, 0),
@@ -114,6 +121,39 @@ export function RevenueHistoryChart({
 
   useEffect(() => {
     setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    const element = chartRef.current;
+    if (!element) return;
+
+    const updateWidth = () => {
+      const { width } = element.getBoundingClientRect();
+      setChartWidth(width);
+    };
+
+    updateWidth();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", updateWidth);
+      return () => {
+        window.removeEventListener("resize", updateWidth);
+      };
+    }
+
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.target === element) {
+          setChartWidth(entry.contentRect.width);
+        }
+      }
+    });
+
+    observer.observe(element);
+
+    return () => {
+      observer.disconnect();
+    };
   }, []);
 
   useEffect(() => {
@@ -150,6 +190,10 @@ export function RevenueHistoryChart({
     const safeMax = Math.max(maxValue, 1);
     const total = history.reduce((acc, entry) => acc + entry.amountCents, 0);
     const average = Math.round(total / history.length);
+    const hasMultiplePoints = history.length > 1;
+    const halfInterval = hasMultiplePoints
+      ? 100 / (history.length - 1) / 2
+      : 50;
 
     const computedPoints: ChartPoint[] = history.map((entry, index) => {
       const percentX =
@@ -164,6 +208,21 @@ export function RevenueHistoryChart({
         MARGIN.top +
         INNER_HEIGHT -
         Math.max(0, Math.min(1, boundedRatio)) * INNER_HEIGHT;
+      const rawLeft = hasMultiplePoints
+        ? index === 0
+          ? 0
+          : percentX - halfInterval
+        : 0;
+      const rawRight = hasMultiplePoints
+        ? index === history.length - 1
+          ? 100
+          : percentX + halfInterval
+        : 100;
+      const interactionLeftPercent = Math.max(0, rawLeft);
+      const interactionWidthPercentValue = Math.max(
+        0,
+        Math.min(100, rawRight) - interactionLeftPercent,
+      );
 
       return {
         index,
@@ -173,6 +232,9 @@ export function RevenueHistoryChart({
         y,
         ratioY: Math.max(0, Math.min(1, boundedRatio)),
         percentX,
+        interactionLeftPercent,
+        interactionWidthPercent:
+          history.length === 1 ? 100 : interactionWidthPercentValue,
       };
     });
 
@@ -211,10 +273,22 @@ export function RevenueHistoryChart({
       fromCents(activePoint.valueCents, currency),
       currency,
     );
+    const availableWidth = chartWidth
+      ? Math.max(chartWidth - 32, 96)
+      : TOOLTIP_WIDTH;
+    const tooltipWidth =
+      chartWidth > 0
+        ? Math.min(TOOLTIP_WIDTH, availableWidth, chartWidth)
+        : TOOLTIP_WIDTH;
+    const halfPercent =
+      chartWidth > 0
+        ? ((Math.min(tooltipWidth, chartWidth) / 2) / Math.max(chartWidth, 1)) *
+          100
+        : TOOLTIP_HALF_PERCENT;
     const baseLeftPercent = activePoint.percentX;
     const clampedLeftPercent = Math.min(
-      100 - TOOLTIP_HALF_PERCENT,
-      Math.max(TOOLTIP_HALF_PERCENT, baseLeftPercent),
+      100 - halfPercent,
+      Math.max(halfPercent, baseLeftPercent),
     );
     const baseTopPercent = (1 - activePoint.ratioY) * 100;
     const clampedTopPercent = Math.min(88, Math.max(12, baseTopPercent));
@@ -226,8 +300,9 @@ export function RevenueHistoryChart({
       percentX: clampedLeftPercent,
       ratioY: activePoint.ratioY,
       topPercent: clampedTopPercent,
+      width: tooltipWidth,
     };
-  }, [activePoint, currency]);
+  }, [activePoint, currency, chartWidth]);
 
   const formattedTotal = formatCurrency(
     fromCents(totalCents, currency),
@@ -241,6 +316,15 @@ export function RevenueHistoryChart({
     fromCents(maxCents, currency),
     currency,
   );
+  const resolvedChartHeight =
+    chartWidth > 0
+      ? Math.round(
+          Math.min(
+            MAX_CHART_HEIGHT,
+            Math.max(MIN_CHART_HEIGHT, chartWidth * CHART_HEIGHT_RATIO),
+          ),
+        )
+      : DEFAULT_CHART_HEIGHT;
 
   const handlePointer = (clientX: number) => {
     if (!chartRef.current || !points.length) return;
@@ -256,7 +340,7 @@ export function RevenueHistoryChart({
   };
 
   return (
-    <section className="card flex flex-col gap-6 p-5 md:p-6">
+    <section className="card flex min-w-0 flex-col gap-6 p-5 md:p-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h3 className="text-base font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
@@ -279,7 +363,8 @@ export function RevenueHistoryChart({
 
       <div
         ref={chartRef}
-        className="relative mt-3 w-full min-h-[18rem] select-none sm:min-h-[20rem] lg:min-h-[22rem]"
+        className="relative mt-3 w-full min-w-0 select-none"
+        style={{ height: `${resolvedChartHeight}px` }}
         onMouseMove={(event) => handlePointer(event.clientX)}
         onTouchMove={(event) => {
           if (event.touches?.[0]) {
@@ -295,7 +380,7 @@ export function RevenueHistoryChart({
       >
         <svg
           viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`}
-          className="h-full w-full"
+          className="block h-full w-full"
           aria-hidden="true"
         >
           <defs>
@@ -415,7 +500,7 @@ export function RevenueHistoryChart({
           ))}
         </svg>
 
-        <div className="pointer-events-none absolute inset-x-6 bottom-3 flex justify-between text-[11px] font-medium uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
+        <div className="pointer-events-none absolute inset-x-2 bottom-3 flex flex-wrap justify-between gap-x-2 gap-y-1 text-[10px] font-medium uppercase tracking-wide text-zinc-400 dark:text-zinc-500 sm:inset-x-4 sm:text-[11px]">
           {points.map((point) => {
             const date = monthFromKey(point.month);
             const monthLabel = monthLabelFormatter
@@ -425,7 +510,7 @@ export function RevenueHistoryChart({
             return (
               <div
                 key={`label-${point.month}`}
-                className="flex min-w-12 flex-col items-center gap-0.5"
+                className="flex min-w-[2.5rem] flex-1 flex-col items-center gap-0.5"
               >
                 <span>{monthLabel}</span>
                 <span className="text-[10px] font-semibold text-zinc-300 dark:text-zinc-600">
@@ -442,11 +527,15 @@ export function RevenueHistoryChart({
         >
           {tooltip && (
             <div
-              className="absolute flex w-48 flex-col items-center transition-all duration-200 ease-out"
+              className="absolute flex flex-col items-center transition-all duration-200 ease-out"
               style={{
                 left: `${tooltip.percentX}%`,
                 top: `${tooltip.topPercent}%`,
                 transform: "translate(-50%, -100%) translateY(-16px)",
+                width:
+                  tooltip.width !== undefined
+                    ? `${tooltip.width}px`
+                    : undefined,
               }}
             >
               <div className="w-full rounded-2xl border border-blue-100/50 bg-white/95 p-3 text-sm text-zinc-700 shadow-xl shadow-blue-500/10 ring-1 ring-blue-100/40 backdrop-blur-md dark:border-blue-400/30 dark:bg-zinc-900/95 dark:text-zinc-100 dark:ring-blue-400/30">
@@ -470,10 +559,10 @@ export function RevenueHistoryChart({
             <button
               key={`button-${point.month}`}
               type="button"
-              className="absolute top-0 h-full -translate-x-1/2 rounded-sm border-0 bg-transparent p-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/70 focus-visible:ring-offset-4 focus-visible:ring-offset-white dark:focus-visible:ring-blue-400/60 dark:focus-visible:ring-offset-zinc-950"
+              className="absolute top-0 h-full rounded-sm border-0 bg-transparent p-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/70 focus-visible:ring-offset-4 focus-visible:ring-offset-white dark:focus-visible:ring-blue-400/60 dark:focus-visible:ring-offset-zinc-950"
               style={{
-                left: `${point.percentX}%`,
-                width: `${100 / Math.max(points.length, 1)}%`,
+                left: `${point.interactionLeftPercent}%`,
+                width: `${point.interactionWidthPercent}%`,
               }}
               onFocus={() => setActiveIndex(point.index)}
               onMouseEnter={() => setActiveIndex(point.index)}

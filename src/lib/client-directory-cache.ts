@@ -91,6 +91,7 @@ async function requestClients(query: ClientDirectoryQuery) {
   const response = await fetch(`/api/clients?${params.toString()}`, {
     method: "GET",
     credentials: "same-origin",
+    cache: "no-store",
   });
 
   if (!response.ok) {

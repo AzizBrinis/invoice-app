@@ -1,7 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { clsx } from "clsx";
 import {
   Mail,
@@ -17,6 +24,10 @@ import {
   ShieldAlert,
   Undo2,
   FolderSymlink,
+  List,
+  MailOpen,
+  ArrowLeft,
+  Loader2,
 } from "lucide-react";
 import type {
   Mailbox,
@@ -30,9 +41,8 @@ import {
   type ActionResult,
 } from "@/app/(app)/messagerie/actions";
 import { Button, type ButtonProps } from "@/components/ui/button";
-import type { Route } from "next";
 import { Badge } from "@/components/ui/badge";
-import { Spinner } from "@/components/ui/spinner";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/components/ui/toast-provider";
 import { MailboxSkeleton } from "@/app/(app)/messagerie/_components/mailbox-skeleton";
 import {
@@ -49,6 +59,7 @@ import {
   beginMailboxSync,
   endMailboxSync,
   cacheMessageDetail,
+  getCachedMessageDetail,
 } from "@/app/(app)/messagerie/_state/mailbox-store";
 import type { LucideIcon } from "lucide-react";
 
@@ -179,6 +190,49 @@ const MOVE_SUCCESS_MESSAGES: Partial<Record<Mailbox, string>> = {
   inbox: "Message restauré dans Reçus.",
 };
 
+type DetailRequestResult = {
+  success: boolean;
+  detail: MessageDetail | null;
+  errorMessage?: string;
+};
+
+type MobilePane = "list" | "detail";
+
+const MOBILE_PANE_TABS: Array<{ key: MobilePane; label: string; icon: LucideIcon }> =
+  [
+    { key: "list", label: "Liste", icon: List },
+    { key: "detail", label: "Lecture", icon: MailOpen },
+  ];
+
+const SUBJECT_CLAMP_STYLE: CSSProperties = {
+  display: "-webkit-box",
+  WebkitLineClamp: 2,
+  WebkitBoxOrient: "vertical",
+  overflow: "hidden",
+};
+
+function MessageDetailSkeleton() {
+  return (
+    <div className="space-y-5" aria-live="polite" aria-busy="true">
+      <div className="space-y-2">
+        <Skeleton className="h-4 w-24" />
+        <Skeleton className="h-7 w-3/4" />
+        <Skeleton className="h-4 w-1/3" />
+      </div>
+      <div className="space-y-3 rounded-lg border border-zinc-200/70 bg-zinc-50 p-3 dark:border-zinc-800/70 dark:bg-zinc-900/40">
+        <Skeleton className="h-4 w-2/3" />
+        <Skeleton className="h-4 w-full" />
+        <Skeleton className="h-4 w-5/6" />
+      </div>
+      <div className="space-y-2">
+        <Skeleton className="h-4 w-24" />
+        <Skeleton className="h-48 w-full" />
+        <Skeleton className="h-4 w-3/6" />
+      </div>
+    </div>
+  );
+}
+
 export function MailboxClient({
   mailbox,
   title,
@@ -190,9 +244,19 @@ export function MailboxClient({
 }: MailboxClientProps) {
   const { addToast } = useToast();
   const router = useRouter();
-  const pathname = usePathname();
   const searchParams = useSearchParams();
   const listRef = useRef<HTMLDivElement | null>(null);
+  const detailPaneRef = useRef<HTMLDivElement | null>(null);
+  const messageButtonRefs = useRef<Map<number, HTMLButtonElement | null>>(
+    new Map(),
+  );
+  const detailRequestsRef = useRef<
+    Map<string, Promise<DetailRequestResult>>
+  >(new Map());
+  const prefetchedDetailStateRef = useRef<
+    Map<number, "pending" | "done">
+  >(new Map());
+  const initialLoadAttemptedRef = useRef(false);
 
   const mailboxState = useMailboxStore((state) => state.mailboxes[mailbox]);
 
@@ -220,13 +284,43 @@ export function MailboxClient({
   const previewUrlRef = useRef<Record<string, string>>({});
   const staleRefreshPendingRef = useRef(false);
   const [storeHydrated, setStoreHydrated] = useState(false);
+  const [mobilePane, setMobilePane] = useState<MobilePane>("list");
+  const [isDesktopLayout, setIsDesktopLayout] = useState(false);
+  const mobilePaneInitializedRef = useRef(false);
+  const listPaneId = `${mailbox}-mailbox-list-pane`;
+  const detailPaneId = `${mailbox}-mailbox-detail-pane`;
 
   useEffect(() => {
     setStoreHydrated(true);
   }, []);
 
   useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const mediaQuery = window.matchMedia("(min-width: 1024px)");
+    const handleChange = (event: MediaQueryListEvent) => {
+      setIsDesktopLayout(event.matches);
+    };
+    setIsDesktopLayout(mediaQuery.matches);
+    if (typeof mediaQuery.addEventListener === "function") {
+      mediaQuery.addEventListener("change", handleChange);
+      return () => {
+        mediaQuery.removeEventListener("change", handleChange);
+      };
+    }
+    mediaQuery.addListener(handleChange);
+    return () => {
+      mediaQuery.removeListener(handleChange);
+    };
+  }, []);
+
+  useEffect(() => {
     markMailboxActive(mailbox);
+  }, [mailbox]);
+  useEffect(() => {
+    detailRequestsRef.current.clear();
+    prefetchedDetailStateRef.current.clear();
   }, [mailbox]);
 
   const storeHasMessages =
@@ -236,9 +330,13 @@ export function MailboxClient({
   const pageSizeFromStore = preferStoreState
     ? mailboxState.pageSize
     : initialPage?.pageSize ?? 20;
-  const messages = preferStoreState
-    ? mailboxState.messages
-    : initialPage?.messages ?? [];
+  const messages = useMemo(
+    () =>
+      preferStoreState
+        ? mailboxState.messages
+        : initialPage?.messages ?? [],
+    [initialPage, mailboxState.messages, preferStoreState],
+  );
   const hasMessages = messages.length > 0;
   const hasMoreMessages = preferStoreState
     ? mailboxState.hasMore
@@ -247,6 +345,7 @@ export function MailboxClient({
   const safeActionCall = useCallback(
     async <T,>(
       action: () => Promise<ActionResult<T>>,
+      options?: { silentNetworkError?: boolean },
     ): Promise<ActionResult<T> | null> => {
       try {
         return await action();
@@ -255,10 +354,12 @@ export function MailboxClient({
           "Erreur réseau lors de l'appel à une action:",
           error,
         );
-        addToast({
-          variant: "error",
-          title: "Erreur réseau.",
-        });
+        if (!options?.silentNetworkError) {
+          addToast({
+            variant: "error",
+            title: "Erreur réseau.",
+          });
+        }
         return null;
       }
     },
@@ -284,12 +385,72 @@ export function MailboxClient({
     setDownloadingAttachmentId(null);
   }, [detail?.uid]);
 
-  const selectedUid = useMemo(() => {
+  const initialSelectedUid = useMemo(() => {
     const raw = searchParams.get("message");
     if (!raw) return null;
     const parsed = Number.parseInt(raw, 10);
     return Number.isNaN(parsed) ? null : parsed;
   }, [searchParams]);
+  const [selectedUid, setSelectedUid] = useState<number | null>(
+    initialSelectedUid,
+  );
+  const [optimisticSelectedUid, setOptimisticSelectedUid] = useState<
+    number | null
+  >(initialSelectedUid);
+  const [pendingMessageUid, setPendingMessageUid] = useState<number | null>(
+    null,
+  );
+  const updateUrlMessageParam = useCallback((uid: number | null) => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const url = new URL(window.location.href);
+    if (uid !== null) {
+      url.searchParams.set("message", String(uid));
+    } else {
+      url.searchParams.delete("message");
+    }
+    const nextPath = `${url.pathname}${url.search}${url.hash}`;
+    window.history.replaceState(window.history.state, "", nextPath);
+  }, []);
+
+  useEffect(() => {
+    setSelectedUid(initialSelectedUid);
+    setOptimisticSelectedUid(initialSelectedUid);
+    if (!initialSelectedUid) {
+      setPendingMessageUid(null);
+    }
+  }, [initialSelectedUid]);
+
+  useEffect(() => {
+    setOptimisticSelectedUid(selectedUid);
+    if (!selectedUid) {
+      setPendingMessageUid(null);
+    }
+  }, [selectedUid]);
+
+  useEffect(() => {
+    if (!mobilePaneInitializedRef.current) {
+      mobilePaneInitializedRef.current = true;
+      if (selectedUid) {
+        setMobilePane("detail");
+      }
+      return;
+    }
+    if (!selectedUid && mobilePane === "detail") {
+      setMobilePane("list");
+    }
+  }, [mobilePane, selectedUid]);
+
+  useEffect(() => {
+    if (mobilePane !== "detail" || isDesktopLayout) {
+      return;
+    }
+    detailPaneRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }, [isDesktopLayout, mobilePane]);
 
   const cachedDetailEntry = useMailboxStore(
     useCallback(
@@ -351,12 +512,163 @@ export function MailboxClient({
     [addToast, mailbox],
   );
 
+  const requestMessageDetail = useCallback(
+    async (
+      uid: number,
+      options?: { silentNetworkError?: boolean },
+    ): Promise<DetailRequestResult> => {
+      const cached = getCachedMessageDetail(mailbox, uid);
+      if (cached) {
+        return {
+          success: true,
+          detail: cached,
+        };
+      }
+      const cacheKey = `${mailbox}:${uid}`;
+      const inflight = detailRequestsRef.current.get(cacheKey);
+      if (inflight) {
+        return inflight;
+      }
+      const requestPromise = (async () => {
+        const result = await safeActionCall(
+          () =>
+            fetchMessageDetailAction({
+              mailbox,
+              uid,
+            }),
+          options,
+        );
+        if (!result) {
+          return {
+            success: false,
+            detail: null,
+            errorMessage:
+              "Erreur réseau lors du chargement du message.",
+          };
+        }
+        if (!result.success || !result.data) {
+          return {
+            success: false,
+            detail: null,
+            errorMessage:
+              result.message ?? "Échec de chargement du message.",
+          };
+        }
+        cacheMessageDetail(mailbox, result.data);
+        return {
+          success: true,
+          detail: result.data,
+        };
+      })();
+      detailRequestsRef.current.set(cacheKey, requestPromise);
+      requestPromise.finally(() => {
+        detailRequestsRef.current.delete(cacheKey);
+      });
+      return requestPromise;
+    },
+    [mailbox, safeActionCall],
+  );
+
+  const warmMessageDetail = useCallback(
+    (uid: number | null) => {
+      if (!uid) {
+        return;
+      }
+      if (getCachedMessageDetail(mailbox, uid)) {
+        prefetchedDetailStateRef.current.set(uid, "done");
+        return;
+      }
+      const currentState = prefetchedDetailStateRef.current.get(uid);
+      if (currentState === "pending" || currentState === "done") {
+        return;
+      }
+      prefetchedDetailStateRef.current.set(uid, "pending");
+      requestMessageDetail(uid, { silentNetworkError: true })
+        .then((result) => {
+          if (result.success) {
+            prefetchedDetailStateRef.current.set(uid, "done");
+          } else {
+            prefetchedDetailStateRef.current.delete(uid);
+          }
+        })
+        .catch(() => {
+          prefetchedDetailStateRef.current.delete(uid);
+        });
+    },
+    [mailbox, requestMessageDetail],
+  );
+
   useEffect(() => {
+    if (typeof window === "undefined" || !messages.length) {
+      return;
+    }
+    const timers = messages.slice(0, 3).map((message, index) =>
+      window.setTimeout(() => {
+        warmMessageDetail(message.uid);
+      }, index * 80),
+    );
+    return () => {
+      timers.forEach((timerId) => {
+        window.clearTimeout(timerId);
+      });
+    };
+  }, [messages, warmMessageDetail]);
+
+  useEffect(() => {
+    if (
+      typeof window === "undefined" ||
+      typeof IntersectionObserver === "undefined"
+    ) {
+      return;
+    }
+    const root = listRef.current;
+    if (!root || !messageButtonRefs.current.size) {
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) {
+            return;
+          }
+          const target = entry.target as HTMLElement;
+          const uidAttr = target.getAttribute("data-message-uid");
+          if (!uidAttr) {
+            return;
+          }
+          const uid = Number.parseInt(uidAttr, 10);
+          if (!Number.isNaN(uid)) {
+            warmMessageDetail(uid);
+          }
+        });
+      },
+      {
+        root,
+        rootMargin: "160px",
+        threshold: 0.1,
+      },
+    );
+    messageButtonRefs.current.forEach((node) => {
+      if (node) {
+        observer.observe(node);
+      }
+    });
+    return () => observer.disconnect();
+  }, [messages, warmMessageDetail]);
+
+  useEffect(() => {
+    if (!isConfigured) {
+      setInitialLoading(false);
+      initialLoadAttemptedRef.current = false;
+      return;
+    }
     if (mailboxState.initialized) {
+      initialLoadAttemptedRef.current = false;
       return;
     }
 
     if (initialPage) {
+      initialLoadAttemptedRef.current = false;
       initializeMailboxCache(mailbox, {
         messages: initialPage.messages,
         page: initialPage.page,
@@ -369,12 +681,17 @@ export function MailboxClient({
     }
 
     if (initialError) {
+      initialLoadAttemptedRef.current = false;
       setListError(initialError);
       return;
     }
 
     if (mailboxState.syncing) {
       setInitialLoading(true);
+      return;
+    }
+
+    if (initialLoadAttemptedRef.current) {
       return;
     }
 
@@ -392,6 +709,7 @@ export function MailboxClient({
       setInitialLoading(true);
       return;
     }
+    initialLoadAttemptedRef.current = true;
     setInitialLoading(true);
     const loadInitial = async () => {
       try {
@@ -402,10 +720,11 @@ export function MailboxClient({
             pageSize: pageSizeFromStore,
           }),
         );
-        if (!result || isCancelled) {
-          if (!result) {
-            setListError("Erreur de synchronisation des messages.");
-          }
+        if (!result) {
+          setListError("Erreur de synchronisation des messages.");
+          return;
+        }
+        if (isCancelled) {
           return;
         }
         if (result.success) {
@@ -443,18 +762,22 @@ export function MailboxClient({
       releaseSync();
     };
   }, [
+    addToast,
+    initialError,
+    initialPage,
+    isConfigured,
     mailbox,
     mailboxState.initialized,
     mailboxState.syncing,
-    initialPage,
-    initialError,
     pageSizeFromStore,
-    safeActionCall,
-    addToast,
     processAutoMoved,
+    safeActionCall,
   ]);
 
   useEffect(() => {
+    if (!isConfigured) {
+      return;
+    }
     if (
       !storeHydrated ||
       !mailboxState.initialized ||
@@ -508,6 +831,7 @@ export function MailboxClient({
       cancelled = true;
     };
   }, [
+    isConfigured,
     mailbox,
     mailboxState.initialized,
     mailboxState.lastSync,
@@ -522,6 +846,7 @@ export function MailboxClient({
       setDetail(null);
       setDetailError(null);
       setDetailLoading(false);
+      setPendingMessageUid(null);
       return;
     }
 
@@ -530,84 +855,87 @@ export function MailboxClient({
       setDetailError(null);
       setDetailLoading(false);
       markMailboxMessageSeen(mailbox, selectedUid);
+      setPendingMessageUid((current) =>
+        current === selectedUid ? null : current,
+      );
       return;
     }
 
-    let isCancelled = false;
+    let cancelled = false;
     setDetail(null);
     setDetailLoading(true);
     setDetailError(null);
 
     const loadDetail = async () => {
-      try {
-        const result = await safeActionCall(() =>
-          fetchMessageDetailAction({
-            mailbox,
-            uid: selectedUid,
-          }),
-        );
-        if (!result || isCancelled) {
-          return;
-        }
-        if (result.success && result.data) {
-          cacheMessageDetail(mailbox, result.data);
-          setDetail(result.data);
-          setDetailError(null);
-          markMailboxMessageSeen(mailbox, selectedUid);
-        } else {
-          const errorMessage =
-            result?.message ?? "Échec de chargement du message.";
-          setDetailError(errorMessage);
-          addToast({
-            variant: "error",
-            title: "Échec de chargement du message.",
-            description:
-              errorMessage !== "Échec de chargement du message."
-                ? errorMessage
-                : undefined,
-          });
-        }
-      } finally {
-        if (!isCancelled) {
-          setDetailLoading(false);
-        }
+      const result = await requestMessageDetail(selectedUid);
+      if (cancelled) {
+        return;
       }
+      if (result.success && result.detail) {
+        setDetail(result.detail);
+        setDetailError(null);
+        markMailboxMessageSeen(mailbox, selectedUid);
+      } else {
+        const errorMessage =
+          result.errorMessage ?? "Échec de chargement du message.";
+        setDetailError(errorMessage);
+        addToast({
+          variant: "error",
+          title: "Échec de chargement du message.",
+          description:
+            errorMessage !== "Échec de chargement du message."
+              ? errorMessage
+              : undefined,
+        });
+      }
+      setPendingMessageUid((current) =>
+        current === selectedUid ? null : current,
+      );
+      setDetailLoading(false);
     };
 
     void loadDetail();
 
     return () => {
-      isCancelled = true;
+      cancelled = true;
     };
   }, [
     addToast,
     cachedDetail,
     mailbox,
-    safeActionCall,
+    requestMessageDetail,
     selectedUid,
   ]);
 
   const handleSelectMessage = useCallback(
     (uid: number) => {
-      const params = new URLSearchParams(searchParams.toString());
-      params.set("message", String(uid));
-      const nextUrl = `${pathname}?${params.toString()}` as Route;
-      router.replace(nextUrl, {
-        scroll: false,
-      });
+      if (detailLoading && optimisticSelectedUid === uid) {
+        return;
+      }
+      setPendingMessageUid(uid);
+      setOptimisticSelectedUid(uid);
+      setSelectedUid(uid);
+      updateUrlMessageParam(uid);
+      warmMessageDetail(uid);
+      setMobilePane("detail");
     },
-    [pathname, router, searchParams],
+    [
+      detailLoading,
+      optimisticSelectedUid,
+      updateUrlMessageParam,
+      warmMessageDetail,
+    ],
   );
 
   const handleClearSelection = useCallback(() => {
-    const params = new URLSearchParams(searchParams.toString());
-    params.delete("message");
-    const query = params.toString();
-    const nextUrl = (query ? `${pathname}?${query}` : pathname) as Route;
-    router.replace(nextUrl, {
-      scroll: false,
-    });
-  }, [pathname, router, searchParams]);
+    updateUrlMessageParam(null);
+    setSelectedUid(null);
+    setMobilePane("list");
+    setOptimisticSelectedUid(null);
+    setPendingMessageUid(null);
+    setDetail(null);
+    setDetailError(null);
+  }, [updateUrlMessageParam]);
 
   const handleOpenComposer = useCallback(
     (mode: "reply" | "reply_all" | "forward") => {
@@ -874,6 +1202,25 @@ export function MailboxClient({
     [addToast, attachmentPreviews, detail, mailbox, openPreviewId],
   );
 
+  const listPaneHidden = !isDesktopLayout && mobilePane !== "list";
+  const detailPaneHidden = !isDesktopLayout && mobilePane !== "detail";
+
+  const listPaneClassName = clsx(
+    "w-full max-w-full rounded-lg border border-zinc-200 bg-white p-3 shadow-sm transition-all duration-300 ease-out will-change-[transform,opacity] dark:border-zinc-800 dark:bg-zinc-900 sm:p-4 lg:block lg:max-h-[78vh] lg:overflow-y-auto lg:pr-2",
+    mobilePane === "list"
+      ? "relative z-10 translate-x-0 opacity-100"
+      : "absolute inset-0 z-0 -translate-x-4 opacity-0 pointer-events-none",
+    "lg:relative lg:z-auto lg:translate-x-0 lg:opacity-100 lg:pointer-events-auto",
+  );
+
+  const detailPaneClassName = clsx(
+    "flex min-h-[320px] w-full max-w-full flex-col overflow-x-hidden rounded-lg border border-zinc-200 bg-white p-4 shadow-sm transition-all duration-300 ease-out will-change-[transform,opacity] dark:border-zinc-800 dark:bg-zinc-900 sm:p-5 lg:max-h-[78vh] lg:overflow-y-auto",
+    mobilePane === "detail"
+      ? "relative z-10 translate-x-0 opacity-100"
+      : "absolute inset-0 z-0 translate-x-4 opacity-0 pointer-events-none",
+    "lg:relative lg:z-auto lg:translate-x-0 lg:opacity-100 lg:pointer-events-auto",
+  );
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -899,16 +1246,55 @@ export function MailboxClient({
         </div>
       </div>
 
-      {!isConfigured ? (
+      {!isConfigured && (
         <div className="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-6 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-950/40 dark:text-zinc-400">
           Configurez vos identifiants IMAP pour afficher cette rubrique.
         </div>
-      ) : (
-        <div className="grid gap-4 lg:grid-cols-[minmax(220px,320px)_minmax(0,1fr)]">
-          <div
-            ref={listRef}
-            className="rounded-lg border border-zinc-200 bg-white p-3 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 sm:p-4 lg:max-h-[78vh] lg:overflow-y-auto lg:pr-2"
-          >
+      )}
+
+      {isConfigured && (
+        <div className="space-y-4">
+          <div className="lg:hidden">
+            <div
+              className="flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white p-1 text-sm font-medium text-zinc-600 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200"
+              role="group"
+              aria-label="Navigation messagerie"
+            >
+              {MOBILE_PANE_TABS.map(({ key, label, icon: Icon }) => {
+                const isActive = mobilePane === key;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => {
+                      if (mobilePane !== key) {
+                        setMobilePane(key);
+                      }
+                    }}
+                    aria-pressed={isActive}
+                    aria-controls={key === "list" ? listPaneId : detailPaneId}
+                    className={clsx(
+                      "flex flex-1 items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+                      isActive
+                        ? "bg-blue-600 text-white shadow-sm dark:bg-blue-500"
+                        : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800",
+                    )}
+                  >
+                    <Icon className="h-4 w-4" />
+                    <span>{label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="relative lg:grid lg:grid-cols-[minmax(320px,380px)_minmax(0,1fr)] lg:gap-4 xl:grid-cols-[minmax(360px,420px)_minmax(0,1fr)] xl:gap-6">
+            <div
+              id={listPaneId}
+              ref={listRef}
+              aria-hidden={listPaneHidden ? true : undefined}
+              className={listPaneClassName}
+            >
             {listError ? (
               <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-500/40 dark:bg-red-500/20 dark:text-red-100">
                 {listError}
@@ -924,22 +1310,50 @@ export function MailboxClient({
               <div className="space-y-3">
                 <ul className="space-y-2">
                   {messages.map((message) => {
-                    const active = selectedUid === message.uid;
+                    const isActive = optimisticSelectedUid === message.uid;
+                    const isCurrentSelection = selectedUid === message.uid;
+                    const isPendingSelection = pendingMessageUid === message.uid;
+                    const isLoadingSelection =
+                      detailLoading &&
+                      (isCurrentSelection || isPendingSelection);
+                    const disableSelection =
+                      isLoadingSelection && isActive;
+                    const formattedDate = formatDate(message.date);
+                    const hasRecipients = message.to.length > 0;
+                    const recipientsPreview = hasRecipients
+                      ? message.to.slice(0, 3).join(", ")
+                      : "";
+                    const recipientsOverflow =
+                      hasRecipients && message.to.length > 3;
                     return (
                       <li key={message.uid}>
                         <button
+                          ref={(node) => {
+                            if (node) {
+                              messageButtonRefs.current.set(message.uid, node);
+                            } else {
+                              messageButtonRefs.current.delete(message.uid);
+                            }
+                          }}
+                          data-message-uid={message.uid}
                           type="button"
                           onClick={() => handleSelectMessage(message.uid)}
+                          onMouseEnter={() => warmMessageDetail(message.uid)}
+                          onFocus={() => warmMessageDetail(message.uid)}
+                          onTouchStart={() => warmMessageDetail(message.uid)}
+                          disabled={disableSelection}
+                          aria-busy={isLoadingSelection ? "true" : undefined}
                           className={clsx(
-                            "w-full rounded-lg border px-3 py-2.5 text-left shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
-                            active
-                              ? "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-500/40 dark:bg-blue-500/20 dark:text-blue-200"
+                            "w-full rounded-lg border px-3 py-3 text-left shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white disabled:cursor-not-allowed disabled:opacity-70 dark:focus-visible:ring-offset-zinc-900",
+                            isActive
+                              ? "border-blue-300 bg-blue-50 text-blue-800 ring-1 ring-blue-200 dark:border-blue-500/60 dark:bg-blue-500/20 dark:text-blue-100 dark:ring-blue-400/40"
                               : "border-zinc-200 bg-white text-zinc-800 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:border-blue-500/30 dark:hover:bg-blue-500/10 dark:hover:text-blue-100",
                           )}
+                          aria-current={isActive ? "true" : undefined}
                         >
-                          <div className="flex flex-col gap-1.5">
-                            <div className="flex items-start justify-between gap-2">
-                              <div>
+                          <div className="flex flex-col gap-2">
+                            <div className="flex flex-wrap items-start gap-x-2 gap-y-1">
+                              <div className="min-w-0 flex-1 space-y-1">
                                 <p
                                   className={clsx(
                                     "text-sm font-semibold leading-tight",
@@ -948,33 +1362,58 @@ export function MailboxClient({
                                       : "text-blue-600 dark:text-blue-200",
                                   )}
                                 >
-                                  {message.subject}
+                                  <span
+                                    className="block break-words"
+                                    style={SUBJECT_CLAMP_STYLE}
+                                  >
+                                    {message.subject || "(Sans objet)"}
+                                  </span>
                                 </p>
                                 <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                                  {message.from}
+                                  <span className="block truncate">
+                                    {message.from || "Expéditeur inconnu"}
+                                  </span>
                                 </p>
                               </div>
-                              <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                                {formatDate(message.date)}
-                              </span>
+                              <div className="flex flex-none flex-col items-start text-[11px] font-medium text-zinc-500 dark:text-zinc-400 sm:items-end sm:text-xs">
+                                <span className="flex items-center gap-1 leading-tight tabular-nums">
+                                  {isLoadingSelection ? (
+                                    <Loader2
+                                      className="h-3.5 w-3.5 animate-spin text-blue-600 dark:text-blue-200"
+                                      aria-hidden="true"
+                                    />
+                                  ) : null}
+                                  {formattedDate}
+                                </span>
+                                {!message.seen ? (
+                                  <span className="text-[10px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-300">
+                                    Nouveau
+                                  </span>
+                                ) : null}
+                              </div>
                             </div>
-                            {message.to.length ? (
-                              <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                                À : {message.to.slice(0, 3).join(", ")}
-                                {message.to.length > 3 ? "…" : ""}
+                            {hasRecipients ? (
+                              <p className="text-xs leading-snug text-zinc-500 dark:text-zinc-400">
+                                <span className="font-medium text-zinc-600 dark:text-zinc-300">
+                                  À :
+                                </span>{" "}
+                                <span className="break-words">
+                                  {recipientsPreview}
+                                  {recipientsOverflow ? "…" : ""}
+                                </span>
                               </p>
                             ) : null}
                             {mailbox === "sent" ? (
-                              <div className="text-xs text-zinc-500 dark:text-zinc-400">
+                              <p className="text-xs leading-snug text-zinc-500 dark:text-zinc-400">
                                 {message.tracking
                                   ? message.tracking.enabled
                                     ? `${formatCount(message.tracking.totalOpens, "ouverture", "ouvertures")} · ${formatCount(message.tracking.totalClicks, "clic", "clics")}`
                                     : "Suivi désactivé lors de l'envoi"
                                   : "Suivi non disponible"}
-                              </div>
+                              </p>
                             ) : null}
                             {message.hasAttachments ? (
-                              <Badge variant="info" className="w-fit">
+                              <Badge variant="info" className="w-fit text-[11px]">
                                 <span className="inline-flex items-center gap-1">
                                   <Paperclip className="h-3 w-3" />
                                   Pièces jointes
@@ -1004,12 +1443,19 @@ export function MailboxClient({
                 ) : null}
               </div>
             )}
-          </div>
+            </div>
 
-          <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+            <div
+              id={detailPaneId}
+              ref={detailPaneRef}
+              aria-hidden={detailPaneHidden ? true : undefined}
+              aria-busy={detailLoading ? true : undefined}
+              aria-live="polite"
+              className={detailPaneClassName}
+            >
             {detailLoading ? (
-              <div className="flex h-full items-center justify-center">
-                <Spinner />
+              <div className="flex flex-1 flex-col justify-start">
+                <MessageDetailSkeleton />
               </div>
             ) : detailError ? (
               <div className="space-y-3">
@@ -1019,53 +1465,73 @@ export function MailboxClient({
                 <Button
                   type="button"
                   variant="secondary"
+                  className="w-full sm:w-auto"
                   onClick={handleClearSelection}
                 >
                   Retour à la liste
                 </Button>
               </div>
             ) : detail ? (
-              <div className="space-y-4">
-                <div className="flex flex-wrap items-center justify-between gap-3 sm:justify-between">
-                  <div>
-                    <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
-                      {detail.subject}
-                    </h3>
-                    <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                      {mailbox === "sent"
-                        ? `Envoyé le ${formatDate(detail.date)}`
-                        : `Reçu le ${formatDate(detail.date)}`}
-                    </p>
+              <div className="space-y-4 min-w-0">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-2 lg:hidden">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="min-h-0 rounded-full px-3 py-1 text-sm"
+                      onClick={() => setMobilePane("list")}
+                    >
+                      <ArrowLeft className="h-4 w-4" />
+                      Boîte
+                    </Button>
+                    <span className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                      {title}
+                    </span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      onClick={() => handleOpenComposer("reply")}
-                    >
-                      <Reply className="h-4 w-4" />
-                      Répondre
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      onClick={() => handleOpenComposer("reply_all")}
-                    >
-                      <ReplyAll className="h-4 w-4" />
-                      Répondre à tous
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      onClick={() => handleOpenComposer("forward")}
-                    >
-                      <Forward className="h-4 w-4" />
-                      Transférer
-                    </Button>
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="min-w-0 space-y-1">
+                      <h3 className="break-words text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+                        {detail.subject}
+                      </h3>
+                      <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                        {mailbox === "sent"
+                          ? `Envoyé le ${formatDate(detail.date)}`
+                          : `Reçu le ${formatDate(detail.date)}`}
+                      </p>
+                    </div>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center lg:justify-end">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="w-full justify-center sm:w-auto"
+                        onClick={() => handleOpenComposer("reply")}
+                      >
+                        <Reply className="h-4 w-4" />
+                        Répondre
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="w-full justify-center sm:w-auto"
+                        onClick={() => handleOpenComposer("reply_all")}
+                      >
+                        <ReplyAll className="h-4 w-4" />
+                        Répondre à tous
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="w-full justify-center sm:w-auto"
+                        onClick={() => handleOpenComposer("forward")}
+                      >
+                        <Forward className="h-4 w-4" />
+                        Transférer
+                      </Button>
+                    </div>
                   </div>
                 </div>
                 {moveOptions.length ? (
-                  <div className="flex flex-wrap gap-1.5">
+                  <div className="flex flex-col gap-1.5 sm:flex-row sm:flex-wrap">
                     {moveOptions.map(({ target, label, variant, icon: Icon, className }) => {
                       const IconComponent = Icon ?? FolderSymlink;
                       const isLoading = movingTarget === target;
@@ -1079,7 +1545,10 @@ export function MailboxClient({
                           disabled={
                             movingTarget !== null && movingTarget !== target
                           }
-                          className={clsx("px-3 py-1 text-xs", className)}
+                          className={clsx(
+                            "w-full justify-center px-3 py-1 text-xs sm:w-auto",
+                            className,
+                          )}
                         >
                           <IconComponent className="h-3.5 w-3.5" />
                           <span className="text-xs font-medium uppercase tracking-wide">
@@ -1090,7 +1559,7 @@ export function MailboxClient({
                     })}
                   </div>
                 ) : null}
-                <div className="space-y-2 text-xs text-zinc-600 dark:text-zinc-400">
+                <div className="space-y-2 break-words text-sm text-zinc-700 dark:text-zinc-300">
                   <p>
                     <span className="font-semibold text-zinc-700 dark:text-zinc-300">
                       {mailbox === "sent" ? "À :" : "De :"}
@@ -1189,7 +1658,7 @@ export function MailboxClient({
                 </div>
 
                 {mailbox === "sent" ? (
-                  <div className="space-y-4 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+                  <div className="space-y-4 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 sm:p-5">
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                       <div>
                         <h3 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
@@ -1345,16 +1814,16 @@ export function MailboxClient({
                   </div>
                 ) : null}
 
-                <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-6 text-sm leading-relaxed text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950/60 dark:text-zinc-100">
+                <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-sm leading-relaxed text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950/60 dark:text-zinc-100 sm:p-6">
                   {detail.html ? (
                     <div
-                      className="prose prose-sm max-w-none dark:prose-invert prose-headings:mt-4 prose-headings:font-semibold prose-a:text-blue-600"
+                      className="mail-detail-body prose prose-sm max-w-none dark:prose-invert prose-headings:mt-4 prose-headings:font-semibold prose-a:text-blue-600"
                       dangerouslySetInnerHTML={{
                         __html: detail.html,
                       }}
                     />
                   ) : detail.text ? (
-                    <pre className="whitespace-pre-wrap text-sm">
+                    <pre className="mail-detail-body whitespace-pre-wrap break-words text-sm">
                       {detail.text}
                     </pre>
                   ) : (
@@ -1385,10 +1854,10 @@ export function MailboxClient({
                             className="space-y-3 rounded-md border border-zinc-200 bg-white px-3 py-3 dark:border-zinc-700 dark:bg-zinc-900"
                           >
                             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                              <div className="flex items-center gap-2">
-                                <Paperclip className="h-4 w-4 text-zinc-400" />
-                                <div>
-                                  <p className="font-medium text-zinc-800 dark:text-zinc-200">
+                              <div className="flex min-w-0 flex-1 items-center gap-2">
+                                <Paperclip className="h-4 w-4 flex-shrink-0 text-zinc-400" />
+                                <div className="min-w-0">
+                                  <p className="break-words font-medium text-zinc-800 dark:text-zinc-200">
                                     {attachment.filename}
                                   </p>
                                   <p className="text-[11px] uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
@@ -1401,7 +1870,7 @@ export function MailboxClient({
                                   <Button
                                     type="button"
                                     variant="secondary"
-                                    className="px-2 py-1 text-xs"
+                                    className="w-full justify-center px-2 py-1 text-xs sm:w-auto"
                                     onClick={() =>
                                       void handlePreviewAttachment(attachment)
                                     }
@@ -1427,7 +1896,7 @@ export function MailboxClient({
                                 <Button
                                   type="button"
                                   variant="secondary"
-                                  className="px-2 py-1 text-xs"
+                                  className="w-full justify-center px-2 py-1 text-xs sm:w-auto"
                                   onClick={() =>
                                     void handleDownloadAttachment(attachment)
                                   }
@@ -1466,12 +1935,21 @@ export function MailboxClient({
                 ) : null}
               </div>
             ) : (
-              <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-zinc-500 dark:text-zinc-400">
+              <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center text-sm text-zinc-500 dark:text-zinc-400">
                 <p>Sélectionnez un message pour afficher son contenu.</p>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="w-full lg:hidden"
+                  onClick={() => setMobilePane("list")}
+                >
+                  Retour à la liste
+                </Button>
               </div>
             )}
           </div>
         </div>
+      </div>
       )}
     </div>
   );

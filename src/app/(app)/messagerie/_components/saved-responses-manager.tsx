@@ -176,15 +176,16 @@ export function SavedResponsesManager({
             Créez des modèles réutilisables pour accélérer vos échanges
             professionnels.
           </p>
-        </div>
-        <Button
-          type="button"
-          variant="secondary"
-          onClick={() => setShowCreateForm((value) => !value)}
-        >
-          {showCreateForm ? "Fermer" : "Nouvelle réponse"}
-        </Button>
       </div>
+      <Button
+        type="button"
+        variant="secondary"
+        onClick={() => setShowCreateForm((value) => !value)}
+        className="w-full sm:w-auto"
+      >
+        {showCreateForm ? "Fermer" : "Nouvelle réponse"}
+      </Button>
+    </div>
 
       {showCreateForm ? (
         <form
@@ -231,15 +232,20 @@ export function SavedResponsesManager({
               </p>
             </div>
           </div>
-          <div className="flex justify-end gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
             <Button
               type="button"
               variant="ghost"
               onClick={() => setShowCreateForm(false)}
+              className="w-full sm:w-auto"
             >
               Annuler
             </Button>
-            <Button type="submit" loading={createPending}>
+            <Button
+              type="submit"
+              loading={createPending}
+              className="w-full sm:w-auto"
+            >
               Enregistrer
             </Button>
           </div>
@@ -277,7 +283,7 @@ export function SavedResponsesManager({
                     Dernière mise à jour&nbsp;: {formatter.format(new Date(response.updatedAt))}
                   </p>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
                   <Button
                     type="button"
                     variant="secondary"
@@ -286,6 +292,7 @@ export function SavedResponsesManager({
                         current === response.id ? null : response.id,
                       )
                     }
+                    className="w-full sm:w-auto"
                   >
                     Modifier
                   </Button>
@@ -293,9 +300,9 @@ export function SavedResponsesManager({
                     <Button
                       type="button"
                       variant="ghost"
-                      className="text-red-600 hover:text-red-700 dark:text-red-400"
                       onClick={() => void handleDelete(response.id)}
                       loading={deletePendingId === response.id}
+                      className="w-full sm:w-auto text-red-600 hover:text-red-700 dark:text-red-400"
                     >
                       Supprimer
                     </Button>
@@ -350,17 +357,19 @@ export function SavedResponsesManager({
                       />
                     </div>
                   </div>
-                  <div className="flex justify-end gap-2">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
                     <Button
                       type="button"
                       variant="ghost"
                       onClick={() => setExpandedId(null)}
+                      className="w-full sm:w-auto"
                     >
                       Annuler
                     </Button>
                     <Button
                       type="submit"
                       loading={updatePendingId === response.id}
+                      className="w-full sm:w-auto"
                     >
                       Enregistrer
                     </Button>
@@ -374,4 +383,3 @@ export function SavedResponsesManager({
     </section>
   );
 }
-

@@ -142,16 +142,27 @@ type CopyOperation = {
   targetCount: () => Promise<number>;
 };
 
-const createMany = (delegate: any) =>
+type CreateManyArgs<TRow> = {
+  data: Prisma.Enumerable<TRow>;
+  skipDuplicates?: boolean;
+};
+
+const createMany =
+  <TRow>(
+    createManyFn: (args: CreateManyArgs<TRow>) => Promise<Prisma.BatchPayload>,
+  ) =>
   async (rows: unknown[]) => {
     if (!rows.length) {
       return 0;
     }
 
-    const { count } = await delegate.createMany({
-      data: rows as any,
+    const typedRows = rows as TRow[];
+    const args: CreateManyArgs<TRow> = {
+      data: typedRows,
       skipDuplicates: true,
-    });
+    };
+
+    const { count } = await createManyFn(args);
     return count;
   };
 
@@ -181,163 +192,217 @@ const copyOperations: CopyOperation[] = [
   {
     name: "User",
     pull: pull("User"),
-    push: createMany(postgres.user),
+    push: createMany<Prisma.UserCreateManyInput>((args) =>
+      postgres.user.createMany(args),
+    ),
     targetCount: () => postgres.user.count(),
   },
   {
     name: "Session",
     pull: pull("Session"),
-    push: createMany(postgres.session),
+    push: createMany<Prisma.SessionCreateManyInput>((args) =>
+      postgres.session.createMany(args),
+    ),
     targetCount: () => postgres.session.count(),
   },
   {
     name: "PdfTemplate",
     pull: pull("PdfTemplate"),
-    push: createMany(postgres.pdfTemplate),
+    push: createMany<Prisma.PdfTemplateCreateManyInput>((args) =>
+      postgres.pdfTemplate.createMany(args),
+    ),
     targetCount: () => postgres.pdfTemplate.count(),
   },
   {
     name: "CompanySettings",
     pull: pull("CompanySettings"),
-    push: createMany(postgres.companySettings),
+    push: createMany<Prisma.CompanySettingsCreateManyInput>((args) =>
+      postgres.companySettings.createMany(args),
+    ),
     targetCount: () => postgres.companySettings.count(),
   },
   {
     name: "WebsiteConfig",
     pull: pull("WebsiteConfig"),
-    push: createMany(postgres.websiteConfig),
+    push: createMany<Prisma.WebsiteConfigCreateManyInput>((args) =>
+      postgres.websiteConfig.createMany(args),
+    ),
     targetCount: () => postgres.websiteConfig.count(),
   },
   {
     name: "MessagingSettings",
     pull: pull("MessagingSettings"),
-    push: createMany(postgres.messagingSettings),
+    push: createMany<Prisma.MessagingSettingsCreateManyInput>((args) =>
+      postgres.messagingSettings.createMany(args),
+    ),
     targetCount: () => postgres.messagingSettings.count(),
   },
   {
     name: "MessagingSavedResponse",
     pull: pull("MessagingSavedResponse"),
-    push: createMany(postgres.messagingSavedResponse),
+    push: createMany<Prisma.MessagingSavedResponseCreateManyInput>((args) =>
+      postgres.messagingSavedResponse.createMany(args),
+    ),
     targetCount: () => postgres.messagingSavedResponse.count(),
   },
   {
     name: "MessagingAutoReplyLog",
     pull: pull("MessagingAutoReplyLog"),
-    push: createMany(postgres.messagingAutoReplyLog),
+    push: createMany<Prisma.MessagingAutoReplyLogCreateManyInput>((args) =>
+      postgres.messagingAutoReplyLog.createMany(args),
+    ),
     targetCount: () => postgres.messagingAutoReplyLog.count(),
   },
   {
     name: "MessagingScheduledEmail",
     pull: pull("MessagingScheduledEmail"),
-    push: createMany(postgres.messagingScheduledEmail),
+    push: createMany<Prisma.MessagingScheduledEmailCreateManyInput>((args) =>
+      postgres.messagingScheduledEmail.createMany(args),
+    ),
     targetCount: () => postgres.messagingScheduledEmail.count(),
   },
   {
     name: "MessagingScheduledAttachment",
     pull: pull("MessagingScheduledAttachment"),
-    push: createMany(postgres.messagingScheduledAttachment),
+    push: createMany<Prisma.MessagingScheduledAttachmentCreateManyInput>((args) =>
+      postgres.messagingScheduledAttachment.createMany(args),
+    ),
     targetCount: () => postgres.messagingScheduledAttachment.count(),
   },
   {
     name: "MessagingEmail",
     pull: pull("MessagingEmail"),
-    push: createMany(postgres.messagingEmail),
+    push: createMany<Prisma.MessagingEmailCreateManyInput>((args) =>
+      postgres.messagingEmail.createMany(args),
+    ),
     targetCount: () => postgres.messagingEmail.count(),
   },
   {
     name: "MessagingEmailRecipient",
     pull: pull("MessagingEmailRecipient"),
-    push: createMany(postgres.messagingEmailRecipient),
+    push: createMany<Prisma.MessagingEmailRecipientCreateManyInput>((args) =>
+      postgres.messagingEmailRecipient.createMany(args),
+    ),
     targetCount: () => postgres.messagingEmailRecipient.count(),
   },
   {
     name: "MessagingEmailLink",
     pull: pull("MessagingEmailLink"),
-    push: createMany(postgres.messagingEmailLink),
+    push: createMany<Prisma.MessagingEmailLinkCreateManyInput>((args) =>
+      postgres.messagingEmailLink.createMany(args),
+    ),
     targetCount: () => postgres.messagingEmailLink.count(),
   },
   {
     name: "MessagingEmailLinkRecipient",
     pull: pull("MessagingEmailLinkRecipient"),
-    push: createMany(postgres.messagingEmailLinkRecipient),
+    push: createMany<Prisma.MessagingEmailLinkRecipientCreateManyInput>((args) =>
+      postgres.messagingEmailLinkRecipient.createMany(args),
+    ),
     targetCount: () => postgres.messagingEmailLinkRecipient.count(),
   },
   {
     name: "MessagingEmailEvent",
     pull: pull("MessagingEmailEvent"),
-    push: createMany(postgres.messagingEmailEvent),
+    push: createMany<Prisma.MessagingEmailEventCreateManyInput>((args) =>
+      postgres.messagingEmailEvent.createMany(args),
+    ),
     targetCount: () => postgres.messagingEmailEvent.count(),
   },
   {
     name: "Client",
     pull: pull("Client"),
-    push: createMany(postgres.client),
+    push: createMany<Prisma.ClientCreateManyInput>((args) =>
+      postgres.client.createMany(args),
+    ),
     targetCount: () => postgres.client.count(),
   },
   {
     name: "Product",
     pull: pull("Product"),
-    push: createMany(postgres.product),
+    push: createMany<Prisma.ProductCreateManyInput>((args) =>
+      postgres.product.createMany(args),
+    ),
     targetCount: () => postgres.product.count(),
   },
   {
     name: "NumberingSequence",
     pull: pull("NumberingSequence"),
-    push: createMany(postgres.numberingSequence),
+    push: createMany<Prisma.NumberingSequenceCreateManyInput>((args) =>
+      postgres.numberingSequence.createMany(args),
+    ),
     targetCount: () => postgres.numberingSequence.count(),
   },
   {
     name: "Quote",
     pull: pull("Quote"),
-    push: createMany(postgres.quote),
+    push: createMany<Prisma.QuoteCreateManyInput>((args) =>
+      postgres.quote.createMany(args),
+    ),
     targetCount: () => postgres.quote.count(),
   },
   {
     name: "QuoteLine",
     pull: pull("QuoteLine"),
-    push: createMany(postgres.quoteLine),
+    push: createMany<Prisma.QuoteLineCreateManyInput>((args) =>
+      postgres.quoteLine.createMany(args),
+    ),
     targetCount: () => postgres.quoteLine.count(),
   },
   {
     name: "Invoice",
     pull: pull("Invoice"),
-    push: createMany(postgres.invoice),
+    push: createMany<Prisma.InvoiceCreateManyInput>((args) =>
+      postgres.invoice.createMany(args),
+    ),
     targetCount: () => postgres.invoice.count(),
   },
   {
     name: "InvoiceLine",
     pull: pull("InvoiceLine"),
-    push: createMany(postgres.invoiceLine),
+    push: createMany<Prisma.InvoiceLineCreateManyInput>((args) =>
+      postgres.invoiceLine.createMany(args),
+    ),
     targetCount: () => postgres.invoiceLine.count(),
   },
   {
     name: "Payment",
     pull: pull("Payment"),
-    push: createMany(postgres.payment),
+    push: createMany<Prisma.PaymentCreateManyInput>((args) =>
+      postgres.payment.createMany(args),
+    ),
     targetCount: () => postgres.payment.count(),
   },
   {
     name: "InvoiceAuditLog",
     pull: pull("InvoiceAuditLog"),
-    push: createMany(postgres.invoiceAuditLog),
+    push: createMany<Prisma.InvoiceAuditLogCreateManyInput>((args) =>
+      postgres.invoiceAuditLog.createMany(args),
+    ),
     targetCount: () => postgres.invoiceAuditLog.count(),
   },
   {
     name: "EmailLog",
     pull: pull("EmailLog"),
-    push: createMany(postgres.emailLog),
+    push: createMany<Prisma.EmailLogCreateManyInput>((args) =>
+      postgres.emailLog.createMany(args),
+    ),
     targetCount: () => postgres.emailLog.count(),
   },
   {
     name: "SpamDetectionLog",
     pull: pull("SpamDetectionLog"),
-    push: createMany(postgres.spamDetectionLog),
+    push: createMany<Prisma.SpamDetectionLogCreateManyInput>((args) =>
+      postgres.spamDetectionLog.createMany(args),
+    ),
     targetCount: () => postgres.spamDetectionLog.count(),
   },
   {
     name: "SpamSenderReputation",
     pull: pull("SpamSenderReputation"),
-    push: createMany(postgres.spamSenderReputation),
+    push: createMany<Prisma.SpamSenderReputationCreateManyInput>((args) =>
+      postgres.spamSenderReputation.createMany(args),
+    ),
     targetCount: () => postgres.spamSenderReputation.count(),
   },
 ];

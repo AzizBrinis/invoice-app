@@ -1,4 +1,4 @@
-import { unstable_cache } from "next/cache";
+import { revalidateTag, unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { z } from "zod";
@@ -30,6 +30,7 @@ export type ClientFilters = {
 const DEFAULT_PAGE_SIZE = 10;
 const MAX_PAGE_SIZE = 50;
 const CLIENT_FILTER_CACHE_SECONDS = 60;
+const isTestEnv = process.env.NODE_ENV === "test";
 
 const clientFilterSelect = Prisma.validator<Prisma.ClientSelect>()({
   id: true,
@@ -51,7 +52,24 @@ export type ClientListItem = Prisma.ClientGetPayload<{
   select: typeof clientListSelect;
 }>;
 
-const clientFilterTag = (tenantId: string) => `clients:filters:${tenantId}`;
+export const clientFilterTag = (tenantId: string) =>
+  `clients:filters:${tenantId}`;
+
+type TenantAwareUser = {
+  id: string;
+  tenantId?: string | null;
+};
+
+export function getClientTenantId(user: TenantAwareUser) {
+  return (user.tenantId ?? user.id) as string;
+}
+
+export function revalidateClientFilters(tenantId: string) {
+  if (isTestEnv) {
+    return;
+  }
+  revalidateTag(clientFilterTag(tenantId), "max");
+}
 
 function normalizeLeadMetadata(
   value: Record<string, unknown> | null | undefined,
@@ -120,7 +138,7 @@ export async function listClients(
 
 export async function listClientFilterOptions() {
   const user = await requireUser();
-  const tenantId = (user as { tenantId?: string | null }).tenantId ?? user.id;
+  const tenantId = getClientTenantId(user);
 
   const runQuery = () =>
     prisma.client.findMany({
@@ -129,7 +147,7 @@ export async function listClientFilterOptions() {
       select: clientFilterSelect,
     });
 
-  if (process.env.NODE_ENV === "test") {
+  if (isTestEnv) {
     return runQuery();
   }
 
@@ -152,25 +170,32 @@ export async function getClient(id: string) {
   });
 }
 
-export async function createClient(input: ClientInput) {
-  const { id: userId } = await requireUser();
+export async function createClient(
+  input: ClientInput,
+  userId?: string,
+) {
+  const resolvedUserId = userId ?? (await requireUser()).id;
   const payload = clientSchema.parse(input);
   const { id: _id, ...data } = payload;
   void _id;
   const { leadMetadata, ...rest } = data;
   return prisma.client.create({
     data: {
-      userId,
+      userId: resolvedUserId,
       ...rest,
       leadMetadata: normalizeLeadMetadata(leadMetadata),
     },
   });
 }
 
-export async function updateClient(id: string, input: ClientInput) {
-  const { id: userId } = await requireUser();
+export async function updateClient(
+  id: string,
+  input: ClientInput,
+  userId?: string,
+) {
+  const resolvedUserId = userId ?? (await requireUser()).id;
   const existing = await prisma.client.findFirst({
-    where: { id, userId },
+    where: { id, userId: resolvedUserId },
   });
   if (!existing) {
     throw new Error("Client introuvable");
@@ -183,23 +208,23 @@ export async function updateClient(id: string, input: ClientInput) {
     where: { id },
     data: {
       ...rest,
-      userId,
+      userId: resolvedUserId,
       leadMetadata: normalizeLeadMetadata(leadMetadata),
     },
   });
 }
 
-export async function deleteClient(id: string) {
-  const { id: userId } = await requireUser();
+export async function deleteClient(id: string, userId?: string) {
+  const resolvedUserId = userId ?? (await requireUser()).id;
   const client = await prisma.client.findFirst({
-    where: { id, userId },
+    where: { id, userId: resolvedUserId },
   });
   if (!client) {
     throw new Error("Client introuvable");
   }
   const [invoiceCount, quoteCount] = await prisma.$transaction([
-    prisma.invoice.count({ where: { clientId: id, userId } }),
-    prisma.quote.count({ where: { clientId: id, userId } }),
+    prisma.invoice.count({ where: { clientId: id, userId: resolvedUserId } }),
+    prisma.quote.count({ where: { clientId: id, userId: resolvedUserId } }),
   ]);
 
   if (invoiceCount > 0 || quoteCount > 0) {

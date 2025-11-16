@@ -108,13 +108,83 @@
   }
 }
 
+@layer components {
+  .mail-detail-body {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    overflow-x: hidden;
+  }
+
+  .mail-detail-body * {
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+
+  .mail-detail-body :where(p, span, div, li, td, th, a, strong, em, b, i) {
+    white-space: normal !important;
+  }
+
+  .mail-detail-body img,
+  .mail-detail-body video,
+  .mail-detail-body audio,
+  .mail-detail-body svg,
+  .mail-detail-body iframe {
+    height: auto;
+    max-width: 100%;
+  }
+
+  .mail-detail-body table {
+    width: 100% !important;
+    max-width: 100%;
+    table-layout: auto !important;
+    border-collapse: collapse;
+  }
+
+  .mail-detail-body td,
+  .mail-detail-body th {
+    word-break: break-word;
+  }
+
+  .mail-detail-body pre {
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .mail-detail-body code {
+    white-space: normal;
+    word-break: break-word;
+  }
+
+  .mail-detail-body blockquote {
+    @apply border-l-4 border-zinc-200 pl-4 text-zinc-700 dark:border-zinc-700 dark:text-zinc-300;
+    margin-left: 0;
+    margin-right: 0;
+  }
+
+  .mail-detail-body ul,
+  .mail-detail-body ol {
+    padding-left: 1.25rem;
+  }
+}
+
 @layer utilities {
   .card {
     @apply rounded-xl border border-zinc-200 bg-white shadow-sm transition-colors dark:border-zinc-800 dark:bg-zinc-900;
   }
 
   .input {
-    @apply w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:border-blue-400 dark:focus:ring-blue-500/40;
+    @apply box-border block w-full max-w-full min-w-0 min-h-12 rounded-lg border border-zinc-300 bg-white px-4 py-3 text-base leading-6 text-zinc-900 shadow-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:focus:border-blue-400 dark:focus:ring-blue-500/40;
+  }
+
+  input[type="date"].input {
+    appearance: none;
+    -webkit-appearance: none;
+    @apply max-w-full;
+  }
+
+  input[type="date"].input::-webkit-date-and-time-value {
+    min-width: 0;
   }
 
   .label {

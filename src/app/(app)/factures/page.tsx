@@ -274,12 +274,12 @@ async function FacturesPageContent({
           </label>
           <input className="input" type="date" id="au" name="au" defaultValue={issueTo ?? ""} />
         </div>
-        <Button type="submit" variant="secondary" className="sm:col-span-5 sm:w-fit">
+        <Button type="submit" variant="secondary" className="w-full sm:col-span-5 sm:w-fit">
           Filtrer
         </Button>
       </form>
 
-      <div className="card overflow-hidden">
+      <div className="card hidden overflow-hidden lg:block">
         <table className="min-w-full divide-y divide-zinc-200 text-sm dark:divide-zinc-800">
           <thead className="bg-zinc-50 text-xs uppercase text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
             <tr>
@@ -384,6 +384,109 @@ async function FacturesPageContent({
             )}
           </tbody>
         </table>
+      </div>
+
+      <div className="space-y-4 lg:hidden">
+        {invoices.items.map((invoice) => (
+          <article key={invoice.id} className="card space-y-4 p-4">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <div>
+                <p className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+                  {invoice.number}
+                </p>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  {invoice.reference ?? "—"}
+                </p>
+              </div>
+              <Badge variant={statusVariant(invoice.status)}>{STATUS_LABELS[invoice.status]}</Badge>
+            </div>
+            <dl className="grid gap-3 text-sm sm:grid-cols-2">
+              <div>
+                <dt className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Client</dt>
+                <dd className="font-medium text-zinc-900 dark:text-zinc-100">{invoice.client.displayName}</dd>
+              </div>
+              <div>
+                <dt className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Total TTC</dt>
+                <dd className="font-semibold text-zinc-900 dark:text-zinc-100">
+                  {formatCurrency(fromCents(invoice.totalTTCCents, invoice.currency), invoice.currency)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Émission</dt>
+                <dd className="text-zinc-700 dark:text-zinc-300">{formatDate(invoice.issueDate)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Échéance</dt>
+                <dd className="text-zinc-700 dark:text-zinc-300">
+                  {invoice.dueDate ? formatDate(invoice.dueDate) : "—"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Payé</dt>
+                <dd className="text-zinc-700 dark:text-zinc-300">
+                  {formatCurrency(fromCents(invoice.amountPaidCents, invoice.currency), invoice.currency)}
+                </dd>
+              </div>
+            </dl>
+            <div className="flex flex-col gap-2 pt-2 min-[520px]:flex-row">
+              <Button
+                asChild
+                variant="secondary"
+                className="w-full min-[520px]:w-auto justify-center text-sm"
+              >
+                <Link href={`/factures/${invoice.id}`}>Détails</Link>
+              </Button>
+              <Button
+                asChild
+                variant="secondary"
+                className="w-full min-[520px]:w-auto justify-center text-sm"
+              >
+                <Link href={`/factures/${invoice.id}/modifier`}>Éditer</Link>
+              </Button>
+              <Button
+                asChild
+                variant="ghost"
+                className="w-full min-[520px]:w-auto justify-center text-sm text-blue-600 dark:text-blue-400"
+              >
+                <Link href={`/api/factures/${invoice.id}/pdf`} target="_blank">
+                  PDF
+                </Link>
+              </Button>
+            </div>
+            <div className="flex flex-col gap-2 min-[520px]:flex-row">
+              <div className="w-full min-[520px]:w-auto">
+                <form
+                  action={changeInvoiceStatusAction.bind(null, invoice.id, InvoiceStatus.PAYEE)}
+                  className="w-full"
+                >
+                  <FormSubmitButton
+                    variant="ghost"
+                    className="w-full justify-center text-sm text-emerald-600 dark:text-emerald-400"
+                  >
+                    Marquer payée
+                  </FormSubmitButton>
+                  <input type="hidden" name="redirectTo" value={redirectBase} />
+                </form>
+              </div>
+              <div className="w-full min-[520px]:w-auto">
+                <form action={deleteInvoiceAction.bind(null, invoice.id)} className="w-full">
+                  <FormSubmitButton
+                    variant="ghost"
+                    className="w-full justify-center text-sm text-red-600 dark:text-red-400"
+                  >
+                    Supprimer
+                  </FormSubmitButton>
+                  <input type="hidden" name="redirectTo" value={redirectBase} />
+                </form>
+              </div>
+            </div>
+          </article>
+        ))}
+        {invoices.items.length === 0 && (
+          <div className="rounded-2xl border border-dashed border-zinc-200 p-6 text-center text-sm text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
+            Aucune facture trouvée.
+          </div>
+        )}
       </div>
 
       {(invoices.hasMore || invoices.page > 1) && (

@@ -27,7 +27,7 @@ export function RegisterForm() {
   }, [addToast, hasFieldErrors, state?.message]);
 
   return (
-    <form action={formAction} className="space-y-4">
+    <form action={formAction} className="space-y-5">
       <div className="space-y-2">
         <label htmlFor="name" className="label">
           Nom complet

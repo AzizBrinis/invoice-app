@@ -412,7 +412,7 @@ export async function analyzeAndHandleSpam(options: {
     };
   }
 
-  let result =
+  const result =
     prefetched && prefetched.source
       ? {
           envelope: prefetched.envelope ?? null,

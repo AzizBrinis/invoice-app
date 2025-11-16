@@ -74,15 +74,15 @@ export function ProductForm({
   const target = redirectTo ?? "/produits";
 
   return (
-    <form action={formAction} className="card space-y-5 p-6">
+    <form action={formAction} className="card space-y-5 p-4 sm:p-6">
       <input type="hidden" name="redirectTo" value={target} />
       <input type="hidden" name="productId" value={defaultValues?.id ?? ""} />
       {formState.status === "error" && formState.message ? (
         <Alert variant="error" title={formState.message} />
       ) : null}
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        <div className="space-y-2">
+      <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
+        <div className="min-w-0 space-y-2">
           <label htmlFor="sku" className="label">
             SKU / Référence
           </label>
@@ -100,7 +100,7 @@ export function ProductForm({
             </p>
           ) : null}
         </div>
-        <div className="sm:col-span-2 space-y-2">
+        <div className="min-w-0 space-y-2 sm:col-span-2 md:col-span-2">
           <label htmlFor="name" className="label">
             Nom du produit ou service
           </label>
@@ -133,7 +133,7 @@ export function ProductForm({
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="space-y-2">
+        <div className="min-w-0 space-y-2">
           <label htmlFor="category" className="label">
             Catégorie
           </label>
@@ -143,7 +143,7 @@ export function ProductForm({
             defaultValue={defaultValues?.category ?? ""}
           />
         </div>
-        <div className="space-y-2">
+        <div className="min-w-0 space-y-2">
           <label htmlFor="unit" className="label">
             Unité
           </label>
@@ -160,7 +160,7 @@ export function ProductForm({
             </p>
           ) : null}
         </div>
-        <div className="space-y-2">
+        <div className="min-w-0 space-y-2">
           <label htmlFor="isActive" className="label">
             Statut
           </label>
@@ -174,7 +174,7 @@ export function ProductForm({
             <option value="false">Inactif</option>
           </select>
         </div>
-        <div className="space-y-2">
+        <div className="min-w-0 space-y-2">
           <label htmlFor="isListedInCatalog" className="label">
             Catalogue public
           </label>
@@ -192,11 +192,11 @@ export function ProductForm({
           <p className="text-xs text-zinc-500 dark:text-zinc-400">
             Masquez un produit si vous ne souhaitez pas l’afficher sur le site.
           </p>
-      </div>
+        </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        <div className="space-y-2">
+      <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
+        <div className="min-w-0 space-y-2">
           <label htmlFor="priceHT" className="label">
             {`Prix HT (${currencyCode})`}
           </label>
@@ -221,7 +221,7 @@ export function ProductForm({
             </p>
           ) : null}
         </div>
-        <div className="space-y-2">
+        <div className="min-w-0 space-y-2">
           <label htmlFor="vatRate" className="label">
             Taux de TVA (%)
           </label>
@@ -242,7 +242,7 @@ export function ProductForm({
             </p>
           ) : null}
         </div>
-        <div className="space-y-2">
+        <div className="min-w-0 space-y-2">
           <label htmlFor="defaultDiscountRate" className="label">
             Remise par défaut (%)
           </label>
@@ -270,8 +270,10 @@ export function ProductForm({
         </div>
       </div>
 
-      <div className="flex justify-end gap-3">
-        <FormSubmitButton>{submitLabel}</FormSubmitButton>
+      <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+        <FormSubmitButton className="w-full sm:w-auto">
+          {submitLabel}
+        </FormSubmitButton>
       </div>
     </form>
   );

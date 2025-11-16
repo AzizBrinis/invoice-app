@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { FormSubmitButton } from "@/components/ui/form-submit-button";
 import { Alert } from "@/components/ui/alert";
+import { clearClientCache } from "@/lib/client-directory-cache";
 
 const clientFormSchema = z.object({
   displayName: z
@@ -64,12 +65,17 @@ export function ClientForm({ action, submitLabel, defaultValues, redirectTo }: C
     }
     setFieldErrors({});
     setFormMessage(null);
+    clearClientCache();
   };
 
   const target = redirectTo ?? "/clients";
 
   return (
-    <form action={action} className="card space-y-5 p-6" onSubmit={handleSubmit}>
+    <form
+      action={action}
+      className="card w-full space-y-5 p-4 sm:p-6"
+      onSubmit={handleSubmit}
+    >
       <input type="hidden" name="redirectTo" value={target} />
       {formMessage ? <Alert variant="error" title={formMessage} /> : null}
       <div className="grid gap-4 sm:grid-cols-2">
@@ -181,8 +187,10 @@ export function ClientForm({ action, submitLabel, defaultValues, redirectTo }: C
         />
       </div>
 
-      <div className="flex justify-end gap-3">
-        <FormSubmitButton>{submitLabel}</FormSubmitButton>
+      <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+        <FormSubmitButton className="w-full sm:w-auto">
+          {submitLabel}
+        </FormSubmitButton>
       </div>
     </form>
   );

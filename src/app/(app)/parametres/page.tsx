@@ -54,7 +54,7 @@ async function ParametresPageContent() {
       </div>
 
       <form action={updateSettingsAction} className="space-y-6">
-        <section className="card space-y-4 p-6">
+        <section className="card space-y-4 p-4 sm:p-6">
           <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
             Société & identité
           </h2>
@@ -155,7 +155,7 @@ async function ParametresPageContent() {
                   PNG, JPG ou SVG — taille conseillée 400×200 px.
                 </p>
                 {hasUploadedLogo && (
-                  <label className="label flex items-center gap-2">
+                  <label className="label flex flex-wrap items-center gap-2">
                     <input type="checkbox" name="logoClear" className="checkbox" />
                     Supprimer le logo importé
                   </label>
@@ -184,7 +184,7 @@ async function ParametresPageContent() {
                   accept="image/png,image/jpeg,image/svg+xml"
                 />
                 {hasStampImage && (
-                  <label className="label flex items-center gap-2">
+                  <label className="label flex flex-wrap items-center gap-2">
                     <input type="checkbox" name="stampClear" className="checkbox" />
                     Supprimer le cachet
                   </label>
@@ -219,7 +219,7 @@ async function ParametresPageContent() {
                   accept="image/png,image/jpeg,image/svg+xml"
                 />
                 {hasSignatureImage && (
-                  <label className="label flex items-center gap-2">
+                  <label className="label flex flex-wrap items-center gap-2">
                     <input type="checkbox" name="signatureClear" className="checkbox" />
                     Supprimer la signature
                   </label>
@@ -247,11 +247,11 @@ async function ParametresPageContent() {
           </div>
         </section>
 
-        <section className="card space-y-4 p-6">
+        <section className="card space-y-4 p-4 sm:p-6">
           <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
             Fiscalité & devises
           </h2>
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <div className="space-y-2">
               <label htmlFor="defaultCurrency" className="label">
                 Devise par défaut
@@ -296,7 +296,7 @@ async function ParametresPageContent() {
           </div>
         </section>
 
-        <section className="card space-y-4 p-6">
+        <section className="card space-y-4 p-4 sm:p-6">
           <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
             Paramètres fiscaux (Tunisie)
           </h2>
@@ -337,7 +337,7 @@ async function ParametresPageContent() {
                   <option value="document">Sur le document</option>
                 </select>
               </div>
-              <label className="label flex items-center gap-2">
+              <label className="label flex flex-wrap items-center gap-2">
                 <input
                   type="checkbox"
                   name="tvaAllowExemption"
@@ -352,7 +352,7 @@ async function ParametresPageContent() {
               <h3 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
                 FODEC
               </h3>
-              <label className="label flex items-center gap-2">
+              <label className="label flex flex-wrap items-center gap-2">
                 <input
                   type="checkbox"
                   name="fodecEnabled"
@@ -361,7 +361,7 @@ async function ParametresPageContent() {
                 />
                 Activer la FODEC
               </label>
-              <label className="label flex items-center gap-2">
+              <label className="label flex flex-wrap items-center gap-2">
                 <input
                   type="checkbox"
                   name="fodecAutoApply"
@@ -418,7 +418,7 @@ async function ParametresPageContent() {
                 <h3 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
                   Timbre fiscal
                 </h3>
-                <label className="label flex items-center gap-2">
+                <label className="label flex flex-wrap items-center gap-2">
                   <input
                     type="checkbox"
                     name="timbreEnabled"
@@ -441,7 +441,7 @@ async function ParametresPageContent() {
                       defaultValue={fromCents(taxConfig.timbre.amountCents, settings.defaultCurrency)}
                     />
                   </div>
-                  <label className="label flex items-center gap-2">
+                  <label className="label flex flex-wrap items-center gap-2">
                     <input
                       type="checkbox"
                       name="timbreAutoApply"
@@ -460,7 +460,7 @@ async function ParametresPageContent() {
               <h3 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
                 Ordre de calcul
               </h3>
-              <div className="grid gap-2 sm:grid-cols-3">
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 {taxConfig.order.map((item, index) => (
                   <div key={index} className="space-y-1">
                     <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
@@ -516,11 +516,11 @@ async function ParametresPageContent() {
           </div>
         </section>
 
-        <section className="card space-y-4 p-6">
+        <section className="card space-y-4 p-4 sm:p-6">
           <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
             Numérotation
           </h2>
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <div className="space-y-2">
               <label htmlFor="quoteNumberPrefix" className="label">
                 Préfixe devis
@@ -541,7 +541,7 @@ async function ParametresPageContent() {
                 defaultValue={settings.invoiceNumberPrefix}
               />
             </div>
-            <div className="flex items-end gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <input
                 id="resetNumberingAnnually"
                 name="resetNumberingAnnually"
@@ -556,7 +556,7 @@ async function ParametresPageContent() {
           </div>
         </section>
 
-        <section className="card space-y-4 p-6">
+        <section className="card space-y-4 p-4 sm:p-6">
           <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
             Modèles PDF
           </h2>
@@ -649,8 +649,10 @@ async function ParametresPageContent() {
           </div>
         </section>
 
-        <div className="flex justify-end">
-          <FormSubmitButton>Enregistrer les paramètres</FormSubmitButton>
+        <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+          <FormSubmitButton className="w-full sm:w-auto">
+            Enregistrer les paramètres
+          </FormSubmitButton>
         </div>
       </form>
     </div>

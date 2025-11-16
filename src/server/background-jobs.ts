@@ -85,6 +85,7 @@ export async function enqueueJob(options: EnqueueJobOptions): Promise<EnqueueJob
 export async function processJobQueue(options: {
   handlers: BackgroundJobHandlers;
   maxJobs?: number;
+  allowedTypes?: readonly string[];
 }): Promise<ProcessJobQueueResult> {
   const handlers = options.handlers;
   const limit = Math.max(1, options.maxJobs ?? 20);
@@ -95,7 +96,7 @@ export async function processJobQueue(options: {
   let skipped = 0;
 
   for (let i = 0; i < limit; i++) {
-    const job = await leaseNextJob();
+    const job = await leaseNextJob(options.allowedTypes);
     if (!job) {
       break;
     }
@@ -208,13 +209,18 @@ export async function getJobMetrics() {
   };
 }
 
-async function leaseNextJob(): Promise<BackgroundJob | null> {
+async function leaseNextJob(
+  allowedTypes?: readonly string[],
+): Promise<BackgroundJob | null> {
   const now = new Date();
   for (let attempt = 0; attempt < MAX_LEASE_ATTEMPTS; attempt += 1) {
     const candidate = await prisma.backgroundJob.findFirst({
       where: {
         status: BackgroundJobStatus.PENDING,
         runAt: { lte: now },
+        ...(allowedTypes?.length
+          ? { type: { in: allowedTypes as string[] } }
+          : {}),
       },
       orderBy: [
         { priority: "desc" },

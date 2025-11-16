@@ -24,14 +24,17 @@ export default async function NouvelleFacturePage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">Nouvelle facture</h1>
           <p className="text-sm text-zinc-600 dark:text-zinc-300">
             Créez une facture avec numérotation automatique et conditions de paiement.
           </p>
         </div>
-        <Link href="/factures" className="text-sm font-medium text-blue-600 hover:underline dark:text-blue-400">
+        <Link
+          href="/factures"
+          className="text-sm font-medium text-blue-600 hover:underline dark:text-blue-400 md:text-right"
+        >
           Retour à la liste
         </Link>
       </div>

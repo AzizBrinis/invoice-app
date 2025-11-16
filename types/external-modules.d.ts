@@ -40,7 +40,6 @@ declare module "sanitize-html" {
 
   const sanitizeHtml: SanitizeHtmlStatic;
   export default sanitizeHtml;
-  export { IOptions };
 }
 
 declare module "mailparser" {

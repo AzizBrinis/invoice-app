@@ -1,14 +1,30 @@
 #!/usr/bin/env node
-"use strict";
 
-const { spawn } = require("node:child_process");
-const fs = require("node:fs");
-const path = require("node:path");
+import { spawn } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
 
 const TRUTHY = new Set(["1", "true", "yes", "on"]);
 const FALSY = new Set(["0", "false", "no", "off"]);
 
-function parseBoolean(value) {
+type RunResult = {
+  stdout: string;
+  stderr: string;
+  code: number;
+};
+
+class CommandError extends Error {
+  constructor(
+    message: string,
+    public readonly code: number,
+    public readonly stdout: string,
+    public readonly stderr: string,
+  ) {
+    super(message);
+  }
+}
+
+function parseBoolean(value: string | undefined | null) {
   if (!value) {
     return null;
   }
@@ -22,7 +38,7 @@ function parseBoolean(value) {
   return null;
 }
 
-function run(command, args) {
+function run(command: string, args: string[]): Promise<RunResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       env: process.env,
@@ -33,15 +49,19 @@ function run(command, args) {
     let stdout = "";
     let stderr = "";
 
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString();
-      process.stdout.write(chunk);
-    });
+    if (child.stdout) {
+      child.stdout.on("data", (chunk: Buffer) => {
+        stdout += chunk.toString();
+        process.stdout.write(chunk);
+      });
+    }
 
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
-      process.stderr.write(chunk);
-    });
+    if (child.stderr) {
+      child.stderr.on("data", (chunk: Buffer) => {
+        stderr += chunk.toString();
+        process.stderr.write(chunk);
+      });
+    }
 
     child.on("close", (code) => {
       if (code === 0) {
@@ -49,11 +69,14 @@ function run(command, args) {
         return;
       }
 
-      const error = new Error(`Command "${command} ${args.join(" ")}" exited with code ${code}`);
-      error.code = code;
-      error.stdout = stdout;
-      error.stderr = stderr;
-      reject(error);
+      reject(
+        new CommandError(
+          `Command "${command} ${args.join(" ")}" exited with code ${code}`,
+          code ?? 1,
+          stdout,
+          stderr,
+        ),
+      );
     });
   });
 }
@@ -80,7 +103,10 @@ function loadLocalEnvIfNeeded() {
     }
 
     const trimmedKey = key.trim();
-    if (trimmedKey.length === 0 || Object.prototype.hasOwnProperty.call(process.env, trimmedKey)) {
+    if (
+      trimmedKey.length === 0 ||
+      Object.prototype.hasOwnProperty.call(process.env, trimmedKey)
+    ) {
       continue;
     }
 
@@ -89,7 +115,7 @@ function loadLocalEnvIfNeeded() {
   }
 }
 
-function stripWrappingQuotes(value) {
+function stripWrappingQuotes(value: string) {
   if (!value) {
     return "";
   }
@@ -111,7 +137,9 @@ function shouldSkipMigrations() {
     return true;
   }
 
-  const explicitForce = parseBoolean(process.env.FORCE_PRISMA_MIGRATE_ON_BUILD);
+  const explicitForce = parseBoolean(
+    process.env.FORCE_PRISMA_MIGRATE_ON_BUILD,
+  );
   if (explicitForce === true) {
     return false;
   }
@@ -119,8 +147,12 @@ function shouldSkipMigrations() {
   return false;
 }
 
-function canIgnoreMigrationError(error) {
-  const output = `${error.stdout ?? ""}\n${error.stderr ?? ""}`;
+function canIgnoreMigrationError(error: unknown) {
+  if (!(error instanceof CommandError)) {
+    return false;
+  }
+
+  const output = `${error.stdout}\n${error.stderr}`;
   return /P1001/.test(output) || /Can't reach database server/i.test(output);
 }
 
@@ -130,7 +162,9 @@ async function main() {
   await run("prisma", ["generate"]);
 
   if (shouldSkipMigrations()) {
-    console.log("Skipping Prisma migrations (SKIP_PRISMA_MIGRATE_ON_BUILD is enabled).");
+    console.log(
+      "Skipping Prisma migrations (SKIP_PRISMA_MIGRATE_ON_BUILD is enabled).",
+    );
   } else {
     try {
       await run("prisma", ["migrate", "deploy"]);
@@ -144,9 +178,15 @@ async function main() {
       }
 
       console.warn("");
-      console.warn("⚠️  Prisma migrations were skipped because the database is unreachable.");
-      console.warn("   → Run `npm run prisma:deploy` from a machine that can reach the database");
-      console.warn("     (local VPN, GitHub Action, Supabase SQL editor, etc.) before deploying.");
+      console.warn(
+        "⚠️  Prisma migrations were skipped because the database is unreachable.",
+      );
+      console.warn(
+        "   → Run `npm run prisma:deploy` from a machine that can reach the database",
+      );
+      console.warn(
+        "     (local VPN, GitHub Action, Supabase SQL editor, etc.) before deploying.",
+      );
       console.warn("");
     }
   }
@@ -155,6 +195,10 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(error);
-  process.exitCode = typeof error.code === "number" ? error.code : 1;
+  if (error instanceof Error) {
+    console.error(error);
+  } else {
+    console.error(String(error));
+  }
+  process.exitCode = error instanceof CommandError ? error.code : 1;
 });

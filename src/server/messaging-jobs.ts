@@ -3,6 +3,7 @@ import { enqueueJob, processJobQueue } from "@/server/background-jobs";
 import { prisma } from "@/lib/prisma";
 import { runScheduledEmailDispatchCycle } from "@/server/messaging-scheduled";
 import { runAutomatedReplySweepForUser } from "@/server/messaging";
+import { documentEmailJobHandlers } from "@/server/document-email-jobs";
 
 const DISPATCH_JOB_TYPE = "messaging.dispatchScheduledEmails";
 const AUTO_REPLY_JOB_TYPE = "messaging.syncInboxAutoReplies";
@@ -11,6 +12,7 @@ const AUTO_REPLY_INTERVAL_MS = 60 * 1000;
 const AUTO_REPLY_RETRY_BACKOFF_MS = 2 * 60 * 1000;
 
 const messagingJobHandlers: BackgroundJobHandlers = {
+  ...documentEmailJobHandlers,
   [DISPATCH_JOB_TYPE]: async () => {
     await runScheduledEmailDispatchCycle();
   },
