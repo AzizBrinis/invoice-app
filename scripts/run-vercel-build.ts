@@ -153,7 +153,10 @@ function canIgnoreMigrationError(error: unknown) {
   }
 
   const output = `${error.stdout}\n${error.stderr}`;
-  return /P1001/.test(output) || /Can't reach database server/i.test(output);
+  const unreachable =
+    /P1001/.test(output) || /Can't reach database server/i.test(output);
+  const failedMigrations = /P3009/.test(output);
+  return unreachable || failedMigrations;
 }
 
 async function main() {
@@ -178,15 +181,31 @@ async function main() {
       }
 
       console.warn("");
-      console.warn(
-        "⚠️  Prisma migrations were skipped because the database is unreachable.",
+      const output = String(
+        error instanceof CommandError ? error.stderr || error.stdout : error,
       );
-      console.warn(
-        "   → Run `npm run prisma:deploy` from a machine that can reach the database",
-      );
-      console.warn(
-        "     (local VPN, GitHub Action, Supabase SQL editor, etc.) before deploying.",
-      );
+      const failedMigrations = /P3009/.test(output);
+      if (failedMigrations) {
+        console.warn(
+          "⚠️  Prisma migrations were skipped because the database has a failed migration state (P3009).",
+        );
+        console.warn(
+          "   → Fix the migration history, then rerun `npm run prisma:deploy` from a machine that can reach the database.",
+        );
+        console.warn(
+          "     See https://pris.ly/d/migrate-resolve for resolving failed migrations.",
+        );
+      } else {
+        console.warn(
+          "⚠️  Prisma migrations were skipped because the database is unreachable.",
+        );
+        console.warn(
+          "   → Run `npm run prisma:deploy` from a machine that can reach the database",
+        );
+        console.warn(
+          "     (local VPN, GitHub Action, Supabase SQL editor, etc.) before deploying.",
+        );
+      }
       console.warn("");
     }
   }
