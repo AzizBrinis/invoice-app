@@ -22,27 +22,17 @@ export const dynamic = "force-dynamic";
 
 type PageParams = { id: string };
 type SearchParams = Record<string, string | string[] | undefined>;
-
-function isPromise<T>(value: unknown): value is Promise<T> {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "then" in value &&
-    typeof (value as { then?: unknown }).then === "function"
-  );
-}
+type EditDevisPageProps = {
+  params: Promise<PageParams>;
+  searchParams?: Promise<SearchParams>;
+};
 
 export default async function EditDevisPage({
   params,
   searchParams,
-}: {
-  params: PageParams | Promise<PageParams>;
-  searchParams: SearchParams | Promise<SearchParams>;
-}) {
-  const resolvedParams = isPromise<PageParams>(params) ? await params : params;
-  const resolvedSearchParams = isPromise<SearchParams>(searchParams)
-    ? await searchParams
-    : searchParams;
+}: EditDevisPageProps) {
+  const resolvedParams = await params;
+  const resolvedSearchParams: SearchParams = (await searchParams) ?? {};
 
   const user = await requireUser();
   const quote = await getQuote(resolvedParams.id, user.id);

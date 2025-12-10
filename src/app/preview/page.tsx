@@ -12,15 +12,15 @@ export const metadata: Metadata = {
 };
 
 type PreviewSearchParams = Record<string, string | string[] | undefined>;
+type PreviewPageProps = { searchParams?: Promise<PreviewSearchParams> };
 
 export default async function PreviewPage({
   searchParams,
-}: {
-  searchParams?: PreviewSearchParams;
-}) {
+}: PreviewPageProps) {
   const user = await requireUser();
   const website = await getWebsiteConfig(user.id);
-  const pathParam = searchParams?.path;
+  const resolvedSearchParams: PreviewSearchParams = (await searchParams) ?? {};
+  const pathParam = resolvedSearchParams.path;
   const path = Array.isArray(pathParam) ? pathParam[0] : pathParam;
   const payload = await getCatalogPayloadBySlug(website.slug, {
     preview: true,

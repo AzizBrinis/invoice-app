@@ -8,7 +8,7 @@ import { FlashMessages } from "@/components/ui/flash-messages";
 type SearchParams = Record<string, string | string[] | undefined>;
 
 type PageProps = {
-  searchParams: Promise<SearchParams> | SearchParams;
+  searchParams?: Promise<SearchParams>;
 };
 
 export default async function InscriptionPage({ searchParams }: PageProps) {
@@ -17,10 +17,7 @@ export default async function InscriptionPage({ searchParams }: PageProps) {
     redirect("/tableau-de-bord");
   }
 
-  const resolvedParams =
-    typeof (searchParams as Promise<SearchParams>)?.then === "function"
-      ? await (searchParams as Promise<SearchParams>)
-      : (searchParams as SearchParams);
+  const resolvedParams: SearchParams = (await searchParams) ?? {};
 
   const messageParam = Array.isArray(resolvedParams?.message)
     ? resolvedParams.message[0]

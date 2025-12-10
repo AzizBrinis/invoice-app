@@ -29,21 +29,11 @@ function parseBooleanFilter(value: string | undefined): boolean | "all" {
 }
 
 type SearchParams = Record<string, string | string[] | undefined>;
-
-function isPromise<T>(value: unknown): value is Promise<T> {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "then" in value &&
-    typeof (value as { then?: unknown }).then === "function"
-  );
-}
+type ProduitsPageProps = { searchParams?: Promise<SearchParams> };
 
 export default async function ProduitsPage({
   searchParams,
-}: {
-  searchParams: SearchParams | Promise<SearchParams>;
-}) {
+}: ProduitsPageProps) {
   return (
     <Suspense fallback={<ProductsPageSkeleton />}>
       <ProduitsPageContent searchParams={searchParams} />
@@ -53,12 +43,8 @@ export default async function ProduitsPage({
 
 async function ProduitsPageContent({
   searchParams,
-}: {
-  searchParams: SearchParams | Promise<SearchParams>;
-}) {
-  const resolvedSearchParams = isPromise<SearchParams>(searchParams)
-    ? await searchParams
-    : searchParams;
+}: ProduitsPageProps) {
+  const resolvedSearchParams: SearchParams = (await searchParams) ?? {};
 
   const search = Array.isArray(resolvedSearchParams?.recherche)
     ? resolvedSearchParams.recherche[0]

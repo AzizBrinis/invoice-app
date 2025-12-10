@@ -43,27 +43,17 @@ const STATUS_VARIANTS: Record<InvoiceStatus, "info" | "success" | "danger" | "ne
 
 type PageParams = { id: string };
 type SearchParams = Record<string, string | string[] | undefined>;
-
-function isPromise<T>(value: unknown): value is Promise<T> {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "then" in value &&
-    typeof (value as { then?: unknown }).then === "function"
-  );
-}
+type FactureDetailPageProps = {
+  params: Promise<PageParams>;
+  searchParams?: Promise<SearchParams>;
+};
 
 export default async function FactureDetailPage({
   params,
   searchParams,
-}: {
-  params: PageParams | Promise<PageParams>;
-  searchParams: SearchParams | Promise<SearchParams>;
-}) {
-  const resolvedParams = isPromise<PageParams>(params) ? await params : params;
-  const resolvedSearchParams = isPromise<SearchParams>(searchParams)
-    ? await searchParams
-    : searchParams;
+}: FactureDetailPageProps) {
+  const resolvedParams = await params;
+  const resolvedSearchParams: SearchParams = (await searchParams) ?? {};
 
   const invoice = await getInvoice(resolvedParams.id);
   if (!invoice) {

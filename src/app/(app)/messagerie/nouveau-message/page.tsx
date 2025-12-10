@@ -16,11 +16,8 @@ import { getSettings } from "@/server/settings";
 
 export const dynamic = "force-dynamic";
 
-type NouveauMessagePageProps = {
-  searchParams?:
-    | Record<string, string | string[] | undefined>
-    | Promise<Record<string, string | string[] | undefined>>;
-};
+type SearchParams = Record<string, string | string[] | undefined>;
+type NouveauMessagePageProps = { searchParams?: Promise<SearchParams> };
 
 type ComposeInitialDraft = {
   to?: RecipientDraft[];
@@ -265,10 +262,7 @@ export default async function NouveauMessagePage({
   const summary = await getMessagingSettingsSummary();
   const companySettings = await getSettings();
 
-  const resolvedSearchParams =
-    searchParams && typeof (searchParams as Promise<unknown>).then === "function"
-      ? await (searchParams as Promise<Record<string, string | string[] | undefined>>)
-      : ((searchParams ?? {}) as Record<string, string | string[] | undefined>);
+  const resolvedSearchParams: SearchParams = (await searchParams) ?? {};
 
   const modeParam =
     typeof resolvedSearchParams.mode === "string"

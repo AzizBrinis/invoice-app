@@ -9,22 +9,12 @@ import type { CurrencyCode } from "@/lib/currency";
 export const dynamic = "force-dynamic";
 
 type PageParams = { id: string };
-
-function isPromise<T>(value: unknown): value is Promise<T> {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "then" in value &&
-    typeof (value as { then?: unknown }).then === "function"
-  );
-}
+type EditProduitPageProps = { params: Promise<PageParams> };
 
 export default async function EditProduitPage({
   params,
-}: {
-  params: PageParams | Promise<PageParams>;
-}) {
-  const resolvedParams = isPromise<PageParams>(params) ? await params : params;
+}: EditProduitPageProps) {
+  const resolvedParams = await params;
   const user = await requireUser();
   const [product, settings] = await Promise.all([
     prisma.product.findFirst({

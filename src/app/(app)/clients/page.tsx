@@ -10,24 +10,12 @@ import { ClientDirectoryPanel } from "./client-directory-panel";
 export const dynamic = "force-dynamic";
 
 type SearchParams = Record<string, string | string[] | undefined>;
-
-function isPromise<T>(value: unknown): value is Promise<T> {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "then" in value &&
-    typeof (value as { then?: unknown }).then === "function"
-  );
-}
+type ClientsPageProps = { searchParams?: Promise<SearchParams> };
 
 export default async function ClientsPage({
   searchParams,
-}: {
-  searchParams: SearchParams | Promise<SearchParams>;
-}) {
-  const resolvedSearchParams = isPromise<SearchParams>(searchParams)
-    ? await searchParams
-    : searchParams;
+}: ClientsPageProps) {
+  const resolvedSearchParams: SearchParams = (await searchParams) ?? {};
 
   const search = Array.isArray(resolvedSearchParams?.recherche)
     ? resolvedSearchParams.recherche[0]

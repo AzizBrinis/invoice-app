@@ -52,15 +52,7 @@ const SORT_OPTIONS: Array<{ value: QuoteSort; label: string }> = [
 const SORT_VALUES = SORT_OPTIONS.map((option) => option.value);
 
 type SearchParams = Record<string, string | string[] | undefined>;
-
-function isPromise<T>(value: unknown): value is Promise<T> {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "then" in value &&
-    typeof (value as { then?: unknown }).then === "function"
-  );
-}
+type DevisPageProps = { searchParams?: Promise<SearchParams> };
 
 function isQuoteStatus(value: string): value is QuoteStatus {
   return (QUOTE_STATUS_VALUES as readonly string[]).includes(value);
@@ -101,9 +93,7 @@ function parseDateInput(value: string | undefined) {
 
 export default function DevisPage({
   searchParams,
-}: {
-  searchParams: SearchParams | Promise<SearchParams>;
-}) {
+}: DevisPageProps) {
   return (
     <Suspense fallback={<QuotesPageSkeleton />}>
       <DevisPageContent searchParams={searchParams} />
@@ -113,13 +103,9 @@ export default function DevisPage({
 
 async function DevisPageContent({
   searchParams,
-}: {
-  searchParams: SearchParams | Promise<SearchParams>;
-}) {
+}: DevisPageProps) {
   const user = await requireUser();
-  const resolvedSearchParams = isPromise<SearchParams>(searchParams)
-    ? await searchParams
-    : searchParams;
+  const resolvedSearchParams: SearchParams = (await searchParams) ?? {};
 
   const search = Array.isArray(resolvedSearchParams?.recherche)
     ? resolvedSearchParams.recherche[0]

@@ -11,6 +11,7 @@ type RouteParams = {
   uid?: string;
   attachmentId?: string;
 };
+type RouteContext = { params: Promise<RouteParams> };
 
 function isSupportedMailbox(value: string | undefined): value is Mailbox {
   return !!value && SUPPORTED_MAILBOXES.has(value as Mailbox);
@@ -25,30 +26,16 @@ function toAsciiSafeValue(value: string): string {
   return ascii.replace(/[^\x20-\x7E]/g, "?");
 }
 
-async function resolveParams(
-  input: RouteParams | Promise<RouteParams> | undefined,
-): Promise<RouteParams> {
-  if (!input) {
-    return {};
-  }
-  if (typeof (input as Promise<RouteParams>).then === "function") {
-    return await (input as Promise<RouteParams>);
-  }
-  return input as RouteParams;
-}
-
 export async function GET(
   request: Request,
-  context:
-    | { params: RouteParams | Promise<RouteParams> }
-    | Promise<{ params: RouteParams | Promise<RouteParams> }>,
+  context: RouteContext,
 ) {
-  const resolvedContext =
-    typeof (context as Promise<{ params: RouteParams }>).then === "function"
-      ? await (context as Promise<{ params: RouteParams | Promise<RouteParams> }>)
-      : (context as { params: RouteParams | Promise<RouteParams> });
-
-  const params = await resolveParams(resolvedContext?.params);
+  let params: RouteParams = {};
+  try {
+    params = (await context.params) ?? {};
+  } catch (error) {
+    console.warn("[attachments] unable to resolve params", error);
+  }
   const { mailbox, uid, attachmentId } = params;
   if (!isSupportedMailbox(mailbox)) {
     return NextResponse.json(

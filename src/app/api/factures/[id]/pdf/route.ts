@@ -3,19 +3,11 @@ import { generateInvoicePdf } from "@/server/pdf";
 import { getCurrentUser } from "@/lib/auth";
 
 type PageParams = { id: string };
-
-function isPromise<T>(value: unknown): value is Promise<T> {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "then" in value &&
-    typeof (value as { then?: unknown }).then === "function"
-  );
-}
+type RouteContext = { params: Promise<PageParams> };
 
 export async function GET(
   _request: Request,
-  { params }: { params: PageParams | Promise<PageParams> },
+  { params }: RouteContext,
 ) {
   const user = await getCurrentUser();
   if (!user) {
@@ -25,7 +17,7 @@ export async function GET(
     );
   }
 
-  const resolvedParams = isPromise<PageParams>(params) ? await params : params;
+  const resolvedParams = await params;
   try {
     const buffer = await generateInvoicePdf(resolvedParams.id);
     return new NextResponse(buffer, {

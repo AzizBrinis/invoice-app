@@ -19,6 +19,8 @@ type VariantPayload = {
   contentType: string;
 };
 
+type RouteParams = { token: string };
+
 const VARIANT_PAYLOADS: Record<string, VariantPayload> = {
   img: { body: TRANSPARENT_PIXEL, contentType: "image/png" },
   fallback: { body: TRANSPARENT_PIXEL, contentType: "image/png" },
@@ -75,12 +77,12 @@ async function resolveViewerContext(request: NextRequest): Promise<{
 
 export async function GET(
   request: NextRequest,
-  context: { params: { token: string } | Promise<{ token: string }> },
+  context: { params: Promise<RouteParams> },
 ) {
   let rawToken: string | null = null;
   try {
-    const params = await Promise.resolve(context.params);
-    rawToken = params?.token ?? null;
+    const params = await context.params;
+    rawToken = params.token ?? null;
   } catch (error) {
     console.warn("[email-tracking] unable to resolve token params", error);
   }
@@ -126,12 +128,12 @@ export async function GET(
 
 export async function HEAD(
   request: NextRequest,
-  context: { params: { token: string } | Promise<{ token: string }> },
+  context: { params: Promise<RouteParams> },
 ) {
   let rawToken: string | null = null;
   try {
-    const params = await Promise.resolve(context.params);
-    rawToken = params?.token ?? null;
+    const params = await context.params;
+    rawToken = params.token ?? null;
   } catch (error) {
     console.warn("[email-tracking] unable to resolve token params (HEAD)", error);
   }

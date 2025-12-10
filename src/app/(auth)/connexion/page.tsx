@@ -4,21 +4,17 @@ import { getCurrentUser } from "@/lib/auth";
 import { LoginForm } from "./login-form";
 
 type SearchParams = Record<string, string | string[] | undefined>;
+type ConnexionPageProps = { searchParams?: Promise<SearchParams> };
 
 export default async function ConnexionPage({
   searchParams,
-}: {
-  searchParams: Promise<SearchParams> | SearchParams;
-}) {
+}: ConnexionPageProps) {
   const user = await getCurrentUser();
   if (user) {
     redirect("/tableau-de-bord");
   }
 
-  const resolvedParams =
-    typeof (searchParams as Promise<SearchParams>)?.then === "function"
-      ? await (searchParams as Promise<SearchParams>)
-      : (searchParams as SearchParams);
+  const resolvedParams: SearchParams = (await searchParams) ?? {};
 
   const redirectParam = resolvedParams?.redirect;
   const redirectToParam = Array.isArray(redirectParam)

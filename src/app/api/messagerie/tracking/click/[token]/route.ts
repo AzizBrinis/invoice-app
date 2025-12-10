@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { recordClickEvent } from "@/server/email-tracking";
+type RouteParams = { token: string };
 
 function sanitizeToken(raw: string | string[] | undefined): string | null {
   if (!raw || Array.isArray(raw)) {
@@ -13,12 +14,12 @@ export const dynamic = "force-dynamic";
 
 export async function GET(
   request: NextRequest,
-  context: { params: { token: string } | Promise<{ token: string }> },
+  context: { params: Promise<RouteParams> },
 ) {
   let rawToken: string | null = null;
   try {
-    const params = await Promise.resolve(context.params);
-    rawToken = params?.token ?? null;
+    const params = await context.params;
+    rawToken = params.token ?? null;
   } catch (error) {
     console.warn("[email-tracking] unable to resolve click token params", error);
   }
