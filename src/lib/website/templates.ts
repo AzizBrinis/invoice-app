@@ -1,4 +1,7 @@
-export const WEBSITE_TEMPLATE_KEY_VALUES = ["dev-agency"] as const;
+export const WEBSITE_TEMPLATE_KEY_VALUES = [
+  "dev-agency",
+  "ecommerce-luxe",
+] as const;
 
 export type WebsiteTemplateKey =
   (typeof WEBSITE_TEMPLATE_KEY_VALUES)[number];
@@ -13,6 +16,12 @@ export const WEBSITE_TEMPLATES: ReadonlyArray<{
     label: "Dev Agency",
     description:
       "Mise en page moderne pour agences web, SSII et studios de développement.",
+  },
+  {
+    key: "ecommerce-luxe",
+    label: "E-commerce Luxe",
+    description:
+      "Template boutique premium : pages produits, catégories, panier et paiement, prêt à personnaliser.",
   },
 ] as const;
 

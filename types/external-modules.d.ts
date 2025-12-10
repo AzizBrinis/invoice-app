@@ -55,6 +55,7 @@ declare module "mailparser" {
       | Uint8Array
       | string
       | Readable
+      | Iterable<Buffer | Uint8Array | string>
       | AsyncIterable<Buffer | Uint8Array | string>
       | null;
   }

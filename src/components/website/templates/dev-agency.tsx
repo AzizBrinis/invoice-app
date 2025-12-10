@@ -64,6 +64,11 @@ const cornerMap = {
 
 const friendlySectionLabels: Partial<Record<WebsiteBuilderSection["type"], string>> = {
   hero: "Accueil",
+  categories: "Catégories",
+  products: "Produits",
+  promo: "Offres",
+  newsletter: "Newsletter",
+  content: "Contenu",
   services: "Services",
   about: "Studio",
   contact: "Contact",
@@ -756,9 +761,8 @@ function ContactSection({ section, context }: { section: WebsiteBuilderSection; 
   );
 }
 
-const SECTION_COMPONENTS: Record<
-  WebsiteBuilderSection["type"],
-  (props: { section: WebsiteBuilderSection; context: SectionContext }) => ReactElement | null
+const SECTION_COMPONENTS: Partial<
+  Record<WebsiteBuilderSection["type"], (props: { section: WebsiteBuilderSection; context: SectionContext }) => ReactElement | null>
 > = {
   hero: HeroSection,
   services: ServicesSection,

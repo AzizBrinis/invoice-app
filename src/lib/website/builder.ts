@@ -4,6 +4,11 @@ import { WEBSITE_MEDIA_PLACEHOLDERS } from "@/lib/website/placeholders";
 
 export const BUILDER_SECTION_TYPES = [
   "hero",
+  "categories",
+  "products",
+  "promo",
+  "newsletter",
+  "content",
   "services",
   "about",
   "contact",
@@ -197,6 +202,11 @@ function createPlaceholderMediaAsset(
 
 export const BUILDER_SECTION_LAYOUTS: Record<BuilderSectionType, string[]> = {
   hero: ["split", "center", "image-right"],
+  categories: ["grid", "cards", "carousel"],
+  products: ["grid", "list", "carousel"],
+  promo: ["banner", "split"],
+  newsletter: ["split", "center"],
+  content: ["stack", "split"],
   services: ["grid", "list", "stack"],
   about: ["split", "stack"],
   contact: ["split", "card"],
@@ -640,6 +650,85 @@ export function createSectionTemplate(
             label: "CTA principal",
             href: "#contact",
             style: "primary",
+          },
+        ],
+      };
+    case "categories":
+      return {
+        ...base,
+        title: "Catégories",
+        subtitle: "Présentez 3 à 6 catégories clés.",
+        layout: "grid",
+        items: [
+          {
+            id: generateId("category"),
+            title: "Catégorie 1",
+            description: "Courte description ou USP.",
+            tag: "Nouveau",
+            stats: [],
+          },
+        ],
+      };
+    case "products":
+      return {
+        ...base,
+        title: "Produits en vedette",
+        subtitle: "Mettez en avant vos best-sellers.",
+        layout: "grid",
+        items: [
+          {
+            id: generateId("product"),
+            title: "Produit 1",
+            description: "Description rapide du produit.",
+            price: "99 €",
+            tag: "Populaire",
+            badge: "Nouveau",
+            stats: [],
+          },
+        ],
+      };
+    case "promo":
+      return {
+        ...base,
+        title: "Offres",
+        subtitle: "Mettez en avant vos promotions.",
+        layout: "banner",
+        items: [
+          {
+            id: generateId("promo"),
+            title: "Livraison offerte",
+            description: "Dès 99 € d’achats.",
+            stats: [],
+          },
+        ],
+      };
+    case "newsletter":
+      return {
+        ...base,
+        title: "Newsletter",
+        subtitle: "Ajoutez un formulaire pour capter des emails.",
+        layout: "split",
+        buttons: [
+          {
+            id: generateId("btn"),
+            label: "S’abonner",
+            href: "#newsletter",
+            style: "primary",
+          },
+        ],
+      };
+    case "content":
+      return {
+        ...base,
+        title: "Bloc éditorial",
+        subtitle: "Racontez votre histoire, votre manifeste.",
+        layout: "stack",
+        items: [
+          {
+            id: generateId("content"),
+            title: "Titre de paragraphe",
+            description: "Ajoutez du texte riche pour détailler votre offre.",
+            stats: [],
           },
         ],
       };

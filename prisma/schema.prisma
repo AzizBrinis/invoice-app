@@ -37,6 +37,11 @@ model User {
   scheduledEmails MessagingScheduledEmail[]
   messagingInboxSyncState MessagingInboxSyncState?
   websiteConfig WebsiteConfig?
+  aiConversations AIConversation[]
+  aiMessages      AIMessage[]
+  aiAuditLogs     AIAuditLog[]
+  aiUsageStats    AIUsageStat[]
+  aiPendingToolCalls AIPendingToolCall[]
 }
 
 enum UserRole {
@@ -759,4 +764,106 @@ enum EmailStatus {
   EN_ATTENTE
   ENVOYE
   ECHEC
+}
+
+enum AIConversationStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum AIMessageRole {
+  SYSTEM
+  USER
+  ASSISTANT
+  TOOL
+}
+
+enum AIAuditStatus {
+  SUCCESS
+  ERROR
+}
+
+model AIConversation {
+  id             String               @id @default(cuid())
+  userId         String
+  user           User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title          String               @default("Nouvelle conversation")
+  status         AIConversationStatus @default(ACTIVE)
+  lastActivityAt DateTime             @default(now())
+  archivedAt     DateTime?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  messages       AIMessage[]
+  auditLogs      AIAuditLog[]
+  pendingToolCalls AIPendingToolCall[]
+
+  @@index([userId, status, lastActivityAt(sort: Desc)], map: "AIConversation_user_status_lastActivity_idx")
+}
+
+model AIMessage {
+  id              String        @id @default(cuid())
+  conversationId  String
+  conversation    AIConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role            AIMessageRole
+  content         Json
+  toolName        String?
+  toolCallId      String?
+  attachments     Json?
+  metadata        Json?
+  tokenCount      Int?
+  createdAt       DateTime      @default(now())
+
+  @@index([conversationId, createdAt])
+  @@index([userId, role, createdAt])
+}
+
+model AIAuditLog {
+  id             String        @id @default(cuid())
+  userId         String
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversationId String?
+  conversation   AIConversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  toolName       String
+  actionLabel    String
+  payload        Json?
+  result         Json?
+  status         AIAuditStatus @default(SUCCESS)
+  errorMessage   String?
+  createdAt      DateTime      @default(now())
+
+  @@index([userId, createdAt])
+  @@index([conversationId])
+}
+
+model AIUsageStat {
+  id                  String   @id @default(cuid())
+  userId              String
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  periodKey           String
+  messageCount        Int      @default(0)
+  toolInvocationCount Int      @default(0)
+  tokenCount          Int      @default(0)
+  updatedAt           DateTime @updatedAt
+  createdAt           DateTime @default(now())
+
+  @@unique([userId, periodKey])
+  @@index([periodKey])
+}
+
+model AIPendingToolCall {
+  id             String        @id @default(cuid())
+  userId         String
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversationId String
+  conversation   AIConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  toolName       String
+  arguments      Json
+  summary        String
+  createdAt      DateTime      @default(now())
+  expiresAt      DateTime
+
+  @@index([userId, createdAt])
+  @@index([conversationId])
 }

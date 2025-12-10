@@ -6,7 +6,7 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { DevAgencyTemplate } from "@/components/website/templates/dev-agency";
+import { CatalogPage } from "@/components/website/catalog-page";
 import NextImage from "next/image";
 import type { CatalogPayload } from "@/server/website";
 import type {
@@ -65,6 +65,30 @@ const SECTION_MEDIA_FIELDS: Partial<Record<WebsiteBuilderSection["type"], Sectio
       placeholder: WEBSITE_MEDIA_PLACEHOLDERS.hero,
     },
   ],
+  categories: [
+    {
+      key: "mediaId",
+      label: "Illustration de catégorie",
+      description: "Image affichée sur la carte.",
+      placeholder: WEBSITE_MEDIA_PLACEHOLDERS.categories[0],
+    },
+  ],
+  products: [
+    {
+      key: "mediaId",
+      label: "Visuel produit",
+      description: "Image principale de la carte produit.",
+      placeholder: WEBSITE_MEDIA_PLACEHOLDERS.products[0],
+    },
+  ],
+  promo: [
+    {
+      key: "mediaId",
+      label: "Visuel promotionnel",
+      description: "Image ou texture pour le bandeau promo.",
+      placeholder: WEBSITE_MEDIA_PLACEHOLDERS.promos[0],
+    },
+  ],
   about: [
     {
       key: "mediaId",
@@ -77,6 +101,9 @@ const SECTION_MEDIA_FIELDS: Partial<Record<WebsiteBuilderSection["type"], Sectio
 
 const SECTION_ITEM_PLACEHOLDERS: Partial<Record<WebsiteBuilderSection["type"], readonly string[]>> = {
   gallery: WEBSITE_MEDIA_PLACEHOLDERS.gallery,
+  categories: WEBSITE_MEDIA_PLACEHOLDERS.categories,
+  products: WEBSITE_MEDIA_PLACEHOLDERS.products,
+  promo: WEBSITE_MEDIA_PLACEHOLDERS.promos,
   team: WEBSITE_MEDIA_PLACEHOLDERS.team,
   logos: WEBSITE_MEDIA_PLACEHOLDERS.logos,
 };
@@ -1249,7 +1276,7 @@ export function AdvancedCustomizationClient({
                   )}
                   style={{ maxHeight: "75vh" }}
                 >
-                  <DevAgencyTemplate data={previewPayload} mode="preview" path={null} />
+                  <CatalogPage data={previewPayload} mode="preview" path={null} />
                 </div>
               </div>
             </div>
@@ -1285,6 +1312,11 @@ export function AdvancedCustomizationClient({
 
 const friendlySectionLabels: Record<string, string> = {
   hero: "Héros",
+  categories: "Catégories",
+  products: "Produits",
+  promo: "Promotion",
+  newsletter: "Newsletter",
+  content: "Bloc éditorial",
   services: "Services",
   about: "À propos",
   contact: "Contact",

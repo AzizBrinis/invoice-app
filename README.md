@@ -19,6 +19,41 @@
 Consultez `DEPLOY.md` pour les instructions de mise en production sur Vercel.
 Le build déclenché par Vercel (`npm run vercel-build`) s’appuie sur `scripts/run-vercel-build.cjs`, qui exécute `prisma generate`, tente `prisma migrate deploy` puis `next build`, en sautant automatiquement l’étape migration si la base est momentanément injoignable (voir le détail dans `DEPLOY.md`).
 
+### Base PostgreSQL locale via Docker
+
+Si vous n’avez pas accès au cluster Supabase (ou que le réseau est bloqué), vous pouvez utiliser la pile Docker fournie (`docker-compose.dev.yml`) pour lancer PostgreSQL + Mailpit en local :
+
+1. Démarrez les services :
+   ```bash
+   npm run dev:stack:up
+   ```
+   - Postgres écoute sur `localhost:6543`.
+   - Mailpit écoute sur `localhost:1025` (SMTP) et expose son interface web sur `http://localhost:8025`.
+2. Copiez `.env.example` vers `.env` (ou `.env.local`) et remplacez les URLs par celles du Postgres local :
+   ```env
+   DATABASE_URL="postgresql://postgres:postgres@localhost:6543/invoices?sslmode=disable"
+   DIRECT_URL="postgresql://postgres:postgres@localhost:6543/invoices?sslmode=disable"
+   SHADOW_DATABASE_URL="postgresql://postgres:postgres@localhost:6543/postgres?schema=shadow&sslmode=disable"
+   TEST_DATABASE_URL="postgresql://postgres:postgres@localhost:6543/invoices_test?sslmode=disable"
+   SMTP_HOST="localhost"
+   SMTP_PORT="1025"
+   SMTP_SECURE="false"
+   ```
+   Créez la base de tests une fois pour toutes :
+   ```bash
+   docker compose -f docker-compose.dev.yml exec postgres psql -U postgres -c "CREATE DATABASE invoices_test;"
+   ```
+3. Appliquez les migrations (et créez la base shadow utilisée par Prisma au passage) :
+   ```bash
+   npm run prisma:migrate
+   ```
+4. (Optionnel) Générez des données de démo :
+   ```bash
+   npm run db:seed
+   ```
+
+Arrêtez la pile avec `npm run dev:stack:down` et suivez les logs via `npm run dev:stack:logs`.
+
 ## Tests
 
 Vitest n’utilise plus la base production : créez une base PostgreSQL locale (Docker, Supabase local ou cluster de dev) et exposez-la via `TEST_DATABASE_URL`.

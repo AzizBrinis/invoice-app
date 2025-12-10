@@ -7,6 +7,7 @@ import { Buffer } from "node:buffer";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { callSelectedModel } from "@/server/assistant/providers";
 import {
   fetchMailboxMessages,
   fetchMessageDetail,
@@ -175,6 +176,276 @@ const composeSchema = z
       });
     }
   });
+
+const aiReplyRequestSchema = z.object({
+  mailbox: z.enum(MAILBOX_VALUES),
+  uid: z.number().int().min(1),
+  intent: z
+    .enum([
+      "generate",
+      "improve",
+      "improve_text_html",
+      "improve_text_only",
+      "correct_only",
+    ] as const)
+    .default("generate"),
+  currentBody: z
+    .string()
+    .optional()
+    .transform((value) => value?.trim() ?? ""),
+  currentHtmlBody: z
+    .string()
+    .optional()
+    .transform((value) => value?.trim() ?? ""),
+  senderName: z
+    .string()
+    .optional()
+    .transform((value) => value?.trim() ?? ""),
+  senderEmail: z
+    .string()
+    .optional()
+    .transform((value) => value?.trim() ?? ""),
+});
+
+const aiSummaryRequestSchema = z.object({
+  mailbox: z.enum(MAILBOX_VALUES),
+  uid: z.number().int().min(1),
+});
+
+const aiDraftPolishSchema = z.object({
+  intent: z
+    .enum(["correct_only", "enhance"] as const)
+    .default("correct_only"),
+  plainBody: z
+    .string()
+    .optional()
+    .transform((value) => value?.trim() ?? ""),
+  htmlBody: z
+    .string()
+    .optional()
+    .transform((value) => value?.trim() ?? ""),
+});
+
+const aiSubjectRequestSchema = z.object({
+  plainBody: z
+    .string()
+    .optional()
+    .transform((value) => value?.trim() ?? ""),
+  htmlBody: z
+    .string()
+    .optional()
+    .transform((value) => value?.trim() ?? ""),
+});
+
+export type AiReplyActionInput = z.infer<typeof aiReplyRequestSchema>;
+export type AiSummaryActionInput = z.infer<typeof aiSummaryRequestSchema>;
+export type AiDraftPolishActionInput = z.infer<typeof aiDraftPolishSchema>;
+export type AiSubjectActionInput = z.infer<typeof aiSubjectRequestSchema>;
+
+const AI_REPLY_CONTEXT_LIMIT = 7000;
+const AI_REPLY_DRAFT_LIMIT = 6000;
+const AI_REPLY_SYSTEM_PROMPT =
+  "Tu es un assistant spécialisé dans la rédaction de réponses d'e-mails professionnelles. Tu fournis uniquement le contenu demandé, sans sujet ni instructions supplémentaires.";
+const AI_DRAFT_POLISH_SYSTEM_PROMPT =
+  "Tu aides les utilisateurs à corriger leurs brouillons d'e-mails. Tes réponses sont professionnelles, concises et fidèles au contenu fourni.";
+const AI_SUMMARY_SYSTEM_PROMPT =
+  "Tu es un assistant qui synthétise fidèlement des e-mails. Tu fournis uniquement le résumé demandé, sans instructions supplémentaires.";
+const AI_SUBJECT_SYSTEM_PROMPT =
+  "Tu proposes des objets d'e-mails concis et professionnels, sans guillemets ni balises.";
+
+const AI_REPLY_DATE_FORMATTER = new Intl.DateTimeFormat("fr-FR", {
+  dateStyle: "full",
+  timeStyle: "short",
+});
+
+export async function summarizeMessageWithAiAction(
+  input: AiSummaryActionInput,
+): Promise<ActionResult<{ summary: string }>> {
+  try {
+    const parsed = aiSummaryRequestSchema.parse(input);
+    const user = await requireUser();
+    const detail = await fetchMessageDetail({
+      mailbox: parsed.mailbox,
+      uid: parsed.uid,
+      userId: user.id,
+    });
+    const normalized = normalizeDetailText(detail);
+    if (!normalized.length) {
+      return {
+        success: false,
+        message: "Contenu du message indisponible pour le résumé.",
+      };
+    }
+
+    const header = formatDetailHeader(detail);
+    const context = truncateContext(normalized);
+    const promptSections = [
+      "Analyse l'e-mail suivant pour produire un résumé clair et fidèle en deux ou trois phrases maximum.",
+      "Détecte automatiquement la langue du message et écris le résumé dans cette même langue sans traduire.",
+      "Souligne les points importants, engagements ou actions attendues, sans inventer d'informations.",
+      "",
+      "Contexte du message :",
+      header,
+      "",
+      "Contenu du message :",
+      context || "(Contenu indisponible)",
+    ];
+
+    const response = await callSelectedModel({
+      messages: [
+        { role: "system", content: AI_SUMMARY_SYSTEM_PROMPT },
+        { role: "user", content: promptSections.join("\n") },
+      ],
+      tools: [],
+    });
+
+    const summary = response.content?.trim();
+    if (!summary) {
+      throw new Error("Résumé vide du modèle.");
+    }
+
+    return {
+      success: true,
+      message: "Résumé généré.",
+      data: { summary },
+    };
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return {
+        success: false,
+        message:
+          error.issues[0]?.message ?? "Paramètres invalides pour le résumé.",
+      };
+    }
+    console.error("[messagerie][ai-summary]", error);
+    return {
+      success: false,
+      message: "Impossible de générer un résumé pour le moment.",
+    };
+  }
+}
+
+function normalizeDetailText(detail: MessageDetail): string {
+  const plain = detail.text?.trim();
+  if (plain?.length) {
+    return plain;
+  }
+  const html = detail.html?.trim();
+  if (!html?.length) {
+    return "";
+  }
+  return sanitizeHtml(html, { allowedTags: [], allowedAttributes: {} })
+    .replace(/\u00a0/g, " ")
+    .replace(/[\t ]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function truncateContext(value: string): string {
+  if (!value || value.length <= AI_REPLY_CONTEXT_LIMIT) {
+    return value;
+  }
+  return `${value.slice(0, AI_REPLY_CONTEXT_LIMIT)}\n\n[Texte original tronqué pour l'analyse]`;
+}
+
+function formatDetailHeader(detail: MessageDetail): string {
+  const parts: string[] = [`Sujet : ${detail.subject}`];
+  if (detail.from) {
+    parts.push(`De : ${detail.from}`);
+  }
+  if (detail.to.length) {
+    parts.push(`À : ${detail.to.join(", ")}`);
+  }
+  if (detail.cc.length) {
+    parts.push(`Cc : ${detail.cc.join(", ")}`);
+  }
+  try {
+    const formattedDate = AI_REPLY_DATE_FORMATTER.format(new Date(detail.date));
+    parts.push(`Reçu le : ${formattedDate}`);
+  } catch {
+    // Ignore invalid date formats
+  }
+  return parts.join("\n");
+}
+
+function normalizeAiIntent(
+  intent: AiReplyActionInput["intent"],
+): "generate" | "improve_text_html" | "improve_text_only" | "correct_only" {
+  if (intent === "improve" || intent === "improve_text_html") {
+    return "improve_text_html";
+  }
+  if (intent === "improve_text_only") {
+    return "improve_text_only";
+  }
+  if (intent === "correct_only") {
+    return "correct_only";
+  }
+  return "generate";
+}
+
+function truncateDraftValue(value: string, limit = AI_REPLY_DRAFT_LIMIT): string {
+  if (!value || value.length <= limit) {
+    return value;
+  }
+  return `${value.slice(0, limit)}\n\n[Texte tronqué pour l'analyse]`;
+}
+
+function extractJsonPayload(raw: string): string {
+  const fenceMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenceMatch) {
+    return fenceMatch[1]?.trim() ?? raw.trim();
+  }
+  return raw.trim();
+}
+
+function htmlStructureSignature(value: string): string {
+  return value
+    .replace(/>([^<]*)</g, "><")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseAiReplyPayload(raw: string): {
+  plain: string | null;
+  html: string | null;
+} {
+  const source = extractJsonPayload(raw);
+  try {
+    const parsed = JSON.parse(source);
+    const plain =
+      typeof parsed.plain_text === "string"
+        ? parsed.plain_text
+        : typeof parsed.plainText === "string"
+          ? parsed.plainText
+          : typeof parsed.text === "string"
+            ? parsed.text
+            : null;
+    const html =
+      typeof parsed.html_body === "string"
+        ? parsed.html_body
+        : typeof parsed.htmlBody === "string"
+          ? parsed.htmlBody
+          : typeof parsed.html === "string"
+            ? parsed.html
+            : null;
+    return { plain, html };
+  } catch {
+    return { plain: raw.trim() || null, html: null };
+  }
+}
+
+function convertPlainTextToEmailHtml(value: string): string {
+  const paragraphs = value
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter((block) => block.length > 0);
+  if (paragraphs.length === 0) {
+    return value.trim().length ? `<p>${convertPlainTextToHtml(value)}</p>` : "";
+  }
+  return paragraphs
+    .map((paragraph) => `<p>${convertPlainTextToHtml(paragraph)}</p>`)
+    .join("");
+}
 
 const mailboxSchema = z.object({
   mailbox: z.enum(MAILBOX_VALUES),
@@ -1109,6 +1380,368 @@ export async function scheduleEmailAction(
       success: false,
       message:
         error instanceof Error ? error.message : "Impossible de planifier l'e-mail.",
+    };
+  }
+}
+
+export async function runAiDraftPolishAction(
+  input: AiDraftPolishActionInput,
+): Promise<ActionResult<{ plainBody: string; htmlBody?: string }>> {
+  try {
+    const parsed = aiDraftPolishSchema.parse(input);
+    const plainDraft = parsed.plainBody;
+    const htmlDraft = parsed.htmlBody;
+    const hasPlain = plainDraft.length > 0;
+    const hasHtml = htmlDraft.length > 0;
+    const effectivePlain = hasPlain
+      ? plainDraft
+      : hasHtml
+        ? stripHtml(htmlDraft)
+        : "";
+    if (!effectivePlain.trim().length) {
+      return {
+        success: false,
+        message: "Ajoutez du texte avant d'utiliser l'assistant.",
+      };
+    }
+
+    const actionInstruction =
+      parsed.intent === "enhance"
+        ? "Corrige orthographe, grammaire et ponctuation, puis améliore la clarté"
+          + " et le ton sans ajouter ni supprimer d'informations."
+        : "Corrige uniquement l'orthographe, la grammaire et la ponctuation"
+          + " sans modifier la formulation ou le style.";
+    const htmlInstruction = hasHtml
+      ? "Une version HTML est fournie. Conserve strictement la même structure,"
+        + " les mêmes balises, attributs, classes, styles et liens. Modifie"
+        + " uniquement le texte. Si tu n'as rien à changer, renvoie le HTML"
+        + " original tel quel."
+      : "Aucune version HTML n'est fournie. Renvoie une chaîne vide pour"
+        + " html_body.";
+
+    const promptSections = [
+      actionInstruction,
+      "Respecte la langue détectée et n'invente aucune information.",
+      "Ne modifie jamais les données factuelles (noms, montants, dates, numéros).",
+      htmlInstruction,
+      'Réponds uniquement avec un JSON {"plain_text":"...","html_body":"..."}.',
+      "",
+      "Texte à retravailler :",
+      effectivePlain,
+    ];
+    if (hasHtml) {
+      promptSections.push("", "HTML original :", htmlDraft);
+    }
+
+    const response = await callSelectedModel({
+      messages: [
+        { role: "system", content: AI_DRAFT_POLISH_SYSTEM_PROMPT },
+        { role: "user", content: promptSections.join("\n") },
+      ],
+      tools: [],
+    });
+
+    const generated = response.content?.trim();
+    if (!generated) {
+      throw new Error("Réponse vide du modèle.");
+    }
+
+    const structured = parseAiReplyPayload(generated);
+    const plainSuggestion = structured.plain?.trim();
+    if (!plainSuggestion?.length) {
+      throw new Error("Texte généré vide.");
+    }
+
+    let htmlSuggestion = hasHtml ? structured.html?.trim() ?? "" : "";
+    if (hasHtml) {
+      if (!htmlSuggestion.length) {
+        htmlSuggestion = htmlDraft;
+      } else {
+        const originalSignature = htmlStructureSignature(htmlDraft);
+        const candidateSignature = htmlStructureSignature(htmlSuggestion);
+        if (!candidateSignature || candidateSignature !== originalSignature) {
+          htmlSuggestion = htmlDraft;
+        }
+      }
+    }
+
+    return {
+      success: true,
+      message:
+        parsed.intent === "enhance"
+          ? "Brouillon clarifié."
+          : "Brouillon corrigé.",
+      data: {
+        plainBody: plainSuggestion,
+        htmlBody: hasHtml ? htmlSuggestion : undefined,
+      },
+    };
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return {
+        success: false,
+        message: error.issues[0]?.message ?? "Champs invalides.",
+      };
+    }
+    console.error("[messagerie][ai-draft-polish]", error);
+    return {
+      success: false,
+      message: "Impossible d'utiliser l'assistant pour le moment.",
+    };
+  }
+}
+
+export async function runAiSubjectAction(
+  input: AiSubjectActionInput,
+): Promise<ActionResult<{ subject: string }>> {
+  try {
+    const parsed = aiSubjectRequestSchema.parse(input);
+    const sourcePlain = parsed.plainBody;
+    const sourceHtml = parsed.htmlBody;
+    const effectivePlain = sourcePlain.trim().length
+      ? sourcePlain
+      : sourceHtml.trim().length
+        ? stripHtml(sourceHtml)
+        : "";
+    if (!effectivePlain.trim().length) {
+      return {
+        success: false,
+        message: "Ajoutez du contenu avant de générer un objet.",
+      };
+    }
+
+    const promptSections = [
+      "Propose un objet d'e-mail clair, précis et professionnel.",
+      "Reste dans la même langue que le contenu fourni (ne traduis pas).",
+      "Maximum 12 mots, pas de guillemets, pas d'emojis, pas de balises HTML.",
+      "Conserve les informations factuelles sans en ajouter ni en supprimer.",
+      "Réponds uniquement par l'objet final.",
+      "",
+      "Contenu de l'e-mail :",
+      effectivePlain,
+    ];
+
+    const response = await callSelectedModel({
+      messages: [
+        { role: "system", content: AI_SUBJECT_SYSTEM_PROMPT },
+        { role: "user", content: promptSections.join("\n") },
+      ],
+      tools: [],
+    });
+
+    const generated = response.content?.trim() ?? "";
+    if (!generated.length) {
+      throw new Error("Réponse vide du modèle.");
+    }
+    const cleaned = generated
+      .replace(/^"|"$/g, "")
+      .replace(/^'|'$/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!cleaned.length) {
+      throw new Error("Sujet généré vide.");
+    }
+
+    return {
+      success: true,
+      message: "Objet proposé.",
+      data: { subject: cleaned },
+    };
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return {
+        success: false,
+        message: error.issues[0]?.message ?? "Champs invalides.",
+      };
+    }
+    console.error("[messagerie][ai-subject]", error);
+    return {
+      success: false,
+      message: "Impossible de générer l'objet pour le moment.",
+    };
+  }
+}
+
+export async function runAiReplyAction(
+  input: AiReplyActionInput,
+): Promise<ActionResult<{ plainBody: string; htmlBody?: string }>> {
+  try {
+    const parsed = aiReplyRequestSchema.parse(input);
+    const normalizedIntent = normalizeAiIntent(parsed.intent);
+    const originalHtml = parsed.currentHtmlBody ?? "";
+    const plainDraft = truncateDraftValue(parsed.currentBody);
+    const htmlDraft = truncateDraftValue(originalHtml, AI_REPLY_CONTEXT_LIMIT);
+    const fallbackPlain = !plainDraft && htmlDraft ? stripHtml(htmlDraft) : "";
+    const effectivePlainDraft = plainDraft || fallbackPlain;
+    const hasDraftContent = Boolean(effectivePlainDraft.length || htmlDraft.length);
+
+    if (normalizedIntent !== "generate" && !hasDraftContent) {
+      return {
+        success: false,
+        message: "Aucun contenu à améliorer.",
+      };
+    }
+    if (normalizedIntent === "improve_text_only" && effectivePlainDraft.length === 0) {
+      return {
+        success: false,
+        message: "Ajoutez un texte brut avant de lancer cette option.",
+      };
+    }
+
+    const user = await requireUser();
+    const detail = await fetchMessageDetail({
+      mailbox: parsed.mailbox,
+      uid: parsed.uid,
+      userId: user.id,
+    });
+    const header = formatDetailHeader(detail);
+    const threadText = truncateContext(normalizeDetailText(detail));
+    const personaName =
+      parsed.senderName ||
+      (parsed.senderEmail ? parsed.senderEmail.split("@")[0] : "votre équipe");
+    const closingInstruction = parsed.senderName
+      ? `Termine par une formule professionnelle suivie de « ${parsed.senderName} ».`
+      : "Termine par une formule professionnelle adaptée.";
+    const languageInstruction = hasDraftContent
+      ? "Respecte strictement la langue utilisée dans le brouillon."
+      : "Rédige dans la même langue que le message reçu (ne traduis jamais).";
+
+    let actionInstruction: string;
+    switch (normalizedIntent) {
+      case "generate":
+        actionInstruction =
+          "Rédige une nouvelle réponse complète en t'appuyant sur le message reçu."
+          + " Utilise un ton professionnel, cordial et orienté action.";
+        break;
+      case "improve_text_only":
+        actionInstruction =
+          "Améliore uniquement la version texte suivante : fluidifie le style, clarifie"
+          + " les phrases et garde exactement les mêmes informations. Ne touche pas à la version HTML."
+          + " Fournis uniquement la nouvelle version texte.";
+        break;
+      case "correct_only":
+        actionInstruction =
+          "Corrige uniquement l'orthographe et la grammaire des versions texte et HTML."
+          + " Ne reformule pas les phrases, ne change pas le ton et n'ajoute aucune information.";
+        break;
+      default:
+        actionInstruction =
+          "Améliore la version texte ET la version HTML ci-dessous : clarifie, améliore le ton"
+          + " professionnel et la structure, tout en gardant la signification exacte.";
+        break;
+    }
+
+    const factualGuardrails =
+      "Ne modifie jamais les données factuelles (noms, dates, montants, numéros, codes)."
+      + " Ne traduis pas et n'invente pas d'informations.";
+    const htmlGuideline =
+      normalizedIntent === "improve_text_only"
+        ? "Ne modifie pas la version HTML fournie (garde structure, classes, styles, signatures, logos)."
+        : normalizedIntent === "correct_only"
+          ? "Corrige uniquement l'orthographe/ponctuation dans le HTML fourni sans changer balises, attributs, classes, styles ni hiérarchie (copie exacte de la structure)."
+          : "La version HTML finale doit être un HTML simple compatible e-mail (balises <p>, <br />, <strong>, <em>).";
+
+    const promptSections = [
+      actionInstruction,
+      factualGuardrails,
+      languageInstruction,
+      `Tu écris au nom de ${personaName}. ${closingInstruction}`,
+      htmlGuideline,
+      "Réponds uniquement avec un objet JSON de la forme {\"plain_text\":\"...\",\"html_body\":\"...\"}.",
+      "plain_text = version texte brut finale. html_body = version HTML finale.",
+      "",
+      "Contexte du message reçu :",
+      header,
+      "",
+      "Contenu du message reçu :",
+      threadText || "(Contenu indisponible)",
+    ];
+
+    if (normalizedIntent !== "generate") {
+      promptSections.push(
+        "",
+        "Texte brut actuel :",
+        effectivePlainDraft || "(Aucun texte brut fourni)",
+      );
+      promptSections.push(
+        "",
+        "HTML actuel :",
+        htmlDraft || "(Aucune version HTML fournie)",
+      );
+    }
+
+    const response = await callSelectedModel({
+      messages: [
+        { role: "system", content: AI_REPLY_SYSTEM_PROMPT },
+        { role: "user", content: promptSections.join("\n") },
+      ],
+      tools: [],
+    });
+
+    const generated = response.content?.trim();
+    if (!generated) {
+      throw new Error("Réponse vide du modèle.");
+    }
+
+    const structured = parseAiReplyPayload(generated);
+    const plainSuggestion = structured.plain?.trim();
+    if (!plainSuggestion) {
+      throw new Error("Texte généré vide.");
+    }
+
+    let htmlSuggestion: string | null = structured.html?.trim() ?? null;
+    if (normalizedIntent === "generate") {
+      htmlSuggestion = htmlSuggestion || convertPlainTextToEmailHtml(plainSuggestion);
+    } else if (normalizedIntent === "improve_text_only") {
+      htmlSuggestion = originalHtml;
+    } else if (!htmlSuggestion) {
+      htmlSuggestion = htmlDraft || convertPlainTextToEmailHtml(plainSuggestion);
+    }
+
+    if (normalizedIntent === "correct_only") {
+      const signatureOriginal = htmlStructureSignature(originalHtml);
+      const signatureCandidate = htmlSuggestion ? htmlStructureSignature(htmlSuggestion) : "";
+      if (!signatureCandidate.length || signatureCandidate !== signatureOriginal) {
+        htmlSuggestion = originalHtml;
+      }
+    }
+
+    const successMessageMap: Record<
+      ReturnType<typeof normalizeAiIntent>,
+      string
+    > = {
+      generate: "Brouillon généré.",
+      improve_text_html: "Texte amélioré.",
+      improve_text_only: "Texte amélioré (version texte).",
+      correct_only: "Texte corrigé.",
+    };
+
+    const payload: { plainBody: string; htmlBody?: string } = {
+      plainBody: plainSuggestion,
+    };
+    if (normalizedIntent === "improve_text_only") {
+      payload.htmlBody = originalHtml;
+    } else if (htmlSuggestion != null) {
+      payload.htmlBody = htmlSuggestion;
+    }
+
+    return {
+      success: true,
+      message: successMessageMap[normalizedIntent],
+      data: payload,
+    };
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return {
+        success: false,
+        message:
+          error.issues[0]?.message ?? "Paramètres invalides pour l'assistant.",
+      };
+    }
+    console.error("[messagerie][ai-reply]", error);
+    return {
+      success: false,
+      message: "Impossible d'utiliser l'assistant pour le moment.",
     };
   }
 }

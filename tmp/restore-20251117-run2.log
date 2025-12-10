@@ -1,0 +1,1519 @@
+SET
+SET
+SET
+SET
+SET
+SET
+ set_config 
+------------
+ 
+(1 row)
+
+SET
+SET
+SET
+SET
+psql:supabase-backup-20251117-110920.sql:24: ERROR:  schema "auth" already exists
+ALTER SCHEMA
+CREATE SCHEMA
+ALTER SCHEMA
+psql:supabase-backup-20251117-110920.sql:42: ERROR:  schema "graphql" already exists
+ALTER SCHEMA
+psql:supabase-backup-20251117-110920.sql:51: ERROR:  schema "graphql_public" already exists
+ALTER SCHEMA
+psql:supabase-backup-20251117-110920.sql:60: ERROR:  schema "pgbouncer" already exists
+ALTER SCHEMA
+ALTER SCHEMA
+COMMENT
+psql:supabase-backup-20251117-110920.sql:85: ERROR:  schema "realtime" already exists
+ALTER SCHEMA
+CREATE SCHEMA
+ALTER SCHEMA
+psql:supabase-backup-20251117-110920.sql:103: ERROR:  schema "storage" already exists
+ALTER SCHEMA
+psql:supabase-backup-20251117-110920.sql:112: ERROR:  schema "vault" already exists
+ALTER SCHEMA
+CREATE EXTENSION
+psql:supabase-backup-20251117-110920.sql:128: ERROR:  must be owner of extension pg_graphql
+psql:supabase-backup-20251117-110920.sql:135: ERROR:  permission denied to create extension "pg_stat_statements"
+HINT:  Must be superuser to create this extension.
+psql:supabase-backup-20251117-110920.sql:142: ERROR:  extension "pg_stat_statements" does not exist
+CREATE EXTENSION
+COMMENT
+CREATE EXTENSION
+COMMENT
+CREATE EXTENSION
+psql:supabase-backup-20251117-110920.sql:184: ERROR:  must be owner of extension supabase_vault
+CREATE EXTENSION
+COMMENT
+psql:supabase-backup-20251117-110920.sql:209: ERROR:  permission denied for schema auth
+ALTER TYPE
+psql:supabase-backup-20251117-110920.sql:221: ERROR:  permission denied for schema auth
+ALTER TYPE
+psql:supabase-backup-20251117-110920.sql:233: ERROR:  permission denied for schema auth
+ALTER TYPE
+psql:supabase-backup-20251117-110920.sql:246: ERROR:  permission denied for schema auth
+ALTER TYPE
+psql:supabase-backup-20251117-110920.sql:260: ERROR:  permission denied for schema auth
+ALTER TYPE
+psql:supabase-backup-20251117-110920.sql:272: ERROR:  permission denied for schema auth
+ALTER TYPE
+psql:supabase-backup-20251117-110920.sql:284: ERROR:  permission denied for schema auth
+ALTER TYPE
+psql:supabase-backup-20251117-110920.sql:295: ERROR:  permission denied for schema auth
+ALTER TYPE
+psql:supabase-backup-20251117-110920.sql:311: ERROR:  permission denied for schema auth
+ALTER TYPE
+CREATE TYPE
+ALTER TYPE
+CREATE TYPE
+ALTER TYPE
+CREATE TYPE
+ALTER TYPE
+CREATE TYPE
+ALTER TYPE
+CREATE TYPE
+ALTER TYPE
+CREATE TYPE
+ALTER TYPE
+CREATE TYPE
+ALTER TYPE
+CREATE TYPE
+ALTER TYPE
+CREATE TYPE
+ALTER TYPE
+CREATE TYPE
+ALTER TYPE
+CREATE TYPE
+ALTER TYPE
+CREATE TYPE
+ALTER TYPE
+CREATE TYPE
+ALTER TYPE
+CREATE TYPE
+ALTER TYPE
+CREATE TYPE
+ALTER TYPE
+CREATE TYPE
+ALTER TYPE
+CREATE TYPE
+ALTER TYPE
+CREATE TYPE
+ALTER TYPE
+psql:supabase-backup-20251117-110920.sql:565: ERROR:  type "action" already exists
+ALTER TYPE
+psql:supabase-backup-20251117-110920.sql:582: ERROR:  type "equality_op" already exists
+ALTER TYPE
+psql:supabase-backup-20251117-110920.sql:595: ERROR:  type "user_defined_filter" already exists
+ALTER TYPE
+psql:supabase-backup-20251117-110920.sql:611: ERROR:  type "wal_column" already exists
+ALTER TYPE
+psql:supabase-backup-20251117-110920.sql:625: ERROR:  type "wal_rls" already exists
+ALTER TYPE
+psql:supabase-backup-20251117-110920.sql:637: ERROR:  permission denied for schema storage
+ALTER TYPE
+psql:supabase-backup-20251117-110920.sql:654: ERROR:  permission denied for schema auth
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:663: ERROR:  must be owner of function auth.email
+psql:supabase-backup-20251117-110920.sql:678: ERROR:  permission denied for schema auth
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:695: ERROR:  permission denied for schema auth
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:704: ERROR:  must be owner of function auth.role
+psql:supabase-backup-20251117-110920.sql:719: ERROR:  permission denied for schema auth
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:728: ERROR:  must be owner of function auth.uid
+CREATE FUNCTION
+psql:supabase-backup-20251117-110920.sql:768: ERROR:  must be able to SET ROLE "supabase_admin"
+COMMENT
+CREATE FUNCTION
+psql:supabase-backup-20251117-110920.sql:835: ERROR:  must be able to SET ROLE "supabase_admin"
+COMMENT
+CREATE FUNCTION
+psql:supabase-backup-20251117-110920.sql:895: ERROR:  must be able to SET ROLE "supabase_admin"
+COMMENT
+CREATE FUNCTION
+psql:supabase-backup-20251117-110920.sql:937: ERROR:  must be able to SET ROLE "supabase_admin"
+CREATE FUNCTION
+psql:supabase-backup-20251117-110920.sql:970: ERROR:  must be able to SET ROLE "supabase_admin"
+CREATE FUNCTION
+psql:supabase-backup-20251117-110920.sql:1029: ERROR:  must be able to SET ROLE "supabase_admin"
+COMMENT
+psql:supabase-backup-20251117-110920.sql:1058: ERROR:  permission denied for schema pgbouncer
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:1365: ERROR:  function "apply_rls" already exists with same argument types
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:1396: ERROR:  function "broadcast_changes" already exists with same argument types
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:1431: ERROR:  function "build_prepared_statement_sql" already exists with same argument types
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:1449: ERROR:  function "cast" already exists with same argument types
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:1490: ERROR:  function "check_equality_op" already exists with same argument types
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:1528: ERROR:  function "is_visible_through_filters" already exists with same argument types
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:1596: ERROR:  permission denied to set parameter "log_min_messages"
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:1636: ERROR:  function "quote_wal2json" already exists with same argument types
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:1675: ERROR:  function "send" already exists with same argument types
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:1751: ERROR:  function "subscription_check_filters" already exists with same argument types
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:1762: ERROR:  function "to_regrole" already exists with same argument types
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:1775: ERROR:  function "topic" already exists with same argument types
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:1797: ERROR:  permission denied for schema storage
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:1816: ERROR:  permission denied for schema storage
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:1883: ERROR:  permission denied for schema storage
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:1921: ERROR:  permission denied for schema storage
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:1944: ERROR:  permission denied for schema storage
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:1962: ERROR:  permission denied for schema storage
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:1982: ERROR:  permission denied for schema storage
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:2000: ERROR:  permission denied for schema storage
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:2020: ERROR:  permission denied for schema storage
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:2033: ERROR:  permission denied for schema storage
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:2051: ERROR:  permission denied for schema storage
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:2080: ERROR:  permission denied for schema storage
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:2098: ERROR:  permission denied for schema storage
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:2146: ERROR:  permission denied for schema storage
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:2192: ERROR:  permission denied for schema storage
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:2218: ERROR:  permission denied for schema storage
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:2251: ERROR:  permission denied for schema storage
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:2269: ERROR:  permission denied for schema storage
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:2363: ERROR:  permission denied for schema storage
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:2383: ERROR:  permission denied for schema storage
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:2427: ERROR:  permission denied for schema storage
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:2442: ERROR:  permission denied for schema storage
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:2475: ERROR:  permission denied for schema storage
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:2491: ERROR:  permission denied for schema storage
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:2517: ERROR:  permission denied for schema storage
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:2588: ERROR:  permission denied for schema storage
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:2658: ERROR:  permission denied for schema storage
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:2756: ERROR:  permission denied for schema storage
+ALTER FUNCTION
+psql:supabase-backup-20251117-110920.sql:2772: ERROR:  permission denied for schema storage
+ALTER FUNCTION
+SET
+SET
+psql:supabase-backup-20251117-110920.sql:2791: ERROR:  permission denied for schema auth
+LINE 1: CREATE TABLE auth.audit_log_entries (
+                     ^
+psql:supabase-backup-20251117-110920.sql:2794: ERROR:  must be owner of table audit_log_entries
+psql:supabase-backup-20251117-110920.sql:2800: ERROR:  must be owner of table audit_log_entries
+psql:supabase-backup-20251117-110920.sql:2820: ERROR:  permission denied for schema auth
+LINE 1: CREATE TABLE auth.flow_state (
+                     ^
+psql:supabase-backup-20251117-110920.sql:2823: ERROR:  must be owner of table flow_state
+psql:supabase-backup-20251117-110920.sql:2829: ERROR:  must be owner of table flow_state
+psql:supabase-backup-20251117-110920.sql:2846: ERROR:  permission denied for schema auth
+LINE 1: CREATE TABLE auth.identities (
+                     ^
+psql:supabase-backup-20251117-110920.sql:2849: ERROR:  must be owner of table identities
+psql:supabase-backup-20251117-110920.sql:2855: ERROR:  must be owner of table identities
+psql:supabase-backup-20251117-110920.sql:2862: ERROR:  must be owner of relation identities
+psql:supabase-backup-20251117-110920.sql:2875: ERROR:  permission denied for schema auth
+LINE 1: CREATE TABLE auth.instances (
+                     ^
+psql:supabase-backup-20251117-110920.sql:2878: ERROR:  must be owner of table instances
+psql:supabase-backup-20251117-110920.sql:2884: ERROR:  must be owner of table instances
+psql:supabase-backup-20251117-110920.sql:2897: ERROR:  permission denied for schema auth
+LINE 1: CREATE TABLE auth.mfa_amr_claims (
+                     ^
+psql:supabase-backup-20251117-110920.sql:2900: ERROR:  must be owner of table mfa_amr_claims
+psql:supabase-backup-20251117-110920.sql:2906: ERROR:  must be owner of table mfa_amr_claims
+psql:supabase-backup-20251117-110920.sql:2921: ERROR:  permission denied for schema auth
+LINE 1: CREATE TABLE auth.mfa_challenges (
+                     ^
+psql:supabase-backup-20251117-110920.sql:2924: ERROR:  must be owner of table mfa_challenges
+psql:supabase-backup-20251117-110920.sql:2930: ERROR:  must be owner of table mfa_challenges
+psql:supabase-backup-20251117-110920.sql:2951: ERROR:  permission denied for schema auth
+LINE 1: CREATE TABLE auth.mfa_factors (
+                     ^
+psql:supabase-backup-20251117-110920.sql:2954: ERROR:  must be owner of table mfa_factors
+psql:supabase-backup-20251117-110920.sql:2960: ERROR:  must be owner of table mfa_factors
+psql:supabase-backup-20251117-110920.sql:2967: ERROR:  must be owner of relation mfa_factors
+psql:supabase-backup-20251117-110920.sql:2998: ERROR:  permission denied for schema auth
+LINE 1: CREATE TABLE auth.oauth_authorizations (
+                     ^
+psql:supabase-backup-20251117-110920.sql:3001: ERROR:  must be owner of table oauth_authorizations
+psql:supabase-backup-20251117-110920.sql:3023: ERROR:  permission denied for schema auth
+LINE 1: CREATE TABLE auth.oauth_clients (
+                     ^
+psql:supabase-backup-20251117-110920.sql:3026: ERROR:  must be owner of table oauth_clients
+psql:supabase-backup-20251117-110920.sql:3042: ERROR:  permission denied for schema auth
+LINE 1: CREATE TABLE auth.oauth_consents (
+                     ^
+psql:supabase-backup-20251117-110920.sql:3045: ERROR:  must be owner of table oauth_consents
+psql:supabase-backup-20251117-110920.sql:3060: ERROR:  permission denied for schema auth
+LINE 1: CREATE TABLE auth.one_time_tokens (
+                     ^
+psql:supabase-backup-20251117-110920.sql:3063: ERROR:  must be owner of table one_time_tokens
+psql:supabase-backup-20251117-110920.sql:3079: ERROR:  permission denied for schema auth
+LINE 1: CREATE TABLE auth.refresh_tokens (
+                     ^
+psql:supabase-backup-20251117-110920.sql:3082: ERROR:  must be owner of table refresh_tokens
+psql:supabase-backup-20251117-110920.sql:3088: ERROR:  must be owner of table refresh_tokens
+psql:supabase-backup-20251117-110920.sql:3100: ERROR:  permission denied for schema auth
+psql:supabase-backup-20251117-110920.sql:3103: ERROR:  must be owner of sequence refresh_tokens_id_seq
+psql:supabase-backup-20251117-110920.sql:3109: ERROR:  must be owner of sequence refresh_tokens_id_seq
+psql:supabase-backup-20251117-110920.sql:3129: ERROR:  permission denied for schema auth
+LINE 1: CREATE TABLE auth.saml_providers (
+                     ^
+psql:supabase-backup-20251117-110920.sql:3132: ERROR:  must be owner of table saml_providers
+psql:supabase-backup-20251117-110920.sql:3138: ERROR:  must be owner of table saml_providers
+psql:supabase-backup-20251117-110920.sql:3155: ERROR:  permission denied for schema auth
+LINE 1: CREATE TABLE auth.saml_relay_states (
+                     ^
+psql:supabase-backup-20251117-110920.sql:3158: ERROR:  must be owner of table saml_relay_states
+psql:supabase-backup-20251117-110920.sql:3164: ERROR:  must be owner of table saml_relay_states
+psql:supabase-backup-20251117-110920.sql:3173: ERROR:  permission denied for schema auth
+LINE 1: CREATE TABLE auth.schema_migrations (
+                     ^
+psql:supabase-backup-20251117-110920.sql:3176: ERROR:  must be owner of table schema_migrations
+psql:supabase-backup-20251117-110920.sql:3182: ERROR:  must be owner of table schema_migrations
+psql:supabase-backup-20251117-110920.sql:3204: ERROR:  permission denied for schema auth
+LINE 1: CREATE TABLE auth.sessions (
+                     ^
+psql:supabase-backup-20251117-110920.sql:3207: ERROR:  must be owner of table sessions
+psql:supabase-backup-20251117-110920.sql:3213: ERROR:  must be owner of table sessions
+psql:supabase-backup-20251117-110920.sql:3220: ERROR:  must be owner of relation sessions
+psql:supabase-backup-20251117-110920.sql:3227: ERROR:  must be owner of relation sessions
+psql:supabase-backup-20251117-110920.sql:3234: ERROR:  must be owner of relation sessions
+psql:supabase-backup-20251117-110920.sql:3248: ERROR:  permission denied for schema auth
+LINE 1: CREATE TABLE auth.sso_domains (
+                     ^
+psql:supabase-backup-20251117-110920.sql:3251: ERROR:  must be owner of table sso_domains
+psql:supabase-backup-20251117-110920.sql:3257: ERROR:  must be owner of table sso_domains
+psql:supabase-backup-20251117-110920.sql:3271: ERROR:  permission denied for schema auth
+LINE 1: CREATE TABLE auth.sso_providers (
+                     ^
+psql:supabase-backup-20251117-110920.sql:3274: ERROR:  must be owner of table sso_providers
+psql:supabase-backup-20251117-110920.sql:3280: ERROR:  must be owner of table sso_providers
+psql:supabase-backup-20251117-110920.sql:3287: ERROR:  must be owner of relation sso_providers
+psql:supabase-backup-20251117-110920.sql:3331: ERROR:  permission denied for schema auth
+LINE 1: CREATE TABLE auth.users (
+                     ^
+psql:supabase-backup-20251117-110920.sql:3334: ERROR:  must be owner of table users
+psql:supabase-backup-20251117-110920.sql:3340: ERROR:  must be owner of table users
+psql:supabase-backup-20251117-110920.sql:3347: ERROR:  must be owner of relation users
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE SEQUENCE
+ALTER SEQUENCE
+ALTER SEQUENCE
+CREATE TABLE
+ALTER TABLE
+CREATE SEQUENCE
+ALTER SEQUENCE
+ALTER SEQUENCE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+CREATE TABLE
+ALTER TABLE
+psql:supabase-backup-20251117-110920.sql:4133: ERROR:  relation "messages" already exists
+ALTER TABLE
+psql:supabase-backup-20251117-110920.sql:4145: ERROR:  relation "schema_migrations" already exists
+psql:supabase-backup-20251117-110920.sql:4148: ERROR:  must be owner of table schema_migrations
+psql:supabase-backup-20251117-110920.sql:4162: ERROR:  relation "subscription" already exists
+psql:supabase-backup-20251117-110920.sql:4165: ERROR:  must be owner of table subscription
+psql:supabase-backup-20251117-110920.sql:4178: ERROR:  must be owner of table subscription
+psql:supabase-backup-20251117-110920.sql:4197: ERROR:  permission denied for schema storage
+LINE 1: CREATE TABLE storage.buckets (
+                     ^
+psql:supabase-backup-20251117-110920.sql:4200: ERROR:  must be owner of table buckets
+psql:supabase-backup-20251117-110920.sql:4206: ERROR:  must be owner of relation buckets
+psql:supabase-backup-20251117-110920.sql:4219: ERROR:  permission denied for schema storage
+LINE 1: CREATE TABLE storage.buckets_analytics (
+                     ^
+psql:supabase-backup-20251117-110920.sql:4222: ERROR:  must be owner of table buckets_analytics
+psql:supabase-backup-20251117-110920.sql:4233: ERROR:  permission denied for schema storage
+LINE 1: CREATE TABLE storage.migrations (
+                     ^
+psql:supabase-backup-20251117-110920.sql:4236: ERROR:  must be owner of table migrations
+psql:supabase-backup-20251117-110920.sql:4256: ERROR:  permission denied for schema storage
+LINE 1: CREATE TABLE storage.objects (
+                     ^
+psql:supabase-backup-20251117-110920.sql:4259: ERROR:  must be owner of table objects
+psql:supabase-backup-20251117-110920.sql:4265: ERROR:  must be owner of relation objects
+psql:supabase-backup-20251117-110920.sql:4278: ERROR:  permission denied for schema storage
+LINE 1: CREATE TABLE storage.prefixes (
+                     ^
+psql:supabase-backup-20251117-110920.sql:4281: ERROR:  must be owner of table prefixes
+psql:supabase-backup-20251117-110920.sql:4297: ERROR:  permission denied for schema storage
+LINE 1: CREATE TABLE storage.s3_multipart_uploads (
+                     ^
+psql:supabase-backup-20251117-110920.sql:4300: ERROR:  must be owner of table s3_multipart_uploads
+psql:supabase-backup-20251117-110920.sql:4317: ERROR:  permission denied for schema storage
+LINE 1: CREATE TABLE storage.s3_multipart_uploads_parts (
+                     ^
+psql:supabase-backup-20251117-110920.sql:4320: ERROR:  must be owner of table s3_multipart_uploads_parts
+psql:supabase-backup-20251117-110920.sql:4326: ERROR:  must be owner of table refresh_tokens
+ALTER TABLE
+ALTER TABLE
+COPY 0
+COPY 0
+COPY 0
+COPY 0
+COPY 0
+COPY 0
+COPY 0
+COPY 0
+COPY 0
+COPY 0
+COPY 0
+COPY 0
+COPY 0
+COPY 0
+psql:supabase-backup-20251117-110920.sql:4459: ERROR:  permission denied for table schema_migrations
+psql:supabase-backup-20251117-110920.sql:4529: error: invalid command \.
+psql:supabase-backup-20251117-110920.sql:4536: ERROR:  syntax error at or near "20171026211738"
+LINE 1: 20171026211738
+        ^
+psql:supabase-backup-20251117-110920.sql:4537: error: invalid command \.
+COPY 0
+COPY 0
+COPY 0
+COPY 1006
+COPY 3034
+COPY 17
+COPY 13
+COPY 26
+COPY 19
+COPY 0
+COPY 20
+COPY 27
+COPY 72
+COPY 60
+COPY 15
+COPY 50
+COPY 92
+COPY 2
+COPY 11
+COPY 1
+COPY 4
+COPY 2
+COPY 8
+COPY 1
+COPY 0
+COPY 14
+COPY 18
+COPY 19
+COPY 67
+COPY 155
+COPY 0
+COPY 13
+COPY 5
+COPY 6
+COPY 65
+COPY 0
+COPY 0
+COPY 0
+psql:supabase-backup-20251117-110920.sql:9690: ERROR:  permission denied for table migrations
+psql:supabase-backup-20251117-110920.sql:9735: error: invalid command \.
+psql:supabase-backup-20251117-110920.sql:9742: ERROR:  syntax error at or near "0"
+LINE 1: 0 create-migrations-table e18db593bcde2aca2a408c4d1100f6abba...
+        ^
+psql:supabase-backup-20251117-110920.sql:9743: error: invalid command \.
+COPY 0
+COPY 0
+COPY 0
+psql:supabase-backup-20251117-110920.sql:9774: ERROR:  permission denied for table secrets
+psql:supabase-backup-20251117-110920.sql:9775: error: invalid command \.
+ setval 
+--------
+      1
+(1 row)
+
+ setval 
+--------
+    155
+(1 row)
+
+ setval 
+--------
+      1
+(1 row)
+
+ setval 
+--------
+      1
+(1 row)
+
+psql:supabase-backup-20251117-110920.sql:9811: ERROR:  must be owner of table mfa_amr_claims
+psql:supabase-backup-20251117-110920.sql:9819: ERROR:  must be owner of table audit_log_entries
+psql:supabase-backup-20251117-110920.sql:9827: ERROR:  must be owner of table flow_state
+psql:supabase-backup-20251117-110920.sql:9835: ERROR:  must be owner of table identities
+psql:supabase-backup-20251117-110920.sql:9843: ERROR:  must be owner of table identities
+psql:supabase-backup-20251117-110920.sql:9851: ERROR:  must be owner of table instances
+psql:supabase-backup-20251117-110920.sql:9859: ERROR:  must be owner of table mfa_amr_claims
+psql:supabase-backup-20251117-110920.sql:9867: ERROR:  must be owner of table mfa_challenges
+psql:supabase-backup-20251117-110920.sql:9875: ERROR:  must be owner of table mfa_factors
+psql:supabase-backup-20251117-110920.sql:9883: ERROR:  must be owner of table mfa_factors
+psql:supabase-backup-20251117-110920.sql:9891: ERROR:  must be owner of table oauth_authorizations
+psql:supabase-backup-20251117-110920.sql:9899: ERROR:  must be owner of table oauth_authorizations
+psql:supabase-backup-20251117-110920.sql:9907: ERROR:  must be owner of table oauth_authorizations
+psql:supabase-backup-20251117-110920.sql:9915: ERROR:  must be owner of table oauth_clients
+psql:supabase-backup-20251117-110920.sql:9923: ERROR:  must be owner of table oauth_consents
+psql:supabase-backup-20251117-110920.sql:9931: ERROR:  must be owner of table oauth_consents
+psql:supabase-backup-20251117-110920.sql:9939: ERROR:  must be owner of table one_time_tokens
+psql:supabase-backup-20251117-110920.sql:9947: ERROR:  must be owner of table refresh_tokens
+psql:supabase-backup-20251117-110920.sql:9955: ERROR:  must be owner of table refresh_tokens
+psql:supabase-backup-20251117-110920.sql:9963: ERROR:  must be owner of table saml_providers
+psql:supabase-backup-20251117-110920.sql:9971: ERROR:  must be owner of table saml_providers
+psql:supabase-backup-20251117-110920.sql:9979: ERROR:  must be owner of table saml_relay_states
+psql:supabase-backup-20251117-110920.sql:9987: ERROR:  must be owner of table schema_migrations
+psql:supabase-backup-20251117-110920.sql:9995: ERROR:  must be owner of table sessions
+psql:supabase-backup-20251117-110920.sql:10003: ERROR:  must be owner of table sso_domains
+psql:supabase-backup-20251117-110920.sql:10011: ERROR:  must be owner of table sso_providers
+psql:supabase-backup-20251117-110920.sql:10019: ERROR:  must be owner of table users
+psql:supabase-backup-20251117-110920.sql:10027: ERROR:  must be owner of table users
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+psql:supabase-backup-20251117-110920.sql:10283: ERROR:  multiple primary keys for table "messages" are not allowed
+psql:supabase-backup-20251117-110920.sql:10291: ERROR:  must be owner of table subscription
+psql:supabase-backup-20251117-110920.sql:10299: ERROR:  must be owner of table schema_migrations
+psql:supabase-backup-20251117-110920.sql:10307: ERROR:  must be owner of table buckets_analytics
+psql:supabase-backup-20251117-110920.sql:10315: ERROR:  must be owner of table buckets
+psql:supabase-backup-20251117-110920.sql:10323: ERROR:  must be owner of table migrations
+psql:supabase-backup-20251117-110920.sql:10331: ERROR:  must be owner of table migrations
+psql:supabase-backup-20251117-110920.sql:10339: ERROR:  must be owner of table objects
+psql:supabase-backup-20251117-110920.sql:10347: ERROR:  must be owner of table prefixes
+psql:supabase-backup-20251117-110920.sql:10355: ERROR:  must be owner of table s3_multipart_uploads_parts
+psql:supabase-backup-20251117-110920.sql:10363: ERROR:  must be owner of table s3_multipart_uploads
+psql:supabase-backup-20251117-110920.sql:10370: ERROR:  must be owner of table audit_log_entries
+psql:supabase-backup-20251117-110920.sql:10377: ERROR:  must be owner of table users
+psql:supabase-backup-20251117-110920.sql:10384: ERROR:  must be owner of table users
+psql:supabase-backup-20251117-110920.sql:10391: ERROR:  must be owner of table users
+psql:supabase-backup-20251117-110920.sql:10398: ERROR:  must be owner of table mfa_factors
+psql:supabase-backup-20251117-110920.sql:10405: ERROR:  must be owner of table flow_state
+psql:supabase-backup-20251117-110920.sql:10412: ERROR:  must be owner of table identities
+psql:supabase-backup-20251117-110920.sql:10419: ERROR:  must be owner of index identities_email_idx
+psql:supabase-backup-20251117-110920.sql:10426: ERROR:  must be owner of table identities
+psql:supabase-backup-20251117-110920.sql:10433: ERROR:  must be owner of table flow_state
+psql:supabase-backup-20251117-110920.sql:10440: ERROR:  must be owner of table flow_state
+psql:supabase-backup-20251117-110920.sql:10447: ERROR:  must be owner of table mfa_challenges
+psql:supabase-backup-20251117-110920.sql:10454: ERROR:  must be owner of table mfa_factors
+psql:supabase-backup-20251117-110920.sql:10461: ERROR:  must be owner of table mfa_factors
+psql:supabase-backup-20251117-110920.sql:10468: ERROR:  must be owner of table oauth_authorizations
+psql:supabase-backup-20251117-110920.sql:10475: ERROR:  must be owner of table oauth_clients
+psql:supabase-backup-20251117-110920.sql:10482: ERROR:  must be owner of table oauth_consents
+psql:supabase-backup-20251117-110920.sql:10489: ERROR:  must be owner of table oauth_consents
+psql:supabase-backup-20251117-110920.sql:10496: ERROR:  must be owner of table oauth_consents
+psql:supabase-backup-20251117-110920.sql:10503: ERROR:  must be owner of table one_time_tokens
+psql:supabase-backup-20251117-110920.sql:10510: ERROR:  must be owner of table one_time_tokens
+psql:supabase-backup-20251117-110920.sql:10517: ERROR:  must be owner of table one_time_tokens
+psql:supabase-backup-20251117-110920.sql:10524: ERROR:  must be owner of table users
+psql:supabase-backup-20251117-110920.sql:10531: ERROR:  must be owner of table users
+psql:supabase-backup-20251117-110920.sql:10538: ERROR:  must be owner of table refresh_tokens
+psql:supabase-backup-20251117-110920.sql:10545: ERROR:  must be owner of table refresh_tokens
+psql:supabase-backup-20251117-110920.sql:10552: ERROR:  must be owner of table refresh_tokens
+psql:supabase-backup-20251117-110920.sql:10559: ERROR:  must be owner of table refresh_tokens
+psql:supabase-backup-20251117-110920.sql:10566: ERROR:  must be owner of table refresh_tokens
+psql:supabase-backup-20251117-110920.sql:10573: ERROR:  must be owner of table saml_providers
+psql:supabase-backup-20251117-110920.sql:10580: ERROR:  must be owner of table saml_relay_states
+psql:supabase-backup-20251117-110920.sql:10587: ERROR:  must be owner of table saml_relay_states
+psql:supabase-backup-20251117-110920.sql:10594: ERROR:  must be owner of table saml_relay_states
+psql:supabase-backup-20251117-110920.sql:10601: ERROR:  must be owner of table sessions
+psql:supabase-backup-20251117-110920.sql:10608: ERROR:  must be owner of table sessions
+psql:supabase-backup-20251117-110920.sql:10615: ERROR:  must be owner of table sessions
+psql:supabase-backup-20251117-110920.sql:10622: ERROR:  must be owner of table sso_domains
+psql:supabase-backup-20251117-110920.sql:10629: ERROR:  must be owner of table sso_domains
+psql:supabase-backup-20251117-110920.sql:10636: ERROR:  must be owner of table sso_providers
+psql:supabase-backup-20251117-110920.sql:10643: ERROR:  must be owner of table sso_providers
+psql:supabase-backup-20251117-110920.sql:10650: ERROR:  must be owner of table mfa_factors
+psql:supabase-backup-20251117-110920.sql:10657: ERROR:  must be owner of table sessions
+psql:supabase-backup-20251117-110920.sql:10664: ERROR:  must be owner of table users
+psql:supabase-backup-20251117-110920.sql:10671: ERROR:  must be owner of index users_email_partial_key
+psql:supabase-backup-20251117-110920.sql:10678: ERROR:  must be owner of table users
+psql:supabase-backup-20251117-110920.sql:10685: ERROR:  must be owner of table users
+psql:supabase-backup-20251117-110920.sql:10692: ERROR:  must be owner of table users
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+psql:supabase-backup-20251117-110920.sql:11140: ERROR:  must be owner of table subscription
+psql:supabase-backup-20251117-110920.sql:11147: ERROR:  relation "messages_inserted_at_topic_index" already exists
+psql:supabase-backup-20251117-110920.sql:11154: ERROR:  must be owner of table subscription
+psql:supabase-backup-20251117-110920.sql:11161: ERROR:  must be owner of table buckets
+psql:supabase-backup-20251117-110920.sql:11168: ERROR:  must be owner of table objects
+psql:supabase-backup-20251117-110920.sql:11175: ERROR:  must be owner of table s3_multipart_uploads
+psql:supabase-backup-20251117-110920.sql:11182: ERROR:  must be owner of table objects
+psql:supabase-backup-20251117-110920.sql:11189: ERROR:  must be owner of table objects
+psql:supabase-backup-20251117-110920.sql:11196: ERROR:  must be owner of table objects
+psql:supabase-backup-20251117-110920.sql:11203: ERROR:  must be owner of table prefixes
+psql:supabase-backup-20251117-110920.sql:11210: ERROR:  must be owner of table objects
+psql:supabase-backup-20251117-110920.sql:11217: ERROR:  must be owner of table objects
+psql:supabase-backup-20251117-110920.sql:11224: ERROR:  trigger "tr_check_filters" for relation "subscription" already exists
+psql:supabase-backup-20251117-110920.sql:11231: ERROR:  trigger "enforce_bucket_name_length_trigger" for relation "buckets" already exists
+psql:supabase-backup-20251117-110920.sql:11238: ERROR:  trigger "objects_delete_delete_prefix" for relation "objects" already exists
+psql:supabase-backup-20251117-110920.sql:11245: ERROR:  trigger "objects_insert_create_prefix" for relation "objects" already exists
+psql:supabase-backup-20251117-110920.sql:11252: ERROR:  trigger "objects_update_create_prefix" for relation "objects" already exists
+psql:supabase-backup-20251117-110920.sql:11259: ERROR:  trigger "prefixes_create_hierarchy" for relation "prefixes" already exists
+psql:supabase-backup-20251117-110920.sql:11266: ERROR:  trigger "prefixes_delete_hierarchy" for relation "prefixes" already exists
+psql:supabase-backup-20251117-110920.sql:11273: ERROR:  trigger "update_objects_updated_at" for relation "objects" already exists
+psql:supabase-backup-20251117-110920.sql:11281: ERROR:  must be owner of table identities
+psql:supabase-backup-20251117-110920.sql:11289: ERROR:  must be owner of table mfa_amr_claims
+psql:supabase-backup-20251117-110920.sql:11297: ERROR:  must be owner of table mfa_challenges
+psql:supabase-backup-20251117-110920.sql:11305: ERROR:  must be owner of table mfa_factors
+psql:supabase-backup-20251117-110920.sql:11313: ERROR:  must be owner of table oauth_authorizations
+psql:supabase-backup-20251117-110920.sql:11321: ERROR:  must be owner of table oauth_authorizations
+psql:supabase-backup-20251117-110920.sql:11329: ERROR:  must be owner of table oauth_consents
+psql:supabase-backup-20251117-110920.sql:11337: ERROR:  must be owner of table oauth_consents
+psql:supabase-backup-20251117-110920.sql:11345: ERROR:  must be owner of table one_time_tokens
+psql:supabase-backup-20251117-110920.sql:11353: ERROR:  must be owner of table refresh_tokens
+psql:supabase-backup-20251117-110920.sql:11361: ERROR:  must be owner of table saml_providers
+psql:supabase-backup-20251117-110920.sql:11369: ERROR:  must be owner of table saml_relay_states
+psql:supabase-backup-20251117-110920.sql:11377: ERROR:  must be owner of table saml_relay_states
+psql:supabase-backup-20251117-110920.sql:11385: ERROR:  must be owner of table sessions
+psql:supabase-backup-20251117-110920.sql:11393: ERROR:  must be owner of table sessions
+psql:supabase-backup-20251117-110920.sql:11401: ERROR:  must be owner of table sso_domains
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+psql:supabase-backup-20251117-110920.sql:11721: ERROR:  must be owner of table objects
+psql:supabase-backup-20251117-110920.sql:11729: ERROR:  must be owner of table prefixes
+psql:supabase-backup-20251117-110920.sql:11737: ERROR:  must be owner of table s3_multipart_uploads
+psql:supabase-backup-20251117-110920.sql:11745: ERROR:  must be owner of table s3_multipart_uploads_parts
+psql:supabase-backup-20251117-110920.sql:11753: ERROR:  must be owner of table s3_multipart_uploads_parts
+psql:supabase-backup-20251117-110920.sql:11760: ERROR:  must be owner of table audit_log_entries
+psql:supabase-backup-20251117-110920.sql:11766: ERROR:  must be owner of table flow_state
+psql:supabase-backup-20251117-110920.sql:11772: ERROR:  must be owner of table identities
+psql:supabase-backup-20251117-110920.sql:11778: ERROR:  must be owner of table instances
+psql:supabase-backup-20251117-110920.sql:11784: ERROR:  must be owner of table mfa_amr_claims
+psql:supabase-backup-20251117-110920.sql:11790: ERROR:  must be owner of table mfa_challenges
+psql:supabase-backup-20251117-110920.sql:11796: ERROR:  must be owner of table mfa_factors
+psql:supabase-backup-20251117-110920.sql:11802: ERROR:  must be owner of table one_time_tokens
+psql:supabase-backup-20251117-110920.sql:11808: ERROR:  must be owner of table refresh_tokens
+psql:supabase-backup-20251117-110920.sql:11814: ERROR:  must be owner of table saml_providers
+psql:supabase-backup-20251117-110920.sql:11820: ERROR:  must be owner of table saml_relay_states
+psql:supabase-backup-20251117-110920.sql:11826: ERROR:  must be owner of table schema_migrations
+psql:supabase-backup-20251117-110920.sql:11832: ERROR:  must be owner of table sessions
+psql:supabase-backup-20251117-110920.sql:11838: ERROR:  must be owner of table sso_domains
+psql:supabase-backup-20251117-110920.sql:11844: ERROR:  must be owner of table sso_providers
+psql:supabase-backup-20251117-110920.sql:11850: ERROR:  must be owner of table users
+ALTER TABLE
+psql:supabase-backup-20251117-110920.sql:11862: ERROR:  must be owner of table buckets
+psql:supabase-backup-20251117-110920.sql:11868: ERROR:  must be owner of table buckets_analytics
+psql:supabase-backup-20251117-110920.sql:11874: ERROR:  must be owner of table migrations
+psql:supabase-backup-20251117-110920.sql:11880: ERROR:  must be owner of table objects
+psql:supabase-backup-20251117-110920.sql:11886: ERROR:  must be owner of table prefixes
+psql:supabase-backup-20251117-110920.sql:11892: ERROR:  must be owner of table s3_multipart_uploads
+psql:supabase-backup-20251117-110920.sql:11898: ERROR:  must be owner of table s3_multipart_uploads_parts
+psql:supabase-backup-20251117-110920.sql:11904: ERROR:  publication "supabase_realtime" already exists
+ALTER PUBLICATION
+psql:supabase-backup-20251117-110920.sql:11913: WARNING:  no privileges were granted for "auth"
+GRANT
+psql:supabase-backup-20251117-110920.sql:11914: WARNING:  no privileges were granted for "auth"
+GRANT
+psql:supabase-backup-20251117-110920.sql:11915: WARNING:  no privileges were granted for "auth"
+GRANT
+psql:supabase-backup-20251117-110920.sql:11916: WARNING:  no privileges were granted for "auth"
+GRANT
+psql:supabase-backup-20251117-110920.sql:11917: WARNING:  no privileges were granted for "auth"
+GRANT
+psql:supabase-backup-20251117-110920.sql:11918: WARNING:  no privileges were granted for "auth"
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+REVOKE
+psql:supabase-backup-20251117-110920.sql:11942: WARNING:  no privileges were granted for "realtime"
+GRANT
+psql:supabase-backup-20251117-110920.sql:11943: WARNING:  no privileges were granted for "realtime"
+GRANT
+psql:supabase-backup-20251117-110920.sql:11944: WARNING:  no privileges were granted for "realtime"
+GRANT
+psql:supabase-backup-20251117-110920.sql:11945: WARNING:  no privileges were granted for "realtime"
+GRANT
+psql:supabase-backup-20251117-110920.sql:11946: WARNING:  no privileges were granted for "realtime"
+GRANT
+psql:supabase-backup-20251117-110920.sql:11953: ERROR:  grant options cannot be granted back to your own grantor
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+psql:supabase-backup-20251117-110920.sql:11965: ERROR:  grant options cannot be granted back to your own grantor
+GRANT
+psql:supabase-backup-20251117-110920.sql:11973: WARNING:  no privileges were granted for "email"
+GRANT
+psql:supabase-backup-20251117-110920.sql:11980: WARNING:  no privileges were granted for "jwt"
+GRANT
+psql:supabase-backup-20251117-110920.sql:11981: WARNING:  no privileges were granted for "jwt"
+GRANT
+psql:supabase-backup-20251117-110920.sql:11988: WARNING:  no privileges were granted for "role"
+GRANT
+psql:supabase-backup-20251117-110920.sql:11995: WARNING:  no privileges were granted for "uid"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12002: WARNING:  no privileges could be revoked for "armor"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12003: WARNING:  no privileges were granted for "armor"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12004: WARNING:  no privileges were granted for "armor"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12011: WARNING:  no privileges could be revoked for "armor"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12012: WARNING:  no privileges were granted for "armor"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12013: WARNING:  no privileges were granted for "armor"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12020: WARNING:  no privileges could be revoked for "crypt"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12021: WARNING:  no privileges were granted for "crypt"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12022: WARNING:  no privileges were granted for "crypt"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12029: WARNING:  no privileges could be revoked for "dearmor"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12030: WARNING:  no privileges were granted for "dearmor"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12031: WARNING:  no privileges were granted for "dearmor"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12038: WARNING:  no privileges could be revoked for "decrypt"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12039: WARNING:  no privileges were granted for "decrypt"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12040: WARNING:  no privileges were granted for "decrypt"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12047: WARNING:  no privileges could be revoked for "decrypt_iv"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12048: WARNING:  no privileges were granted for "decrypt_iv"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12049: WARNING:  no privileges were granted for "decrypt_iv"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12056: WARNING:  no privileges could be revoked for "digest"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12057: WARNING:  no privileges were granted for "digest"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12058: WARNING:  no privileges were granted for "digest"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12065: WARNING:  no privileges could be revoked for "digest"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12066: WARNING:  no privileges were granted for "digest"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12067: WARNING:  no privileges were granted for "digest"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12074: WARNING:  no privileges could be revoked for "encrypt"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12075: WARNING:  no privileges were granted for "encrypt"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12076: WARNING:  no privileges were granted for "encrypt"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12083: WARNING:  no privileges could be revoked for "encrypt_iv"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12084: WARNING:  no privileges were granted for "encrypt_iv"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12085: WARNING:  no privileges were granted for "encrypt_iv"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12092: WARNING:  no privileges could be revoked for "gen_random_bytes"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12093: WARNING:  no privileges were granted for "gen_random_bytes"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12094: WARNING:  no privileges were granted for "gen_random_bytes"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12101: WARNING:  no privileges could be revoked for "gen_random_uuid"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12102: WARNING:  no privileges were granted for "gen_random_uuid"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12103: WARNING:  no privileges were granted for "gen_random_uuid"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12110: WARNING:  no privileges could be revoked for "gen_salt"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12111: WARNING:  no privileges were granted for "gen_salt"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12112: WARNING:  no privileges were granted for "gen_salt"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12119: WARNING:  no privileges could be revoked for "gen_salt"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12120: WARNING:  no privileges were granted for "gen_salt"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12121: WARNING:  no privileges were granted for "gen_salt"
+GRANT
+REVOKE
+GRANT
+GRANT
+GRANT
+REVOKE
+GRANT
+GRANT
+psql:supabase-backup-20251117-110920.sql:12153: WARNING:  no privileges could be revoked for "hmac"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12154: WARNING:  no privileges were granted for "hmac"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12155: WARNING:  no privileges were granted for "hmac"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12162: WARNING:  no privileges could be revoked for "hmac"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12163: WARNING:  no privileges were granted for "hmac"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12164: WARNING:  no privileges were granted for "hmac"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12171: ERROR:  function extensions.pg_stat_statements(boolean) does not exist
+psql:supabase-backup-20251117-110920.sql:12172: ERROR:  function extensions.pg_stat_statements(boolean) does not exist
+psql:supabase-backup-20251117-110920.sql:12173: ERROR:  function extensions.pg_stat_statements(boolean) does not exist
+psql:supabase-backup-20251117-110920.sql:12180: ERROR:  function extensions.pg_stat_statements_info() does not exist
+psql:supabase-backup-20251117-110920.sql:12181: ERROR:  function extensions.pg_stat_statements_info() does not exist
+psql:supabase-backup-20251117-110920.sql:12182: ERROR:  function extensions.pg_stat_statements_info() does not exist
+psql:supabase-backup-20251117-110920.sql:12189: ERROR:  function extensions.pg_stat_statements_reset(oid, oid, bigint, boolean) does not exist
+psql:supabase-backup-20251117-110920.sql:12190: ERROR:  function extensions.pg_stat_statements_reset(oid, oid, bigint, boolean) does not exist
+psql:supabase-backup-20251117-110920.sql:12191: ERROR:  function extensions.pg_stat_statements_reset(oid, oid, bigint, boolean) does not exist
+psql:supabase-backup-20251117-110920.sql:12198: WARNING:  no privileges could be revoked for "pgp_armor_headers"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12199: WARNING:  no privileges were granted for "pgp_armor_headers"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12200: WARNING:  no privileges were granted for "pgp_armor_headers"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12207: WARNING:  no privileges could be revoked for "pgp_key_id"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12208: WARNING:  no privileges were granted for "pgp_key_id"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12209: WARNING:  no privileges were granted for "pgp_key_id"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12216: WARNING:  no privileges could be revoked for "pgp_pub_decrypt"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12217: WARNING:  no privileges were granted for "pgp_pub_decrypt"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12218: WARNING:  no privileges were granted for "pgp_pub_decrypt"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12225: WARNING:  no privileges could be revoked for "pgp_pub_decrypt"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12226: WARNING:  no privileges were granted for "pgp_pub_decrypt"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12227: WARNING:  no privileges were granted for "pgp_pub_decrypt"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12234: WARNING:  no privileges could be revoked for "pgp_pub_decrypt"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12235: WARNING:  no privileges were granted for "pgp_pub_decrypt"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12236: WARNING:  no privileges were granted for "pgp_pub_decrypt"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12243: WARNING:  no privileges could be revoked for "pgp_pub_decrypt_bytea"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12244: WARNING:  no privileges were granted for "pgp_pub_decrypt_bytea"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12245: WARNING:  no privileges were granted for "pgp_pub_decrypt_bytea"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12252: WARNING:  no privileges could be revoked for "pgp_pub_decrypt_bytea"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12253: WARNING:  no privileges were granted for "pgp_pub_decrypt_bytea"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12254: WARNING:  no privileges were granted for "pgp_pub_decrypt_bytea"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12261: WARNING:  no privileges could be revoked for "pgp_pub_decrypt_bytea"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12262: WARNING:  no privileges were granted for "pgp_pub_decrypt_bytea"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12263: WARNING:  no privileges were granted for "pgp_pub_decrypt_bytea"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12270: WARNING:  no privileges could be revoked for "pgp_pub_encrypt"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12271: WARNING:  no privileges were granted for "pgp_pub_encrypt"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12272: WARNING:  no privileges were granted for "pgp_pub_encrypt"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12279: WARNING:  no privileges could be revoked for "pgp_pub_encrypt"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12280: WARNING:  no privileges were granted for "pgp_pub_encrypt"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12281: WARNING:  no privileges were granted for "pgp_pub_encrypt"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12288: WARNING:  no privileges could be revoked for "pgp_pub_encrypt_bytea"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12289: WARNING:  no privileges were granted for "pgp_pub_encrypt_bytea"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12290: WARNING:  no privileges were granted for "pgp_pub_encrypt_bytea"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12297: WARNING:  no privileges could be revoked for "pgp_pub_encrypt_bytea"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12298: WARNING:  no privileges were granted for "pgp_pub_encrypt_bytea"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12299: WARNING:  no privileges were granted for "pgp_pub_encrypt_bytea"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12306: WARNING:  no privileges could be revoked for "pgp_sym_decrypt"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12307: WARNING:  no privileges were granted for "pgp_sym_decrypt"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12308: WARNING:  no privileges were granted for "pgp_sym_decrypt"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12315: WARNING:  no privileges could be revoked for "pgp_sym_decrypt"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12316: WARNING:  no privileges were granted for "pgp_sym_decrypt"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12317: WARNING:  no privileges were granted for "pgp_sym_decrypt"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12324: WARNING:  no privileges could be revoked for "pgp_sym_decrypt_bytea"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12325: WARNING:  no privileges were granted for "pgp_sym_decrypt_bytea"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12326: WARNING:  no privileges were granted for "pgp_sym_decrypt_bytea"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12333: WARNING:  no privileges could be revoked for "pgp_sym_decrypt_bytea"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12334: WARNING:  no privileges were granted for "pgp_sym_decrypt_bytea"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12335: WARNING:  no privileges were granted for "pgp_sym_decrypt_bytea"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12342: WARNING:  no privileges could be revoked for "pgp_sym_encrypt"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12343: WARNING:  no privileges were granted for "pgp_sym_encrypt"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12344: WARNING:  no privileges were granted for "pgp_sym_encrypt"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12351: WARNING:  no privileges could be revoked for "pgp_sym_encrypt"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12352: WARNING:  no privileges were granted for "pgp_sym_encrypt"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12353: WARNING:  no privileges were granted for "pgp_sym_encrypt"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12360: WARNING:  no privileges could be revoked for "pgp_sym_encrypt_bytea"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12361: WARNING:  no privileges were granted for "pgp_sym_encrypt_bytea"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12362: WARNING:  no privileges were granted for "pgp_sym_encrypt_bytea"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12369: WARNING:  no privileges could be revoked for "pgp_sym_encrypt_bytea"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12370: WARNING:  no privileges were granted for "pgp_sym_encrypt_bytea"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12371: WARNING:  no privileges were granted for "pgp_sym_encrypt_bytea"
+GRANT
+GRANT
+GRANT
+GRANT
+psql:supabase-backup-20251117-110920.sql:12399: WARNING:  no privileges could be revoked for "uuid_generate_v1"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12400: WARNING:  no privileges were granted for "uuid_generate_v1"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12401: WARNING:  no privileges were granted for "uuid_generate_v1"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12408: WARNING:  no privileges could be revoked for "uuid_generate_v1mc"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12409: WARNING:  no privileges were granted for "uuid_generate_v1mc"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12410: WARNING:  no privileges were granted for "uuid_generate_v1mc"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12417: WARNING:  no privileges could be revoked for "uuid_generate_v3"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12418: WARNING:  no privileges were granted for "uuid_generate_v3"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12419: WARNING:  no privileges were granted for "uuid_generate_v3"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12426: WARNING:  no privileges could be revoked for "uuid_generate_v4"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12427: WARNING:  no privileges were granted for "uuid_generate_v4"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12428: WARNING:  no privileges were granted for "uuid_generate_v4"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12435: WARNING:  no privileges could be revoked for "uuid_generate_v5"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12436: WARNING:  no privileges were granted for "uuid_generate_v5"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12437: WARNING:  no privileges were granted for "uuid_generate_v5"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12444: WARNING:  no privileges could be revoked for "uuid_nil"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12445: WARNING:  no privileges were granted for "uuid_nil"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12446: WARNING:  no privileges were granted for "uuid_nil"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12453: WARNING:  no privileges could be revoked for "uuid_ns_dns"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12454: WARNING:  no privileges were granted for "uuid_ns_dns"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12455: WARNING:  no privileges were granted for "uuid_ns_dns"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12462: WARNING:  no privileges could be revoked for "uuid_ns_oid"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12463: WARNING:  no privileges were granted for "uuid_ns_oid"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12464: WARNING:  no privileges were granted for "uuid_ns_oid"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12471: WARNING:  no privileges could be revoked for "uuid_ns_url"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12472: WARNING:  no privileges were granted for "uuid_ns_url"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12473: WARNING:  no privileges were granted for "uuid_ns_url"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12480: WARNING:  no privileges could be revoked for "uuid_ns_x500"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12481: WARNING:  no privileges were granted for "uuid_ns_x500"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12482: WARNING:  no privileges were granted for "uuid_ns_x500"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12489: WARNING:  no privileges were granted for "graphql"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12490: WARNING:  no privileges were granted for "graphql"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12491: WARNING:  no privileges were granted for "graphql"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12492: WARNING:  no privileges were granted for "graphql"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12499: ERROR:  grant options cannot be granted back to your own grantor
+psql:supabase-backup-20251117-110920.sql:12506: WARNING:  no privileges could be revoked for "get_auth"
+REVOKE
+psql:supabase-backup-20251117-110920.sql:12507: WARNING:  no privileges were granted for "get_auth"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12508: WARNING:  no privileges were granted for "get_auth"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12515: WARNING:  no privileges were granted for "apply_rls"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12516: WARNING:  no privileges were granted for "apply_rls"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12517: WARNING:  no privileges were granted for "apply_rls"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12518: WARNING:  no privileges were granted for "apply_rls"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12519: WARNING:  no privileges were granted for "apply_rls"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12520: WARNING:  no privileges were granted for "apply_rls"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12527: WARNING:  no privileges were granted for "broadcast_changes"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12528: WARNING:  no privileges were granted for "broadcast_changes"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12535: WARNING:  no privileges were granted for "build_prepared_statement_sql"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12536: WARNING:  no privileges were granted for "build_prepared_statement_sql"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12537: WARNING:  no privileges were granted for "build_prepared_statement_sql"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12538: WARNING:  no privileges were granted for "build_prepared_statement_sql"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12539: WARNING:  no privileges were granted for "build_prepared_statement_sql"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12540: WARNING:  no privileges were granted for "build_prepared_statement_sql"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12547: WARNING:  no privileges were granted for "cast"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12548: WARNING:  no privileges were granted for "cast"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12549: WARNING:  no privileges were granted for "cast"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12550: WARNING:  no privileges were granted for "cast"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12551: WARNING:  no privileges were granted for "cast"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12552: WARNING:  no privileges were granted for "cast"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12559: WARNING:  no privileges were granted for "check_equality_op"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12560: WARNING:  no privileges were granted for "check_equality_op"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12561: WARNING:  no privileges were granted for "check_equality_op"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12562: WARNING:  no privileges were granted for "check_equality_op"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12563: WARNING:  no privileges were granted for "check_equality_op"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12564: WARNING:  no privileges were granted for "check_equality_op"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12571: WARNING:  no privileges were granted for "is_visible_through_filters"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12572: WARNING:  no privileges were granted for "is_visible_through_filters"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12573: WARNING:  no privileges were granted for "is_visible_through_filters"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12574: WARNING:  no privileges were granted for "is_visible_through_filters"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12575: WARNING:  no privileges were granted for "is_visible_through_filters"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12576: WARNING:  no privileges were granted for "is_visible_through_filters"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12583: WARNING:  no privileges were granted for "list_changes"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12584: WARNING:  no privileges were granted for "list_changes"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12585: WARNING:  no privileges were granted for "list_changes"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12586: WARNING:  no privileges were granted for "list_changes"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12587: WARNING:  no privileges were granted for "list_changes"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12588: WARNING:  no privileges were granted for "list_changes"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12595: WARNING:  no privileges were granted for "quote_wal2json"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12596: WARNING:  no privileges were granted for "quote_wal2json"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12597: WARNING:  no privileges were granted for "quote_wal2json"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12598: WARNING:  no privileges were granted for "quote_wal2json"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12599: WARNING:  no privileges were granted for "quote_wal2json"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12600: WARNING:  no privileges were granted for "quote_wal2json"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12607: WARNING:  no privileges were granted for "send"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12608: WARNING:  no privileges were granted for "send"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12615: WARNING:  no privileges were granted for "subscription_check_filters"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12616: WARNING:  no privileges were granted for "subscription_check_filters"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12617: WARNING:  no privileges were granted for "subscription_check_filters"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12618: WARNING:  no privileges were granted for "subscription_check_filters"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12619: WARNING:  no privileges were granted for "subscription_check_filters"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12620: WARNING:  no privileges were granted for "subscription_check_filters"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12627: WARNING:  no privileges were granted for "to_regrole"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12628: WARNING:  no privileges were granted for "to_regrole"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12629: WARNING:  no privileges were granted for "to_regrole"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12630: WARNING:  no privileges were granted for "to_regrole"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12631: WARNING:  no privileges were granted for "to_regrole"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12632: WARNING:  no privileges were granted for "to_regrole"
+GRANT
+GRANT
+GRANT
+psql:supabase-backup-20251117-110920.sql:12647: ERROR:  grant options cannot be granted back to your own grantor
+GRANT
+psql:supabase-backup-20251117-110920.sql:12655: ERROR:  grant options cannot be granted back to your own grantor
+GRANT
+psql:supabase-backup-20251117-110920.sql:12663: ERROR:  grant options cannot be granted back to your own grantor
+GRANT
+GRANT
+psql:supabase-backup-20251117-110920.sql:12672: WARNING:  no privileges were granted for "audit_log_entries"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12673: ERROR:  grant options cannot be granted back to your own grantor
+psql:supabase-backup-20251117-110920.sql:12680: WARNING:  no privileges were granted for "flow_state"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12681: ERROR:  grant options cannot be granted back to your own grantor
+GRANT
+psql:supabase-backup-20251117-110920.sql:12689: WARNING:  no privileges were granted for "identities"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12690: ERROR:  grant options cannot be granted back to your own grantor
+GRANT
+GRANT
+psql:supabase-backup-20251117-110920.sql:12699: WARNING:  no privileges were granted for "instances"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12700: ERROR:  grant options cannot be granted back to your own grantor
+psql:supabase-backup-20251117-110920.sql:12707: WARNING:  no privileges were granted for "mfa_amr_claims"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12708: ERROR:  grant options cannot be granted back to your own grantor
+GRANT
+psql:supabase-backup-20251117-110920.sql:12716: WARNING:  no privileges were granted for "mfa_challenges"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12717: ERROR:  grant options cannot be granted back to your own grantor
+GRANT
+psql:supabase-backup-20251117-110920.sql:12725: WARNING:  no privileges were granted for "mfa_factors"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12726: ERROR:  grant options cannot be granted back to your own grantor
+GRANT
+psql:supabase-backup-20251117-110920.sql:12734: WARNING:  no privileges were granted for "oauth_authorizations"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12735: WARNING:  no privileges were granted for "oauth_authorizations"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12742: WARNING:  no privileges were granted for "oauth_clients"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12743: WARNING:  no privileges were granted for "oauth_clients"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12750: WARNING:  no privileges were granted for "oauth_consents"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12751: WARNING:  no privileges were granted for "oauth_consents"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12758: WARNING:  no privileges were granted for "one_time_tokens"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12759: ERROR:  grant options cannot be granted back to your own grantor
+GRANT
+GRANT
+psql:supabase-backup-20251117-110920.sql:12768: WARNING:  no privileges were granted for "refresh_tokens"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12769: ERROR:  grant options cannot be granted back to your own grantor
+psql:supabase-backup-20251117-110920.sql:12776: WARNING:  no privileges were granted for "refresh_tokens_id_seq"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12777: WARNING:  no privileges were granted for "refresh_tokens_id_seq"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12784: WARNING:  no privileges were granted for "saml_providers"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12785: ERROR:  grant options cannot be granted back to your own grantor
+GRANT
+psql:supabase-backup-20251117-110920.sql:12793: WARNING:  no privileges were granted for "saml_relay_states"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12794: ERROR:  grant options cannot be granted back to your own grantor
+GRANT
+psql:supabase-backup-20251117-110920.sql:12802: ERROR:  grant options cannot be granted back to your own grantor
+psql:supabase-backup-20251117-110920.sql:12809: WARNING:  no privileges were granted for "sessions"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12810: ERROR:  grant options cannot be granted back to your own grantor
+GRANT
+psql:supabase-backup-20251117-110920.sql:12818: WARNING:  no privileges were granted for "sso_domains"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12819: ERROR:  grant options cannot be granted back to your own grantor
+GRANT
+psql:supabase-backup-20251117-110920.sql:12827: WARNING:  no privileges were granted for "sso_providers"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12828: ERROR:  grant options cannot be granted back to your own grantor
+GRANT
+GRANT
+psql:supabase-backup-20251117-110920.sql:12837: WARNING:  no privileges were granted for "users"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12838: ERROR:  grant options cannot be granted back to your own grantor
+psql:supabase-backup-20251117-110920.sql:12845: ERROR:  relation "extensions.pg_stat_statements" does not exist
+psql:supabase-backup-20251117-110920.sql:12846: ERROR:  relation "extensions.pg_stat_statements" does not exist
+psql:supabase-backup-20251117-110920.sql:12847: ERROR:  relation "extensions.pg_stat_statements" does not exist
+psql:supabase-backup-20251117-110920.sql:12854: ERROR:  relation "extensions.pg_stat_statements_info" does not exist
+psql:supabase-backup-20251117-110920.sql:12855: ERROR:  relation "extensions.pg_stat_statements_info" does not exist
+psql:supabase-backup-20251117-110920.sql:12856: ERROR:  relation "extensions.pg_stat_statements_info" does not exist
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+psql:supabase-backup-20251117-110920.sql:12874: WARNING:  no privileges were granted for "schema_migrations"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12875: WARNING:  no privileges were granted for "schema_migrations"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12876: WARNING:  no privileges were granted for "schema_migrations"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12877: WARNING:  no privileges were granted for "schema_migrations"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12878: WARNING:  no privileges were granted for "schema_migrations"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12879: WARNING:  no privileges were granted for "schema_migrations"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12886: WARNING:  no privileges were granted for "subscription"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12887: WARNING:  no privileges were granted for "subscription"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12888: WARNING:  no privileges were granted for "subscription"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12889: WARNING:  no privileges were granted for "subscription"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12890: WARNING:  no privileges were granted for "subscription"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12891: WARNING:  no privileges were granted for "subscription"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12898: WARNING:  no privileges were granted for "subscription_id_seq"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12899: WARNING:  no privileges were granted for "subscription_id_seq"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12900: WARNING:  no privileges were granted for "subscription_id_seq"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12901: WARNING:  no privileges were granted for "subscription_id_seq"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12902: WARNING:  no privileges were granted for "subscription_id_seq"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12903: WARNING:  no privileges were granted for "subscription_id_seq"
+GRANT
+GRANT
+GRANT
+GRANT
+psql:supabase-backup-20251117-110920.sql:12913: ERROR:  grant options cannot be granted back to your own grantor
+psql:supabase-backup-20251117-110920.sql:12920: WARNING:  no privileges were granted for "buckets_analytics"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12921: WARNING:  no privileges were granted for "buckets_analytics"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12922: WARNING:  no privileges were granted for "buckets_analytics"
+GRANT
+GRANT
+GRANT
+GRANT
+psql:supabase-backup-20251117-110920.sql:12932: ERROR:  grant options cannot be granted back to your own grantor
+psql:supabase-backup-20251117-110920.sql:12939: WARNING:  no privileges were granted for "prefixes"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12940: WARNING:  no privileges were granted for "prefixes"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12941: WARNING:  no privileges were granted for "prefixes"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12948: WARNING:  no privileges were granted for "s3_multipart_uploads"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12949: WARNING:  no privileges were granted for "s3_multipart_uploads"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12950: WARNING:  no privileges were granted for "s3_multipart_uploads"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12957: WARNING:  no privileges were granted for "s3_multipart_uploads_parts"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12958: WARNING:  no privileges were granted for "s3_multipart_uploads_parts"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12959: WARNING:  no privileges were granted for "s3_multipart_uploads_parts"
+GRANT
+psql:supabase-backup-20251117-110920.sql:12966: ERROR:  grant options cannot be granted back to your own grantor
+GRANT
+psql:supabase-backup-20251117-110920.sql:12974: ERROR:  grant options cannot be granted back to your own grantor
+GRANT
+psql:supabase-backup-20251117-110920.sql:12982: ERROR:  permission denied to change default privileges
+psql:supabase-backup-20251117-110920.sql:12983: ERROR:  permission denied to change default privileges
+psql:supabase-backup-20251117-110920.sql:12990: ERROR:  permission denied to change default privileges
+psql:supabase-backup-20251117-110920.sql:12991: ERROR:  permission denied to change default privileges
+psql:supabase-backup-20251117-110920.sql:12998: ERROR:  permission denied to change default privileges
+psql:supabase-backup-20251117-110920.sql:12999: ERROR:  permission denied to change default privileges
+psql:supabase-backup-20251117-110920.sql:13006: ERROR:  permission denied to change default privileges
+psql:supabase-backup-20251117-110920.sql:13013: ERROR:  permission denied to change default privileges
+psql:supabase-backup-20251117-110920.sql:13020: ERROR:  permission denied to change default privileges
+psql:supabase-backup-20251117-110920.sql:13027: ERROR:  permission denied to change default privileges
+psql:supabase-backup-20251117-110920.sql:13028: ERROR:  permission denied to change default privileges
+psql:supabase-backup-20251117-110920.sql:13029: ERROR:  permission denied to change default privileges
+psql:supabase-backup-20251117-110920.sql:13030: ERROR:  permission denied to change default privileges
+psql:supabase-backup-20251117-110920.sql:13037: ERROR:  permission denied to change default privileges
+psql:supabase-backup-20251117-110920.sql:13038: ERROR:  permission denied to change default privileges
+psql:supabase-backup-20251117-110920.sql:13039: ERROR:  permission denied to change default privileges
+psql:supabase-backup-20251117-110920.sql:13040: ERROR:  permission denied to change default privileges
+psql:supabase-backup-20251117-110920.sql:13047: ERROR:  permission denied to change default privileges
+psql:supabase-backup-20251117-110920.sql:13048: ERROR:  permission denied to change default privileges
+psql:supabase-backup-20251117-110920.sql:13049: ERROR:  permission denied to change default privileges
+psql:supabase-backup-20251117-110920.sql:13050: ERROR:  permission denied to change default privileges
+psql:supabase-backup-20251117-110920.sql:13057: ERROR:  permission denied to change default privileges
+psql:supabase-backup-20251117-110920.sql:13058: ERROR:  permission denied to change default privileges
+psql:supabase-backup-20251117-110920.sql:13059: ERROR:  permission denied to change default privileges
+psql:supabase-backup-20251117-110920.sql:13060: ERROR:  permission denied to change default privileges
+psql:supabase-backup-20251117-110920.sql:13067: ERROR:  permission denied to change default privileges
+psql:supabase-backup-20251117-110920.sql:13068: ERROR:  permission denied to change default privileges
+psql:supabase-backup-20251117-110920.sql:13069: ERROR:  permission denied to change default privileges
+psql:supabase-backup-20251117-110920.sql:13070: ERROR:  permission denied to change default privileges
+psql:supabase-backup-20251117-110920.sql:13077: ERROR:  permission denied to change default privileges
+psql:supabase-backup-20251117-110920.sql:13078: ERROR:  permission denied to change default privileges
+psql:supabase-backup-20251117-110920.sql:13079: ERROR:  permission denied to change default privileges
+psql:supabase-backup-20251117-110920.sql:13080: ERROR:  permission denied to change default privileges
+psql:supabase-backup-20251117-110920.sql:13087: ERROR:  permission denied to change default privileges
+psql:supabase-backup-20251117-110920.sql:13088: ERROR:  permission denied to change default privileges
+psql:supabase-backup-20251117-110920.sql:13095: ERROR:  permission denied to change default privileges
+psql:supabase-backup-20251117-110920.sql:13096: ERROR:  permission denied to change default privileges
+psql:supabase-backup-20251117-110920.sql:13103: ERROR:  permission denied to change default privileges
+psql:supabase-backup-20251117-110920.sql:13104: ERROR:  permission denied to change default privileges
+ALTER DEFAULT PRIVILEGES
+ALTER DEFAULT PRIVILEGES
+ALTER DEFAULT PRIVILEGES
+ALTER DEFAULT PRIVILEGES
+ALTER DEFAULT PRIVILEGES
+ALTER DEFAULT PRIVILEGES
+ALTER DEFAULT PRIVILEGES
+ALTER DEFAULT PRIVILEGES
+ALTER DEFAULT PRIVILEGES
+ALTER DEFAULT PRIVILEGES
+ALTER DEFAULT PRIVILEGES
+ALTER DEFAULT PRIVILEGES
+psql:supabase-backup-20251117-110920.sql:13143: ERROR:  permission denied to create event trigger "issue_graphql_placeholder"
+HINT:  Must be superuser to create an event trigger.
+psql:supabase-backup-20251117-110920.sql:13146: ERROR:  event trigger "issue_graphql_placeholder" does not exist
+psql:supabase-backup-20251117-110920.sql:13154: ERROR:  permission denied to create event trigger "issue_pg_cron_access"
+HINT:  Must be superuser to create an event trigger.
+psql:supabase-backup-20251117-110920.sql:13157: ERROR:  event trigger "issue_pg_cron_access" does not exist
+psql:supabase-backup-20251117-110920.sql:13165: ERROR:  permission denied to create event trigger "issue_pg_graphql_access"
+HINT:  Must be superuser to create an event trigger.
+psql:supabase-backup-20251117-110920.sql:13168: ERROR:  event trigger "issue_pg_graphql_access" does not exist
+psql:supabase-backup-20251117-110920.sql:13176: ERROR:  permission denied to create event trigger "issue_pg_net_access"
+HINT:  Must be superuser to create an event trigger.
+psql:supabase-backup-20251117-110920.sql:13179: ERROR:  event trigger "issue_pg_net_access" does not exist
+psql:supabase-backup-20251117-110920.sql:13186: ERROR:  permission denied to create event trigger "pgrst_ddl_watch"
+HINT:  Must be superuser to create an event trigger.
+psql:supabase-backup-20251117-110920.sql:13189: ERROR:  event trigger "pgrst_ddl_watch" does not exist
+psql:supabase-backup-20251117-110920.sql:13196: ERROR:  permission denied to create event trigger "pgrst_drop_watch"
+HINT:  Must be superuser to create an event trigger.
+psql:supabase-backup-20251117-110920.sql:13199: ERROR:  event trigger "pgrst_drop_watch" does not exist

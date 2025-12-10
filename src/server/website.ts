@@ -29,6 +29,8 @@ import {
   builderConfigSchema,
   builderVersionHistorySchema,
   createDefaultBuilderConfig,
+  createSectionTemplate,
+  type BuilderSectionType,
   type WebsiteBuilderConfig,
   type WebsiteBuilderVersionEntry,
 } from "@/lib/website/builder";
@@ -1017,6 +1019,34 @@ function buildDefaultBuilderOptions(website: WebsiteConfig) {
   };
 }
 
+function ensureTemplateSections(
+  config: WebsiteBuilderConfig,
+  website: WebsiteConfig,
+): WebsiteBuilderConfig {
+  if (website.templateKey !== "ecommerce-luxe") {
+    return config;
+  }
+  const required: BuilderSectionType[] = [
+    "hero",
+    "categories",
+    "products",
+    "promo",
+    "newsletter",
+    "about",
+    "contact",
+  ];
+  const existing = new Set(config.sections.map((section) => section.type));
+  const missing = required.filter((type) => !existing.has(type));
+  if (!missing.length) {
+    return config;
+  }
+  const injectedSections = missing.map((type) => createSectionTemplate(type));
+  return {
+    ...config,
+    sections: [...config.sections, ...injectedSections],
+  };
+}
+
 function resolveBuilderConfigFromWebsite(
   website: WebsiteConfig,
 ) {
@@ -1028,7 +1058,8 @@ function resolveBuilderConfigFromWebsite(
     : createDefaultBuilderConfig(
       buildDefaultBuilderOptions(website),
     );
-  return applyThemeFallbacks(base, website.accentColor);
+  const withTemplateDefaults = ensureTemplateSections(base, website);
+  return applyThemeFallbacks(withTemplateDefaults, website.accentColor);
 }
 
 function resolveBuilderHistoryFromWebsite(

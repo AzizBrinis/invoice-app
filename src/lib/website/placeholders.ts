@@ -6,6 +6,20 @@ export const WEBSITE_MEDIA_PLACEHOLDERS = {
     "/images/placeholders/gallery-nova.svg",
     "/images/placeholders/gallery-atlas.svg",
   ],
+  products: [
+    "/images/placeholders/gallery-aurora.svg",
+    "/images/placeholders/gallery-nova.svg",
+    "/images/placeholders/gallery-atlas.svg",
+  ],
+  categories: [
+    "/images/placeholders/workspace-grid.svg",
+    "/images/placeholders/hero-collage.svg",
+    "/images/placeholders/gallery-aurora.svg",
+  ],
+  promos: [
+    "/images/placeholders/hero-collage.svg",
+    "/images/placeholders/workspace-grid.svg",
+  ],
   team: [
     "/images/placeholders/portrait-1.svg",
     "/images/placeholders/portrait-2.svg",

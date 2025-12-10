@@ -110,15 +110,21 @@
 
 @layer components {
   .mail-detail-body {
+    display: block;
+    width: 100%;
+    max-width: 100%;
     overflow-wrap: anywhere;
     word-break: break-word;
     overflow-x: hidden;
+    --mail-detail-quote-indent: 1rem;
   }
 
   .mail-detail-body * {
     max-width: 100%;
-    min-width: 0;
+    min-width: 0 !important;
     box-sizing: border-box;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 
   .mail-detail-body :where(p, span, div, li, td, th, a, strong, em, b, i) {
@@ -157,18 +163,553 @@
   }
 
   .mail-detail-body blockquote {
-    @apply border-l-4 border-zinc-200 pl-4 text-zinc-700 dark:border-zinc-700 dark:text-zinc-300;
+    @apply border-l-4 border-zinc-200 text-zinc-700 dark:border-zinc-700 dark:text-zinc-300;
     margin-left: 0;
     margin-right: 0;
+    padding-left: var(--mail-detail-quote-indent);
+  }
+
+  .mail-detail-body blockquote blockquote {
+    margin-left: calc(var(--mail-detail-quote-indent) * -1);
+  }
+
+  .mail-detail-body .gmail_quote,
+  .mail-detail-body .yahoo_quoted,
+  .mail-detail-body .moz-forward-container,
+  .mail-detail-body .moz-signature {
+    @apply border-l-4 border-zinc-200 dark:border-zinc-700;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    padding-left: var(--mail-detail-quote-indent) !important;
+    display: block;
+  }
+
+  .mail-detail-body .gmail_quote .gmail_quote,
+  .mail-detail-body .yahoo_quoted .yahoo_quoted,
+  .mail-detail-body .moz-forward-container .moz-forward-container {
+    margin-left: calc(var(--mail-detail-quote-indent) * -1);
+  }
+
+  @media (max-width: 768px) {
+    .mail-detail-body [style*="margin-left" i] {
+      margin-left: 0 !important;
+    }
+
+    .mail-detail-body [style*="margin-right" i] {
+      margin-right: 0 !important;
+    }
+
+    .mail-detail-body [style*="margin-left:auto" i] {
+      margin-left: auto !important;
+    }
+
+    .mail-detail-body [style*="margin-right:auto" i] {
+      margin-right: auto !important;
+    }
   }
 
   .mail-detail-body ul,
   .mail-detail-body ol {
     padding-left: 1.25rem;
   }
+
+  .dark .mail-detail-body {
+    color: #f4f4f5;
+    color-scheme: dark;
+  }
+
+  .dark
+    .mail-detail-body
+    :is(
+      p,
+      span,
+      div,
+      li,
+      td,
+      th,
+      a,
+      strong,
+      em,
+      b,
+      i,
+      u,
+      s,
+      font,
+      label,
+      small
+    )[style*="color:#000" i],
+  .dark
+    .mail-detail-body
+    :is(
+      p,
+      span,
+      div,
+      li,
+      td,
+      th,
+      a,
+      strong,
+      em,
+      b,
+      i,
+      u,
+      s,
+      font,
+      label,
+      small
+    )[style*="color: #000" i],
+  .dark
+    .mail-detail-body
+    :is(
+      p,
+      span,
+      div,
+      li,
+      td,
+      th,
+      a,
+      strong,
+      em,
+      b,
+      i,
+      u,
+      s,
+      font,
+      label,
+      small
+    )[style*="color:black" i],
+  .dark
+    .mail-detail-body
+    :is(
+      p,
+      span,
+      div,
+      li,
+      td,
+      th,
+      a,
+      strong,
+      em,
+      b,
+      i,
+      u,
+      s,
+      font,
+      label,
+      small
+    )[style*="color: black" i],
+  .dark
+    .mail-detail-body
+    :is(
+      p,
+      span,
+      div,
+      li,
+      td,
+      th,
+      a,
+      strong,
+      em,
+      b,
+      i,
+      u,
+      s,
+      font,
+      label,
+      small
+    )[style*="color:#010101" i],
+  .dark
+    .mail-detail-body
+    :is(
+      p,
+      span,
+      div,
+      li,
+      td,
+      th,
+      a,
+      strong,
+      em,
+      b,
+      i,
+      u,
+      s,
+      font,
+      label,
+      small
+    )[style*="color:#111" i],
+  .dark
+    .mail-detail-body
+    :is(
+      p,
+      span,
+      div,
+      li,
+      td,
+      th,
+      a,
+      strong,
+      em,
+      b,
+      i,
+      u,
+      s,
+      font,
+      label,
+      small
+    )[style*="color:#111111" i],
+  .dark
+    .mail-detail-body
+    :is(
+      p,
+      span,
+      div,
+      li,
+      td,
+      th,
+      a,
+      strong,
+      em,
+      b,
+      i,
+      u,
+      s,
+      font,
+      label,
+      small
+    )[style*="color:#1a1a1a" i],
+  .dark
+    .mail-detail-body
+    :is(
+      p,
+      span,
+      div,
+      li,
+      td,
+      th,
+      a,
+      strong,
+      em,
+      b,
+      i,
+      u,
+      s,
+      font,
+      label,
+      small
+    )[style*="color:#222" i],
+  .dark
+    .mail-detail-body
+    :is(
+      p,
+      span,
+      div,
+      li,
+      td,
+      th,
+      a,
+      strong,
+      em,
+      b,
+      i,
+      u,
+      s,
+      font,
+      label,
+      small
+    )[style*="color:#222222" i],
+  .dark
+    .mail-detail-body
+    :is(
+      p,
+      span,
+      div,
+      li,
+      td,
+      th,
+      a,
+      strong,
+      em,
+      b,
+      i,
+      u,
+      s,
+      font,
+      label,
+      small
+    )[style*="color:#333" i],
+  .dark
+    .mail-detail-body
+    :is(
+      p,
+      span,
+      div,
+      li,
+      td,
+      th,
+      a,
+      strong,
+      em,
+      b,
+      i,
+      u,
+      s,
+      font,
+      label,
+      small
+    )[style*="color:#333333" i],
+  .dark
+    .mail-detail-body
+    :is(
+      p,
+      span,
+      div,
+      li,
+      td,
+      th,
+      a,
+      strong,
+      em,
+      b,
+      i,
+      u,
+      s,
+      font,
+      label,
+      small
+    )[style*="color:#3a3a3a" i],
+  .dark
+    .mail-detail-body
+    :is(
+      p,
+      span,
+      div,
+      li,
+      td,
+      th,
+      a,
+      strong,
+      em,
+      b,
+      i,
+      u,
+      s,
+      font,
+      label,
+      small
+    )[style*="color:rgb(0,0,0" i],
+  .dark
+    .mail-detail-body
+    :is(
+      p,
+      span,
+      div,
+      li,
+      td,
+      th,
+      a,
+      strong,
+      em,
+      b,
+      i,
+      u,
+      s,
+      font,
+      label,
+      small
+    )[style*="color: rgb(0, 0, 0" i],
+  .dark
+    .mail-detail-body
+    :is(
+      p,
+      span,
+      div,
+      li,
+      td,
+      th,
+      a,
+      strong,
+      em,
+      b,
+      i,
+      u,
+      s,
+      font,
+      label,
+      small
+    )[style*="color:rgba(0,0,0" i],
+  .dark
+    .mail-detail-body
+    :is(
+      p,
+      span,
+      div,
+      li,
+      td,
+      th,
+      a,
+      strong,
+      em,
+      b,
+      i,
+      u,
+      s,
+      font,
+      label,
+      small
+    )[style*="color: rgba(0, 0, 0" i],
+  .dark
+    .mail-detail-body
+    :is(
+      p,
+      span,
+      div,
+      li,
+      td,
+      th,
+      a,
+      strong,
+      em,
+      b,
+      i,
+      u,
+      s,
+      font,
+      label,
+      small
+    )[style*="color:rgb(17,17,17" i],
+  .dark
+    .mail-detail-body
+    :is(
+      p,
+      span,
+      div,
+      li,
+      td,
+      th,
+      a,
+      strong,
+      em,
+      b,
+      i,
+      u,
+      s,
+      font,
+      label,
+      small
+    )[style*="color: rgb(17, 17, 17" i],
+  .dark
+    .mail-detail-body
+    :is(
+      p,
+      span,
+      div,
+      li,
+      td,
+      th,
+      a,
+      strong,
+      em,
+      b,
+      i,
+      u,
+      s,
+      font,
+      label,
+      small
+    )[style*="color:rgb(34,34,34" i],
+  .dark
+    .mail-detail-body
+    :is(
+      p,
+      span,
+      div,
+      li,
+      td,
+      th,
+      a,
+      strong,
+      em,
+      b,
+      i,
+      u,
+      s,
+      font,
+      label,
+      small
+    )[style*="color: rgb(34, 34, 34" i],
+  .dark
+    .mail-detail-body
+    :is(
+      p,
+      span,
+      div,
+      li,
+      td,
+      th,
+      a,
+      strong,
+      em,
+      b,
+      i,
+      u,
+      s,
+      font,
+      label,
+      small
+    )[style*="color:rgb(51,51,51" i],
+  .dark
+    .mail-detail-body
+    :is(
+      p,
+      span,
+      div,
+      li,
+      td,
+      th,
+      a,
+      strong,
+      em,
+      b,
+      i,
+      u,
+      s,
+      font,
+      label,
+      small
+    )[style*="color: rgb(51, 51, 51" i] {
+    color: #f4f4f5 !important;
+  }
+
+  .dark .mail-detail-body font[color="#000" i],
+  .dark .mail-detail-body font[color="#000000" i],
+  .dark .mail-detail-body font[color="black" i],
+  .dark .mail-detail-body font[color="#111" i],
+  .dark .mail-detail-body font[color="#111111" i],
+  .dark .mail-detail-body font[color="#222" i],
+  .dark .mail-detail-body font[color="#222222" i],
+  .dark .mail-detail-body font[color="#333" i],
+  .dark .mail-detail-body font[color="#333333" i] {
+    color: #f4f4f5 !important;
+  }
 }
 
 @layer utilities {
+  @keyframes chat-bubble-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .animate-chat-in {
+    animation: chat-bubble-in 0.35s ease forwards;
+  }
+
   .card {
     @apply rounded-xl border border-zinc-200 bg-white shadow-sm transition-colors dark:border-zinc-800 dark:bg-zinc-900;
   }
@@ -197,5 +738,13 @@
 
   .badge {
     @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors;
+  }
+
+  .line-clamp-2 {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 }

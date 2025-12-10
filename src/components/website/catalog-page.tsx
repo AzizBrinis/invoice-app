@@ -1,5 +1,6 @@
 import type { CatalogPayload } from "@/server/website";
 import { DevAgencyTemplate } from "@/components/website/templates/dev-agency";
+import { EcommerceTemplate } from "@/components/website/templates/ecommerce";
 
 type CatalogPageProps = {
   data: CatalogPayload;
@@ -9,6 +10,7 @@ type CatalogPageProps = {
 
 const TEMPLATE_COMPONENTS = {
   "dev-agency": DevAgencyTemplate,
+  "ecommerce-luxe": EcommerceTemplate,
 } as const;
 
 export function CatalogPage(props: CatalogPageProps) {

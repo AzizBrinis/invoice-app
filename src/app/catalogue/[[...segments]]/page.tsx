@@ -31,18 +31,22 @@ async function resolvePayload(
   const pathParam = Array.isArray(pathParamRaw)
     ? pathParamRaw[0]
     : pathParamRaw;
+  const segments = params.segments ?? [];
+  const slug = segments[0];
+  const derivedPath =
+    segments.length > 1 ? `/${segments.slice(1).join("/")}` : null;
+  const resolvedPath = pathParam ?? derivedPath ?? null;
 
   if (fixedDomain) {
-    const payload = await getCatalogPayloadByDomain(fixedDomain, pathParam);
-    return { payload, path: pathParam ?? null };
+    const payload = await getCatalogPayloadByDomain(fixedDomain, resolvedPath);
+    return { payload, path: resolvedPath };
   }
 
-  const slug = params.segments?.[0];
   if (!slug) {
-    return { payload: null, path: pathParam ?? null };
+    return { payload: null, path: resolvedPath };
   }
-  const payload = await getCatalogPayloadBySlug(slug, { path: pathParam });
-  return { payload, path: pathParam ?? null };
+  const payload = await getCatalogPayloadBySlug(slug, { path: resolvedPath });
+  return { payload, path: resolvedPath };
 }
 
 export async function generateMetadata({

@@ -1,0 +1,95 @@
+SET
+SET
+SET
+SET
+SET
+SET
+ set_config 
+------------
+ 
+(1 row)
+
+SET
+SET
+SET
+SET
+psql:supabase-backup-20251117-110920.sql:24: ERROR:  schema "auth" already exists
+ALTER SCHEMA
+CREATE SCHEMA
+ALTER SCHEMA
+psql:supabase-backup-20251117-110920.sql:42: ERROR:  schema "graphql" already exists
+ALTER SCHEMA
+psql:supabase-backup-20251117-110920.sql:51: ERROR:  schema "graphql_public" already exists
+ALTER SCHEMA
+psql:supabase-backup-20251117-110920.sql:60: ERROR:  schema "pgbouncer" already exists
+ALTER SCHEMA
+psql:supabase-backup-20251117-110920.sql:72: ERROR:  schema "public" does not exist
+psql:supabase-backup-20251117-110920.sql:78: ERROR:  schema "public" does not exist
+psql:supabase-backup-20251117-110920.sql:85: ERROR:  schema "realtime" already exists
+ALTER SCHEMA
+CREATE SCHEMA
+ALTER SCHEMA
+psql:supabase-backup-20251117-110920.sql:103: ERROR:  schema "storage" already exists
+ALTER SCHEMA
+psql:supabase-backup-20251117-110920.sql:112: ERROR:  schema "vault" already exists
+ALTER SCHEMA
+CREATE EXTENSION
+COMMENT
+CREATE EXTENSION
+COMMENT
+psql:supabase-backup-20251117-110920.sql:149: ERROR:  schema "public" does not exist
+psql:supabase-backup-20251117-110920.sql:156: ERROR:  extension "pg_trgm" does not exist
+psql:supabase-backup-20251117-110920.sql:163: ERROR:  permission denied for function pg_read_file
+CONTEXT:  PL/pgSQL function inline_code_block line 1 at EXECUTE
+SQL statement "    do $_$    begin      execute replace(replace(replace(replace(            pg_read_file('/etc/postgresql-custom/extension-custom-scripts/before-create.sql')          , '@extname@', '''pgcrypto''')          , '@extschema@', '''extensions''')          , '@extversion@', 'null')          , '@extcascade@', 'false');    exception      when undefined_file then        null;    end; $_$"
+psql:supabase-backup-20251117-110920.sql:170: ERROR:  extension "pgcrypto" does not exist
+CREATE EXTENSION
+psql:supabase-backup-20251117-110920.sql:184: ERROR:  must be owner of extension supabase_vault
+CREATE EXTENSION
+COMMENT
+psql:supabase-backup-20251117-110920.sql:209: ERROR:  permission denied for schema auth
+ALTER TYPE
+psql:supabase-backup-20251117-110920.sql:221: ERROR:  permission denied for schema auth
+ALTER TYPE
+psql:supabase-backup-20251117-110920.sql:233: ERROR:  permission denied for schema auth
+ALTER TYPE
+psql:supabase-backup-20251117-110920.sql:246: ERROR:  permission denied for schema auth
+ALTER TYPE
+psql:supabase-backup-20251117-110920.sql:260: ERROR:  permission denied for schema auth
+ALTER TYPE
+psql:supabase-backup-20251117-110920.sql:272: ERROR:  permission denied for schema auth
+ALTER TYPE
+psql:supabase-backup-20251117-110920.sql:284: ERROR:  permission denied for schema auth
+ALTER TYPE
+psql:supabase-backup-20251117-110920.sql:295: ERROR:  permission denied for schema auth
+ALTER TYPE
+psql:supabase-backup-20251117-110920.sql:311: ERROR:  permission denied for schema auth
+ALTER TYPE
+psql:supabase-backup-20251117-110920.sql:327: ERROR:  schema "public" does not exist
+psql:supabase-backup-20251117-110920.sql:330: ERROR:  schema "public" does not exist
+psql:supabase-backup-20251117-110920.sql:342: ERROR:  schema "public" does not exist
+psql:supabase-backup-20251117-110920.sql:345: ERROR:  schema "public" does not exist
+psql:supabase-backup-20251117-110920.sql:355: ERROR:  schema "public" does not exist
+psql:supabase-backup-20251117-110920.sql:358: ERROR:  schema "public" does not exist
+psql:supabase-backup-20251117-110920.sql:367: ERROR:  schema "public" does not exist
+psql:supabase-backup-20251117-110920.sql:370: ERROR:  schema "public" does not exist
+psql:supabase-backup-20251117-110920.sql:380: ERROR:  schema "public" does not exist
+psql:supabase-backup-20251117-110920.sql:383: ERROR:  schema "public" does not exist
+psql:supabase-backup-20251117-110920.sql:392: ERROR:  schema "public" does not exist
+psql:supabase-backup-20251117-110920.sql:395: ERROR:  schema "public" does not exist
+psql:supabase-backup-20251117-110920.sql:408: ERROR:  schema "public" does not exist
+psql:supabase-backup-20251117-110920.sql:411: ERROR:  schema "public" does not exist
+psql:supabase-backup-20251117-110920.sql:420: ERROR:  schema "public" does not exist
+psql:supabase-backup-20251117-110920.sql:423: ERROR:  schema "public" does not exist
+psql:supabase-backup-20251117-110920.sql:432: ERROR:  schema "public" does not exist
+psql:supabase-backup-20251117-110920.sql:435: ERROR:  schema "public" does not exist
+psql:supabase-backup-20251117-110920.sql:445: ERROR:  schema "public" does not exist
+psql:supabase-backup-20251117-110920.sql:448: ERROR:  schema "public" does not exist
+psql:supabase-backup-20251117-110920.sql:460: ERROR:  schema "public" does not exist
+psql:supabase-backup-20251117-110920.sql:463: ERROR:  schema "public" does not exist
+psql:supabase-backup-20251117-110920.sql:472: ERROR:  schema "public" does not exist
+psql:supabase-backup-20251117-110920.sql:475: ERROR:  schema "public" does not exist
+psql:supabase-backup-20251117-110920.sql:487: ERROR:  schema "public" does not exist
+psql:supabase-backup-20251117-110920.sql:490: ERROR:  schema "public" does not exist
+psql:supabase-backup-20251117-110920.sql:499: ERROR:  schema "public" does not exist
+psql:supabase-backup-20251117-110920.sql:502: ERROR:  schema "public" does not exist

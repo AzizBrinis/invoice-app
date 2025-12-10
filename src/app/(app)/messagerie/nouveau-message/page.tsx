@@ -282,6 +282,7 @@ export default async function NouveauMessagePage({
     typeof resolvedSearchParams.uid === "string" ? resolvedSearchParams.uid : undefined;
 
   let initialDraft: ComposeInitialDraft | null = null;
+  let replyContext: { mailbox: Mailbox; uid: number } | null = null;
 
   if (modeParam && mailboxParam && uidParam && isSupportedMailbox(mailboxParam)) {
     const uidValue = Number.parseInt(uidParam, 10);
@@ -292,6 +293,12 @@ export default async function NouveauMessagePage({
           uid: uidValue,
         });
         initialDraft = buildInitialDraft(modeParam, detail, summary.fromEmail);
+        if (
+          initialDraft &&
+          (modeParam === "reply" || modeParam === "reply_all")
+        ) {
+          replyContext = { mailbox: mailboxParam, uid: uidValue };
+        }
       } catch (error) {
         console.error("Impossible de préparer la réponse:", error);
       }
@@ -336,6 +343,7 @@ export default async function NouveauMessagePage({
       initialDraft={initialDraft}
       savedResponses={savedResponses}
       companyPlaceholders={companyPlaceholderValues}
+      replyContext={replyContext}
     />
   );
 }

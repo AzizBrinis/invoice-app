@@ -15,6 +15,7 @@ import {
   Mail,
   ChevronDown,
   Globe,
+  Sparkles,
   type LucideIcon,
 } from "lucide-react";
 
@@ -26,7 +27,8 @@ export type NavIcon =
   | "products"
   | "clients"
   | "settings"
-  | "website";
+  | "website"
+  | "assistant";
 
 export type NavChildItem = {
   label: string;
@@ -49,6 +51,7 @@ export const NAV_ICON_MAP: Record<NavIcon, LucideIcon> = {
   clients: Users,
   settings: Settings,
   website: Globe,
+  assistant: Sparkles,
 };
 
 export const navSubmenuId = (href: string) => {

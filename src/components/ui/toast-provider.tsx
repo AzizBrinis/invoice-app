@@ -10,7 +10,7 @@ import {
 } from "react";
 import { clsx } from "clsx";
 
-type ToastVariant = "success" | "warning" | "error";
+type ToastVariant = "success" | "warning" | "error" | "info";
 
 export type Toast = {
   id: string;
@@ -50,6 +50,12 @@ const variantStyles: Record<
       "border-red-200 bg-red-50 text-red-900 dark:border-red-500/40 dark:bg-red-500/20 dark:text-red-50",
     description:
       "text-red-700 dark:text-red-100",
+  },
+  info: {
+    container:
+      "border-blue-200 bg-blue-50 text-blue-900 dark:border-blue-500/40 dark:bg-blue-500/20 dark:text-blue-50",
+    description:
+      "text-blue-700 dark:text-blue-100",
   },
 };
 
@@ -185,7 +191,16 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 export function useToast() {
   const context = useContext(ToastContext);
   if (!context) {
-    throw new Error("useToast must be used within a ToastProvider");
+    // Graceful fallback: log and return no-op handler instead of crashing
+    // (useful if a component renders before the provider or outside it).
+    return {
+      addToast: (toast: Omit<Toast, "id">) => {
+        console.warn(
+          "[toast] ToastProvider missing. Toast dropped:",
+          toast?.title ?? toast,
+        );
+      },
+    };
   }
   return context;
 }

@@ -854,6 +854,73 @@ export async function updateInvoice(id: string, input: InvoiceInput) {
   return invoice;
 }
 
+export async function duplicateInvoice(id: string) {
+  const { id: userId } = await requireUser();
+  const existing = await prisma.invoice.findFirst({
+    where: { id, userId },
+    include: {
+      client: true,
+      lines: {
+        orderBy: { position: "asc" },
+      },
+    },
+  });
+  if (!existing) {
+    throw new Error("Facture introuvable");
+  }
+  const number = await nextInvoiceNumber(userId);
+  const duplicated = await prisma.invoice.create({
+    data: {
+      userId,
+      number,
+      clientId: existing.clientId,
+      status: InvoiceStatus.BROUILLON,
+      reference: existing.reference,
+      issueDate: new Date(),
+      dueDate: existing.dueDate,
+      currency: existing.currency,
+      globalDiscountRate: existing.globalDiscountRate,
+      globalDiscountAmountCents: existing.globalDiscountAmountCents,
+      vatBreakdown: existing.vatBreakdown ?? Prisma.JsonNull,
+      taxSummary: existing.taxSummary ?? Prisma.JsonNull,
+      taxConfiguration: existing.taxConfiguration ?? Prisma.JsonNull,
+      notes: existing.notes,
+      terms: existing.terms,
+      subtotalHTCents: existing.subtotalHTCents,
+      totalDiscountCents: existing.totalDiscountCents,
+      totalTVACents: existing.totalTVACents,
+      totalTTCCents: existing.totalTTCCents,
+      amountPaidCents: 0,
+      fodecAmountCents: existing.fodecAmountCents ?? 0,
+      timbreAmountCents: existing.timbreAmountCents ?? 0,
+      lines: {
+        create: existing.lines.map((line, index) => ({
+          productId: line.productId,
+          description: line.description,
+          quantity: line.quantity,
+          unit: line.unit,
+          unitPriceHTCents: line.unitPriceHTCents,
+          vatRate: line.vatRate,
+          discountRate: line.discountRate,
+          discountAmountCents: line.discountAmountCents,
+          totalHTCents: line.totalHTCents,
+          totalTVACents: line.totalTVACents,
+          totalTTCCents: line.totalTTCCents,
+          fodecRate: line.fodecRate,
+          fodecAmountCents: line.fodecAmountCents,
+          position: index,
+        })),
+      },
+    },
+    include: {
+      client: true,
+      lines: true,
+      payments: true,
+    },
+  });
+  return duplicated;
+}
+
 export type DeleteInvoiceOutcome = "deleted" | "cancelled" | "already-cancelled";
 
 export async function deleteInvoice(id: string): Promise<DeleteInvoiceOutcome> {

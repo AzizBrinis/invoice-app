@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { Route } from "next";
 import { notFound } from "next/navigation";
 import { getClient } from "@/server/clients";
 import { ClientForm } from "@/app/(app)/clients/client-form";
@@ -32,6 +33,14 @@ export default async function EditClientPage({
           className="self-start text-sm font-medium text-blue-600 hover:underline dark:text-blue-400 sm:self-auto"
         >
           Retour à la liste
+        </Link>
+        <Link
+          href={
+            `/assistant?contextType=client&contextId=${client.id}` as Route
+          }
+          className="inline-flex items-center justify-center rounded-full border border-blue-200 px-4 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-50 dark:border-blue-500/40 dark:text-blue-200 dark:hover:bg-blue-500/10"
+        >
+          Assistant AI
         </Link>
       </div>
       <ClientForm

@@ -11,11 +11,20 @@ export const metadata: Metadata = {
   title: "Prévisualisation du site",
 };
 
-export default async function PreviewPage() {
+type PreviewSearchParams = Record<string, string | string[] | undefined>;
+
+export default async function PreviewPage({
+  searchParams,
+}: {
+  searchParams?: PreviewSearchParams;
+}) {
   const user = await requireUser();
   const website = await getWebsiteConfig(user.id);
+  const pathParam = searchParams?.path;
+  const path = Array.isArray(pathParam) ? pathParam[0] : pathParam;
   const payload = await getCatalogPayloadBySlug(website.slug, {
     preview: true,
+    path: path ?? null,
   });
   if (!payload) {
     return (
@@ -28,5 +37,5 @@ export default async function PreviewPage() {
       </div>
     );
   }
-  return <CatalogPage data={payload} mode="preview" />;
+  return <CatalogPage data={payload} mode="preview" path={path ?? null} />;
 }

@@ -2,12 +2,10 @@ import type { Metadata } from "next";
 import { requireUser } from "@/lib/auth";
 import { getSettings } from "@/server/settings";
 import { getMessagingSettingsSummary } from "@/server/messaging";
-import {
-  SidebarNav,
-  type NavItem,
-} from "@/components/layout/sidebar-nav";
+import { SidebarNav, type NavItem } from "@/components/layout/sidebar-nav";
 import { Topbar } from "@/components/layout/topbar";
 import { MailboxSyncProvider } from "@/app/(app)/messagerie/_components/mailbox-sync-provider";
+import { AssistantLauncher } from "@/components/assistant/assistant-launcher";
 
 export const dynamic = "force-dynamic";
 
@@ -69,6 +67,11 @@ const NAV_ITEMS: NavItem[] = [
     ],
   },
   {
+    label: "Assistant AI",
+    href: "/assistant",
+    icon: "assistant",
+  },
+  {
     label: "Paramètres",
     href: "/parametres",
     icon: "settings",
@@ -85,23 +88,24 @@ export default async function AppLayout({
   const messagingSummary = await getMessagingSettingsSummary(user.id);
 
   return (
-    <div className="min-h-screen bg-zinc-100 transition-colors dark:bg-zinc-950">
-      <div className="flex min-h-screen">
+    <div className="min-h-screen bg-zinc-100 transition-colors dark:bg-zinc-950 lg:h-screen lg:overflow-hidden">
+      <div className="flex min-h-screen min-w-0 lg:h-full">
         <SidebarNav items={NAV_ITEMS} />
-        <div className="flex min-h-screen flex-1 flex-col">
+        <div className="flex min-h-screen min-w-0 flex-1 flex-col lg:h-full lg:min-h-0 lg:overflow-hidden">
           <Topbar
             items={NAV_ITEMS}
             companyName={settings.companyName}
             user={{ name: user.name, email: user.email }}
           />
-          <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
+          <main className="flex-1 min-w-0 px-4 py-6 sm:px-6 lg:min-h-0 lg:overflow-y-auto lg:px-8">
             <MailboxSyncProvider
               enabled={messagingSummary.imapConfigured}
               userId={user.id}
             />
-            <div className="mx-auto w-full max-w-7xl space-y-6">
+            <div className="mx-auto w-full max-w-7xl space-y-6 overflow-x-scroll min-w-0">
               {children}
             </div>
+            <AssistantLauncher />
           </main>
         </div>
       </div>

@@ -6,6 +6,7 @@ import {
   type ListResponse,
   type FetchMessageObject,
 } from "imapflow";
+import { Readable } from "node:stream";
 import { headers } from "next/headers";
 import nodemailer, { type Transporter } from "nodemailer";
 import MailComposer from "nodemailer/lib/mail-composer";
@@ -171,6 +172,18 @@ export type MessagingSettingsSummary = {
 
 export type Mailbox = "inbox" | "sent" | "drafts" | "trash" | "spam";
 
+export const MAILBOX_DISPLAY_NAMES: Record<Mailbox, string> = {
+  inbox: "Boîte de réception",
+  sent: "Messages envoyés",
+  drafts: "Brouillons",
+  trash: "Corbeille",
+  spam: "Indésirables",
+};
+
+export function getMailboxDisplayName(mailbox: Mailbox): string {
+  return MAILBOX_DISPLAY_NAMES[mailbox] ?? mailbox;
+}
+
 export type MailboxListItem = {
   uid: number;
   messageId: string | null;
@@ -185,6 +198,27 @@ export type MailboxListItem = {
     totalOpens: number;
     totalClicks: number;
   } | null;
+};
+
+export type MailboxEmailSummary = {
+  mailbox: Mailbox;
+  uid: number;
+  subject: string;
+  from: string | null;
+  to: string[];
+  cc: string[];
+  date: string;
+  seen: boolean;
+  hasAttachments: boolean;
+  textPreview: string | null;
+};
+
+export type MailboxEmailSummaryResult = {
+  mailbox: Mailbox;
+  totalMessages: number;
+  limit: number;
+  emails: MailboxEmailSummary[];
+  errors?: Array<{ uid: number; message: string }>;
 };
 
 type StandardAutoReplyConfig = {
@@ -206,6 +240,34 @@ export type MessageParticipant = {
   name: string | null;
   address: string | null;
 };
+
+function formatParticipantLabel(
+  participant?: MessageParticipant | null,
+): string | null {
+  if (!participant) {
+    return null;
+  }
+  const name = participant.name?.trim() ?? "";
+  const address = participant.address?.trim() ?? "";
+  if (name && address) {
+    return `${name} <${address}>`;
+  }
+  if (address) {
+    return address;
+  }
+  if (name) {
+    return name;
+  }
+  return null;
+}
+
+function formatParticipantList(
+  participants: MessageParticipant[],
+): string[] {
+  return participants
+    .map((participant) => formatParticipantLabel(participant))
+    .filter((value): value is string => Boolean(value));
+}
 
 type PrefetchedRawMessage = {
   uid: number;
@@ -454,6 +516,110 @@ type AttachmentDescriptor = {
   size: number;
   raw: Attachment;
 };
+
+const DEFAULT_ATTACHMENT_MIME = "application/octet-stream";
+
+function normalizeAttachmentContentType(
+  value: string | null | undefined,
+): string {
+  if (!value) {
+    return DEFAULT_ATTACHMENT_MIME;
+  }
+  const [base] = value.split(";");
+  const normalized = base?.trim().toLowerCase();
+  return normalized?.length ? normalized : DEFAULT_ATTACHMENT_MIME;
+}
+
+function detectAttachmentMimeType(content: Buffer): string | null {
+  if (content.length >= 8) {
+    const pngSignature = [
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+    ];
+    const isPng = pngSignature.every(
+      (value, index) => content[index] === value,
+    );
+    if (isPng) {
+      return "image/png";
+    }
+  }
+  if (content.length >= 3) {
+    const isJpeg =
+      content[0] === 0xff &&
+      content[1] === 0xd8 &&
+      content[2] === 0xff;
+    if (isJpeg) {
+      return "image/jpeg";
+    }
+  }
+  if (content.length >= 6) {
+    const header = content.subarray(0, 6).toString("ascii");
+    if (header === "GIF87a" || header === "GIF89a") {
+      return "image/gif";
+    }
+  }
+  if (content.length >= 12) {
+    const riff = content.subarray(0, 4).toString("ascii");
+    const webp = content.subarray(8, 12).toString("ascii");
+    if (riff === "RIFF" && webp === "WEBP") {
+      return "image/webp";
+    }
+  }
+  return null;
+}
+
+function isAsyncIterable<T>(value: unknown): value is AsyncIterable<T> {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    typeof (value as AsyncIterable<T>)[Symbol.asyncIterator] === "function"
+  );
+}
+
+function isIterable<T>(value: unknown): value is Iterable<T> {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    typeof (value as Iterable<T>)[Symbol.iterator] === "function"
+  );
+}
+
+function normalizeAttachmentChunk(chunk: unknown): Buffer {
+  if (!chunk && chunk !== 0) {
+    return Buffer.alloc(0);
+  }
+  if (Buffer.isBuffer(chunk)) {
+    return chunk;
+  }
+  if (chunk instanceof Uint8Array) {
+    return Buffer.from(chunk);
+  }
+  if (ArrayBuffer.isView(chunk)) {
+    const view = chunk as ArrayBufferView;
+    return Buffer.from(view.buffer, view.byteOffset, view.byteLength);
+  }
+  if (chunk instanceof ArrayBuffer) {
+    return Buffer.from(chunk);
+  }
+  if (typeof chunk === "string") {
+    return Buffer.from(chunk, "utf-8");
+  }
+  throw new Error("Type de segment de pièce jointe invalide.");
+}
+
+function isReadableStream(value: unknown): value is Readable {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  if (value instanceof Readable) {
+    return true;
+  }
+  const candidate = value as Readable;
+  return (
+    typeof candidate.pipe === "function" &&
+    typeof candidate.read === "function" &&
+    typeof candidate.on === "function"
+  );
+}
 
 export type MessageDetail = {
   mailbox: Mailbox;
@@ -990,15 +1156,21 @@ function buildAttachmentDescriptors(
 
   return attachments.map((attachment, index) => {
     const id = attachment.checksum ?? `${mailbox}-${uid}-${index}`;
-    const filename =
-      attachment.filename ?? `pièce-jointe-${index + 1}.bin`;
-    const contentType =
-      attachment.contentType ?? "application/octet-stream";
+    const filename = attachment.filename?.trim()?.length
+      ? attachment.filename.trim()
+      : `pièce-jointe-${index + 1}.bin`;
+    const contentType = normalizeAttachmentContentType(
+      attachment.contentType,
+    );
     const size =
       typeof attachment.size === "number" && Number.isFinite(attachment.size)
         ? attachment.size
         : Buffer.isBuffer(attachment.content)
           ? attachment.content.length
+          : attachment.content instanceof Uint8Array
+            ? attachment.content.byteLength
+            : attachment.content instanceof ArrayBuffer
+              ? attachment.content.byteLength
           : 0;
 
     return {
@@ -1021,11 +1193,43 @@ async function readAttachmentContent(attachment: Attachment): Promise<Buffer> {
     return content;
   }
 
-  const chunks: Buffer[] = [];
-  for await (const chunk of content) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  if (content instanceof Uint8Array) {
+    return Buffer.from(content);
   }
-  return Buffer.concat(chunks);
+
+  if (content instanceof ArrayBuffer) {
+    return Buffer.from(content);
+  }
+
+  if (typeof content === "string") {
+    return Buffer.from(content, "utf-8");
+  }
+
+  if (isReadableStream(content)) {
+    const chunks: Buffer[] = [];
+    for await (const chunk of content) {
+      chunks.push(normalizeAttachmentChunk(chunk as Buffer | Uint8Array | string));
+    }
+    return Buffer.concat(chunks);
+  }
+
+  if (isAsyncIterable<Buffer | Uint8Array | string>(content)) {
+    const chunks: Buffer[] = [];
+    for await (const chunk of content) {
+      chunks.push(normalizeAttachmentChunk(chunk));
+    }
+    return Buffer.concat(chunks);
+  }
+
+  if (isIterable<Buffer | Uint8Array | string>(content)) {
+    const chunks: Buffer[] = [];
+    for (const chunk of content) {
+      chunks.push(normalizeAttachmentChunk(chunk));
+    }
+    return Buffer.concat(chunks);
+  }
+
+  throw new Error("Flux de pièce jointe invalide.");
 }
 
 function formatError(prefix: string, error: unknown): Error {
@@ -2428,8 +2632,9 @@ export async function fetchMailboxMessages(params: {
   mailbox: Mailbox;
   page?: number;
   pageSize?: number;
+  userId?: string;
 }): Promise<MailboxPageResult> {
-  const userId = await resolveUserId();
+  const userId = await resolveUserId(params.userId);
   const credentials = await getMessagingCredentials(userId);
   if (!credentials.imap) {
     throw new Error(
@@ -2574,6 +2779,142 @@ export async function fetchMailboxMessages(params: {
       opened.release();
     }
   });
+}
+
+const EMAIL_PREVIEW_MAX_LENGTH = 1800;
+const MAILBOX_SUMMARY_DEFAULT_LIMIT = 6;
+const MAILBOX_SUMMARY_MIN_LIMIT = 5;
+const MAILBOX_SUMMARY_MAX_LIMIT = 10;
+
+function normalizePreviewText(value: string): string {
+  return value
+    .replace(/\r?\n|\r/g, " ")
+    .replace(/\u00a0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function htmlToPlainText(value: string): string {
+  return value
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<[^>]+>/g, " ");
+}
+
+function buildMessageDetailPreview(detail: MessageDetail): string | null {
+  if (typeof detail.text === "string" && detail.text.trim().length) {
+    const normalized = normalizePreviewText(detail.text);
+    if (normalized.length) {
+      return normalized.slice(0, EMAIL_PREVIEW_MAX_LENGTH);
+    }
+  }
+  if (typeof detail.html === "string" && detail.html.trim().length) {
+    const normalized = normalizePreviewText(htmlToPlainText(detail.html));
+    if (normalized.length) {
+      return normalized.slice(0, EMAIL_PREVIEW_MAX_LENGTH);
+    }
+  }
+  return null;
+}
+
+export async function fetchRecentMailboxEmails(params: {
+  mailbox: Mailbox;
+  limit?: number;
+  userId?: string;
+}): Promise<MailboxEmailSummaryResult> {
+  const mailbox = params.mailbox;
+  const userId = await resolveUserId(params.userId);
+  const requestedLimit = params.limit ?? MAILBOX_SUMMARY_DEFAULT_LIMIT;
+  const limit = Math.min(
+    Math.max(requestedLimit, MAILBOX_SUMMARY_MIN_LIMIT),
+    MAILBOX_SUMMARY_MAX_LIMIT,
+  );
+
+  try {
+    const page = await fetchMailboxMessages({
+      mailbox,
+      page: 1,
+      pageSize: limit,
+      userId,
+    });
+
+    const selected = page.messages.slice(0, limit);
+    if (!selected.length) {
+      return {
+        mailbox,
+        totalMessages: page.totalMessages,
+        limit,
+        emails: [],
+      };
+    }
+
+    const emails: MailboxEmailSummary[] = [];
+    const errors: Array<{ uid: number; message: string }> = [];
+
+    for (const item of selected) {
+      try {
+        const detail = await fetchMessageDetail({
+          mailbox,
+          uid: item.uid,
+          userId,
+        });
+        emails.push({
+          mailbox,
+          uid: detail.uid,
+          subject: detail.subject,
+          from: detail.from,
+          to: detail.to,
+          cc: detail.cc,
+          date: detail.date,
+          seen: detail.seen,
+          hasAttachments: item.hasAttachments,
+          textPreview: buildMessageDetailPreview(detail),
+        });
+      } catch (error) {
+        console.warn("[assistant-email-summary] detail fetch failed", {
+          userId,
+          mailbox,
+          uid: item.uid,
+          error,
+        });
+        errors.push({
+          uid: item.uid,
+          message:
+            error instanceof Error
+              ? error.message
+              : "Impossible de récupérer le message.",
+        });
+        emails.push({
+          mailbox,
+          uid: item.uid,
+          subject: item.subject,
+          from: item.from,
+          to: item.to,
+          cc: [],
+          date: item.date,
+          seen: item.seen,
+          hasAttachments: item.hasAttachments,
+          textPreview: null,
+        });
+      }
+    }
+
+    return {
+      mailbox,
+      totalMessages: page.totalMessages,
+      limit,
+      emails,
+      errors: errors.length ? errors : undefined,
+    };
+  } catch (error) {
+    console.error("[assistant-email-summary] inbox fetch failed", {
+      userId,
+      mailbox,
+      limit,
+      error,
+    });
+    throw error;
+  }
 }
 
 export async function fetchMailboxUpdates(params: {
@@ -2744,8 +3085,9 @@ export async function fetchMailboxUpdates(params: {
 export async function fetchMessageDetail(params: {
   mailbox: Mailbox;
   uid: number;
+  userId?: string;
 }): Promise<MessageDetail> {
-  const userId = await resolveUserId();
+  const userId = await resolveUserId(params.userId);
   const credentials = await getMessagingCredentials(userId);
   if (!credentials.imap) {
     throw new Error(
@@ -2815,6 +3157,14 @@ export async function fetchMessageDetail(params: {
 
       const sanitizedHtml = parsed.html ? sanitizeEmailHtml(parsed.html) : null;
 
+      const formattedFrom =
+        formatParticipantLabel(fromParticipants[0]) ??
+        formatAddress(fetched.envelope.from?.[0] as ImapAddress | undefined);
+      const formattedTo = formatParticipantList(toParticipants);
+      const formattedCc = formatParticipantList(ccParticipants);
+      const formattedBcc = formatParticipantList(bccParticipants);
+      const formattedReplyTo = formatParticipantList(replyToParticipants);
+
       const envelopeMessageId = fetched.envelope.messageId ?? null;
       const trackingDetail =
         envelopeMessageId && params.mailbox === "sent"
@@ -2842,11 +3192,11 @@ export async function fetchMessageDetail(params: {
         uid: params.uid,
         messageId: envelopeMessageId,
         subject: fetched.envelope.subject ?? "(Sans objet)",
-        from: formatAddress(fetched.envelope.from?.[0] as ImapAddress | undefined),
-        to: formatAddressList(fetched.envelope.to as ImapAddress[] | undefined),
-        cc: formatAddressList(fetched.envelope.cc as ImapAddress[] | undefined),
-        bcc: formatAddressList(fetched.envelope.bcc as ImapAddress[] | undefined),
-        replyTo: formatAddressList(fetched.envelope.replyTo as ImapAddress[] | undefined),
+        from: formattedFrom ?? null,
+        to: formattedTo,
+        cc: formattedCc,
+        bcc: formattedBcc,
+        replyTo: formattedReplyTo,
         date: internalDate.toISOString(),
         seen: fetched.flags?.has("\\Seen") ?? false,
         html: sanitizedHtml,
@@ -2923,10 +3273,12 @@ export async function fetchMessageAttachment(params: {
       }
 
       const content = await readAttachmentContent(descriptor.raw);
+      const resolvedContentType =
+        detectAttachmentMimeType(content) ?? descriptor.contentType;
 
       return {
         filename: descriptor.filename,
-        contentType: descriptor.contentType,
+        contentType: resolvedContentType,
         content,
       };
     } finally {
@@ -3328,4 +3680,7 @@ export async function testSmtpConnection(
 export const __testables = {
   selectAutoReplyCandidates,
   computeAutoReplyStartUid,
+  normalizeAttachmentContentType,
+  detectAttachmentMimeType,
+  readAttachmentContent,
 };

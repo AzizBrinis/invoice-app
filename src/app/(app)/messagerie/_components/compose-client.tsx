@@ -14,8 +14,16 @@ import {
 } from "react";
 import Link from "next/link";
 import type { Route } from "next";
+import type { Mailbox } from "@/server/messaging";
 import { useRouter } from "next/navigation";
-import { Paperclip, UploadCloud, Trash2, X } from "lucide-react";
+import {
+  Loader2,
+  Paperclip,
+  Sparkles,
+  Trash2,
+  UploadCloud,
+  X,
+} from "lucide-react";
 import { useToast } from "@/components/ui/toast-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,7 +36,13 @@ import {
 import {
   sendEmailAction,
   scheduleEmailAction,
+  runAiReplyAction,
+  runAiDraftPolishAction,
+  runAiSubjectAction,
   type ActionResult,
+  type AiReplyActionInput,
+  type AiDraftPolishActionInput,
+  type AiSubjectActionInput,
 } from "@/app/(app)/messagerie/actions";
 import {
   formatRecipientAddresses,
@@ -165,6 +179,7 @@ type ComposeClientProps = {
   initialDraft?: ComposeInitialDraft | null;
   savedResponses: SavedResponse[];
   companyPlaceholders?: Record<string, string | null | undefined>;
+  replyContext?: { mailbox: Mailbox; uid: number } | null;
 };
 
 type EditorMode = "plain" | "html" | "preview";
@@ -175,12 +190,277 @@ const EDITOR_TABS: Array<{ key: EditorMode; label: string }> = [
   { key: "preview", label: "Aperçu" },
 ];
 
+type AiReplyMode = "improve_text_html" | "improve_text_only" | "correct_only";
+
+const AI_MODE_CONFIG: Record<AiReplyMode, { label: string; description: string }> = {
+  improve_text_html: {
+    label: "Améliorer texte + HTML",
+    description: "Réécrit le brouillon pour le rendre plus clair tout en conservant le HTML.",
+  },
+  improve_text_only: {
+    label: "Améliorer texte uniquement",
+    description: "Ajuste uniquement la version texte brut. La version HTML reste inchangée.",
+  },
+  correct_only: {
+    label: "Corriger seulement",
+    description: "Corrige orthographe et grammaire sans reformuler ni changer le ton (texte + HTML).",
+  },
+};
+
+type ComposeAiMode = AiDraftPolishActionInput["intent"];
+
+const COMPOSE_AI_MIN_WORDS = 8;
+
+const COMPOSE_AI_CONFIG: Record<ComposeAiMode, { label: string; description: string }> = {
+  correct_only: {
+    label: "Corriger",
+    description: "Orthographe et grammaire uniquement, sans changer le style.",
+  },
+  enhance: {
+    label: "Corriger et améliorer",
+    description: "Corrige et clarifie le ton tout en conservant le sens.",
+  },
+};
+
+const SUBJECT_AI_MIN_WORDS = 8;
+
 const COMPANY_PLACEHOLDER_KEYS = [
   "company_name",
   "company_email",
   "company_phone",
   "company_address",
 ] as const;
+
+const BLOCK_LEVEL_TAGS = new Set([
+  "p",
+  "li",
+  "ul",
+  "ol",
+  "td",
+  "th",
+  "blockquote",
+  "pre",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "section",
+  "article",
+  "aside",
+  "header",
+  "footer",
+  "div",
+]);
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function convertPlainTextToHtml(value: string): string {
+  return escapeHtml(value).replace(/\r?\n/g, "<br />");
+}
+
+function renderPlainBodyAsHtml(value: string): string {
+  const trimmed = value.trimEnd();
+  return trimmed.length ? `<div>${convertPlainTextToHtml(trimmed)}</div>` : "";
+}
+
+function normalizePlainText(value: string): string {
+  return value
+    .replace(/\u00a0/g, " ")
+    .replace(/\r/g, "")
+    .replace(/\t+/g, " ")
+    .replace(/[ \f\v]+/g, " ")
+    .replace(/ +\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function fallbackHtmlToPlainText(source: string): string {
+  return normalizePlainText(
+    source
+      .replace(/<style[\s\S]*?<\/style>/gi, "")
+      .replace(/<script[\s\S]*?<\/script>/gi, "")
+      .replace(/<noscript[\s\S]*?<\/noscript>/gi, "")
+      .replace(/<template[\s\S]*?<\/template>/gi, "")
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(
+        /<\/(p|div|section|article|header|footer|aside|table|thead|tbody|tfoot|tr|td|th|ul|ol|li|blockquote|pre|h[1-6])>/gi,
+        "\n"
+      )
+      .replace(/<[^>]+>/g, " ")
+  );
+}
+
+function convertHtmlToPlainText(source: string): string {
+  const trimmed = source?.trim() ?? "";
+  if (!trimmed.length) {
+    return "";
+  }
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    return fallbackHtmlToPlainText(trimmed);
+  }
+  const container: HTMLDivElement = document.createElement("div");
+  container.innerHTML = trimmed;
+  container
+    .querySelectorAll("style,script,noscript,template")
+    .forEach((node) => {
+      node.remove();
+    });
+  container.querySelectorAll("li").forEach((item) => {
+    const firstChild: ChildNode | null = item.firstChild;
+    const existingText =
+      firstChild && firstChild.nodeType === Node.TEXT_NODE
+        ? firstChild.textContent ?? ""
+        : "";
+    const normalized = existingText.replace(/^\s+/, "");
+    if (!normalized.startsWith("• ")) {
+      item.insertAdjacentText("afterbegin", "• ");
+    }
+  });
+  container.querySelectorAll("a[href]").forEach((anchor) => {
+    const href = anchor.getAttribute("href");
+    if (!href) return;
+    const trimmedHref = href.trim();
+    if (!trimmedHref.length) return;
+    const anchorText = (anchor.textContent ?? "").trim();
+    if (anchorText.includes(trimmedHref)) {
+      return;
+    }
+    anchor.appendChild(document.createTextNode(` (${trimmedHref})`));
+  });
+  const textContent = (container as Node).textContent ?? "";
+  const text =
+    "innerText" in container
+      ? (container as HTMLElement).innerText
+      : textContent;
+  return normalizePlainText(text);
+}
+
+type HtmlBlueprint = {
+  html: string;
+  blockPaths: number[][];
+};
+
+function resolveNodeByPath(root: Node, path: number[]): Node | null {
+  let current: Node | null = root;
+  for (const index of path) {
+    if (!current || !current.childNodes[index]) {
+      return null;
+    }
+    current = current.childNodes[index] ?? null;
+  }
+  return current;
+}
+
+function splitPlainTextIntoParagraphs(value: string): string[] {
+  return value
+    .split(/\n{2,}/)
+    .map((segment) => segment.trim())
+    .filter((segment, index, all) => segment.length > 0 || index < all.length - 1);
+}
+
+function buildHtmlBlueprint(source: string): HtmlBlueprint | null {
+  if (typeof document === "undefined") {
+    return null;
+  }
+  const trimmed = source.trim();
+  if (!trimmed.length) {
+    return null;
+  }
+  const container = document.createElement("div");
+  container.innerHTML = trimmed;
+  container
+    .querySelectorAll("style,script,noscript,template")
+    .forEach((node) => node.remove());
+  const blockPaths: number[][] = [];
+
+  const collect = (node: Node, path: number[]) => {
+    node.childNodes.forEach((child, index) => {
+      const nextPath = [...path, index];
+      if (child.nodeType === Node.ELEMENT_NODE) {
+        const element = child as HTMLElement;
+        const tagName = element.tagName.toLowerCase();
+        const childNodes = Array.from(element.childNodes);
+        if (BLOCK_LEVEL_TAGS.has(tagName)) {
+          const hasNestedBlocks = childNodes.some(
+            (nested) =>
+              nested.nodeType === Node.ELEMENT_NODE &&
+              BLOCK_LEVEL_TAGS.has(
+                (nested as HTMLElement).tagName.toLowerCase()
+              )
+          );
+          if (!hasNestedBlocks && element.innerText.trim().length > 0) {
+            blockPaths.push(nextPath);
+          }
+        }
+        collect(child, nextPath);
+      }
+    });
+  };
+
+  collect(container, []);
+
+  if (!blockPaths.length) {
+    blockPaths.push([]);
+  }
+
+  return {
+    html: container.innerHTML,
+    blockPaths,
+  };
+}
+
+function applyPlainTextToBlueprint(
+  value: string,
+  blueprint: HtmlBlueprint | null
+): string {
+  if (typeof document === "undefined") {
+    return renderPlainBodyAsHtml(value);
+  }
+  const trimmed = value.trimEnd();
+  if (!trimmed.length) {
+    return "";
+  }
+  if (!blueprint) {
+    return renderPlainBodyAsHtml(value);
+  }
+  const container = document.createElement("div");
+  container.innerHTML = blueprint.html;
+  const paragraphs = splitPlainTextIntoParagraphs(value);
+  let cursor = 0;
+  for (const path of blueprint.blockPaths) {
+    const node = resolveNodeByPath(container, path);
+    if (!node || node.nodeType !== Node.ELEMENT_NODE) {
+      continue;
+    }
+    const paragraph = cursor < paragraphs.length ? paragraphs[cursor]! : "";
+    (node as HTMLElement).innerHTML = paragraph.length
+      ? convertPlainTextToHtml(paragraph)
+      : "";
+    cursor += 1;
+  }
+
+  while (cursor < paragraphs.length) {
+    const paragraph = paragraphs[cursor];
+    if (paragraph.length) {
+      const extra = container.ownerDocument?.createElement("p") ??
+        document.createElement("p");
+      extra.innerHTML = convertPlainTextToHtml(paragraph);
+      container.appendChild(extra);
+    }
+    cursor += 1;
+  }
+
+  return container.innerHTML;
+}
 
 function formatDateTimeLocal(date: Date): string {
   const pad = (value: number) => String(value).padStart(2, "0");
@@ -199,6 +479,7 @@ export function ComposeClient({
   initialDraft,
   savedResponses,
   companyPlaceholders,
+  replyContext = null,
 }: ComposeClientProps) {
   const router = useRouter();
   const { addToast } = useToast();
@@ -233,9 +514,13 @@ export function ComposeClient({
   const [subject, setSubject] = useState(initialDraft?.subject ?? "");
   const [plainBody, setPlainBody] = useState(initialDraft?.body ?? "");
   const [htmlBody, setHtmlBody] = useState("");
+  const [htmlSyncEnabled, setHtmlSyncEnabled] = useState(false);
   const [editorMode, setEditorMode] = useState<EditorMode>("plain");
   const [selectedSavedResponseId, setSelectedSavedResponseId] = useState("");
   const [attachments, setAttachments] = useState<File[]>([]);
+  const [aiMode, setAiMode] = useState<AiReplyMode>("improve_text_html");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiSubjectLoading, setAiSubjectLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false);
   const [scheduledAtInput, setScheduledAtInput] = useState(() =>
@@ -247,6 +532,11 @@ export function ComposeClient({
   const bccInputRef = useRef<HTMLInputElement | null>(null);
   const bodyTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const htmlTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const aiButtonWrapperRef = useRef<HTMLDivElement | null>(null);
+  const contentAuthorityRef = useRef<"plain" | "html">("plain");
+  const htmlBlueprintRef = useRef<HtmlBlueprint | null>(null);
+  const [composeAiMenuRequested, setComposeAiMenuRequested] = useState(false);
+  const [replyAiMenuRequested, setReplyAiMenuRequested] = useState(false);
   const [placeholderValues, setPlaceholderValues] = useState<
     Record<string, string>
   >({});
@@ -317,6 +607,30 @@ export function ComposeClient({
   const initialBccRef = useRef<RecipientDraft[]>(
     cloneRecipients(initialDraft?.bcc)
   );
+  const enforceAiModeForPlain = useCallback(
+    (value?: string) => {
+      const content = (value ?? plainBody ?? "").trim();
+      if (!content.length) {
+        return;
+      }
+      const looksLikeHtml = /<[^>]+>/.test(content);
+      if (looksLikeHtml && aiMode === "improve_text_only") {
+        setAiMode("improve_text_html");
+      } else if (!looksLikeHtml && aiMode === "improve_text_html") {
+        setAiMode("improve_text_only");
+      }
+    },
+    [aiMode, plainBody]
+  );
+  const captureHtmlBlueprint = useCallback((source: string) => {
+    const trimmed = source.trim();
+    if (!trimmed.length) {
+      htmlBlueprintRef.current = null;
+      return;
+    }
+    const blueprint = buildHtmlBlueprint(trimmed);
+    htmlBlueprintRef.current = blueprint;
+  }, []);
 
   useEffect(() => {
     if (initialDraftRef.current === initialDraft) {
@@ -339,11 +653,15 @@ export function ComposeClient({
       setBccField(nextBcc);
       setSubject(nextSubject);
       setPlainBody(nextBody);
+      enforceAiModeForPlain(nextBody);
       setHtmlBody("");
+      captureHtmlBlueprint("");
+      setHtmlSyncEnabled(false);
+      contentAuthorityRef.current = "plain";
       setEditorMode("plain");
       setSelectedSavedResponseId("");
     });
-  }, [initialDraft]);
+  }, [initialDraft, enforceAiModeForPlain, captureHtmlBlueprint]);
 
   const renderPlainPreview = useCallback((value: string) => {
     return value
@@ -365,30 +683,89 @@ export function ComposeClient({
     return renderPlainPreview(plainBody);
   }, [htmlBody, plainBody, renderPlainPreview]);
 
-  const insertPlainResponse = useCallback((content: string) => {
-    const textarea = bodyTextareaRef.current;
-    if (!textarea) {
-      setPlainBody((current) =>
-        current.length ? `${current}\n\n${content}` : content
-      );
+  const insertPlainResponse = useCallback(
+    (content: string) => {
+      contentAuthorityRef.current = "plain";
+      setHtmlSyncEnabled(false);
+      setHtmlBody("");
+      captureHtmlBlueprint("");
+      const textarea = bodyTextareaRef.current;
+      if (!textarea) {
+        const nextPlain =
+          plainBody.length > 0 ? `${plainBody}\n\n${content}` : content;
+        setPlainBody(nextPlain);
+        enforceAiModeForPlain(nextPlain);
+        setEditorMode("plain");
+        return;
+      }
+      const fallbackLength = textarea.value.length;
+      const selectionStart = textarea.selectionStart ?? fallbackLength;
+      const selectionEnd = textarea.selectionEnd ?? fallbackLength;
+      const before = plainBody.slice(0, selectionStart);
+      const after = plainBody.slice(selectionEnd);
+      const nextPlain = `${before}${content}${after}`;
+      setPlainBody(nextPlain);
+      enforceAiModeForPlain(nextPlain);
+      queueMicrotask(() => {
+        textarea.focus();
+        const cursor = selectionStart + content.length;
+        textarea.setSelectionRange(cursor, cursor);
+      });
       setEditorMode("plain");
-      return;
-    }
-    const fallbackLength = textarea.value.length;
-    const selectionStart = textarea.selectionStart ?? fallbackLength;
-    const selectionEnd = textarea.selectionEnd ?? fallbackLength;
-    setPlainBody((current) => {
-      const before = current.slice(0, selectionStart);
-      const after = current.slice(selectionEnd);
-      return `${before}${content}${after}`;
-    });
-    queueMicrotask(() => {
-      textarea.focus();
-      const cursor = selectionStart + content.length;
-      textarea.setSelectionRange(cursor, cursor);
-    });
-    setEditorMode("plain");
-  }, []);
+    },
+    [captureHtmlBlueprint, enforceAiModeForPlain, plainBody]
+  );
+
+  const syncPlainWithHtml = useCallback(
+    (value: string, options?: { force?: boolean }) => {
+      if (!options?.force && !htmlSyncEnabled) {
+        return;
+      }
+      if (contentAuthorityRef.current !== "html") {
+        return;
+      }
+      const nextPlain = convertHtmlToPlainText(value);
+      setPlainBody(nextPlain);
+      enforceAiModeForPlain(nextPlain);
+    },
+    [enforceAiModeForPlain, htmlSyncEnabled]
+  );
+
+  const syncHtmlWithPlain = useCallback(
+    (value: string, options?: { force?: boolean }) => {
+      if (!options?.force && !htmlSyncEnabled) {
+        return;
+      }
+      if (contentAuthorityRef.current !== "plain") {
+        return;
+      }
+      const nextHtml = applyPlainTextToBlueprint(value, htmlBlueprintRef.current);
+      setHtmlBody(nextHtml);
+      captureHtmlBlueprint(nextHtml);
+    },
+    [captureHtmlBlueprint, htmlSyncEnabled]
+  );
+
+  const handlePlainBodyChange = useCallback(
+    (value: string) => {
+      contentAuthorityRef.current = "plain";
+      setPlainBody(value);
+      enforceAiModeForPlain(value);
+      syncHtmlWithPlain(value);
+    },
+    [enforceAiModeForPlain, syncHtmlWithPlain]
+  );
+
+  const handleHtmlBodyChange = useCallback(
+    (value: string) => {
+      setHtmlSyncEnabled(true);
+      contentAuthorityRef.current = "html";
+      setHtmlBody(value);
+      captureHtmlBlueprint(value);
+      syncPlainWithHtml(value, { force: true });
+    },
+    [captureHtmlBlueprint, syncPlainWithHtml]
+  );
 
   const applyTemplateWithValues = useCallback(
     (
@@ -397,7 +774,11 @@ export function ComposeClient({
     ) => {
       const resolved = fillPlaceholders(template.content, values);
       if (template.format === "HTML") {
+        setHtmlSyncEnabled(true);
+        contentAuthorityRef.current = "html";
         setHtmlBody(resolved);
+        captureHtmlBlueprint(resolved);
+        syncPlainWithHtml(resolved, { force: true });
         setEditorMode("preview");
         queueMicrotask(() => {
           const textarea = htmlTextareaRef.current;
@@ -413,14 +794,13 @@ export function ComposeClient({
         });
       } else {
         insertPlainResponse(resolved);
-        setHtmlBody("");
         addToast({
           variant: "success",
           title: "Réponse insérée dans le corps du message.",
         });
       }
     },
-    [addToast, insertPlainResponse]
+    [addToast, captureHtmlBlueprint, insertPlainResponse, syncPlainWithHtml]
   );
 
   const handlePlaceholderSubmit = useCallback(() => {
@@ -557,6 +937,302 @@ export function ComposeClient({
     ]
   );
 
+  const trimmedPlainBody = plainBody.trim();
+  const trimmedHtmlBody = htmlBody.trim();
+  const plainWordCount = useMemo(() => {
+    if (!trimmedPlainBody.length) {
+      return 0;
+    }
+    return trimmedPlainBody.split(/\s+/).filter(Boolean).length;
+  }, [trimmedPlainBody]);
+  const bodyWordCount = useMemo(() => {
+    if (plainWordCount > 0) {
+      return plainWordCount;
+    }
+    if (!trimmedHtmlBody.length) {
+      return 0;
+    }
+    const fallbackPlain = convertHtmlToPlainText(trimmedHtmlBody);
+    if (!fallbackPlain.trim().length) {
+      return 0;
+    }
+    return fallbackPlain.split(/\s+/).filter(Boolean).length;
+  }, [plainWordCount, trimmedHtmlBody]);
+
+  const safeAiReply = useCallback(
+    async (
+      payload: AiReplyActionInput
+    ): Promise<ActionResult<{ plainBody: string; htmlBody?: string }> | null> => {
+      try {
+        return await runAiReplyAction(payload);
+      } catch (error) {
+        console.error("Erreur réseau lors de l'assistant IA:", error);
+        addToast({
+          variant: "error",
+          title: "Erreur réseau.",
+        });
+        return null;
+      }
+    },
+    [addToast]
+  );
+
+  const safeAiDraftPolish = useCallback(
+    async (
+      intent: ComposeAiMode
+    ): Promise<ActionResult<{ plainBody: string; htmlBody?: string }> | null> => {
+      try {
+        return await runAiDraftPolishAction({
+          intent,
+          plainBody,
+          htmlBody,
+        });
+      } catch (error) {
+        console.error("Erreur réseau lors de la réécriture du brouillon:", error);
+        addToast({
+          variant: "error",
+          title: "Erreur réseau.",
+        });
+        return null;
+      }
+    },
+    [addToast, plainBody, htmlBody]
+  );
+
+  const safeAiSubject = useCallback(
+    async (): Promise<ActionResult<{ subject: string }> | null> => {
+      try {
+        return await runAiSubjectAction({
+          plainBody,
+          htmlBody,
+        });
+      } catch (error) {
+        console.error("Erreur réseau lors de la génération de l'objet:", error);
+        addToast({
+          variant: "error",
+          title: "Erreur réseau.",
+        });
+        return null;
+      }
+    },
+    [addToast, plainBody, htmlBody]
+  );
+
+  const handleAiReply = useCallback(async (mode?: AiReplyMode) => {
+    if (!replyContext || aiLoading) {
+      return;
+    }
+    const nextMode = mode ?? aiMode;
+    const hasExistingContent =
+      trimmedPlainBody.length > 0 || trimmedHtmlBody.length > 0;
+    const intent: AiReplyActionInput["intent"] = hasExistingContent
+      ? nextMode
+      : "generate";
+    setAiLoading(true);
+    const result = await safeAiReply({
+      mailbox: replyContext.mailbox,
+      uid: replyContext.uid,
+      intent,
+      currentBody: plainBody,
+      currentHtmlBody: htmlBody,
+      senderName,
+      senderEmail: fromEmail ?? "",
+    });
+    setAiLoading(false);
+
+    if (!result) {
+      return;
+    }
+
+    if (!result.success || !result.data) {
+      addToast({
+        variant: "error",
+        title: result.message || "Impossible d'utiliser l'assistant pour le moment.",
+      });
+      return;
+    }
+
+    const nextHtml =
+      typeof result.data.htmlBody === "string" ? result.data.htmlBody : "";
+    const hasHtmlResult = intent === "improve_text_only"
+      ? false
+      : nextHtml.trim().length > 0;
+
+    if (intent === "improve_text_only") {
+      setHtmlSyncEnabled(false);
+      contentAuthorityRef.current = "plain";
+      if (nextHtml.length) {
+        setHtmlBody(nextHtml);
+        captureHtmlBlueprint(nextHtml);
+      }
+      setPlainBody(result.data.plainBody);
+      enforceAiModeForPlain(result.data.plainBody);
+    } else {
+      setHtmlSyncEnabled(hasHtmlResult);
+      contentAuthorityRef.current = hasHtmlResult ? "html" : "plain";
+      if (hasHtmlResult) {
+        setHtmlBody(nextHtml);
+        captureHtmlBlueprint(nextHtml);
+        syncPlainWithHtml(nextHtml, { force: true });
+      } else {
+        setHtmlBody("");
+        captureHtmlBlueprint("");
+        setPlainBody(result.data.plainBody);
+        enforceAiModeForPlain(result.data.plainBody);
+      }
+    }
+    if (result.message) {
+      addToast({
+        variant: "success",
+        title: result.message,
+      });
+    }
+  }, [
+    replyContext,
+    aiLoading,
+    plainBody,
+    htmlBody,
+    aiMode,
+    trimmedPlainBody,
+    trimmedHtmlBody,
+    safeAiReply,
+    senderName,
+    fromEmail,
+    addToast,
+    syncPlainWithHtml,
+    enforceAiModeForPlain,
+    captureHtmlBlueprint,
+  ]);
+
+  const handleDraftAiRequest = useCallback(
+    async (intent: ComposeAiMode) => {
+      if (aiLoading) {
+        return;
+      }
+      setComposeAiMenuRequested(false);
+      const hasContent =
+        trimmedPlainBody.length > 0 || trimmedHtmlBody.length > 0;
+      if (!hasContent) {
+        addToast({
+          variant: "warning",
+          title: "Ajoutez un contenu avant d'utiliser l'IA.",
+        });
+        return;
+      }
+      setAiLoading(true);
+      const result = await safeAiDraftPolish(intent);
+      setAiLoading(false);
+      if (!result) {
+        return;
+      }
+      if (!result.success || !result.data) {
+        addToast({
+          variant: "error",
+          title:
+            result.message || "Impossible d'améliorer le brouillon pour le moment.",
+        });
+        return;
+      }
+      const nextPlain = result.data.plainBody ?? "";
+      const incomingHtml = result.data.htmlBody?.trim() ?? "";
+      setPlainBody(nextPlain);
+      enforceAiModeForPlain(nextPlain);
+      const hadHtmlBefore = trimmedHtmlBody.length > 0;
+      if (incomingHtml.length) {
+        setHtmlSyncEnabled(true);
+        contentAuthorityRef.current = "html";
+        setHtmlBody(incomingHtml);
+        captureHtmlBlueprint(incomingHtml);
+      } else if (hadHtmlBefore) {
+        setHtmlSyncEnabled(true);
+        contentAuthorityRef.current = "html";
+        setHtmlBody(trimmedHtmlBody);
+        captureHtmlBlueprint(trimmedHtmlBody);
+      } else {
+        setHtmlSyncEnabled(false);
+        contentAuthorityRef.current = "plain";
+        setHtmlBody("");
+        captureHtmlBlueprint("");
+      }
+      addToast({
+        variant: "success",
+        title: result.message || "Brouillon mis à jour.",
+      });
+    },
+    [
+      aiLoading,
+      addToast,
+      captureHtmlBlueprint,
+      enforceAiModeForPlain,
+      safeAiDraftPolish,
+      trimmedHtmlBody,
+      trimmedPlainBody,
+    ]
+  );
+
+  const handleReplyAiRequest = useCallback(
+    (mode: AiReplyMode) => {
+      if (aiLoading) {
+        return;
+      }
+      setReplyAiMenuRequested(false);
+      setAiMode(mode);
+      void handleAiReply(mode);
+    },
+    [aiLoading, handleAiReply]
+  );
+
+  const handleSubjectAiRequest = useCallback(async () => {
+    if (replyContext) {
+      return;
+    }
+    const hasContent = trimmedPlainBody.length > 0 || trimmedHtmlBody.length > 0;
+    if (!hasContent) {
+      addToast({
+        variant: "info",
+        title: "Ajoutez du contenu avant de proposer un objet.",
+      });
+      return;
+    }
+    if (bodyWordCount < SUBJECT_AI_MIN_WORDS) {
+      const remaining = Math.max(SUBJECT_AI_MIN_WORDS - bodyWordCount, 0);
+      addToast({
+        variant: "info",
+        title: `Ajoutez encore ${remaining} mot${remaining > 1 ? "s" : ""} pour générer l'objet.`,
+      });
+      return;
+    }
+    setAiSubjectLoading(true);
+    const result = await safeAiSubject();
+    setAiSubjectLoading(false);
+    if (!result) {
+      return;
+    }
+    if (!result.success || !result.data) {
+      addToast({
+        variant: "error",
+        title: result.message || "Impossible de générer l'objet.",
+      });
+      return;
+    }
+    const suggestion = result.data.subject?.trim() ?? "";
+    if (suggestion.length) {
+      setSubject(suggestion);
+      addToast({
+        variant: "success",
+        title: "Objet inséré.",
+      });
+    }
+  }, [
+    addToast,
+    bodyWordCount,
+    replyContext,
+    safeAiSubject,
+    setSubject,
+    trimmedHtmlBody,
+    trimmedPlainBody,
+  ]);
+
   const shouldShowPlaceholderPanel =
     showPlaceholderPanel && activePlaceholders.length > 0;
 
@@ -569,6 +1245,139 @@ export function ComposeClient({
   const hasPrimaryRecipient = useMemo(() => {
     return formatRecipientAddresses(toField.recipients).trim().length > 0;
   }, [toField.recipients]);
+
+  const hasAnyBody = trimmedPlainBody.length > 0 || trimmedHtmlBody.length > 0;
+  const replyAiActionLabel = hasAnyBody
+    ? AI_MODE_CONFIG[aiMode].label
+    : "Générer une réponse avec l'IA";
+  const aiModeDescription = AI_MODE_CONFIG[aiMode].description;
+  const showReplyAiButton = Boolean(replyContext) &&
+    (editorMode === "plain" || editorMode === "html");
+  const showAiModeSelect = false;
+  const meetsDraftAiThreshold = bodyWordCount >= COMPOSE_AI_MIN_WORDS;
+  const showDraftAiButton = !replyContext && hasAnyBody &&
+    (editorMode === "plain" || editorMode === "html");
+  const replyHasContent = hasAnyBody;
+  const showAiActionButton = showReplyAiButton || showDraftAiButton;
+  const composeAiButtonLabel = "Optimiser le brouillon";
+  const composeAiMenuOpen = showDraftAiButton && meetsDraftAiThreshold && composeAiMenuRequested;
+  const replyAiMenuOpen = showReplyAiButton && replyHasContent && replyAiMenuRequested;
+  const showSubjectAiButton = !replyContext && hasAnyBody;
+  const subjectAiEnabled = showSubjectAiButton && bodyWordCount >= SUBJECT_AI_MIN_WORDS;
+  const subjectAiRemaining = Math.max(SUBJECT_AI_MIN_WORDS - bodyWordCount, 0);
+
+  useEffect(() => {
+    const anyMenuOpen = composeAiMenuOpen || replyAiMenuOpen;
+    if (!anyMenuOpen) {
+      return;
+    }
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!aiButtonWrapperRef.current) {
+        return;
+      }
+      if (aiButtonWrapperRef.current.contains(event.target as Node)) {
+        return;
+      }
+      setComposeAiMenuRequested(false);
+      setReplyAiMenuRequested(false);
+    };
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setComposeAiMenuRequested(false);
+        setReplyAiMenuRequested(false);
+      }
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [composeAiMenuOpen, replyAiMenuOpen]);
+
+  const aiButtonNode = showAiActionButton ? (
+    <div
+      ref={aiButtonWrapperRef}
+      className="absolute right-3 top-3 flex flex-col items-end gap-2"
+    >
+      <button
+        type="button"
+        onClick={() => {
+          if (showReplyAiButton) {
+            setComposeAiMenuRequested(false);
+            if (!replyHasContent) {
+              void handleAiReply();
+              return;
+            }
+            setReplyAiMenuRequested((previous) => !previous);
+            return;
+          }
+          if (!meetsDraftAiThreshold) {
+            const remaining = Math.max(COMPOSE_AI_MIN_WORDS - bodyWordCount, 0);
+            addToast({
+              variant: "info",
+              title: `Ajoutez encore ${remaining} mot${remaining > 1 ? "s" : ""} pour activer l'IA.`,
+            });
+            return;
+          }
+          setReplyAiMenuRequested(false);
+          setComposeAiMenuRequested((previous) => !previous);
+        }}
+        title={showReplyAiButton ? replyAiActionLabel : composeAiButtonLabel}
+        aria-label={showReplyAiButton ? replyAiActionLabel : composeAiButtonLabel}
+        disabled={aiLoading || (!showReplyAiButton && !meetsDraftAiThreshold)}
+        className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-500 shadow-sm transition hover:text-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:text-blue-300"
+      >
+        {aiLoading ? (
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+        ) : (
+          <Sparkles className="h-4 w-4" aria-hidden="true" />
+        )}
+      </button>
+      {(showDraftAiButton && composeAiMenuOpen) || (showReplyAiButton && replyAiMenuOpen) ? (
+        <div className="z-20 w-64 max-w-[280px] rounded-xl border border-zinc-200 bg-white text-left shadow-2xl dark:border-zinc-700 dark:bg-zinc-900">
+          <div className="px-4 pt-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+            Assistant IA
+          </div>
+          <div className="flex flex-col gap-1 px-2 pb-2">
+            {showReplyAiButton && replyAiMenuOpen
+              ? Object.entries(AI_MODE_CONFIG).map(([key, config]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => handleReplyAiRequest(key as AiReplyMode)}
+                    disabled={aiLoading}
+                    className="rounded-lg px-3 py-2 text-left text-sm text-zinc-800 transition hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60 dark:text-zinc-100 dark:hover:bg-zinc-800"
+                  >
+                    <span className="block text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                      {config.label}
+                    </span>
+                    <span className="mt-1 block text-xs text-zinc-500 dark:text-zinc-400">
+                      {config.description}
+                    </span>
+                  </button>
+                ))
+              : Object.entries(COMPOSE_AI_CONFIG).map(([key, config]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => void handleDraftAiRequest(key as ComposeAiMode)}
+                    disabled={aiLoading}
+                    className="rounded-lg px-3 py-2 text-left text-sm text-zinc-800 transition hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60 dark:text-zinc-100 dark:hover:bg-zinc-800"
+                  >
+                    <span className="block text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                      {config.label}
+                    </span>
+                    <span className="mt-1 block text-xs text-zinc-500 dark:text-zinc-400">
+                      {config.description}
+                    </span>
+                  </button>
+                ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  ) : null;
 
   const addFiles = useCallback(
     (files: FileList | File[]) => {
@@ -823,11 +1632,15 @@ export function ComposeClient({
     const draft = initialDraftRef.current;
     setSubject(draft?.subject ?? "");
     setPlainBody(draft?.body ?? "");
+    enforceAiModeForPlain(draft?.body ?? "");
     setHtmlBody("");
+    captureHtmlBlueprint("");
+    setHtmlSyncEnabled(false);
+    contentAuthorityRef.current = "plain";
     setEditorMode("plain");
     setSelectedSavedResponseId("");
     setAttachments([]);
-  }, []);
+  }, [captureHtmlBlueprint, enforceAiModeForPlain]);
 
   const prepareComposeFormData = useCallback((): FormData | null => {
     const pendingToInput = toField.input;
@@ -892,9 +1705,7 @@ export function ComposeClient({
     const ccAddresses = formatRecipientAddresses(resolvedCcRecipients);
     const bccAddresses = formatRecipientAddresses(resolvedBccRecipients);
 
-    const htmlActive =
-      (editorMode === "html" || editorMode === "preview") &&
-      htmlBody.trim().length > 0;
+    const htmlActive = htmlBody.trim().length > 0;
 
     const formData = new FormData();
     formData.append("to", toAddresses);
@@ -1323,13 +2134,38 @@ export function ComposeClient({
             >
               Sujet
             </label>
-            <Input
-              id="compose-subject"
-              value={subject}
-              onChange={(event) => setSubject(event.target.value)}
-              placeholder="Sujet du message"
-              required
-            />
+            <div className="relative">
+              <Input
+                id="compose-subject"
+                value={subject}
+                onChange={(event) => setSubject(event.target.value)}
+                placeholder="Sujet du message"
+                required
+                className={showSubjectAiButton ? "pr-12" : undefined}
+              />
+              {showSubjectAiButton ? (
+                <button
+                  type="button"
+                  onClick={() => void handleSubjectAiRequest()}
+                  aria-label="Proposer un objet avec l'IA"
+                  title="Proposer un objet avec l'IA"
+                  disabled={!subjectAiEnabled || aiSubjectLoading}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-500 shadow-sm transition hover:text-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:text-blue-300"
+                >
+                  {aiSubjectLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                  ) : (
+                    <Sparkles className="h-4 w-4" aria-hidden="true" />
+                  )}
+                </button>
+              ) : null}
+            </div>
+            {!replyContext ? (
+              <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                Objet IA après {SUBJECT_AI_MIN_WORDS} mots (actuel : {bodyWordCount}
+                {subjectAiRemaining > 0 ? `, manque ${subjectAiRemaining}` : ""}).
+              </p>
+            ) : null}
           </div>
 
           <div className="space-y-3">
@@ -1344,6 +2180,11 @@ export function ComposeClient({
                 <p className="text-xs text-zinc-500 dark:text-zinc-400">
                   Basculez entre texte, HTML et aperçu selon le type de réponse.
                 </p>
+                {!replyContext ? (
+                  <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                    IA disponible après {COMPOSE_AI_MIN_WORDS} mots (actuel : {bodyWordCount}).
+                  </p>
+                ) : null}
               </div>
               {savedResponses.length ? (
                 <div className="flex flex-wrap items-center gap-2">
@@ -1397,25 +2238,32 @@ export function ComposeClient({
               ))}
             </div>
             {editorMode === "plain" && (
-              <Textarea
-                id="compose-body"
-                ref={bodyTextareaRef}
-                value={plainBody}
-                onChange={(event) => setPlainBody(event.target.value)}
-                rows={10}
-                placeholder="Bonjour..."
-              />
+              <div className="relative">
+                <Textarea
+                  id="compose-body"
+                  ref={bodyTextareaRef}
+                  value={plainBody}
+                  onChange={(event) => handlePlainBodyChange(event.target.value)}
+                  rows={10}
+                  placeholder="Bonjour..."
+                  className={showAiActionButton ? "pr-12" : undefined}
+                />
+                {aiButtonNode}
+              </div>
             )}
             {editorMode === "html" && (
-              <Textarea
-                id="compose-body-html"
-                ref={htmlTextareaRef}
-                value={htmlBody}
-                onChange={(event) => setHtmlBody(event.target.value)}
-                rows={12}
-                placeholder="Collez ou saisissez votre HTML avec styles inline"
-                className="font-mono"
-              />
+              <div className="relative">
+                <Textarea
+                  id="compose-body-html"
+                  ref={htmlTextareaRef}
+                  value={htmlBody}
+                  onChange={(event) => handleHtmlBodyChange(event.target.value)}
+                  rows={12}
+                  placeholder="Collez ou saisissez votre HTML avec styles inline"
+                  className={showAiActionButton ? "font-mono pr-12" : "font-mono"}
+                />
+                {aiButtonNode}
+              </div>
             )}
             {editorMode === "preview" && (
               <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
@@ -1425,6 +2273,38 @@ export function ComposeClient({
                 />
               </div>
             )}
+            {showAiModeSelect ? (
+              <div className="space-y-1">
+                <label
+                  htmlFor="ai-mode-select"
+                  className="text-xs font-medium text-zinc-600 dark:text-zinc-300"
+                >
+                  Mode d&apos;amélioration
+                </label>
+                <Select
+                  id="ai-mode-select"
+                  value={aiMode}
+                  onChange={(event) =>
+                    setAiMode(event.target.value as AiReplyMode)
+                  }
+                  disabled={aiLoading}
+                  className="h-9 w-full text-sm sm:w-64"
+                >
+                  <option value="improve_text_html">
+                    {AI_MODE_CONFIG.improve_text_html.label}
+                  </option>
+                  <option value="improve_text_only">
+                    {AI_MODE_CONFIG.improve_text_only.label}
+                  </option>
+                  <option value="correct_only">
+                    {AI_MODE_CONFIG.correct_only.label}
+                  </option>
+                </Select>
+                <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                  {aiModeDescription}
+                </p>
+              </div>
+            ) : null}
           </div>
 
           {shouldShowPlaceholderPanel && (

@@ -20,6 +20,11 @@ function escapeFilename(value: string): string {
   return value.replace(/"/g, '\\"');
 }
 
+function toAsciiSafeValue(value: string): string {
+  const ascii = value.replace(/[\u007F-\uFFFF]/g, "?");
+  return ascii.replace(/[^\x20-\x7E]/g, "?");
+}
+
 async function resolveParams(
   input: RouteParams | Promise<RouteParams> | undefined,
 ): Promise<RouteParams> {
@@ -79,20 +84,33 @@ export async function GET(
     });
 
     const disposition = inline ? "inline" : "attachment";
-    const safeFilename = escapeFilename(download.filename);
+    const safeFilename = escapeFilename(
+      toAsciiSafeValue(download.filename),
+    );
     const headers = new Headers({
       "Content-Type": download.contentType || "application/octet-stream",
-      "Content-Length": download.content.length.toString(),
+      "Content-Length": download.content.byteLength.toString(),
       "Content-Disposition": `${disposition}; filename="${safeFilename}"; filename*=UTF-8''${encodeURIComponent(download.filename)}`,
       "Cache-Control": "private, max-age=0, must-revalidate",
     });
 
-    const body = new Uint8Array(download.content);
-    return new Response(body, {
+    const source = download.content as Uint8Array;
+    const arrayBuffer = (source.buffer as ArrayBuffer).slice(
+      source.byteOffset,
+      source.byteOffset + source.byteLength,
+    );
+
+    return new Response(arrayBuffer, {
       status: 200,
       headers,
     });
   } catch (error) {
+    console.error("[attachments] download failed", {
+      mailbox,
+      uid: parsedUid,
+      attachmentId: decodedAttachmentId,
+      error,
+    });
     const message = error instanceof Error ? error.message : String(error);
     const notFound = /introuvable/i.test(message);
     return NextResponse.json(

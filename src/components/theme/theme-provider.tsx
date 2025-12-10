@@ -27,6 +27,21 @@ const ThemeContext = createContext<ThemeContextValue | undefined>(
 const isTheme = (value: unknown): value is Theme =>
   value === "light" || value === "dark" || value === "system";
 
+const persistThemeChoice = (nextTheme: Theme) => {
+  if (typeof window !== "undefined") {
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
+    } catch {
+      // Ignore write failures (private mode, etc.)
+    }
+  }
+
+  if (typeof document !== "undefined") {
+    const maxAge = 60 * 60 * 24 * 365; // 1 year
+    document.cookie = `${THEME_COOKIE}=${nextTheme}; path=/; max-age=${maxAge}; SameSite=Lax`;
+  }
+};
+
 const readDatasetTheme = (): Theme | undefined => {
   if (typeof document === "undefined") {
     return undefined;
@@ -124,21 +139,6 @@ export function ThemeProvider({
     initialResolvedValue,
   );
 
-  const persistTheme = useCallback((nextTheme: Theme) => {
-    if (typeof window !== "undefined") {
-      try {
-        window.localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
-      } catch {
-        // Ignore write failures (private mode, etc.)
-      }
-    }
-
-    if (typeof document !== "undefined") {
-      const maxAge = 60 * 60 * 24 * 365; // 1 year
-      document.cookie = `${THEME_COOKIE}=${nextTheme}; path=/; max-age=${maxAge}; SameSite=Lax`;
-    }
-  }, []);
-
   const applyTheme = useCallback(
     (nextTheme: Theme) => {
       const resolved = applyThemeToDocument(nextTheme);
@@ -155,13 +155,14 @@ export function ThemeProvider({
 
       setThemeState((current) => (current === next ? current : next));
       applyTheme(next);
+      persistThemeChoice(next);
     },
     [applyTheme],
   );
 
   useEffect(() => {
-    persistTheme(theme);
-  }, [persistTheme, theme]);
+    persistThemeChoice(theme);
+  }, [theme]);
 
   useEffect(() => {
     if (theme !== "system") {
@@ -201,7 +202,21 @@ export function ThemeProvider({
 export function useTheme() {
   const context = useContext(ThemeContext);
   if (!context) {
-    throw new Error("useTheme must be used within a ThemeProvider");
+    const fallbackTheme = readDatasetTheme() ?? "system";
+    const fallbackResolved =
+      fallbackTheme === "system" ? resolveSystemTheme() : fallbackTheme;
+
+    return {
+      theme: fallbackTheme,
+      resolvedTheme: fallbackResolved,
+      setTheme: (next: Theme) => {
+        if (!isTheme(next)) {
+          return;
+        }
+        applyThemeToDocument(next);
+        persistThemeChoice(next);
+      },
+    };
   }
   return context;
 }
