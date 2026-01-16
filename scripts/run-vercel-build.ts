@@ -210,7 +210,7 @@ async function main() {
     }
   }
 
-  await run("next", ["build"]);
+  await run("next", ["build", "--webpack"]);
 }
 
 main().catch((error) => {

@@ -1,10 +1,10 @@
-import {
+import type {
   ImapFlow,
-  type MessageStructureObject,
-  type MessageAddressObject,
-  type MessageEnvelopeObject,
-  type ListResponse,
-  type FetchMessageObject,
+  MessageStructureObject,
+  MessageAddressObject,
+  MessageEnvelopeObject,
+  ListResponse,
+  FetchMessageObject,
 } from "imapflow";
 import { Readable } from "node:stream";
 import { headers } from "next/headers";
@@ -37,6 +37,20 @@ import {
   type EmailTrackingDetail,
   type RecipientInput,
 } from "@/server/email-tracking";
+
+type ImapFlowConstructor = typeof import("imapflow").ImapFlow;
+
+let imapFlowConstructor: ImapFlowConstructor | null = null;
+
+async function getImapFlowConstructor(): Promise<ImapFlowConstructor> {
+  if (!imapFlowConstructor) {
+    const mod = await import(
+      /* webpackIgnore: true */ /* turbopackIgnore: true */ "imapflow"
+    );
+    imapFlowConstructor = mod.ImapFlow;
+  }
+  return imapFlowConstructor;
+}
 
 const DEFAULT_PAGE_SIZE = 20;
 const RECIPIENT_TYPE_MAP = {
@@ -1380,7 +1394,8 @@ async function withImapClient<T>(
   config: ImapConnectionConfig,
   fn: (client: ImapFlow) => Promise<T>,
 ): Promise<T> {
-  const client = new ImapFlow({
+  const ImapFlowCtor = await getImapFlowConstructor();
+  const client = new ImapFlowCtor({
     host: config.host,
     port: config.port,
     secure: config.secure,

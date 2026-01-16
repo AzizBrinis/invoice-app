@@ -7,6 +7,11 @@ const tracingIncludes = [
 
 const nextConfig: NextConfig = {
   typedRoutes: true,
+  experimental: {
+    serverActions: {
+      bodySizeLimit: "100mb",
+    },
+  },
   outputFileTracingIncludes: {
     "/(app)": tracingIncludes,
     "/api": tracingIncludes,
