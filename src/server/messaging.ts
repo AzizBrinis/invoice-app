@@ -44,9 +44,7 @@ let imapFlowConstructor: ImapFlowConstructor | null = null;
 
 async function getImapFlowConstructor(): Promise<ImapFlowConstructor> {
   if (!imapFlowConstructor) {
-    const mod = await import(
-      /* webpackIgnore: true */ /* turbopackIgnore: true */ "imapflow"
-    );
+    const mod = await import("imapflow");
     imapFlowConstructor = mod.ImapFlow;
   }
   return imapFlowConstructor;
