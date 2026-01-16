@@ -33,7 +33,7 @@
     "imapflow": "^1.1.1",
     "lucide-react": "^0.546.0",
     "mailparser": "^3.7.5",
-    "next": "^16.0.8",
+    "next": "16.0.10",
     "nodemailer": "^7.0.9",
     "prisma": "^6.18.0",
     "puppeteer": "^24.26.0",
