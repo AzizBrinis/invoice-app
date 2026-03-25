@@ -2,13 +2,19 @@ import { DocumentType, EmailStatus, Prisma } from "@prisma/client";
 import type { BackgroundJobHandlers } from "@/server/background-jobs";
 import { enqueueJob, processJobQueue } from "@/server/background-jobs";
 import { prisma } from "@/lib/prisma";
-import { sendInvoiceEmail, sendQuoteEmail } from "@/server/email";
+import {
+  sendClientPaymentReceiptEmail,
+  sendInvoiceEmail,
+  sendQuoteEmail,
+} from "@/server/email";
 
 export const SEND_INVOICE_EMAIL_JOB_TYPE = "billing.sendInvoiceEmail";
 export const SEND_QUOTE_EMAIL_JOB_TYPE = "billing.sendQuoteEmail";
+export const SEND_RECEIPT_EMAIL_JOB_TYPE = "billing.sendReceiptEmail";
 const DOCUMENT_EMAIL_JOB_TYPES = [
   SEND_INVOICE_EMAIL_JOB_TYPE,
   SEND_QUOTE_EMAIL_JOB_TYPE,
+  SEND_RECEIPT_EMAIL_JOB_TYPE,
 ] as const;
 
 const DEDUPE_WINDOW_MS = 30_000;
@@ -23,6 +29,13 @@ type QueueInvoiceEmailOptions = {
 type QueueQuoteEmailOptions = {
   userId: string;
   quoteId: string;
+  to: string;
+  subject?: string | null | undefined;
+};
+
+type QueueReceiptEmailOptions = {
+  userId: string;
+  paymentId: string;
   to: string;
   subject?: string | null | undefined;
 };
@@ -43,6 +56,14 @@ type SendInvoiceEmailJobPayload = {
 type SendQuoteEmailJobPayload = {
   userId: string;
   quoteId: string;
+  to: string;
+  subject?: string | null;
+  emailLogId: string | null;
+};
+
+type SendReceiptEmailJobPayload = {
+  userId: string;
+  paymentId: string;
   to: string;
   subject?: string | null;
   emailLogId: string | null;
@@ -69,6 +90,21 @@ export const documentEmailJobHandlers: BackgroundJobHandlers = {
     try {
       await sendQuoteEmail({
         quoteId: parsed.quoteId,
+        to: parsed.to,
+        subject: parsed.subject ?? undefined,
+        userId: parsed.userId,
+        emailLogId: parsed.emailLogId,
+      });
+    } catch (error) {
+      await markEmailLogFailure(parsed.emailLogId, error);
+      throw error;
+    }
+  },
+  [SEND_RECEIPT_EMAIL_JOB_TYPE]: async ({ payload }) => {
+    const parsed = parseReceiptPayload(payload);
+    try {
+      await sendClientPaymentReceiptEmail({
+        paymentId: parsed.paymentId,
         to: parsed.to,
         subject: parsed.subject ?? undefined,
         userId: parsed.userId,
@@ -114,6 +150,26 @@ export async function queueQuoteEmailJob(
     payloadBuilder: ({ emailLogId, normalizedEmail, normalizedSubject }) => ({
       userId: options.userId,
       quoteId: options.quoteId,
+      to: normalizedEmail,
+      subject: normalizedSubject,
+      emailLogId,
+    }),
+  });
+}
+
+export async function queueReceiptEmailJob(
+  options: QueueReceiptEmailOptions,
+): Promise<QueueResult> {
+  return queueDocumentEmailJob({
+    userId: options.userId,
+    documentId: options.paymentId,
+    documentType: DocumentType.RECU,
+    to: options.to,
+    subject: options.subject ?? null,
+    jobType: SEND_RECEIPT_EMAIL_JOB_TYPE,
+    payloadBuilder: ({ emailLogId, normalizedEmail, normalizedSubject }) => ({
+      userId: options.userId,
+      paymentId: options.paymentId,
       to: normalizedEmail,
       subject: normalizedSubject,
       emailLogId,
@@ -238,6 +294,32 @@ function parseQuotePayload(payload: unknown): SendQuoteEmailJobPayload {
   };
 }
 
+function parseReceiptPayload(payload: unknown): SendReceiptEmailJobPayload {
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Payload invalide pour l'envoi de reçu.");
+  }
+  const candidate = payload as Record<string, unknown>;
+  const required = ["userId", "paymentId", "to"];
+  for (const key of required) {
+    if (typeof candidate[key] !== "string" || !(candidate[key] as string).length) {
+      throw new Error(`Champ manquant dans le job d'envoi de reçu: ${key}`);
+    }
+  }
+  return {
+    userId: candidate.userId as string,
+    paymentId: candidate.paymentId as string,
+    to: candidate.to as string,
+    subject:
+      typeof candidate.subject === "string" && candidate.subject.length
+        ? candidate.subject
+        : null,
+    emailLogId:
+      typeof candidate.emailLogId === "string" && candidate.emailLogId.length
+        ? candidate.emailLogId
+        : null,
+  };
+}
+
 async function markEmailLogFailure(logId: string | null, error: unknown) {
   if (!logId) {
     return;
@@ -268,9 +350,13 @@ function computeDedupeKey(
 }
 
 function defaultSubjectFor(documentType: DocumentType) {
-  return documentType === DocumentType.FACTURE
-    ? "Envoi de facture"
-    : "Envoi de devis";
+  if (documentType === DocumentType.FACTURE) {
+    return "Envoi de facture";
+  }
+  if (documentType === DocumentType.RECU) {
+    return "Envoi de reçu";
+  }
+  return "Envoi de devis";
 }
 
 let documentEmailJobFlushInFlight = false;

@@ -7,6 +7,7 @@ import type {
   FetchMessageObject,
 } from "imapflow";
 import { Readable } from "node:stream";
+import { cache } from "react";
 import { headers } from "next/headers";
 import nodemailer, { type Transporter } from "nodemailer";
 import MailComposer from "nodemailer/lib/mail-composer";
@@ -37,6 +38,13 @@ import {
   type EmailTrackingDetail,
   type RecipientInput,
 } from "@/server/email-tracking";
+import {
+  buildMailboxSearchFieldQueries,
+  isMailboxSearchQueryUsable,
+  normalizeMailboxSearchQuery,
+  type SearchableMailbox,
+  tokenizeMailboxSearchQuery,
+} from "@/lib/messaging/mailbox-search";
 
 type ImapFlowConstructor = typeof import("imapflow").ImapFlow;
 
@@ -123,7 +131,7 @@ export async function resolveUserId(provided?: string) {
     return provided;
   }
   const user = await requireUser();
-  return user.id;
+  return user.activeTenantId ?? user.tenantId ?? user.id;
 }
 
 export type MessagingIdentityInput = {
@@ -301,6 +309,16 @@ export type MailboxPageResult = {
   hasMore: boolean;
   messages: MailboxListItem[];
   autoMoved?: AutoMovedSummary[];
+};
+
+export type MailboxSearchResult = {
+  mailbox: SearchableMailbox;
+  query: string;
+  page: number;
+  pageSize: number;
+  totalMessages: number;
+  hasMore: boolean;
+  messages: MailboxListItem[];
 };
 
 function buildUidSequence(uids: number[]): string {
@@ -701,6 +719,12 @@ export type MessagingCredentials = {
   vacation: VacationAutoReplyConfig;
 };
 
+const getMessagingSettingsRecord = cache(async (userId: string) => {
+  return prisma.messagingSettings.findUnique({
+    where: { userId },
+  });
+});
+
 type MailboxOpenResult = {
   name: string;
   info: Awaited<ReturnType<ImapFlow["mailboxOpen"]>>;
@@ -791,7 +815,28 @@ const MAILBOX_SPECIAL_USE: Partial<Record<Mailbox, string>> = {
   spam: "\\Junk",
 };
 
-const mailboxNameCache = new Map<Mailbox, string>();
+const mailboxNameCache = new Map<string, string>();
+
+function getMailboxCacheKey(
+  config: Pick<ImapConnectionConfig, "host" | "port" | "secure" | "user">,
+  mailbox: Mailbox,
+) {
+  return [
+    "v2",
+    config.host.trim().toLowerCase(),
+    config.port,
+    config.secure ? "secure" : "plain",
+    config.user.trim().toLowerCase(),
+    mailbox,
+  ].join("::");
+}
+
+function buildStaticMailboxCandidates(mailbox: Mailbox): string[] {
+  if (mailbox === "inbox") {
+    return ["INBOX"];
+  }
+  return MAILBOX_CANDIDATES[mailbox] ?? [];
+}
 
 function normalizeMailboxName(value: string): string {
   return value
@@ -881,6 +926,10 @@ async function listMailboxes(client: ImapFlow): Promise<ListResponse[]> {
 async function getMailboxPathCandidates(
   client: ImapFlow,
   mailbox: Mailbox,
+  options?: {
+    cacheKey?: string;
+    discover?: boolean;
+  },
 ): Promise<string[]> {
   const candidateWeights = new Map<string, number>();
 
@@ -897,48 +946,45 @@ async function getMailboxPathCandidates(
     }
   };
 
-  const cached = mailboxNameCache.get(mailbox);
+  const cached = options?.cacheKey
+    ? mailboxNameCache.get(options.cacheKey)
+    : null;
   if (cached) {
     recordCandidate(cached, -10);
   }
 
-  if (mailbox === "inbox") {
-    recordCandidate("INBOX", 0);
-    return [...candidateWeights.entries()]
-      .sort((a, b) => a[1] - b[1] || a[0].localeCompare(b[0]))
-      .map(([path]) => path);
+  for (const candidate of buildStaticMailboxCandidates(mailbox)) {
+    recordCandidate(candidate, mailbox === "inbox" ? 0 : 20);
   }
 
-  const allMailboxes = await listMailboxes(client);
-  const specialUse = MAILBOX_SPECIAL_USE[mailbox]?.toLowerCase() ?? null;
+  if (options?.discover) {
+    const allMailboxes = await listMailboxes(client);
+    const specialUse = MAILBOX_SPECIAL_USE[mailbox]?.toLowerCase() ?? null;
 
-  for (const entry of allMailboxes) {
-    const variants = mailboxNameVariants(entry);
-    const normalizedVariants = variants.map((variant) =>
-      normalizeMailboxName(variant),
-    );
+    for (const entry of allMailboxes) {
+      const variants = mailboxNameVariants(entry);
+      const normalizedVariants = variants.map((variant) =>
+        normalizeMailboxName(variant),
+      );
 
-    let weight = Number.POSITIVE_INFINITY;
+      let weight = Number.POSITIVE_INFINITY;
 
-    if (
-      specialUse &&
-      entry.specialUse?.toLowerCase() === specialUse
-    ) {
-      weight = -5;
+      if (
+        specialUse &&
+        entry.specialUse?.toLowerCase() === specialUse
+      ) {
+        weight = -5;
+      }
+
+      if (mailbox === "sent") {
+        weight = Math.min(weight, computeSentMailboxWeight(normalizedVariants));
+      }
+
+      if (!Number.isFinite(weight)) {
+        weight = 5;
+      }
+      recordCandidate(entry.path, weight);
     }
-
-    if (mailbox === "sent") {
-      weight = Math.min(weight, computeSentMailboxWeight(normalizedVariants));
-    }
-
-    if (!Number.isFinite(weight)) {
-      weight = 5;
-    }
-    recordCandidate(entry.path, weight);
-  }
-
-  for (const candidate of MAILBOX_CANDIDATES[mailbox] ?? []) {
-    recordCandidate(candidate, 20);
   }
 
   const sortedCandidates = [...candidateWeights.entries()].sort(
@@ -1278,6 +1324,31 @@ function isConnectionError(error: unknown): boolean {
   );
 }
 
+function isExpectedMailboxLookupFailure(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const mailboxMissing = (error as { mailboxMissing?: unknown }).mailboxMissing;
+  if (mailboxMissing === true) {
+    return true;
+  }
+
+  const responseStatus = (error as { responseStatus?: unknown }).responseStatus;
+  if (typeof responseStatus === "string" && responseStatus.toUpperCase() === "NO") {
+    return true;
+  }
+
+  const code = (error as { serverResponseCode?: unknown }).serverResponseCode;
+  if (typeof code === "string" && code.toUpperCase() === "CANNOT") {
+    return true;
+  }
+
+  const message =
+    error instanceof Error ? error.message : String(error ?? "");
+  return /mailbox doesn't exist|invalid mailbox name/i.test(message);
+}
+
 function formatAddress(entry?: ImapAddress | null): string | null {
   if (!entry) {
     return null;
@@ -1420,36 +1491,18 @@ async function openMailbox(
   client: ImapFlow,
   mailbox: Mailbox,
   readOnly: boolean,
+  options?: {
+    cacheKey?: string;
+  },
 ): Promise<MailboxOpenResult> {
-  const candidates = await getMailboxPathCandidates(client, mailbox);
   const attempted = new Set<string>();
 
-  const buildVariants = (path: string): Array<string | string[]> => {
-    const variants: Array<string | string[]> = [];
-
-    const slashSegments = path.split("/").map((segment) => segment.trim()).filter(Boolean);
-    if (slashSegments.length > 1) {
-      variants.push(slashSegments);
-    }
-
-    const dotSegments = path.split(".").map((segment) => segment.trim()).filter(Boolean);
-    if (dotSegments.length > 1) {
-      variants.push(dotSegments);
-    }
-
-    variants.push(path);
-    return variants;
-  };
-
-  for (const name of candidates) {
-    for (const variant of buildVariants(name)) {
-      const attemptKey = Array.isArray(variant)
-        ? variant.join("::")
-        : variant;
-      if (attempted.has(attemptKey)) {
+  const tryOpenCandidates = async (candidates: string[]) => {
+    for (const name of candidates) {
+      if (attempted.has(name)) {
         continue;
       }
-      attempted.add(attemptKey);
+      attempted.add(name);
 
       let lock: Awaited<ReturnType<ImapFlow["getMailboxLock"]>> | null = null;
       const releaseLock = () => {
@@ -1459,30 +1512,77 @@ async function openMailbox(
         }
       };
       try {
-        lock = await client.getMailboxLock(variant);
-        const info = await client.mailboxOpen(variant, { readOnly });
-        mailboxNameCache.set(mailbox, info.path ?? name);
+        lock = await client.getMailboxLock(name, { readOnly });
+        const info = client.mailbox;
+        if (!info) {
+          throw new Error("Boîte aux lettres IMAP non ouverte.");
+        }
+        const resolvedName = info.path ?? lock.path ?? name;
+        if (options?.cacheKey) {
+          mailboxNameCache.set(options.cacheKey, resolvedName);
+        }
         return {
-          name: info.path ?? name,
+          name: resolvedName,
           info,
           release: releaseLock,
-        };
+        } satisfies MailboxOpenResult;
       } catch (error) {
         releaseLock();
-        if (mailboxNameCache.get(mailbox) === name) {
-          mailboxNameCache.delete(mailbox);
+        if (
+          options?.cacheKey &&
+          mailboxNameCache.get(options.cacheKey) === name
+        ) {
+          mailboxNameCache.delete(options.cacheKey);
         }
         if (isConnectionError(error)) {
           throw formatError("Connexion IMAP indisponible", error);
         }
-        console.warn(
-          `Impossible d'ouvrir la boîte "${Array.isArray(variant) ? variant.join(" / ") : variant}" (${mailbox}):`,
-          error,
-        );
+        if (!isExpectedMailboxLookupFailure(error)) {
+          console.warn(
+            `Impossible d'ouvrir la boîte "${name}" (${mailbox}):`,
+            error,
+          );
+        }
         if (mailbox === "sent" && isAuthError(error)) {
           throw error;
         }
       }
+    }
+    return null;
+  };
+
+  const hasCachedPath = Boolean(
+    options?.cacheKey && mailboxNameCache.has(options.cacheKey),
+  );
+
+  if (mailbox === "inbox") {
+    const inboxCandidates = await getMailboxPathCandidates(client, mailbox, {
+      cacheKey: options?.cacheKey,
+      discover: false,
+    });
+    const inboxMatch = await tryOpenCandidates(inboxCandidates);
+    if (inboxMatch) {
+      return inboxMatch;
+    }
+  } else {
+    if (hasCachedPath) {
+      const cachedCandidates = await getMailboxPathCandidates(client, mailbox, {
+        cacheKey: options?.cacheKey,
+        discover: false,
+      });
+      const cachedMatch = await tryOpenCandidates(cachedCandidates);
+      if (cachedMatch) {
+        return cachedMatch;
+      }
+    }
+
+    const discoveredCandidates = await getMailboxPathCandidates(client, mailbox, {
+      cacheKey: options?.cacheKey,
+      discover: true,
+    });
+    const discoveredMatch = await tryOpenCandidates(discoveredCandidates);
+    if (discoveredMatch) {
+      return discoveredMatch;
     }
   }
   throw new Error(
@@ -1509,7 +1609,9 @@ async function appendMessageToSentMailbox(params: {
   return withImapClient(params.imap, async (client) => {
     let opened: MailboxOpenResult;
     try {
-      opened = await openMailbox(client, "sent", false);
+      opened = await openMailbox(client, "sent", false, {
+        cacheKey: getMailboxCacheKey(params.imap!, "sent"),
+      });
     } catch (error) {
       console.warn(
         "Impossible d'enregistrer le message dans le dossier 'Envoyés':",
@@ -1623,7 +1725,6 @@ async function appendMessageToSentMailbox(params: {
         totalMessages,
       };
     } finally {
-      await client.mailboxClose().catch(() => undefined);
       opened.release();
     }
   });
@@ -1633,9 +1734,7 @@ export async function getMessagingCredentials(
   providedUserId?: string,
 ): Promise<MessagingCredentials> {
   const userId = await resolveUserId(providedUserId);
-  const settings = await prisma.messagingSettings.findUnique({
-    where: { userId },
-  });
+  const settings = await getMessagingSettingsRecord(userId);
 
   if (!settings) {
     return {
@@ -1743,9 +1842,7 @@ export async function getMessagingSettingsSummary(
   userId?: string,
 ): Promise<MessagingSettingsSummary> {
   const resolvedUserId = await resolveUserId(userId);
-  const settings = await prisma.messagingSettings.findUnique({
-    where: { userId: resolvedUserId },
-  });
+  const settings = await getMessagingSettingsRecord(resolvedUserId);
 
   if (!settings) {
     return {
@@ -2527,7 +2624,9 @@ export async function runAutomatedReplySweepForUser(
   }
 
   return withImapClient(credentials.imap, async (client) => {
-    const opened = await openMailbox(client, mailbox, true);
+    const opened = await openMailbox(client, mailbox, true, {
+      cacheKey: getMailboxCacheKey(credentials.imap!, mailbox),
+    });
 
     try {
       const syncState = await prisma.messagingInboxSyncState.findUnique({
@@ -2622,7 +2721,6 @@ export async function runAutomatedReplySweepForUser(
         },
       });
     } finally {
-      await client.mailboxClose().catch(() => undefined);
       opened.release();
     }
   });
@@ -2639,6 +2737,154 @@ function computeAutoReplyStartUid(options: {
   const reference = Math.max(1, (options.nextUid ?? 1) - 1);
   const window = Math.max(1, options.maxBootstrapWindow);
   return Math.max(1, reference - window);
+}
+
+async function enrichMailboxListItemsWithTracking(
+  userId: string,
+  items: MailboxListItem[],
+): Promise<MailboxListItem[]> {
+  const messageIds = items
+    .map((item) => item.messageId)
+    .filter(
+      (value): value is string =>
+        typeof value === "string" && value.length > 0,
+    );
+
+  if (!messageIds.length) {
+    return items;
+  }
+
+  const trackingSummaries = await getEmailTrackingSummaries({
+    userId,
+    messageIds,
+  });
+
+  return items.map((item) => {
+    if (!item.messageId) {
+      return item;
+    }
+    const summary = trackingSummaries.get(item.messageId);
+    if (!summary) {
+      return item;
+    }
+    return {
+      ...item,
+      tracking: {
+        enabled: summary.trackingEnabled,
+        totalOpens: summary.totalOpens,
+        totalClicks: summary.totalClicks,
+      },
+    };
+  });
+}
+
+async function searchMailboxTermUids(
+  client: ImapFlow,
+  term: string,
+): Promise<number[]> {
+  const queries = buildMailboxSearchFieldQueries(term);
+  if (!queries.length) {
+    return [];
+  }
+
+  const matches = new Set<number>();
+  let hadSuccessfulQuery = false;
+
+  for (const query of queries) {
+    try {
+      const result = await client.search(query, { uid: true });
+      hadSuccessfulQuery = true;
+      if (!Array.isArray(result)) {
+        continue;
+      }
+      result.forEach((uid) => {
+        if (typeof uid === "number" && Number.isInteger(uid) && uid > 0) {
+          matches.add(uid);
+        }
+      });
+    } catch (error) {
+      console.warn("Recherche IMAP partielle impossible:", {
+        term,
+        query,
+        error,
+      });
+    }
+  }
+
+  if (!hadSuccessfulQuery) {
+    throw new Error("La recherche IMAP a échoué.");
+  }
+
+  return Array.from(matches);
+}
+
+async function searchMailboxUids(
+  client: ImapFlow,
+  query: string,
+): Promise<number[]> {
+  const terms = tokenizeMailboxSearchQuery(query);
+  let matches: number[] | null = null;
+
+  for (const term of terms) {
+    const termMatches = await searchMailboxTermUids(client, term);
+    if (!termMatches.length) {
+      return [];
+    }
+
+    if (matches === null) {
+      matches = termMatches;
+      continue;
+    }
+
+    const termSet = new Set(termMatches);
+    matches = matches.filter((uid) => termSet.has(uid));
+    if (!matches.length) {
+      return [];
+    }
+  }
+
+  return matches ?? [];
+}
+
+async function fetchMailboxListItemsByUids(
+  client: ImapFlow,
+  uids: number[],
+): Promise<MailboxListItem[]> {
+  if (!uids.length) {
+    return [];
+  }
+
+  const fetchedItems: MailboxListItem[] = [];
+  const uidSequence = buildUidSequence(uids);
+  const order = new Map(
+    uids.map((uid, index) => [uid, index] as const),
+  );
+
+  for await (const message of client.fetch(
+    { uid: uidSequence },
+    {
+      envelope: true,
+      internalDate: true,
+      flags: true,
+      bodyStructure: true,
+    },
+  )) {
+    fetchedItems.push(
+      createMailboxListItem(
+        message as unknown as Parameters<
+          typeof createMailboxListItem
+        >[0],
+      ),
+    );
+  }
+
+  fetchedItems.sort(
+    (left, right) =>
+      (order.get(left.uid) ?? Number.MAX_SAFE_INTEGER) -
+      (order.get(right.uid) ?? Number.MAX_SAFE_INTEGER),
+  );
+
+  return fetchedItems;
 }
 
 export async function fetchMailboxMessages(params: {
@@ -2660,7 +2906,9 @@ export async function fetchMailboxMessages(params: {
   const pageSize = Math.max(1, params.pageSize ?? DEFAULT_PAGE_SIZE);
 
   return withImapClient(credentials.imap, async (client) => {
-    const opened = await openMailbox(client, params.mailbox, true);
+    const opened = await openMailbox(client, params.mailbox, true, {
+      cacheKey: getMailboxCacheKey(credentials.imap!, params.mailbox),
+    });
 
     try {
       const totalMessages = opened.info.exists ?? 0;
@@ -2748,35 +2996,10 @@ export async function fetchMailboxMessages(params: {
 
       const adjustedTotal = Math.max(0, totalMessages - newlyMovedCount);
 
-      const messageIds = filteredItems
-        .map((item) => item.messageId)
-        .filter((value): value is string => typeof value === "string" && value.length > 0);
-
-      let enrichedItems = filteredItems;
-
-      if (messageIds.length) {
-        const trackingSummaries = await getEmailTrackingSummaries({
-          userId,
-          messageIds,
-        });
-        enrichedItems = filteredItems.map((item) => {
-          if (!item.messageId) {
-            return item;
-          }
-          const summary = trackingSummaries.get(item.messageId);
-          if (!summary) {
-            return item;
-          }
-          return {
-            ...item,
-            tracking: {
-              enabled: summary.trackingEnabled,
-              totalOpens: summary.totalOpens,
-              totalClicks: summary.totalClicks,
-            },
-          };
-        });
-      }
+      const enrichedItems = await enrichMailboxListItemsWithTracking(
+        userId,
+        filteredItems,
+      );
 
       return {
         mailbox: params.mailbox,
@@ -2788,7 +3011,82 @@ export async function fetchMailboxMessages(params: {
         autoMoved: autoMoved.length ? autoMoved : undefined,
       };
     } finally {
-      await client.mailboxClose().catch(() => undefined);
+      opened.release();
+    }
+  });
+}
+
+export async function searchMailboxMessages(params: {
+  mailbox: SearchableMailbox;
+  query: string;
+  page?: number;
+  pageSize?: number;
+  userId?: string;
+}): Promise<MailboxSearchResult> {
+  const normalizedQuery = normalizeMailboxSearchQuery(params.query);
+  if (!isMailboxSearchQueryUsable(normalizedQuery)) {
+    throw new Error(
+      "La recherche doit contenir au moins deux caractères.",
+    );
+  }
+
+  const userId = await resolveUserId(params.userId);
+  const credentials = await getMessagingCredentials(userId);
+  if (!credentials.imap) {
+    throw new Error(
+      "Le serveur IMAP n'est pas configuré. Complétez les paramètres.",
+    );
+  }
+
+  const page = Math.max(1, params.page ?? 1);
+  const pageSize = Math.max(1, params.pageSize ?? DEFAULT_PAGE_SIZE);
+
+  return withImapClient(credentials.imap, async (client) => {
+    const opened = await openMailbox(client, params.mailbox, true, {
+      cacheKey: getMailboxCacheKey(credentials.imap!, params.mailbox),
+    });
+
+    try {
+      const matchedUids = await searchMailboxUids(
+        client,
+        normalizedQuery,
+      );
+      const sortedUids = Array.from(new Set(matchedUids)).sort(
+        (left, right) => right - left,
+      );
+      const totalMessages = sortedUids.length;
+      const startIndex = (page - 1) * pageSize;
+      const endIndex = startIndex + pageSize;
+      const pageUids = sortedUids.slice(startIndex, endIndex);
+
+      if (!pageUids.length) {
+        return {
+          mailbox: params.mailbox,
+          query: normalizedQuery,
+          page,
+          pageSize,
+          totalMessages,
+          hasMore: endIndex < totalMessages,
+          messages: [],
+        };
+      }
+
+      const items = await fetchMailboxListItemsByUids(client, pageUids);
+      const enrichedItems = await enrichMailboxListItemsWithTracking(
+        userId,
+        items,
+      );
+
+      return {
+        mailbox: params.mailbox,
+        query: normalizedQuery,
+        page,
+        pageSize,
+        totalMessages,
+        hasMore: endIndex < totalMessages,
+        messages: enrichedItems,
+      };
+    } finally {
       opened.release();
     }
   });
@@ -2957,7 +3255,9 @@ export async function fetchMailboxUpdates(params: {
   }
 
   return withImapClient(credentials.imap, async (client) => {
-    const opened = await openMailbox(client, params.mailbox, true);
+    const opened = await openMailbox(client, params.mailbox, true, {
+      cacheKey: getMailboxCacheKey(credentials.imap!, params.mailbox),
+    });
 
     try {
       const totalMessages = opened.info.exists ?? null;
@@ -3053,35 +3353,10 @@ export async function fetchMailboxUpdates(params: {
         }
       }
 
-      const messageIds = filteredItems
-        .map((item) => item.messageId)
-        .filter((value): value is string => typeof value === "string" && value.length > 0);
-
-      let enrichedItems = filteredItems;
-
-      if (messageIds.length) {
-        const trackingSummaries = await getEmailTrackingSummaries({
-          userId,
-          messageIds,
-        });
-        enrichedItems = filteredItems.map((item) => {
-          if (!item.messageId) {
-            return item;
-          }
-          const summary = trackingSummaries.get(item.messageId);
-          if (!summary) {
-            return item;
-          }
-          return {
-            ...item,
-            tracking: {
-              enabled: summary.trackingEnabled,
-              totalOpens: summary.totalOpens,
-              totalClicks: summary.totalClicks,
-            },
-          };
-        });
-      }
+      const enrichedItems = await enrichMailboxListItemsWithTracking(
+        userId,
+        filteredItems,
+      );
 
       return {
         totalMessages: adjustedTotal,
@@ -3089,7 +3364,6 @@ export async function fetchMailboxUpdates(params: {
         autoMoved: autoMoved.length ? autoMoved : undefined,
       };
     } finally {
-      await client.mailboxClose().catch(() => undefined);
       opened.release();
     }
   });
@@ -3109,7 +3383,9 @@ export async function fetchMessageDetail(params: {
   }
 
   return withImapClient(credentials.imap, async (client) => {
-    const opened = await openMailbox(client, params.mailbox, true);
+    const opened = await openMailbox(client, params.mailbox, true, {
+      cacheKey: getMailboxCacheKey(credentials.imap!, params.mailbox),
+    });
 
     try {
       const message = await client.fetchOne(
@@ -3230,7 +3506,6 @@ export async function fetchMessageDetail(params: {
         tracking: trackingDetail,
       };
     } finally {
-      await client.mailboxClose().catch(() => undefined);
       opened.release();
     }
   });
@@ -3250,7 +3525,9 @@ export async function fetchMessageAttachment(params: {
   }
 
   return withImapClient(credentials.imap, async (client) => {
-    const opened = await openMailbox(client, params.mailbox, true);
+    const opened = await openMailbox(client, params.mailbox, true, {
+      cacheKey: getMailboxCacheKey(credentials.imap!, params.mailbox),
+    });
 
     try {
       const message = await client.fetchOne(
@@ -3295,7 +3572,6 @@ export async function fetchMessageAttachment(params: {
         content,
       };
     } finally {
-      await client.mailboxClose().catch(() => undefined);
       opened.release();
     }
   });
@@ -3322,12 +3598,18 @@ export async function moveMailboxMessage(params: {
     const destinationCandidates = await getMailboxPathCandidates(
       client,
       params.target,
+      {
+        cacheKey: getMailboxCacheKey(credentials.imap!, params.target),
+        discover: true,
+      },
     );
     if (!destinationCandidates.length) {
       throw new Error("Dossier de destination introuvable.");
     }
     const destinationPath = destinationCandidates[0];
-    const opened = await openMailbox(client, params.mailbox, false);
+    const opened = await openMailbox(client, params.mailbox, false, {
+      cacheKey: getMailboxCacheKey(credentials.imap!, params.mailbox),
+    });
 
     try {
       const moved = await client.messageMove(
@@ -3339,7 +3621,6 @@ export async function moveMailboxMessage(params: {
         throw new Error("Déplacement du message impossible.");
       }
     } finally {
-      await client.mailboxClose().catch(() => undefined);
       opened.release();
     }
   });
@@ -3655,12 +3936,13 @@ export async function testImapConnection(
     },
     async (client) => {
       try {
-        const opened = await openMailbox(client, "inbox", true);
+        const opened = await openMailbox(client, "inbox", true, {
+          cacheKey: getMailboxCacheKey(config, "inbox"),
+        });
 
         try {
           // L'ouverture suffit pour vérifier la connexion IMAP
         } finally {
-          await client.mailboxClose().catch(() => undefined);
           opened.release();
         }
       } catch (error) {

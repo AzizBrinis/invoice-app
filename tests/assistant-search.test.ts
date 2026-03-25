@@ -21,6 +21,12 @@ const CLIENT_SAMPLE: ClientCandidate = {
   updatedAt: new Date("2024-01-01T00:00:00.000Z"),
 };
 
+const DEFAULT_PRODUCT_CANDIDATE_FIELDS = {
+  defaultDiscountRate: null,
+  isActive: true,
+  isListedInCatalog: true,
+} as const;
+
 const PRODUCT_SAMPLE: ProductCandidate = {
   id: "prod_1",
   name: "Audit SEO avancé",
@@ -31,6 +37,7 @@ const PRODUCT_SAMPLE: ProductCandidate = {
   priceHTCents: 150000,
   priceTTCCents: 178500,
   vatRate: 19,
+  ...DEFAULT_PRODUCT_CANDIDATE_FIELDS,
   updatedAt: new Date("2024-01-05T00:00:00.000Z"),
 };
 
@@ -45,6 +52,7 @@ const PRODUCT_FIXTURES: ProductCandidate[] = [
     priceHTCents: 12000,
     priceTTCCents: 14400,
     vatRate: 20,
+    ...DEFAULT_PRODUCT_CANDIDATE_FIELDS,
     updatedAt: new Date("2024-02-01T00:00:00.000Z"),
   },
   {
@@ -57,6 +65,7 @@ const PRODUCT_FIXTURES: ProductCandidate[] = [
     priceHTCents: 18000,
     priceTTCCents: 21600,
     vatRate: 20,
+    ...DEFAULT_PRODUCT_CANDIDATE_FIELDS,
     updatedAt: new Date("2024-03-01T00:00:00.000Z"),
   },
   {
@@ -69,6 +78,7 @@ const PRODUCT_FIXTURES: ProductCandidate[] = [
     priceHTCents: 150000,
     priceTTCCents: 178500,
     vatRate: 19,
+    ...DEFAULT_PRODUCT_CANDIDATE_FIELDS,
     updatedAt: new Date("2024-01-05T00:00:00.000Z"),
   },
   {
@@ -81,6 +91,7 @@ const PRODUCT_FIXTURES: ProductCandidate[] = [
     priceHTCents: 145000,
     priceTTCCents: 172550,
     vatRate: 19,
+    ...DEFAULT_PRODUCT_CANDIDATE_FIELDS,
     updatedAt: new Date("2024-01-04T00:00:00.000Z"),
   },
   {
@@ -93,6 +104,7 @@ const PRODUCT_FIXTURES: ProductCandidate[] = [
     priceHTCents: 9900,
     priceTTCCents: 11781,
     vatRate: 19,
+    ...DEFAULT_PRODUCT_CANDIDATE_FIELDS,
     updatedAt: new Date("2024-04-01T00:00:00.000Z"),
   },
   {
@@ -105,6 +117,7 @@ const PRODUCT_FIXTURES: ProductCandidate[] = [
     priceHTCents: 79000,
     priceTTCCents: 94010,
     vatRate: 19,
+    ...DEFAULT_PRODUCT_CANDIDATE_FIELDS,
     updatedAt: new Date("2024-04-02T00:00:00.000Z"),
   },
   {
@@ -117,6 +130,7 @@ const PRODUCT_FIXTURES: ProductCandidate[] = [
     priceHTCents: 80000,
     priceTTCCents: 95200,
     vatRate: 19,
+    ...DEFAULT_PRODUCT_CANDIDATE_FIELDS,
     updatedAt: new Date("2024-04-03T00:00:00.000Z"),
   },
   {
@@ -129,6 +143,7 @@ const PRODUCT_FIXTURES: ProductCandidate[] = [
     priceHTCents: 2500,
     priceTTCCents: 2675,
     vatRate: 7,
+    ...DEFAULT_PRODUCT_CANDIDATE_FIELDS,
     updatedAt: new Date("2023-12-12T00:00:00.000Z"),
   },
   {
@@ -141,6 +156,7 @@ const PRODUCT_FIXTURES: ProductCandidate[] = [
     priceHTCents: 2600,
     priceTTCCents: 2782,
     vatRate: 7,
+    ...DEFAULT_PRODUCT_CANDIDATE_FIELDS,
     updatedAt: new Date("2023-12-20T00:00:00.000Z"),
   },
 ];

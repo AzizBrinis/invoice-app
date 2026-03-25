@@ -80,8 +80,12 @@ export async function getDashboardMetrics(currency?: string) {
   return payload.metrics;
 }
 
-function resolveTenantId(user: { id: string; tenantId?: string | null }) {
-  return user.tenantId ?? user.id;
+function resolveTenantId(user: {
+  id: string;
+  activeTenantId?: string | null;
+  tenantId?: string | null;
+}) {
+  return user.activeTenantId ?? user.tenantId ?? user.id;
 }
 
 async function computeDashboardPayload(

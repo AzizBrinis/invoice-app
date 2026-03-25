@@ -127,6 +127,7 @@ export function QuoteEditor({
     defaultQuote?.validUntil ? defaultQuote.validUntil.toISOString().slice(0, 10) : "",
   );
   const [reference, setReference] = useState(defaultQuote?.reference ?? "");
+  const [customNumber, setCustomNumber] = useState(defaultQuote?.number ?? "");
   const [currency, setCurrency] = useState<CurrencyCode>(initialCurrency);
   const [globalDiscountRate, setGlobalDiscountRate] = useState<number | "">(
     defaultQuote?.globalDiscountRate ?? "",
@@ -319,9 +320,10 @@ export function QuoteEditor({
   };
 
   const buildPayload = () => {
+    const normalizedNumber = customNumber.trim();
     const payload = {
       id: defaultQuote?.id,
-      number: defaultQuote?.number,
+      number: normalizedNumber || defaultQuote?.number,
       clientId,
       status,
       reference: reference || null,
@@ -454,6 +456,23 @@ export function QuoteEditor({
                 placeholder="DEV-2025-001"
               />
             </div>
+            {isNewQuote ? (
+              <div className="space-y-2 min-w-0 sm:col-span-3">
+                <label className="label" htmlFor="quoteNumber">
+                  Numéro du devis
+                </label>
+                <Input
+                  id="quoteNumber"
+                  name="number"
+                  value={customNumber}
+                  onChange={(event) => setCustomNumber(event.target.value)}
+                  placeholder="Automatique"
+                />
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Laissez vide pour la numérotation automatique.
+                </p>
+              </div>
+            ) : null}
           </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">

@@ -622,7 +622,11 @@ export async function createQuoteForUser(userId: string, input: QuoteInput) {
     payload.taxes,
   );
 
-  const number = payload.number ?? (await nextQuoteNumber(userId, settings));
+  const normalizedNumber = payload.number?.trim();
+  const number =
+    normalizedNumber && normalizedNumber.length > 0
+      ? normalizedNumber
+      : await nextQuoteNumber(userId, settings);
 
   const quote = await prisma.quote.create({
     data: {
@@ -662,6 +666,85 @@ export async function createQuoteForUser(userId: string, input: QuoteInput) {
   });
 
   revalidateQuotes(userId);
+  return quote;
+}
+
+export async function createQuoteFromOrder(
+  orderId: string,
+  providedUserId?: string,
+) {
+  const userId = providedUserId ?? (await requireUser()).id;
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, userId },
+    include: {
+      items: {
+        orderBy: { position: "asc" },
+      },
+      quote: true,
+    },
+  });
+  if (!order) {
+    throw new Error("Commande introuvable");
+  }
+  if (order.quote) {
+    return order.quote;
+  }
+  if (order.items.length === 0) {
+    throw new Error("Commande sans lignes");
+  }
+
+  const productIds = Array.from(
+    new Set(
+      order.items
+        .map((item) => item.productId)
+        .filter((value): value is string => Boolean(value)),
+    ),
+  );
+  const existingProducts = productIds.length
+    ? await prisma.product.findMany({
+        where: { id: { in: productIds }, userId },
+        select: { id: true },
+      })
+    : [];
+  const productIdSet = new Set(existingProducts.map((product) => product.id));
+
+  const quote = await createQuoteForUser(userId, {
+    clientId: order.clientId,
+    status: QuoteStatus.BROUILLON,
+    reference: order.orderNumber,
+    issueDate: new Date(),
+    validUntil: null,
+    currency: order.currency,
+    notes: order.notes ?? null,
+    terms: null,
+    lines: order.items.map((item, index) => ({
+      productId:
+        item.productId && productIdSet.has(item.productId)
+          ? item.productId
+          : null,
+      description: item.description,
+      quantity: item.quantity,
+      unit: item.unit,
+      unitPriceHTCents: item.unitPriceHTCents,
+      vatRate: item.vatRate,
+      discountRate: item.discountRate ?? null,
+      discountAmountCents: item.discountAmountCents ?? null,
+      fodecRate: null,
+      position: index,
+    })),
+    taxes: {
+      applyFodec: false,
+      applyTimbre: false,
+    },
+  });
+
+  await prisma.order.update({
+    where: { id: order.id },
+    data: {
+      quoteId: quote.id,
+    },
+  });
+
   return quote;
 }
 

@@ -30,6 +30,21 @@ export function toCents(
   return Math.round(amount * factor);
 }
 
+export function parseMinorUnitInput(
+  value: FormDataEntryValue | string | null | undefined,
+  currencyCode?: string,
+): number {
+  const normalized =
+    typeof value === "string"
+      ? value.trim()
+      : value?.toString().trim() ?? "";
+  const amount = Number(normalized.replace(",", "."));
+  if (!Number.isFinite(amount)) {
+    return 0;
+  }
+  return toCents(amount, currencyCode);
+}
+
 export function fromCents(
   amountCents: number,
   currencyCode?: string,

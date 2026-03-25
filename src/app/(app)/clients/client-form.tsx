@@ -1,12 +1,19 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import type { Route } from "next";
+import { useActionState, useEffect, useState, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
 import { z } from "zod";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { FormSubmitButton } from "@/components/ui/form-submit-button";
 import { Alert } from "@/components/ui/alert";
 import { clearClientCache } from "@/lib/client-directory-cache";
+import { useToast } from "@/components/ui/toast-provider";
+import {
+  type ClientFormActionState,
+} from "@/app/(app)/clients/actions";
+import { INITIAL_CLIENT_FORM_ACTION_STATE } from "@/app/(app)/clients/form-state";
 
 const clientFormSchema = z.object({
   displayName: z
@@ -24,7 +31,10 @@ const clientFormSchema = z.object({
 });
 
 type ClientFormProps = {
-  action: (formData: FormData) => void;
+  action: (
+    state: ClientFormActionState,
+    formData: FormData,
+  ) => Promise<ClientFormActionState>;
   submitLabel: string;
   defaultValues?: {
     displayName?: string | null;
@@ -40,6 +50,12 @@ type ClientFormProps = {
 };
 
 export function ClientForm({ action, submitLabel, defaultValues, redirectTo }: ClientFormProps) {
+  const router = useRouter();
+  const { addToast } = useToast();
+  const [state, formAction] = useActionState<ClientFormActionState, FormData>(
+    action,
+    INITIAL_CLIENT_FORM_ACTION_STATE,
+  );
   const [fieldErrors, setFieldErrors] = useState<
     Partial<Record<"displayName" | "email", string>>
   >({});
@@ -65,19 +81,49 @@ export function ClientForm({ action, submitLabel, defaultValues, redirectTo }: C
     }
     setFieldErrors({});
     setFormMessage(null);
-    clearClientCache();
+    clearClientCache({ refetchOnNextLoad: true });
   };
 
-  const target = redirectTo ?? "/clients";
+  const target = (redirectTo ?? "/clients") as Route;
+
+  useEffect(() => {
+    if (state.status === "success" && state.message) {
+      addToast({
+        variant: state.variant ?? "success",
+        title: state.message,
+      });
+      router.push((state.data?.redirectTo ?? target) as Route);
+      return;
+    }
+    if (state.status === "error" && state.message) {
+      addToast({
+        variant: "error",
+        title: state.message,
+      });
+    }
+  }, [
+    addToast,
+    router,
+    state.data?.redirectTo,
+    state.message,
+    state.status,
+    state.variant,
+    target,
+  ]);
 
   return (
     <form
-      action={action}
+      action={formAction}
       className="card w-full space-y-5 p-4 sm:p-6"
       onSubmit={handleSubmit}
     >
       <input type="hidden" name="redirectTo" value={target} />
-      {formMessage ? <Alert variant="error" title={formMessage} /> : null}
+      {formMessage || (state.status === "error" && state.message) ? (
+        <Alert
+          variant="error"
+          title={formMessage ?? state.message ?? undefined}
+        />
+      ) : null}
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <label htmlFor="displayName" className="label">

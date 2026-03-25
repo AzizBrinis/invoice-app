@@ -1,14 +1,26 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { randomBytes, createHash } from "crypto";
+import { cache } from "react";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { AuthorizationError } from "@/lib/errors";
-import type { UserRole } from "@prisma/client";
+import type {
+  AccountMembershipRole,
+  AccountPermission,
+  AccountType,
+  User,
+  UserRole,
+} from "@prisma/client";
 import {
   extractSignedToken,
   signSessionToken,
 } from "@/lib/session-cookie";
+import {
+  ensureOwnedAccountContext,
+  resolveUserAccountContext,
+  setSessionActiveTenant,
+} from "@/server/accounts";
 
 export const SESSION_COOKIE_NAME =
   process.env.SESSION_COOKIE_NAME ?? "session_token";
@@ -17,21 +29,37 @@ const SESSION_DURATION_HOURS = parseInt(
   10,
 );
 
+export type AuthenticatedUser = User & {
+  sessionId: string;
+  tenantId: string;
+  activeTenantId: string;
+  accountType: AccountType;
+  accountDisplayName: string | null;
+  membershipId: string;
+  membershipRole: AccountMembershipRole;
+  permissions: AccountPermission[];
+};
+
 function hashToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
 }
 
-async function persistSession(token: string, userId: string) {
+async function persistSession(
+  token: string,
+  userId: string,
+  activeTenantId?: string,
+) {
   const tokenHash = hashToken(token);
   const expiresAt = new Date(
     Date.now() + SESSION_DURATION_HOURS * 60 * 60 * 1000,
   );
 
-  await prisma.session.create({
+  const session = await prisma.session.create({
     data: {
       userId,
       tokenHash,
       expiresAt,
+      activeTenantId: activeTenantId ?? userId,
     },
   });
 
@@ -44,6 +72,8 @@ async function persistSession(token: string, userId: string) {
     expires: expiresAt,
     path: "/",
   });
+
+  return session;
 }
 
 export async function hashPassword(password: string) {
@@ -57,13 +87,17 @@ export async function verifyPassword(
   return bcrypt.compare(password, hash);
 }
 
-export async function getSessionTokenFromCookie() {
+const getSessionTokenFromCookieCached = cache(async () => {
   const cookieStore = await cookies();
   const rawValue = cookieStore.get(SESSION_COOKIE_NAME)?.value ?? null;
   return extractSignedToken(rawValue);
+});
+
+export async function getSessionTokenFromCookie() {
+  return getSessionTokenFromCookieCached();
 }
 
-export async function getCurrentUser() {
+const getCurrentUserCached = cache(async () => {
   const token = await getSessionTokenFromCookie();
   if (!token) {
     return null;
@@ -76,7 +110,11 @@ export async function getCurrentUser() {
     return null;
   }
 
-  return session.user;
+  return hydrateSessionUser(session);
+});
+
+export async function getCurrentUser() {
+  return getCurrentUserCached();
 }
 
 export async function requireUser(options?: { roles?: readonly UserRole[] }) {
@@ -120,12 +158,54 @@ async function findSessionByToken(token: string) {
   });
 }
 
-export async function getUserFromSessionToken(token: string) {
-  const session = await findSessionByToken(token);
-  return session?.user ?? null;
+async function hydrateSessionUser(session: {
+  id: string;
+  userId: string;
+  activeTenantId: string | null;
+  user: User;
+}): Promise<AuthenticatedUser> {
+  const accountContext = await resolveUserAccountContext(
+    session.userId,
+    session.activeTenantId ?? session.userId,
+  );
+
+  if (session.activeTenantId !== accountContext.accountId) {
+    await prisma.session.updateMany({
+      where: {
+        id: session.id,
+      },
+      data: {
+        activeTenantId: accountContext.accountId,
+      },
+    });
+  }
+
+  return {
+    ...session.user,
+    sessionId: session.id,
+    tenantId: accountContext.accountId,
+    activeTenantId: accountContext.accountId,
+    accountType: accountContext.accountType,
+    accountDisplayName: accountContext.accountDisplayName,
+    membershipId: accountContext.membershipId,
+    membershipRole: accountContext.membershipRole,
+    permissions: accountContext.permissions,
+  };
 }
 
-export async function signIn(email: string, password: string) {
+export async function getUserFromSessionToken(token: string) {
+  const session = await findSessionByToken(token);
+  if (!session) {
+    return null;
+  }
+  return hydrateSessionUser(session);
+}
+
+export async function signIn(
+  email: string,
+  password: string,
+  options?: { activeTenantId?: string | null },
+) {
   const user = await prisma.user.findUnique({
     where: { email },
   });
@@ -139,9 +219,14 @@ export async function signIn(email: string, password: string) {
     return null;
   }
 
+  await ensureOwnedAccountContext(user.id);
+
   const token = randomBytes(48).toString("hex");
-  await persistSession(token, user.id);
-  return user;
+  const session = await persistSession(token, user.id, options?.activeTenantId ?? user.id);
+  return hydrateSessionUser({
+    ...session,
+    user,
+  });
 }
 
 export async function signOut() {
@@ -157,4 +242,19 @@ export async function signOut() {
   });
 
   await clearSessionCookie();
+}
+
+export async function setCurrentSessionActiveTenant(accountId: string) {
+  const token = await getSessionTokenFromCookie();
+  if (!token) {
+    return null;
+  }
+
+  const session = await findSessionByToken(token);
+  if (!session) {
+    await clearSessionCookie();
+    return null;
+  }
+
+  return setSessionActiveTenant(session.id, session.userId, accountId);
 }

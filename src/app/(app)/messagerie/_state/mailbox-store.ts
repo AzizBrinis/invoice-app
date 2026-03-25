@@ -26,7 +26,6 @@ type MailboxCache = {
   latestUid: number | null;
   totalMessages: number | null;
   syncing: boolean;
-  active: boolean;
 };
 
 type CachedMessageDetail = {
@@ -57,7 +56,6 @@ const defaultMailboxCache = (): MailboxCache => ({
   latestUid: null,
   totalMessages: null,
   syncing: false,
-  active: false,
 });
 
 function createEmptyDetailsState(): Record<Mailbox, Record<number, CachedMessageDetail>> {
@@ -70,9 +68,10 @@ function createEmptyDetailsState(): Record<Mailbox, Record<number, CachedMessage
   );
 }
 
-const STORAGE_KEY_PREFIX = "mailbox-cache-v2";
+const STORAGE_KEY_PREFIX = "mailbox-cache-v3";
 
 let activeUserId: string | null = null;
+let persistTimeoutId: number | null = null;
 
 function buildStorageKey(userId: string | null) {
   return userId ? `${STORAGE_KEY_PREFIX}:${userId}` : STORAGE_KEY_PREFIX;
@@ -114,10 +113,9 @@ function getStorage(): Storage | null {
   }
 }
 
-function persistState(state: StoreState) {
+function persistState(state: StoreState, storageKey = getActiveStorageKey()) {
   const storage = getStorage();
   if (!storage) return;
-  const storageKey = getActiveStorageKey();
   try {
     storage.setItem(
       storageKey,
@@ -128,6 +126,26 @@ function persistState(state: StoreState) {
   } catch (error) {
     console.error("Impossible de persister le cache de messagerie:", error);
   }
+}
+
+function cancelPersistState() {
+  if (typeof window === "undefined" || persistTimeoutId === null) {
+    return;
+  }
+  window.clearTimeout(persistTimeoutId);
+  persistTimeoutId = null;
+}
+
+function schedulePersistState(state: StoreState) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  const storageKey = getActiveStorageKey();
+  cancelPersistState();
+  persistTimeoutId = window.setTimeout(() => {
+    persistTimeoutId = null;
+    persistState(state, storageKey);
+  }, 120);
 }
 
 function hydrateFromStorage() {
@@ -174,6 +192,9 @@ const store = {
     nextState:
       | StoreState
       | ((previous: StoreState) => StoreState),
+    options?: {
+      persist?: boolean;
+    },
   ) {
     const computed =
       typeof nextState === "function"
@@ -182,8 +203,8 @@ const store = {
           )
         : nextState;
     this.state = computed;
-    if (typeof window !== "undefined") {
-      persistState(this.state);
+    if (typeof window !== "undefined" && options?.persist !== false) {
+      schedulePersistState(this.state);
     }
     this.listeners.forEach((listener) => listener());
   },
@@ -200,10 +221,13 @@ export function setMailboxCacheUser(userId: string | null) {
   if (normalizedUserId === activeUserId) {
     return;
   }
+  cancelPersistState();
   activeUserId = normalizedUserId;
-  store.setState(createInitialState());
   hasHydratedFromStorage = false;
   hydratedStorageKey = null;
+  store.state = createInitialState();
+  hydrateFromStorage();
+  store.listeners.forEach((listener) => listener());
 }
 
 export function clearMailboxCache(userId?: string | null) {
@@ -222,7 +246,8 @@ export function clearMailboxCache(userId?: string | null) {
     }
   }
   if (targetUserId === activeUserId) {
-    store.setState(createInitialState());
+    cancelPersistState();
+    store.setState(createInitialState(), { persist: false });
     hasHydratedFromStorage = false;
     hydratedStorageKey = null;
   }
@@ -257,6 +282,110 @@ function mergeMessages(
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
   );
   return merged;
+}
+
+function areStringArraysEqual(left: string[], right: string[]) {
+  if (left.length !== right.length) {
+    return false;
+  }
+  return left.every((value, index) => value === right[index]);
+}
+
+function areTrackingSummariesEqual(
+  left: MailboxListItem["tracking"],
+  right: MailboxListItem["tracking"],
+) {
+  if (left === right) {
+    return true;
+  }
+  if (!left || !right) {
+    return left === right;
+  }
+  return (
+    left.enabled === right.enabled &&
+    left.totalOpens === right.totalOpens &&
+    left.totalClicks === right.totalClicks
+  );
+}
+
+function areMailboxListItemsEqual(
+  left: MailboxListItem,
+  right: MailboxListItem,
+) {
+  return (
+    left.uid === right.uid &&
+    left.messageId === right.messageId &&
+    left.subject === right.subject &&
+    left.from === right.from &&
+    left.date === right.date &&
+    left.seen === right.seen &&
+    left.hasAttachments === right.hasAttachments &&
+    areStringArraysEqual(left.to, right.to) &&
+    areTrackingSummariesEqual(left.tracking, right.tracking)
+  );
+}
+
+function areMailboxListsEqual(
+  left: MailboxListItem[],
+  right: MailboxListItem[],
+) {
+  if (left.length !== right.length) {
+    return false;
+  }
+  return left.every((item, index) => {
+    const other = right[index];
+    return other ? areMailboxListItemsEqual(item, other) : false;
+  });
+}
+
+function computeHasMore(
+  totalMessages: number | null,
+  messageCount: number,
+  fallback: boolean,
+) {
+  if (typeof totalMessages !== "number") {
+    return fallback;
+  }
+  return messageCount < totalMessages;
+}
+
+function resolveReplacementState(
+  current: MailboxCache,
+  payload: {
+    messages: MailboxListItem[];
+    page: number;
+    pageSize: number;
+    hasMore: boolean;
+    totalMessages: number | null;
+  },
+) {
+  const shouldPreserveLoadedPages =
+    payload.page === 1 &&
+    current.page > 1 &&
+    current.messages.length > payload.pageSize;
+
+  let nextMessages = shouldPreserveLoadedPages
+    ? mergeMessages(current.messages, payload.messages)
+    : [...payload.messages];
+
+  if (
+    typeof payload.totalMessages === "number" &&
+    nextMessages.length > payload.totalMessages
+  ) {
+    nextMessages = nextMessages.slice(0, payload.totalMessages);
+  }
+
+  return {
+    messages: nextMessages,
+    page: shouldPreserveLoadedPages ? current.page : payload.page,
+    hasMore: shouldPreserveLoadedPages
+      ? computeHasMore(
+          payload.totalMessages,
+          nextMessages.length,
+          payload.hasMore,
+        )
+      : payload.hasMore,
+  };
 }
 
 function updateMailbox(
@@ -305,18 +434,38 @@ export function initializeMailboxCache(
     totalMessages: number | null;
   },
 ) {
-  updateMailbox(mailbox, (current) => ({
-    ...current,
-    messages: [...payload.messages],
-    page: payload.page,
-    pageSize: payload.pageSize,
-    hasMore: payload.hasMore,
-    initialized: true,
-    lastSync: Date.now(),
-    latestUid: computeLatestUid(payload.messages),
-    totalMessages: payload.totalMessages,
-    syncing: false,
-  }));
+  updateMailbox(mailbox, (current) => {
+    const nextMessages = [...payload.messages];
+    const resolvedMessages = areMailboxListsEqual(current.messages, nextMessages)
+      ? current.messages
+      : nextMessages;
+    const nextLatestUid = computeLatestUid(nextMessages);
+    const nextLastSync = Date.now();
+    if (
+      current.initialized &&
+      current.page === payload.page &&
+      current.pageSize === payload.pageSize &&
+      current.hasMore === payload.hasMore &&
+      current.totalMessages === payload.totalMessages &&
+      current.syncing === false &&
+      current.latestUid === nextLatestUid &&
+      areMailboxListsEqual(current.messages, nextMessages)
+    ) {
+      return current;
+    }
+    return {
+      ...current,
+      messages: resolvedMessages,
+      page: payload.page,
+      pageSize: payload.pageSize,
+      hasMore: payload.hasMore,
+      initialized: true,
+      lastSync: nextLastSync,
+      latestUid: nextLatestUid,
+      totalMessages: payload.totalMessages,
+      syncing: false,
+    };
+  });
 }
 
 export function replaceMailboxMessages(
@@ -329,18 +478,41 @@ export function replaceMailboxMessages(
     totalMessages: number | null;
   },
 ) {
-  updateMailbox(mailbox, (current) => ({
-    ...current,
-    messages: [...payload.messages],
-    page: payload.page,
-    pageSize: payload.pageSize,
-    hasMore: payload.hasMore,
-    initialized: true,
-    lastSync: Date.now(),
-    latestUid: computeLatestUid(payload.messages),
-    totalMessages: payload.totalMessages,
-    syncing: false,
-  }));
+  updateMailbox(mailbox, (current) => {
+    const replacement = resolveReplacementState(current, payload);
+    const resolvedMessages = areMailboxListsEqual(
+      current.messages,
+      replacement.messages,
+    )
+      ? current.messages
+      : replacement.messages;
+    const nextLatestUid = computeLatestUid(resolvedMessages);
+    const nextLastSync = Date.now();
+    if (
+      current.initialized &&
+      current.page === replacement.page &&
+      current.pageSize === payload.pageSize &&
+      current.hasMore === replacement.hasMore &&
+      current.totalMessages === payload.totalMessages &&
+      current.syncing === false &&
+      current.latestUid === nextLatestUid &&
+      areMailboxListsEqual(current.messages, replacement.messages)
+    ) {
+      return current;
+    }
+    return {
+      ...current,
+      messages: resolvedMessages,
+      page: replacement.page,
+      pageSize: payload.pageSize,
+      hasMore: replacement.hasMore,
+      initialized: true,
+      lastSync: nextLastSync,
+      latestUid: nextLatestUid,
+      totalMessages: payload.totalMessages,
+      syncing: false,
+    };
+  });
 }
 
 export function appendMailboxMessages(
@@ -468,19 +640,22 @@ export function cacheMessageDetail(
   mailbox: Mailbox,
   detail: MessageDetail,
 ) {
-  store.setState((previous) => ({
-    ...previous,
-    messageDetails: {
-      ...previous.messageDetails,
-      [mailbox]: {
-        ...previous.messageDetails[mailbox],
-        [detail.uid]: {
-          detail,
-          fetchedAt: Date.now(),
+  store.setState(
+    (previous) => ({
+      ...previous,
+      messageDetails: {
+        ...previous.messageDetails,
+        [mailbox]: {
+          ...previous.messageDetails[mailbox],
+          [detail.uid]: {
+            detail,
+            fetchedAt: Date.now(),
+          },
         },
       },
-    },
-  }));
+    }),
+    { persist: false },
+  );
 }
 
 export function getCachedMessageDetail(mailbox: Mailbox, uid: number) {
@@ -492,17 +667,6 @@ export function getCachedMessageDetail(mailbox: Mailbox, uid: number) {
     return null;
   }
   return entry.detail;
-}
-
-export function markMailboxActive(mailbox: Mailbox) {
-  updateMailbox(mailbox, (current) =>
-    current.active
-      ? current
-      : {
-          ...current,
-          active: true,
-        },
-  );
 }
 
 export function beginMailboxSync(mailbox: Mailbox): boolean {

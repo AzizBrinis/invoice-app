@@ -1,5 +1,5 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
   binaryTargets = ["native", "rhel-openssl-3.0.x"]
 }
 
@@ -11,37 +11,48 @@ datasource db {
 }
 
 model User {
-  id           String    @id @default(cuid())
-  email        String    @unique
-  passwordHash String
-  name         String?
-  role         UserRole  @default(VIEWER)
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  sessions     Session[]
-  companySettings   CompanySettings?
-  messagingSettings MessagingSettings?
-  messagingEmails   MessagingEmail[]
-  clients           Client[]
-  products          Product[]
-  quotes            Quote[]
-  invoices          Invoice[]
-  payments          Payment[]
-  invoiceAuditLogs  InvoiceAuditLog[]
-  emailLogs         EmailLog[]
-  numberingSequences NumberingSequence[]
-  spamDetectionLogs SpamDetectionLog[]
-  spamSenderReputations SpamSenderReputation[]
-  savedResponses MessagingSavedResponse[]
-  autoReplyLogs MessagingAutoReplyLog[]
-  scheduledEmails MessagingScheduledEmail[]
-  messagingInboxSyncState MessagingInboxSyncState?
-  websiteConfig WebsiteConfig?
-  aiConversations AIConversation[]
-  aiMessages      AIMessage[]
-  aiAuditLogs     AIAuditLog[]
-  aiUsageStats    AIUsageStat[]
-  aiPendingToolCalls AIPendingToolCall[]
+  id                         String                    @id @default(cuid())
+  email                      String                    @unique
+  passwordHash               String
+  name                       String?
+  role                       UserRole                  @default(VIEWER)
+  createdAt                  DateTime                  @default(now())
+  updatedAt                  DateTime                  @updatedAt
+  sessions                   Session[]
+  ownedAccount               Account?                  @relation("OwnedAccount")
+  accountMemberships         AccountMembership[]
+  sentAccountInvitations     AccountInvitation[]       @relation("AccountInvitationsSent")
+  acceptedAccountInvitations AccountInvitation[]       @relation("AccountInvitationsAccepted")
+  companySettings            CompanySettings?
+  messagingSettings          MessagingSettings?
+  messagingEmails            MessagingEmail[]
+  clients                    Client[]
+  products                   Product[]
+  quotes                     Quote[]
+  invoices                   Invoice[]
+  paymentServices            PaymentService[]
+  clientPayments             ClientPayment[]
+  orders                     Order[]
+  orderPayments              OrderPayment[]
+  quoteRequests              QuoteRequest[]
+  payments                   Payment[]
+  wishlistItems              WishlistItem[]
+  invoiceAuditLogs           InvoiceAuditLog[]
+  emailLogs                  EmailLog[]
+  numberingSequences         NumberingSequence[]
+  spamDetectionLogs          SpamDetectionLog[]
+  spamSenderReputations      SpamSenderReputation[]
+  savedResponses             MessagingSavedResponse[]
+  autoReplyLogs              MessagingAutoReplyLog[]
+  scheduledEmails            MessagingScheduledEmail[]
+  messagingInboxSyncState    MessagingInboxSyncState?
+  websiteConfig              WebsiteConfig?
+  contactMessages            ContactMessage[]
+  aiConversations            AIConversation[]
+  aiMessages                 AIMessage[]
+  aiAuditLogs                AIAuditLog[]
+  aiUsageStats               AIUsageStat[]
+  aiPendingToolCalls         AIPendingToolCall[]
 }
 
 enum UserRole {
@@ -50,19 +61,122 @@ enum UserRole {
   VIEWER
 }
 
+enum AccountType {
+  FULL_APP
+  CLIENT_PAYMENTS
+}
+
+enum AccountMembershipRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum AccountPermission {
+  DASHBOARD_VIEW
+  CLIENTS_VIEW
+  CLIENTS_MANAGE
+  SERVICES_MANAGE
+  PAYMENTS_MANAGE
+  RECEIPTS_MANAGE
+  REPORTS_VIEW
+  COLLABORATORS_MANAGE
+}
+
+enum AccountInvitationStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
+}
+
 model Session {
-  id        String   @id @default(cuid())
-  tokenHash String   @unique
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
-  expiresAt DateTime
+  id             String   @id @default(cuid())
+  tokenHash      String   @unique
+  userId         String
+  activeTenantId String?
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activeTenant   Account? @relation(fields: [activeTenantId], references: [id], onDelete: SetNull)
+  createdAt      DateTime @default(now())
+  expiresAt      DateTime
+
+  @@index([activeTenantId])
+}
+
+model Account {
+  id          String              @id
+  type        AccountType         @default(FULL_APP)
+  displayName String?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  owner       User                @relation("OwnedAccount", fields: [id], references: [id], onDelete: Cascade)
+  memberships AccountMembership[]
+  invitations AccountInvitation[]
+  sessions    Session[]
+}
+
+model AccountMembership {
+  id          String                        @id @default(cuid())
+  accountId   String
+  userId      String
+  role        AccountMembershipRole         @default(MEMBER)
+  createdAt   DateTime                      @default(now())
+  updatedAt   DateTime                      @updatedAt
+  account     Account                       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  user        User                          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permissions AccountMembershipPermission[]
+
+  @@unique([accountId, userId])
+  @@index([userId, accountId])
+}
+
+model AccountMembershipPermission {
+  id           String            @id @default(cuid())
+  membershipId String
+  permission   AccountPermission
+  createdAt    DateTime          @default(now())
+  membership   AccountMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@unique([membershipId, permission])
+}
+
+model AccountInvitation {
+  id               String                        @id @default(cuid())
+  accountId        String
+  email            String
+  invitedByUserId  String
+  acceptedByUserId String?
+  role             AccountMembershipRole         @default(MEMBER)
+  status           AccountInvitationStatus       @default(PENDING)
+  tokenHash        String                        @unique
+  expiresAt        DateTime
+  acceptedAt       DateTime?
+  revokedAt        DateTime?
+  createdAt        DateTime                      @default(now())
+  updatedAt        DateTime                      @updatedAt
+  account          Account                       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  invitedByUser    User                          @relation("AccountInvitationsSent", fields: [invitedByUserId], references: [id], onDelete: Cascade)
+  acceptedByUser   User?                         @relation("AccountInvitationsAccepted", fields: [acceptedByUserId], references: [id], onDelete: SetNull)
+  permissions      AccountInvitationPermission[]
+
+  @@index([accountId, email, status])
+  @@index([email, status])
+}
+
+model AccountInvitationPermission {
+  id           String            @id @default(cuid())
+  invitationId String
+  permission   AccountPermission
+  createdAt    DateTime          @default(now())
+  invitation   AccountInvitation @relation(fields: [invitationId], references: [id], onDelete: Cascade)
+
+  @@unique([invitationId, permission])
 }
 
 model CompanySettings {
-  id                     String         @id @default(cuid())
-  userId                 String         @unique
-  user                   User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                     String       @id @default(cuid())
+  userId                 String       @unique
+  user                   User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   companyName            String
   logoUrl                String?
   logoData               String?
@@ -74,14 +188,14 @@ model CompanySettings {
   iban                   String?
   stampImage             String?
   signatureImage         String?
-  stampPosition          String         @default("bottom-right")
-  signaturePosition      String         @default("bottom-right")
-  defaultCurrency        String         @default("TND")
-  defaultVatRate         Float          @default(0)
+  stampPosition          String       @default("bottom-right")
+  signaturePosition      String       @default("bottom-right")
+  defaultCurrency        String       @default("TND")
+  defaultVatRate         Float        @default(0)
   paymentTerms           String?
-  invoiceNumberPrefix    String         @default("FAC")
-  quoteNumberPrefix      String         @default("DEV")
-  resetNumberingAnnually Boolean        @default(true)
+  invoiceNumberPrefix    String       @default("FAC")
+  quoteNumberPrefix      String       @default("DEV")
+  resetNumberingAnnually Boolean      @default(true)
   defaultInvoiceFooter   String?
   defaultQuoteFooter     String?
   legalFooter            String?
@@ -89,98 +203,122 @@ model CompanySettings {
   invoiceTemplateId      String?
   quoteTemplateId        String?
   taxConfiguration       Json?
-  createdAt              DateTime       @default(now())
-  updatedAt              DateTime       @updatedAt
-  invoiceTemplate        PdfTemplate?   @relation("InvoiceTemplate", fields: [invoiceTemplateId], references: [id])
-  quoteTemplate          PdfTemplate?   @relation("QuoteTemplate", fields: [quoteTemplateId], references: [id])
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
+  invoiceTemplate        PdfTemplate? @relation("InvoiceTemplate", fields: [invoiceTemplateId], references: [id])
+  quoteTemplate          PdfTemplate? @relation("QuoteTemplate", fields: [quoteTemplateId], references: [id])
 }
 
 model WebsiteConfig {
-  id                      String             @id @default(cuid())
-  userId                  String             @unique
-  user                    User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  slug                    String             @unique
-  templateKey             String             @default("dev-agency")
-  previewToken            String             @unique @default(cuid())
-  heroEyebrow             String?
-  heroTitle               String             @default("Découvrez nos solutions")
-  heroSubtitle            String?
-  heroPrimaryCtaLabel     String?            @default("Demander un devis")
-  heroSecondaryCtaLabel   String?            @default("Télécharger la plaquette")
-  heroSecondaryCtaUrl     String?
-  aboutTitle              String?
-  aboutBody               String?
-  contactBlurb            String?
-  contactEmailOverride    String?
-  contactPhoneOverride    String?
-  contactAddressOverride  String?
-  seoTitle                String?
-  seoDescription          String?
-  seoKeywords             String?
-  socialImageUrl          String?
-  socialLinks             Json?
-  theme                   WebsiteThemeMode   @default(SYSTEM)
-  accentColor             String             @default("#2563eb")
-  showPrices              Boolean            @default(true)
-  showInactiveProducts    Boolean            @default(false)
-  featuredProductIds      Json?
-  leadNotificationEmail   String?
-  leadAutoTag             String?
-  leadThanksMessage       String?
-  spamProtectionEnabled   Boolean            @default(true)
-  builderConfig           Json               @default("{}")
-  builderVersionHistory   Json               @default("[]")
-  customDomain            String?            @unique
-  domainStatus            WebsiteDomainStatus @default(PENDING)
-  domainVerificationCode  String             @unique @default(cuid())
-  domainVerifiedAt        DateTime?
-  domainActivatedAt       DateTime?
-  published               Boolean            @default(false)
-  previewPath             String             @default("catalogue")
-  createdAt               DateTime           @default(now())
-  updatedAt               DateTime           @updatedAt
+  id                     String              @id @default(cuid())
+  userId                 String              @unique
+  user                   User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  slug                   String              @unique
+  templateKey            String              @default("dev-agency")
+  previewToken           String              @unique @default(cuid())
+  heroEyebrow            String?
+  heroTitle              String              @default("Découvrez nos solutions")
+  heroSubtitle           String?
+  heroPrimaryCtaLabel    String?             @default("Demander un devis")
+  heroSecondaryCtaLabel  String?             @default("Télécharger la plaquette")
+  heroSecondaryCtaUrl    String?
+  aboutTitle             String?
+  aboutBody              String?
+  contactBlurb           String?
+  contactEmailOverride   String?
+  contactPhoneOverride   String?
+  contactAddressOverride String?
+  seoTitle               String?
+  seoDescription         String?
+  seoKeywords            String?
+  socialImageUrl         String?
+  socialLinks            Json?
+  theme                  WebsiteThemeMode    @default(SYSTEM)
+  accentColor            String              @default("#2563eb")
+  showPrices             Boolean             @default(true)
+  showInactiveProducts   Boolean             @default(false)
+  featuredProductIds     Json?
+  ecommerceSettings      Json                @default("{}")
+  leadNotificationEmail  String?
+  leadAutoTag            String?
+  leadThanksMessage      String?
+  spamProtectionEnabled  Boolean             @default(true)
+  builderConfig          Json                @default("{}")
+  builderVersionHistory  Json                @default("[]")
+  customDomain           String?             @unique
+  domainStatus           WebsiteDomainStatus @default(PENDING)
+  domainVerificationCode String              @unique @default(cuid())
+  domainVerifiedAt       DateTime?
+  domainActivatedAt      DateTime?
+  published              Boolean             @default(false)
+  previewPath            String              @default("catalogue")
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
+  contactMessages        ContactMessage[]
+}
+
+model ContactMessage {
+  id           String        @id @default(cuid())
+  userId       String
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  websiteId    String
+  website      WebsiteConfig @relation(fields: [websiteId], references: [id], onDelete: Cascade)
+  name         String
+  email        String
+  message      String
+  sourcePath   String?
+  sourceDomain String?
+  sourceSlug   String?
+  ipAddress    String?
+  userAgent    String?
+  readAt       DateTime?
+  metadata     Json?
+  createdAt    DateTime      @default(now())
+
+  @@index([userId, createdAt])
+  @@index([websiteId, createdAt])
 }
 
 model MessagingSettings {
-  id                String   @id @default(cuid())
-  userId            String   @unique
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  fromEmail         String?
-  senderName        String?
-  senderLogoUrl     String?
-  imapHost          String?
-  imapPort          Int?
-  imapSecure        Boolean  @default(true)
-  imapUser          String?
-  imapPassword      String?
-  smtpHost          String?
-  smtpPort          Int?
-  smtpSecure        Boolean  @default(true)
-  smtpUser          String?
-  smtpPassword      String?
-  spamFilterEnabled Boolean  @default(true)
-  trackingEnabled   Boolean  @default(true)
-  autoReplyEnabled        Boolean  @default(false)
-  autoReplySubject        String?
-  autoReplyBody           String?
-  vacationModeEnabled     Boolean  @default(false)
-  vacationSubject         String?
-  vacationMessage         String?
-  vacationStartDate       DateTime?
-  vacationEndDate         DateTime?
-  vacationBackupEmail     String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  id                  String    @id @default(cuid())
+  userId              String    @unique
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fromEmail           String?
+  senderName          String?
+  senderLogoUrl       String?
+  imapHost            String?
+  imapPort            Int?
+  imapSecure          Boolean   @default(true)
+  imapUser            String?
+  imapPassword        String?
+  smtpHost            String?
+  smtpPort            Int?
+  smtpSecure          Boolean   @default(true)
+  smtpUser            String?
+  smtpPassword        String?
+  spamFilterEnabled   Boolean   @default(true)
+  trackingEnabled     Boolean   @default(true)
+  autoReplyEnabled    Boolean   @default(false)
+  autoReplySubject    String?
+  autoReplyBody       String?
+  vacationModeEnabled Boolean   @default(false)
+  vacationSubject     String?
+  vacationMessage     String?
+  vacationStartDate   DateTime?
+  vacationEndDate     DateTime?
+  vacationBackupEmail String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 }
 
 model MessagingInboxSyncState {
-  userId               String  @id
-  user                 User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId                String    @id
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   lastInboxAutoReplyUid Int?
-  lastInboxSyncAt      DateTime?
-  lastAutoReplyAt      DateTime?
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  lastInboxSyncAt       DateTime?
+  lastAutoReplyAt       DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 }
 
 enum SavedResponseFormat {
@@ -189,20 +327,20 @@ enum SavedResponseFormat {
 }
 
 model MessagingSavedResponse {
-  id        String               @id @default(cuid())
-  userId    String
-  user      User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
-  title     String
-  slug      String?
+  id          String              @id @default(cuid())
+  userId      String
+  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title       String
+  slug        String?
   description String?
-  content   String
-  format    SavedResponseFormat  @default(PLAINTEXT)
-  builtIn   Boolean              @default(false)
-  createdAt DateTime             @default(now())
-  updatedAt DateTime             @updatedAt
+  content     String
+  format      SavedResponseFormat @default(PLAINTEXT)
+  builtIn     Boolean             @default(false)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
 
-  @@index([userId, title])
   @@unique([userId, slug])
+  @@index([userId, title])
 }
 
 enum MessagingRecipientType {
@@ -259,39 +397,39 @@ enum WebsiteThemeMode {
 }
 
 model MessagingAutoReplyLog {
-  id              String                  @id @default(cuid())
-  userId          String
-  user            User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  senderEmail     String
-  replyType       MessagingAutoReplyType
+  id                String                 @id @default(cuid())
+  userId            String
+  user              User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  senderEmail       String
+  replyType         MessagingAutoReplyType
   originalMessageId String?
-  originalUid     Int?
-  sentAt          DateTime                @default(now())
-  createdAt       DateTime                @default(now())
+  originalUid       Int?
+  sentAt            DateTime               @default(now())
+  createdAt         DateTime               @default(now())
 
   @@index([userId, senderEmail])
   @@index([userId, sentAt])
 }
 
 model MessagingScheduledEmail {
-  id          String                   @id @default(cuid())
-  userId      String
-  user        User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  to          Json
-  cc          Json?
-  bcc         Json?
-  subject     String
-  text        String
-  html        String
-  previewText String
-  sendAt      DateTime
-  sentAt      DateTime?
-  canceledAt  DateTime?
-  status      MessagingScheduledStatus @default(PENDING)
+  id            String                         @id @default(cuid())
+  userId        String
+  user          User                           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  to            Json
+  cc            Json?
+  bcc           Json?
+  subject       String
+  text          String
+  html          String
+  previewText   String
+  sendAt        DateTime
+  sentAt        DateTime?
+  canceledAt    DateTime?
+  status        MessagingScheduledStatus       @default(PENDING)
   failureReason String?
-  createdAt   DateTime                 @default(now())
-  updatedAt   DateTime                 @updatedAt
-  attachments MessagingScheduledAttachment[]
+  createdAt     DateTime                       @default(now())
+  updatedAt     DateTime                       @updatedAt
+  attachments   MessagingScheduledAttachment[]
 
   @@index([userId, status, sendAt])
   @@index([status, sendAt])
@@ -311,40 +449,40 @@ model MessagingScheduledAttachment {
 }
 
 model MessagingEmail {
-  id              String                     @id @default(cuid())
-  userId          String
-  user            User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  messageId       String
-  subject         String?
-  sentAt          DateTime
-  trackingEnabled Boolean                    @default(false)
+  id                String                    @id @default(cuid())
+  userId            String
+  user              User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messageId         String
+  subject           String?
+  sentAt            DateTime
+  trackingEnabled   Boolean                   @default(false)
   senderSessionHash String?
-  senderIpHash     String?
-  createdAt       DateTime                   @default(now())
-  updatedAt       DateTime                   @updatedAt
-  recipients      MessagingEmailRecipient[]
-  links           MessagingEmailLink[]
-  events          MessagingEmailEvent[]
+  senderIpHash      String?
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+  recipients        MessagingEmailRecipient[]
+  links             MessagingEmailLink[]
+  events            MessagingEmailEvent[]
 
   @@unique([userId, messageId])
   @@index([userId, sentAt])
 }
 
 model MessagingEmailRecipient {
-  id             String                       @id @default(cuid())
+  id             String                        @id @default(cuid())
   emailId        String
-  email          MessagingEmail               @relation(fields: [emailId], references: [id], onDelete: Cascade)
+  email          MessagingEmail                @relation(fields: [emailId], references: [id], onDelete: Cascade)
   address        String
   name           String?
   type           MessagingRecipientType
-  openToken      String                       @unique
-  openCount      Int                          @default(0)
+  openToken      String                        @unique
+  openCount      Int                           @default(0)
   firstOpenedAt  DateTime?
   lastOpenedAt   DateTime?
-  clickCount     Int                          @default(0)
+  clickCount     Int                           @default(0)
   lastClickedAt  DateTime?
-  createdAt      DateTime                     @default(now())
-  updatedAt      DateTime                     @updatedAt
+  createdAt      DateTime                      @default(now())
+  updatedAt      DateTime                      @updatedAt
   linkRecipients MessagingEmailLinkRecipient[]
   events         MessagingEmailEvent[]
 
@@ -352,31 +490,31 @@ model MessagingEmailRecipient {
 }
 
 model MessagingEmailLink {
-  id        String                 @id @default(cuid())
-  emailId   String
-  email     MessagingEmail         @relation(fields: [emailId], references: [id], onDelete: Cascade)
-  url       String
-  position  Int
-  createdAt DateTime               @default(now())
-  updatedAt DateTime               @updatedAt
+  id         String                        @id @default(cuid())
+  emailId    String
+  email      MessagingEmail                @relation(fields: [emailId], references: [id], onDelete: Cascade)
+  url        String
+  position   Int
+  createdAt  DateTime                      @default(now())
+  updatedAt  DateTime                      @updatedAt
   recipients MessagingEmailLinkRecipient[]
-  events    MessagingEmailEvent[]
+  events     MessagingEmailEvent[]
 
   @@index([emailId])
 }
 
 model MessagingEmailLinkRecipient {
-  id             String                     @id @default(cuid())
+  id             String                  @id @default(cuid())
   linkId         String
-  link           MessagingEmailLink         @relation(fields: [linkId], references: [id], onDelete: Cascade)
+  link           MessagingEmailLink      @relation(fields: [linkId], references: [id], onDelete: Cascade)
   recipientId    String
-  recipient      MessagingEmailRecipient    @relation(fields: [recipientId], references: [id], onDelete: Cascade)
-  token          String                     @unique
-  clickCount     Int                        @default(0)
+  recipient      MessagingEmailRecipient @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+  token          String                  @unique
+  clickCount     Int                     @default(0)
   firstClickedAt DateTime?
   lastClickedAt  DateTime?
-  createdAt      DateTime                   @default(now())
-  updatedAt      DateTime                   @updatedAt
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
   events         MessagingEmailEvent[]
 
   @@index([linkId])
@@ -384,21 +522,21 @@ model MessagingEmailLinkRecipient {
 }
 
 model MessagingEmailEvent {
-  id               String                      @id @default(cuid())
-  emailId          String
-  email            MessagingEmail              @relation(fields: [emailId], references: [id], onDelete: Cascade)
-  recipientId      String?
-  recipient        MessagingEmailRecipient?    @relation(fields: [recipientId], references: [id], onDelete: SetNull)
-  linkId           String?
-  link             MessagingEmailLink?         @relation(fields: [linkId], references: [id], onDelete: SetNull)
-  linkRecipientId  String?
-  linkRecipient    MessagingEmailLinkRecipient? @relation(fields: [linkRecipientId], references: [id], onDelete: SetNull)
-  type             MessagingEventType
-  userAgent        String?
-  deviceFamily     String?
-  deviceType       String?
-  occurredAt       DateTime                    @default(now())
-  createdAt        DateTime                    @default(now())
+  id              String                       @id @default(cuid())
+  emailId         String
+  email           MessagingEmail               @relation(fields: [emailId], references: [id], onDelete: Cascade)
+  recipientId     String?
+  recipient       MessagingEmailRecipient?     @relation(fields: [recipientId], references: [id], onDelete: SetNull)
+  linkId          String?
+  link            MessagingEmailLink?          @relation(fields: [linkId], references: [id], onDelete: SetNull)
+  linkRecipientId String?
+  linkRecipient   MessagingEmailLinkRecipient? @relation(fields: [linkRecipientId], references: [id], onDelete: SetNull)
+  type            MessagingEventType
+  userAgent       String?
+  deviceFamily    String?
+  deviceType      String?
+  occurredAt      DateTime                     @default(now())
+  createdAt       DateTime                     @default(now())
 
   @@index([emailId, occurredAt])
   @@index([recipientId])
@@ -406,73 +544,73 @@ model MessagingEmailEvent {
 }
 
 model BackgroundJob {
-  id             String             @id @default(cuid())
+  id             String               @id @default(cuid())
   type           String
   payload        Json?
   dedupeKey      String?
-  priority       Int                @default(0)
-  runAt          DateTime           @default(now())
-  status         BackgroundJobStatus @default(PENDING)
-  attempts       Int                @default(0)
-  maxAttempts    Int                @default(5)
-  retryBackoffMs Int                @default(60000)
+  priority       Int                  @default(0)
+  runAt          DateTime             @default(now())
+  status         BackgroundJobStatus  @default(PENDING)
+  attempts       Int                  @default(0)
+  maxAttempts    Int                  @default(5)
+  retryBackoffMs Int                  @default(60000)
   lastError      String?
   lockedAt       DateTime?
   lastRunAt      DateTime?
   completedAt    DateTime?
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
   events         BackgroundJobEvent[]
 
+  @@unique([type, dedupeKey])
   @@index([status, runAt])
   @@index([runAt])
-  @@unique([type, dedupeKey])
 }
 
 model BackgroundJobEvent {
-  id        String                @id @default(cuid())
+  id        String                 @id @default(cuid())
   jobId     String
-  job       BackgroundJob         @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  job       BackgroundJob          @relation(fields: [jobId], references: [id], onDelete: Cascade)
   type      BackgroundJobEventType
   detail    Json?
-  createdAt DateTime              @default(now())
+  createdAt DateTime               @default(now())
 
   @@index([jobId, createdAt])
 }
 
 model SpamDetectionLog {
-  id             Int      @id @default(autoincrement())
-  messageId      String?
-  mailbox        String
-  targetMailbox  String?
-  uid            Int
-  subject        String?
-  sender         String?
-  score          Int
-  threshold      Int
-  reasons        Json?
-  autoMoved      Boolean  @default(false)
-  manual         Boolean  @default(false)
-  actor          String?
-  detectedAt     DateTime @default(now())
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  userId         String
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id            Int      @id @default(autoincrement())
+  messageId     String?
+  mailbox       String
+  targetMailbox String?
+  uid           Int
+  subject       String?
+  sender        String?
+  score         Int
+  threshold     Int
+  reasons       Json?
+  autoMoved     Boolean  @default(false)
+  manual        Boolean  @default(false)
+  actor         String?
+  detectedAt    DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, mailbox])
 }
 
 model SpamSenderReputation {
-  id             Int      @id @default(autoincrement())
+  id             Int       @id @default(autoincrement())
   userId         String
   domain         String
-  spamCount      Int      @default(0)
-  hamCount       Int      @default(0)
+  spamCount      Int       @default(0)
+  hamCount       Int       @default(0)
   lastFeedbackAt DateTime?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, domain])
   @@index([userId])
@@ -492,28 +630,65 @@ model PdfTemplate {
 enum PdfTemplateType {
   DEVIS
   FACTURE
+  RECU
 }
 
 model Client {
-  id           String    @id @default(cuid())
-  userId       String
-  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  displayName  String
-  companyName  String?
-  address      String?
-  email        String?
-  phone        String?
-  vatNumber    String?
-  notes        String?
-  isActive     Boolean   @default(true)
-  source       ClientSource @default(MANUAL)
-  leadMetadata Json?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  quotes       Quote[]
-  invoices     Invoice[]
+  id            String          @id @default(cuid())
+  userId        String
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  authUserId    String?
+  passwordHash  String?
+  displayName   String
+  companyName   String?
+  address       String?
+  email         String?
+  phone         String?
+  vatNumber     String?
+  notes         String?
+  isActive      Boolean         @default(true)
+  source        ClientSource    @default(MANUAL)
+  leadMetadata  Json?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  sessions      ClientSession[]
+  sourceServices PaymentService[]
+  payments      ClientPayment[]
+  quotes        Quote[]
+  invoices      Invoice[]
+  orders        Order[]
+  quoteRequests QuoteRequest[]
+  wishlistItems WishlistItem[]
 
+  @@unique([userId, authUserId])
+  @@index([authUserId])
   @@index([userId, displayName])
+}
+
+model WishlistItem {
+  id        String   @id @default(cuid())
+  userId    String
+  clientId  String
+  productId String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientId, productId])
+  @@index([clientId])
+  @@index([userId])
+  @@index([productId])
+}
+
+model ClientSession {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  clientId  String
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  @@index([clientId])
 }
 
 enum ClientSource {
@@ -522,28 +697,262 @@ enum ClientSource {
   WEBSITE_LEAD
 }
 
+model PaymentService {
+  id             String                 @id @default(cuid())
+  userId         String
+  sourceClientId String?
+  title          String
+  details        String?
+  priceCents     Int                    @default(0)
+  notes          String?
+  privateNotes   String?
+  isActive       Boolean                @default(true)
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  user           User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceClient   Client?                @relation(fields: [sourceClientId], references: [id], onDelete: SetNull)
+  paymentLinks   ClientPaymentService[]
+
+  @@index([userId, updatedAt])
+  @@index([userId, sourceClientId, updatedAt])
+}
+
+model ClientPayment {
+  id              String                 @id @default(cuid())
+  userId          String
+  clientId        String
+  receiptNumber   String?
+  currency        String                 @default("TND")
+  amountCents     Int
+  date            DateTime
+  method          String?
+  reference       String?
+  description     String?
+  note            String?
+  privateNote     String?
+  receiptIssuedAt DateTime?
+  receiptSentAt   DateTime?
+  receiptSnapshot Json?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+  user            User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  client          Client                 @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  serviceLinks    ClientPaymentService[]
+
+  @@unique([userId, receiptNumber])
+  @@index([userId, clientId, date])
+  @@index([userId, receiptIssuedAt])
+}
+
+model ClientPaymentService {
+  id                   String         @id @default(cuid())
+  clientPaymentId      String
+  clientServiceId      String?
+  titleSnapshot        String
+  detailsSnapshot      String?
+  allocatedAmountCents Int?
+  position             Int            @default(0)
+  createdAt            DateTime       @default(now())
+  clientPayment        ClientPayment  @relation(fields: [clientPaymentId], references: [id], onDelete: Cascade)
+  paymentService       PaymentService? @relation(fields: [clientServiceId], references: [id], onDelete: SetNull)
+
+  @@index([clientPaymentId, position])
+  @@index([clientServiceId])
+}
+
+enum ProductSaleMode {
+  INSTANT
+  QUOTE
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  FULFILLED
+  CANCELLED
+  REFUNDED
+}
+
+enum OrderPaymentStatus {
+  PENDING
+  AUTHORIZED
+  SUCCEEDED
+  FAILED
+  CANCELLED
+  REFUNDED
+}
+
+enum OrderPaymentProofStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum QuoteRequestStatus {
+  NEW
+  IN_PROGRESS
+  CONVERTED
+  CLOSED
+}
+
 model Product {
-  id                   String        @id @default(cuid())
-  userId               String
-  user                 User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  sku                  String
-  name                 String
-  description          String?
-  category             String?
-  unit                 String        @default("unité")
-  priceHTCents         Int
-  priceTTCCents        Int
-  vatRate              Float
-  defaultDiscountRate  Float?
-  isActive             Boolean       @default(true)
-  isListedInCatalog    Boolean       @default(true)
-  createdAt            DateTime      @default(now())
-  updatedAt            DateTime      @updatedAt
-  quoteLines           QuoteLine[]
-  invoiceLines         InvoiceLine[]
+  id                  String          @id @default(cuid())
+  userId              String
+  user                User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sku                 String
+  name                String
+  publicSlug          String
+  saleMode            ProductSaleMode @default(INSTANT)
+  description         String?
+  descriptionHtml     String?
+  excerpt             String?
+  metaTitle           String?
+  metaDescription     String?
+  coverImageUrl       String?
+  gallery             Json?
+  quoteFormSchema     Json?
+  optionConfig        Json?
+  variantStock        Json?
+  category            String?
+  unit                String          @default("unité")
+  stockQuantity       Int?
+  priceHTCents        Int
+  priceTTCCents       Int
+  vatRate             Float
+  defaultDiscountRate Float?
+  isActive            Boolean         @default(true)
+  isListedInCatalog   Boolean         @default(true)
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  quoteLines          QuoteLine[]
+  invoiceLines        InvoiceLine[]
+  orderItems          OrderItem[]
+  quoteRequests       QuoteRequest[]
 
   @@unique([userId, sku])
+  @@unique([userId, publicSlug])
   @@index([userId, name])
+}
+
+model Order {
+  id                 String             @id @default(cuid())
+  userId             String
+  user               User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orderNumber        String
+  status             OrderStatus        @default(PENDING)
+  paymentStatus      OrderPaymentStatus @default(PENDING)
+  currency           String             @default("TND")
+  clientId           String
+  client             Client             @relation(fields: [clientId], references: [id])
+  customerName       String
+  customerEmail      String
+  customerPhone      String?
+  customerCompany    String?
+  customerAddress    String?
+  notes              String?
+  internalNotes      String?
+  subtotalHTCents    Int
+  totalDiscountCents Int
+  totalTVACents      Int
+  totalTTCCents      Int
+  amountPaidCents    Int                @default(0)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  quoteId            String?            @unique
+  quote              Quote?             @relation(fields: [quoteId], references: [id])
+  invoiceId          String?            @unique
+  invoice            Invoice?           @relation(fields: [invoiceId], references: [id])
+  items              OrderItem[]
+  payments           OrderPayment[]
+
+  @@unique([userId, orderNumber])
+  @@index([userId, status, createdAt])
+  @@index([userId, orderNumber])
+}
+
+model OrderItem {
+  id                  String   @id @default(cuid())
+  orderId             String
+  productId           String?
+  description         String
+  quantity            Float
+  unit                String   @default("unité")
+  unitPriceHTCents    Int
+  vatRate             Float
+  discountRate        Float?
+  discountAmountCents Int?
+  totalHTCents        Int
+  totalTVACents       Int
+  totalTTCCents       Int
+  position            Int
+  order               Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product             Product? @relation(fields: [productId], references: [id])
+
+  @@index([orderId])
+}
+
+model OrderPayment {
+  id                String                   @id @default(cuid())
+  orderId           String
+  userId            String
+  status            OrderPaymentStatus       @default(PENDING)
+  amountCents       Int
+  currency          String                   @default("TND")
+  method            String?
+  provider          String?
+  externalReference String?
+  paidAt            DateTime?
+  proofUrl          String?
+  proofMimeType     String?
+  proofSizeBytes    Int?
+  proofUploadedAt   DateTime?
+  proofStatus       OrderPaymentProofStatus?
+  metadata          Json?
+  createdAt         DateTime                 @default(now())
+  order             Order                    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  user              User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([orderId])
+}
+
+model QuoteRequest {
+  id              String                   @id @default(cuid())
+  userId          String
+  user            User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clientId        String
+  client          Client                   @relation(fields: [clientId], references: [id])
+  productId       String?
+  product         Product?                 @relation(fields: [productId], references: [id])
+  status          QuoteRequestStatus       @default(NEW)
+  customerName    String
+  customerEmail   String
+  customerPhone   String?
+  customerCompany String?
+  customerAddress String?
+  message         String?
+  formData        Json?
+  sourcePath      String?
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
+  quoteId         String?                  @unique
+  quote           Quote?                   @relation(fields: [quoteId], references: [id])
+  attachments     QuoteRequestAttachment[]
+
+  @@index([userId, status, createdAt])
+}
+
+model QuoteRequestAttachment {
+  id             String       @id @default(cuid())
+  quoteRequestId String
+  fileName       String
+  fileUrl        String
+  mimeType       String?
+  sizeBytes      Int?
+  createdAt      DateTime     @default(now())
+  quoteRequest   QuoteRequest @relation(fields: [quoteRequestId], references: [id], onDelete: Cascade)
+
+  @@index([quoteRequestId])
 }
 
 model Quote {
@@ -575,6 +984,8 @@ model Quote {
   updatedAt                 DateTime      @updatedAt
   lines                     QuoteLine[]
   invoice                   Invoice?
+  order                     Order?
+  quoteRequest              QuoteRequest?
 
   @@unique([userId, number])
   @@index([userId, status])
@@ -593,38 +1004,38 @@ enum QuoteStatus {
 }
 
 model QuoteLine {
-  id                   String   @id @default(cuid())
-  quoteId              String
-  productId            String?
-  description          String
-  quantity             Float
-  unit                 String   @default("unité")
-  unitPriceHTCents     Int
-  vatRate              Float
-  discountRate         Float?
-  discountAmountCents  Int?
-  totalHTCents         Int
-  totalTVACents        Int
-  totalTTCCents        Int
-  fodecRate            Float?
-  fodecAmountCents     Int?
-  position             Int
-  quote                Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
-  product              Product? @relation(fields: [productId], references: [id])
+  id                  String   @id @default(cuid())
+  quoteId             String
+  productId           String?
+  description         String
+  quantity            Float
+  unit                String   @default("unité")
+  unitPriceHTCents    Int
+  vatRate             Float
+  discountRate        Float?
+  discountAmountCents Int?
+  totalHTCents        Int
+  totalTVACents       Int
+  totalTTCCents       Int
+  fodecRate           Float?
+  fodecAmountCents    Int?
+  position            Int
+  quote               Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  product             Product? @relation(fields: [productId], references: [id])
 }
 
 model Invoice {
-  id                        String         @id @default(cuid())
+  id                        String        @id @default(cuid())
   userId                    String
-  user                      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user                      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   number                    String
-  status                    InvoiceStatus  @default(BROUILLON)
+  status                    InvoiceStatus @default(BROUILLON)
   reference                 String?
   issueDate                 DateTime
   dueDate                   DateTime?
   clientId                  String
-  client                    Client         @relation(fields: [clientId], references: [id])
-  currency                  String         @default("TND")
+  client                    Client        @relation(fields: [clientId], references: [id])
+  currency                  String        @default("TND")
   globalDiscountRate        Float?
   globalDiscountAmountCents Int?
   vatBreakdown              Json?
@@ -637,13 +1048,14 @@ model Invoice {
   totalDiscountCents        Int
   totalTVACents             Int
   totalTTCCents             Int
-  amountPaidCents           Int            @default(0)
-  fodecAmountCents          Int            @default(0)
-  timbreAmountCents         Int            @default(0)
-  createdAt                 DateTime       @default(now())
-  updatedAt                 DateTime       @updatedAt
-  quoteId                   String?        @unique
-  quote                     Quote?         @relation(fields: [quoteId], references: [id])
+  amountPaidCents           Int           @default(0)
+  fodecAmountCents          Int           @default(0)
+  timbreAmountCents         Int           @default(0)
+  createdAt                 DateTime      @default(now())
+  updatedAt                 DateTime      @updatedAt
+  quoteId                   String?       @unique
+  quote                     Quote?        @relation(fields: [quoteId], references: [id])
+  order                     Order?
   lines                     InvoiceLine[]
   payments                  Payment[]
 
@@ -669,51 +1081,51 @@ enum InvoiceAuditAction {
 }
 
 model InvoiceLine {
-  id                   String    @id @default(cuid())
-  invoiceId            String
-  productId            String?
-  description          String
-  quantity             Float
-  unit                 String    @default("unité")
-  unitPriceHTCents     Int
-  vatRate              Float
-  discountRate         Float?
-  discountAmountCents  Int?
-  totalHTCents         Int
-  totalTVACents        Int
-  totalTTCCents        Int
-  fodecRate            Float?
-  fodecAmountCents     Int?
-  position             Int
-  invoice              Invoice   @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  product              Product?  @relation(fields: [productId], references: [id])
+  id                  String   @id @default(cuid())
+  invoiceId           String
+  productId           String?
+  description         String
+  quantity            Float
+  unit                String   @default("unité")
+  unitPriceHTCents    Int
+  vatRate             Float
+  discountRate        Float?
+  discountAmountCents Int?
+  totalHTCents        Int
+  totalTVACents       Int
+  totalTTCCents       Int
+  fodecRate           Float?
+  fodecAmountCents    Int?
+  position            Int
+  invoice             Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  product             Product? @relation(fields: [productId], references: [id])
 }
 
 model Payment {
-  id             String   @id @default(cuid())
-  invoiceId      String
-  userId         String
-  amountCents    Int
-  method         String?
-  date           DateTime
-  note           String?
-  createdAt      DateTime @default(now())
-  invoice        Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id          String   @id @default(cuid())
+  invoiceId   String
+  userId      String
+  amountCents Int
+  method      String?
+  date        DateTime
+  note        String?
+  createdAt   DateTime @default(now())
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
 }
 
 model InvoiceAuditLog {
-  id             String               @id @default(cuid())
+  id             String             @id @default(cuid())
   invoiceId      String
   userId         String
   action         InvoiceAuditAction
   previousStatus InvoiceStatus?
   newStatus      InvoiceStatus?
   note           String?
-  createdAt      DateTime             @default(now())
-  user           User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt      DateTime           @default(now())
+  user           User               @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, invoiceId])
 }
@@ -736,6 +1148,7 @@ model NumberingSequence {
 enum SequenceType {
   DEVIS
   FACTURE
+  RECU
 }
 
 model EmailLog {
@@ -758,6 +1171,7 @@ model EmailLog {
 enum DocumentType {
   DEVIS
   FACTURE
+  RECU
 }
 
 enum EmailStatus {
@@ -784,54 +1198,54 @@ enum AIAuditStatus {
 }
 
 model AIConversation {
-  id             String               @id @default(cuid())
-  userId         String
-  user           User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
-  title          String               @default("Nouvelle conversation")
-  status         AIConversationStatus @default(ACTIVE)
-  lastActivityAt DateTime             @default(now())
-  archivedAt     DateTime?
-  createdAt      DateTime             @default(now())
-  updatedAt      DateTime             @updatedAt
-  messages       AIMessage[]
-  auditLogs      AIAuditLog[]
+  id               String               @id @default(cuid())
+  userId           String
+  user             User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title            String               @default("Nouvelle conversation")
+  status           AIConversationStatus @default(ACTIVE)
+  lastActivityAt   DateTime             @default(now())
+  archivedAt       DateTime?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  messages         AIMessage[]
+  auditLogs        AIAuditLog[]
   pendingToolCalls AIPendingToolCall[]
 
   @@index([userId, status, lastActivityAt(sort: Desc)], map: "AIConversation_user_status_lastActivity_idx")
 }
 
 model AIMessage {
-  id              String        @id @default(cuid())
-  conversationId  String
-  conversation    AIConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  userId          String
-  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role            AIMessageRole
-  content         Json
-  toolName        String?
-  toolCallId      String?
-  attachments     Json?
-  metadata        Json?
-  tokenCount      Int?
-  createdAt       DateTime      @default(now())
+  id             String         @id @default(cuid())
+  conversationId String
+  conversation   AIConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role           AIMessageRole
+  content        Json
+  toolName       String?
+  toolCallId     String?
+  attachments    Json?
+  metadata       Json?
+  tokenCount     Int?
+  createdAt      DateTime       @default(now())
 
   @@index([conversationId, createdAt])
   @@index([userId, role, createdAt])
 }
 
 model AIAuditLog {
-  id             String        @id @default(cuid())
+  id             String          @id @default(cuid())
   userId         String
-  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   conversationId String?
   conversation   AIConversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
   toolName       String
   actionLabel    String
   payload        Json?
   result         Json?
-  status         AIAuditStatus @default(SUCCESS)
+  status         AIAuditStatus   @default(SUCCESS)
   errorMessage   String?
-  createdAt      DateTime      @default(now())
+  createdAt      DateTime        @default(now())
 
   @@index([userId, createdAt])
   @@index([conversationId])
@@ -853,15 +1267,15 @@ model AIUsageStat {
 }
 
 model AIPendingToolCall {
-  id             String        @id @default(cuid())
+  id             String         @id @default(cuid())
   userId         String
-  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   conversationId String
   conversation   AIConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   toolName       String
   arguments      Json
   summary        String
-  createdAt      DateTime      @default(now())
+  createdAt      DateTime       @default(now())
   expiresAt      DateTime
 
   @@index([userId, createdAt])

@@ -1,6 +1,9 @@
 export const WEBSITE_TEMPLATE_KEY_VALUES = [
   "dev-agency",
   "ecommerce-luxe",
+  "ecommerce-tech-agency",
+  "ecommerce-cesco",
+  "ecommerce-ciseco-home",
 ] as const;
 
 export type WebsiteTemplateKey =
@@ -22,6 +25,24 @@ export const WEBSITE_TEMPLATES: ReadonlyArray<{
     label: "E-commerce Luxe",
     description:
       "Template boutique premium : pages produits, catégories, panier et paiement, prêt à personnaliser.",
+  },
+  {
+    key: "ecommerce-tech-agency",
+    label: "E-commerce Tech Agency",
+    description:
+      "Template agence tech : services, catalogue et parcours d'achat orienté conversion.",
+  },
+  {
+    key: "ecommerce-cesco",
+    label: "E-commerce Cesco",
+    description:
+      "Template e-commerce chaleureux avec sections promo, nouveautés et avis clients.",
+  },
+  {
+    key: "ecommerce-ciseco-home",
+    label: "Ciseco Home Clone",
+    description:
+      "Clone de la home Ciseco : sections promo, best-sellers, blog et avis (accueil uniquement).",
   },
 ] as const;
 

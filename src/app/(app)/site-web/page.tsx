@@ -147,6 +147,7 @@ export default async function SiteWebPage() {
             leadAutoTag: website.leadAutoTag,
             leadThanksMessage: website.leadThanksMessage,
             spamProtectionEnabled: website.spamProtectionEnabled,
+            ecommerceSettings: website.ecommerceSettings,
           }}
         />
       </Suspense>

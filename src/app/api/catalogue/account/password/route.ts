@@ -1,0 +1,140 @@
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { getAppHostnames } from "@/lib/env";
+import { prisma } from "@/lib/prisma";
+import {
+  getClientFromSessionToken,
+  getClientSessionTokenFromCookie,
+  hashClientPassword,
+  signOutClient,
+  verifyClientPassword,
+} from "@/lib/client-auth";
+import {
+  normalizeCatalogDomainInput,
+  normalizeCatalogSlugInput,
+  resolveCatalogWebsite,
+} from "@/server/website";
+
+const APP_HOSTS = new Set(getAppHostnames());
+const APP_HOSTNAMES = new Set(
+  Array.from(APP_HOSTS)
+    .map((entry) => normalizeCatalogDomainInput(entry))
+    .filter((entry): entry is string => Boolean(entry)),
+);
+
+const passwordSchema = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(8),
+  confirmPassword: z.string().min(1),
+});
+
+function resolveDomainAndSlug(request: NextRequest) {
+  const host = request.headers.get("host")?.toLowerCase() ?? "";
+  const normalizedHost = normalizeCatalogDomainInput(host);
+  const isAppHost =
+    APP_HOSTS.has(host) ||
+    (normalizedHost ? APP_HOSTNAMES.has(normalizedHost) : false);
+  const slug = isAppHost
+    ? normalizeCatalogSlugInput(request.nextUrl.searchParams.get("slug"))
+    : null;
+  const domain = isAppHost ? null : normalizedHost;
+  return { slug, domain };
+}
+
+async function requireClientAndWebsite(request: NextRequest) {
+  const token = await getClientSessionTokenFromCookie();
+  if (!token) {
+    return { error: "Please sign in.", status: 401 };
+  }
+
+  const client = await getClientFromSessionToken(token);
+  if (!client) {
+    await signOutClient();
+    return { error: "Please sign in.", status: 401 };
+  }
+  if (!client.isActive) {
+    return { error: "Account inactive.", status: 403 };
+  }
+
+  const { slug, domain } = resolveDomainAndSlug(request);
+  const website = await resolveCatalogWebsite({
+    slug,
+    domain,
+    preview: false,
+  });
+  if (!website) {
+    return { error: "Site unavailable.", status: 404 };
+  }
+  if (client.userId !== website.userId) {
+    return { error: "Access denied.", status: 403 };
+  }
+
+  return { client, website };
+}
+
+function resolvePasswordValidationMessage(input: unknown) {
+  if (
+    input &&
+    typeof input === "object" &&
+    ("currentPassword" in input || "newPassword" in input)
+  ) {
+    return "Please enter your current password and a new password of at least 8 characters.";
+  }
+  return "Invalid password update request.";
+}
+
+export async function POST(request: NextRequest) {
+  const resolved = await requireClientAndWebsite(request);
+  if ("error" in resolved) {
+    return NextResponse.json(
+      { message: resolved.error },
+      { status: resolved.status },
+    );
+  }
+
+  try {
+    const payload = passwordSchema.parse(await request.json());
+
+    if (payload.newPassword !== payload.confirmPassword) {
+      return NextResponse.json(
+        { message: "New password and confirmation do not match." },
+        { status: 400 },
+      );
+    }
+
+    if (!resolved.client.passwordHash) {
+      return NextResponse.json(
+        { message: "Password cannot be updated for this account." },
+        { status: 400 },
+      );
+    }
+
+    const isValid = await verifyClientPassword(
+      payload.currentPassword,
+      resolved.client.passwordHash,
+    );
+    if (!isValid) {
+      return NextResponse.json(
+        { message: "Current password is incorrect." },
+        { status: 400 },
+      );
+    }
+
+    const newHash = await hashClientPassword(payload.newPassword);
+    await prisma.client.update({
+      where: { id: resolved.client.id },
+      data: { passwordHash: newHash },
+    });
+
+    return NextResponse.json({ message: "Password updated successfully." });
+  } catch (error) {
+    const message =
+      error instanceof z.ZodError
+        ? resolvePasswordValidationMessage({ currentPassword: true })
+        : error instanceof Error
+          ? error.message
+          : "Unable to update password.";
+    return NextResponse.json({ message }, { status: 400 });
+  }
+}

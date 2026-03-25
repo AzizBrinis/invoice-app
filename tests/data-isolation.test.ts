@@ -139,6 +139,7 @@ describe("tenant data isolation", () => {
     const alphaProduct = await prisma.product.create({
       data: {
         sku: `SKU-A-${timestamp}`,
+        publicSlug: `alpha-product-${timestamp}`,
         name: `Alpha Product ${timestamp}`,
         priceHTCents: 15000,
         priceTTCCents: 18000,
@@ -152,6 +153,7 @@ describe("tenant data isolation", () => {
     const betaProduct = await prisma.product.create({
       data: {
         sku: `SKU-B-${timestamp}`,
+        publicSlug: `beta-product-${timestamp}`,
         name: `Beta Product ${timestamp}`,
         priceHTCents: 20000,
         priceTTCCents: 24000,

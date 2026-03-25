@@ -17,7 +17,7 @@ import {
 import { QuoteStatus } from "@prisma/client";
 import { getMessagingSettingsSummary } from "@/server/messaging";
 import { queueQuoteEmailJob } from "@/server/document-email-jobs";
-import { requireUser } from "@/lib/auth";
+import { requireAppSectionAccess } from "@/lib/authorization";
 import { isRedirectError } from "@/lib/next";
 import type { Route } from "next";
 import type {
@@ -69,9 +69,14 @@ function extractIds(formData: FormData) {
     .filter((value) => value.length > 0);
 }
 
+async function requireQuotesUser() {
+  return requireAppSectionAccess("quotes");
+}
+
 export async function createQuoteAction(formData: FormData) {
   const redirectTarget = resolveRedirectTarget(formData, "/devis");
   try {
+    await requireQuotesUser();
     const payload = parsePayload(formData);
     await createQuote(payload);
     revalidatePath("/devis");
@@ -94,6 +99,7 @@ export async function createQuoteAction(formData: FormData) {
 export async function updateQuoteAction(id: string, formData: FormData) {
   const redirectTarget = resolveRedirectTarget(formData, "/devis");
   try {
+    await requireQuotesUser();
     const payload = parsePayload(formData);
     await updateQuote(id, payload);
     revalidatePath("/devis");
@@ -116,6 +122,7 @@ export async function updateQuoteAction(id: string, formData: FormData) {
 export async function deleteQuoteAction(id: string, formData?: FormData) {
   const redirectTarget = resolveRedirectTarget(formData, "/devis");
   try {
+    await requireQuotesUser();
     await deleteQuote(id);
     revalidatePath("/devis");
     redirectWithFeedback(redirectTarget, {
@@ -135,6 +142,7 @@ export async function deleteQuoteAction(id: string, formData?: FormData) {
 export async function duplicateQuoteAction(id: string, formData?: FormData) {
   const redirectTarget = resolveRedirectTarget(formData, "/devis");
   try {
+    await requireQuotesUser();
     await duplicateQuote(id);
     revalidatePath("/devis");
     redirectWithFeedback(redirectTarget, {
@@ -158,6 +166,7 @@ export async function changeQuoteStatusAction(
 ) {
   const redirectTarget = resolveRedirectTarget(formData, "/devis");
   try {
+    await requireQuotesUser();
     await changeQuoteStatus(id, status);
     revalidatePath("/devis");
     redirectWithFeedback(redirectTarget, {
@@ -180,6 +189,7 @@ export async function convertQuoteToInvoiceAction(
 ) {
   const redirectTarget = resolveRedirectTarget(formData, "/factures");
   try {
+    await requireQuotesUser();
     await convertQuoteToInvoice(id);
     revalidatePath("/factures");
     revalidatePath("/devis");
@@ -201,29 +211,29 @@ export async function sendQuoteEmailAction(
   id: string,
   input: DocumentEmailActionInput,
 ): Promise<DocumentEmailActionResult> {
-  const user = await requireUser();
-  const messagingSummary = await getMessagingSettingsSummary(user.id);
-  const email = input.email?.trim() ?? "";
-  const subject = input.subject?.trim();
-
-  if (!messagingSummary.smtpConfigured) {
-    return {
-      status: "config-missing",
-      variant: "warning",
-      message:
-        "Veuillez configurer la messagerie (SMTP/IMAP) avant d'envoyer des devis.",
-    };
-  }
-
-  if (!email) {
-    return {
-      status: "invalid",
-      variant: "error",
-      message: "Adresse e-mail requise.",
-    };
-  }
-
   try {
+    const user = await requireQuotesUser();
+    const messagingSummary = await getMessagingSettingsSummary(user.id);
+    const email = input.email?.trim() ?? "";
+    const subject = input.subject?.trim();
+
+    if (!messagingSummary.smtpConfigured) {
+      return {
+        status: "config-missing",
+        variant: "warning",
+        message:
+          "Veuillez configurer la messagerie (SMTP/IMAP) avant d'envoyer des devis.",
+      };
+    }
+
+    if (!email) {
+      return {
+        status: "invalid",
+        variant: "error",
+        message: "Adresse e-mail requise.",
+      };
+    }
+
     const queueResult = await queueQuoteEmailJob({
       userId: user.id,
       quoteId: id,
@@ -266,6 +276,7 @@ export async function bulkDeleteQuotesAction(formData: FormData) {
     });
   }
   try {
+    await requireQuotesUser();
     const deleted = await deleteQuotesBulk(ids);
     revalidatePath("/devis");
     redirectWithFeedback(redirectTarget, {
@@ -297,6 +308,7 @@ export async function bulkChangeQuotesStatusAction(formData: FormData) {
     });
   }
   try {
+    await requireQuotesUser();
     const updated = await changeQuotesStatusBulk(ids, statusValue as QuoteStatus);
     revalidatePath("/devis");
     redirectWithFeedback(redirectTarget, {

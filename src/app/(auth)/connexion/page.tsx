@@ -1,7 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { getCurrentUser } from "@/lib/auth";
+import type { Route } from "next";
+import {
+  getCurrentUser,
+  setCurrentSessionActiveTenant,
+} from "@/lib/auth";
 import { LoginForm } from "./login-form";
+import { acceptAccountInvitation } from "@/server/accounts";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 type ConnexionPageProps = { searchParams?: Promise<SearchParams> };
@@ -9,17 +14,40 @@ type ConnexionPageProps = { searchParams?: Promise<SearchParams> };
 export default async function ConnexionPage({
   searchParams,
 }: ConnexionPageProps) {
+  const resolvedParams: SearchParams = (await searchParams) ?? {};
+  const invitationParam = Array.isArray(resolvedParams?.invitation)
+    ? resolvedParams.invitation[0]
+    : resolvedParams?.invitation ?? null;
+  const invitationToken = invitationParam?.trim() || null;
   const user = await getCurrentUser();
+
   if (user) {
+    if (invitationToken) {
+      try {
+        const invitationContext = await acceptAccountInvitation({
+          rawToken: invitationToken,
+          userId: user.id,
+        });
+        await setCurrentSessionActiveTenant(invitationContext.accountId);
+      } catch (error) {
+        console.error(
+          "[ConnexionPage] Impossible d'accepter l'invitation courante",
+          error,
+        );
+      }
+    }
     redirect("/tableau-de-bord");
   }
-
-  const resolvedParams: SearchParams = (await searchParams) ?? {};
 
   const redirectParam = resolvedParams?.redirect;
   const redirectToParam = Array.isArray(redirectParam)
     ? redirectParam[0]
     : redirectParam ?? "/tableau-de-bord";
+  const registerHref = invitationToken
+    ? `/inscription?${new URLSearchParams({
+        invitation: invitationToken,
+      }).toString()}`
+    : "/inscription";
 
   return (
     <div className="flex min-h-screen w-full items-center justify-center bg-gradient-to-br from-blue-50 via-white to-blue-100 px-4 py-10 transition-colors dark:from-zinc-950 dark:via-zinc-950 dark:to-blue-950 supports-[min-height:100dvh]:min-h-[100dvh] sm:px-6 sm:py-12">
@@ -32,7 +60,10 @@ export default async function ConnexionPage({
             Connectez-vous pour accéder au tableau de bord administrateur.
           </p>
         </div>
-        <LoginForm redirectTo={redirectToParam} />
+        <LoginForm
+          redirectTo={redirectToParam}
+          invitationToken={invitationToken}
+        />
         <p className="mt-6 text-center text-xs text-zinc-500 dark:text-zinc-400">
           Besoin d&apos;aide ?
           <Link
@@ -45,7 +76,7 @@ export default async function ConnexionPage({
         <p className="mt-3 text-center text-xs text-zinc-500 dark:text-zinc-400">
           Nouveau dans l&apos;espace ?
           <Link
-            href="/inscription"
+            href={registerHref as Route}
             className="ml-1 font-medium text-blue-600 hover:underline dark:text-blue-400"
           >
             Créer un compte

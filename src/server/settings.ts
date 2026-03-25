@@ -1,6 +1,9 @@
 import { prisma } from "@/lib/prisma";
 import { z } from "zod";
+import { cache } from "react";
+import { unstable_cache } from "next/cache";
 import { requireUser } from "@/lib/auth";
+import { refreshTagForMutation } from "@/lib/cache-invalidation";
 import {
   CURRENCY_CODES,
   getDefaultCurrencyCode,
@@ -63,6 +66,8 @@ const imagePositionSchema = z.enum([
   "bottom-left",
   "bottom-right",
 ]);
+const isTestEnv = process.env.NODE_ENV === "test";
+const SETTINGS_CACHE_REVALIDATE_SECONDS = 60;
 
 export const settingsSchema = z.object({
   companyName: z.string().min(2, "Nom obligatoire"),
@@ -113,6 +118,16 @@ const settingsInclude = {
   quoteTemplate: true,
 } as const;
 
+export const settingsTag = (tenantId: string) => `settings:${tenantId}`;
+
+export function revalidateSettings(tenantId: string) {
+  if (isTestEnv) {
+    return;
+  }
+
+  refreshTagForMutation(settingsTag(tenantId));
+}
+
 async function fetchSettings(userId: string) {
   return prisma.companySettings.findUnique({
     where: { userId },
@@ -133,10 +148,6 @@ function normalizeSettings<T extends { taxConfiguration?: unknown }>(
   };
 }
 
-async function readCachedSettings(userId: string) {
-  return fetchSettings(userId);
-}
-
 async function resolveUserId(userId?: string) {
   if (userId) {
     return userId;
@@ -145,9 +156,8 @@ async function resolveUserId(userId?: string) {
   return user.id;
 }
 
-export async function getSettings(userId?: string) {
-  const resolvedUserId = await resolveUserId(userId);
-  const settings = await readCachedSettings(resolvedUserId);
+async function readOrInitializeSettings(resolvedUserId: string) {
+  const settings = await fetchSettings(resolvedUserId);
 
   if (settings) {
     return normalizeSettings(settings);
@@ -178,6 +188,28 @@ export async function getSettings(userId?: string) {
   }
 
   return normalizeSettings(ensuredSettings);
+}
+
+const readSettingsByUserId = cache(async (resolvedUserId: string) => {
+  if (isTestEnv) {
+    return readOrInitializeSettings(resolvedUserId);
+  }
+
+  const cached = unstable_cache(
+    () => readOrInitializeSettings(resolvedUserId),
+    ["settings", resolvedUserId],
+    {
+      revalidate: SETTINGS_CACHE_REVALIDATE_SECONDS,
+      tags: [settingsTag(resolvedUserId)],
+    },
+  );
+
+  return cached();
+});
+
+export async function getSettings(userId?: string) {
+  const resolvedUserId = await resolveUserId(userId);
+  return readSettingsByUserId(resolvedUserId);
 }
 
 export async function updateSettings(input: SettingsInput, userId?: string) {

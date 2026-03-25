@@ -7,7 +7,11 @@ import { FormSubmitButton } from "@/components/ui/form-submit-button";
 import { Alert } from "@/components/ui/alert";
 import { useToast } from "@/components/ui/toast-provider";
 
-export function RegisterForm() {
+export function RegisterForm({
+  invitationToken,
+}: {
+  invitationToken?: string | null;
+}) {
   const [state, formAction] = useActionState<RegisterFormState, FormData>(
     registerAction,
     {},
@@ -28,6 +32,11 @@ export function RegisterForm() {
 
   return (
     <form action={formAction} className="space-y-5">
+      <input
+        type="hidden"
+        name="invitationToken"
+        value={invitationToken ?? ""}
+      />
       <div className="space-y-2">
         <label htmlFor="name" className="label">
           Nom complet

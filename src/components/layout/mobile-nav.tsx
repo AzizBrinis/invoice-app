@@ -3,15 +3,14 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { clsx } from "clsx";
-import Link from "next/link";
 import { Menu, X, ChevronDown } from "lucide-react";
 import { usePathname } from "next/navigation";
-import type { Route } from "next";
 import {
   type NavItem,
   NAV_ICON_MAP,
   navSubmenuId,
 } from "@/components/layout/sidebar-nav";
+import { PrefetchLink } from "@/components/ui/prefetch-link";
 
 const FOCUSABLE_SELECTORS =
   'a[href]:not([tabindex="-1"]), button:not([disabled]):not([tabindex="-1"]), textarea:not([disabled]):not([tabindex="-1"]), input:not([disabled]):not([tabindex="-1"]), select:not([disabled]):not([tabindex="-1"]), [tabindex]:not([tabindex="-1"])';
@@ -205,14 +204,14 @@ export function MobileNav({ items }: { items: NavItem[] }) {
                                 : "text-zinc-700 hover:bg-blue-50 hover:text-blue-600 dark:text-zinc-200 dark:hover:bg-blue-500/20 dark:hover:text-blue-200",
                             )}
                           >
-                            <Link
-                              href={item.href as Route}
+                            <PrefetchLink
+                              href={item.href}
                               onClick={closeDrawer}
                               className="flex flex-1 items-center gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-zinc-950"
                             >
                               <Icon aria-hidden="true" className="h-5 w-5" />
                               <span>{item.label}</span>
-                            </Link>
+                            </PrefetchLink>
                             {hasChildren ? (
                               <button
                                 type="button"
@@ -255,9 +254,9 @@ export function MobileNav({ items }: { items: NavItem[] }) {
                               {item.children!.map((child) => {
                                 const childActive = pathname === child.href;
                                 return (
-                                  <Link
+                                  <PrefetchLink
                                     key={child.href}
-                                    href={child.href as Route}
+                                    href={child.href}
                                     onClick={closeDrawer}
                                     tabIndex={childTabIndex}
                                     className={clsx(
@@ -268,7 +267,7 @@ export function MobileNav({ items }: { items: NavItem[] }) {
                                     )}
                                   >
                                     {child.label}
-                                  </Link>
+                                  </PrefetchLink>
                                 );
                               })}
                             </div>

@@ -7,13 +7,19 @@ import { ThemeToggle } from "@/components/theme/theme-toggle";
 type TopbarProps = {
   items: NavItem[];
   companyName: string;
+  workspaceLabel?: string;
   user: {
     name?: string | null;
     email: string;
   };
 };
 
-export function Topbar({ items, companyName, user }: TopbarProps) {
+export function Topbar({
+  items,
+  companyName,
+  workspaceLabel = "Espace d'administration",
+  user,
+}: TopbarProps) {
   return (
     <header className="sticky top-0 z-20 border-b border-zinc-200 bg-white/80 backdrop-blur transition-colors dark:border-zinc-800 dark:bg-zinc-900/80">
       <div className="flex items-center justify-between gap-4 px-4 py-3">
@@ -24,7 +30,7 @@ export function Topbar({ items, companyName, user }: TopbarProps) {
               {companyName}
             </span>
             <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-              Espace d&apos;administration
+              {workspaceLabel}
             </span>
           </div>
         </div>

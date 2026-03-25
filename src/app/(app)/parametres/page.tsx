@@ -1,5 +1,8 @@
 import { Suspense } from "react";
-import { requireUser } from "@/lib/auth";
+import {
+  isClientPaymentsAccount,
+  requireAppSectionAccess,
+} from "@/lib/authorization";
 import { getSettings } from "@/server/settings";
 import { prisma } from "@/lib/prisma";
 import { Input } from "@/components/ui/input";
@@ -10,6 +13,7 @@ import { fromCents } from "@/lib/money";
 import { SUPPORTED_CURRENCIES } from "@/lib/currency";
 import { SettingsSkeleton } from "@/components/skeletons";
 import { FormSubmitButton } from "@/components/ui/form-submit-button";
+import { ClientPaymentsSettingsForm } from "@/app/(app)/parametres/_components/client-payments-settings-form";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +24,12 @@ const POSITION_OPTIONS = [
   { value: "bottom-right", label: "Bas droite" },
 ];
 
+function renderClientPaymentsSettingsForm(
+  settings: Awaited<ReturnType<typeof getSettings>>,
+) {
+  return <ClientPaymentsSettingsForm settings={settings} />;
+}
+
 export default function ParametresPage() {
   return (
     <Suspense fallback={<SettingsSkeleton />}>
@@ -29,12 +39,17 @@ export default function ParametresPage() {
 }
 
 async function ParametresPageContent() {
-  const user = await requireUser();
-  const [settings, templates] = await Promise.all([
-    getSettings(user.id),
-    prisma.pdfTemplate.findMany({ orderBy: { name: "asc" } }),
-  ]);
+  const user = await requireAppSectionAccess("settings", {
+    redirectOnFailure: true,
+  });
+  const tenantId = user.activeTenantId ?? user.tenantId ?? user.id;
+  const settings = await getSettings(tenantId);
 
+  if (isClientPaymentsAccount(user)) {
+    return renderClientPaymentsSettingsForm(settings);
+  }
+
+  const templates = await prisma.pdfTemplate.findMany({ orderBy: { name: "asc" } });
   const devisTemplates = templates.filter((tpl) => tpl.type === "DEVIS");
   const factureTemplates = templates.filter((tpl) => tpl.type === "FACTURE");
   const taxConfig = normalizeTaxConfiguration(settings.taxConfiguration);

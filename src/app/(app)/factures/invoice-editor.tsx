@@ -119,9 +119,11 @@ export function InvoiceEditor({
   const invoiceTaxConfig = defaultInvoice?.taxConfiguration
     ? normalizeTaxConfiguration(defaultInvoice.taxConfiguration)
     : null;
+  const isNewInvoice = !defaultInvoice;
   const [clientId, setClientId] = useState(defaultInvoice?.clientId ?? clients[0]?.id ?? "");
   const [status, setStatus] = useState<InvoiceStatus>(defaultInvoice?.status ?? "BROUILLON");
   const [reference, setReference] = useState(defaultInvoice?.reference ?? "");
+  const [customNumber, setCustomNumber] = useState(defaultInvoice?.number ?? "");
   const today = formatDateInputValue(new Date());
   const initialIssueDate = defaultInvoice
     ? formatDateInputValue(defaultInvoice.issueDate, today)
@@ -388,53 +390,56 @@ export function InvoiceEditor({
     });
   };
 
-  const buildPayload = () => ({
-    id: defaultInvoice?.id,
-    number: defaultInvoice?.number,
-    clientId,
-    status,
-    reference: reference || null,
-    issueDate,
-    dueDate: dueDate || null,
-    currency,
-    globalDiscountRate:
-      globalDiscountRate === "" ? null : Number(globalDiscountRate),
-    globalDiscountAmountCents: globalDiscountAppliedCents ?? 0,
-    notes: notes || null,
-    terms: terms || null,
-    lateFeeRate: lateFeeRate === "" ? null : Number(lateFeeRate),
-    lines: lines.map((line, index) => ({
-      productId: line.productId ?? null,
-      description: (line.description ?? "").trim(),
-      quantity: line.quantity,
-      unit: (line.unit ?? "").trim() || "unité",
-      unitPriceHTCents: toCents(line.unitPrice, currency),
-      vatRate: line.vatRate,
-      discountRate: line.discountRate ?? null,
-      discountAmountCents:
-        line.discountAmount != null
-          ? toCents(line.discountAmount, currency)
-          : null,
-      fodecRate:
-        taxConfiguration.fodec.application === "line" &&
-        taxConfiguration.fodec.enabled &&
-        applyFodec
-          ? line.fodecRate ?? taxConfiguration.fodec.rate
-          : null,
-      position: index,
-    })),
-    taxes: {
-      applyFodec,
-      applyTimbre,
-      documentFodecRate:
-        taxConfiguration.fodec.application === "document"
-          ? documentFodecRate === ""
-            ? null
-            : Number(documentFodecRate)
-          : null,
-      timbreAmountCents: applyTimbre ? toCents(timbreAmount, currency) : 0,
-    },
-  });
+  const buildPayload = () => {
+    const normalizedNumber = customNumber.trim();
+    return {
+      id: defaultInvoice?.id,
+      number: normalizedNumber || defaultInvoice?.number,
+      clientId,
+      status,
+      reference: reference || null,
+      issueDate,
+      dueDate: dueDate || null,
+      currency,
+      globalDiscountRate:
+        globalDiscountRate === "" ? null : Number(globalDiscountRate),
+      globalDiscountAmountCents: globalDiscountAppliedCents ?? 0,
+      notes: notes || null,
+      terms: terms || null,
+      lateFeeRate: lateFeeRate === "" ? null : Number(lateFeeRate),
+      lines: lines.map((line, index) => ({
+        productId: line.productId ?? null,
+        description: (line.description ?? "").trim(),
+        quantity: line.quantity,
+        unit: (line.unit ?? "").trim() || "unité",
+        unitPriceHTCents: toCents(line.unitPrice, currency),
+        vatRate: line.vatRate,
+        discountRate: line.discountRate ?? null,
+        discountAmountCents:
+          line.discountAmount != null
+            ? toCents(line.discountAmount, currency)
+            : null,
+        fodecRate:
+          taxConfiguration.fodec.application === "line" &&
+          taxConfiguration.fodec.enabled &&
+          applyFodec
+            ? line.fodecRate ?? taxConfiguration.fodec.rate
+            : null,
+        position: index,
+      })),
+      taxes: {
+        applyFodec,
+        applyTimbre,
+        documentFodecRate:
+          taxConfiguration.fodec.application === "document"
+            ? documentFodecRate === ""
+              ? null
+              : Number(documentFodecRate)
+            : null,
+        timbreAmountCents: applyTimbre ? toCents(timbreAmount, currency) : 0,
+      },
+    };
+  };
 
   const target = redirectTo ?? "/factures";
 
@@ -522,6 +527,31 @@ export function InvoiceEditor({
               </p>
             ) : null}
           </div>
+          {isNewInvoice ? (
+            <div className="space-y-2 sm:col-span-3">
+              <label className="label" htmlFor="invoiceNumber">
+                Numéro de facture
+              </label>
+              <Input
+                id="invoiceNumber"
+                name="number"
+                value={customNumber}
+                onChange={(event) => setCustomNumber(event.target.value)}
+                placeholder="Automatique"
+                aria-invalid={Boolean(fieldErrors.number) || undefined}
+                data-invalid={fieldErrors.number ? "true" : undefined}
+              />
+              {fieldErrors.number ? (
+                <p className="text-xs text-red-600 dark:text-red-400">
+                  {fieldErrors.number}
+                </p>
+              ) : (
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Laissez vide pour la numérotation automatique.
+                </p>
+              )}
+            </div>
+          ) : null}
         </div>
 
         <div className="grid gap-4 sm:grid-cols-4">

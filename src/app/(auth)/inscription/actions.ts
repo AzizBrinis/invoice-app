@@ -5,6 +5,10 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { hashPassword, signIn } from "@/lib/auth";
 import { UserRole } from "@prisma/client";
+import {
+  acceptAccountInvitation,
+  getPendingAccountInvitation,
+} from "@/server/accounts";
 
 const registerSchema = z
   .object({
@@ -19,6 +23,7 @@ const registerSchema = z
       .max(100)
       .optional()
       .or(z.literal("")),
+    invitationToken: z.string().optional().or(z.literal("")),
   })
   .superRefine((data, ctx) => {
     if (data.password !== data.confirmPassword) {
@@ -58,6 +63,8 @@ export async function registerAction(
   }
 
   const { email, password, name } = parsed.data;
+  const invitationToken = parsed.data.invitationToken?.trim() || null;
+  const normalizedEmail = email.trim().toLowerCase();
 
   try {
     const existing = await prisma.user.findUnique({ where: { email } });
@@ -68,6 +75,24 @@ export async function registerAction(
           email: "Un compte existe déjà avec cette adresse",
         },
       };
+    }
+
+    if (invitationToken) {
+      const invitation = await getPendingAccountInvitation(invitationToken);
+      if (!invitation) {
+        return {
+          message: "Invitation invalide ou expirée.",
+        };
+      }
+
+      if (invitation.email !== normalizedEmail) {
+        return {
+          message: "Utilisez l'adresse e-mail qui a reçu l'invitation.",
+          fieldErrors: {
+            email: "Cette invitation est liée à une autre adresse e-mail.",
+          },
+        };
+      }
     }
 
     const passwordHash = await hashPassword(password);
@@ -81,7 +106,7 @@ export async function registerAction(
     const role =
       billingManagerCount === 0 ? UserRole.ADMIN : UserRole.VIEWER;
 
-    await prisma.user.create({
+    const createdUser = await prisma.user.create({
       data: {
         email,
         passwordHash,
@@ -90,7 +115,18 @@ export async function registerAction(
       },
     });
 
-    const user = await signIn(email, password);
+    let activeTenantId: string | undefined;
+    if (invitationToken) {
+      const invitationContext = await acceptAccountInvitation({
+        rawToken: invitationToken,
+        userId: createdUser.id,
+      });
+      activeTenantId = invitationContext.accountId;
+    }
+
+    const user = await signIn(email, password, {
+      activeTenantId,
+    });
     if (!user) {
       console.error("[registerAction] Session non créée après l'inscription");
       return {

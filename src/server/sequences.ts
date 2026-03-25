@@ -21,25 +21,29 @@ function formatNumber(
 }
 
 async function nextNumber(
-  type: "DEVIS" | "FACTURE",
+  type: "DEVIS" | "FACTURE" | "RECU",
   providedUserId?: string,
   overrides?: NumberingOverrides,
 ) {
   const userId = providedUserId ?? (await requireUser()).id;
-  const isQuote = type === "DEVIS";
 
   let prefix = overrides?.prefix;
   let resetAnnually = overrides?.resetAnnually;
 
   if (prefix === undefined || resetAnnually === undefined) {
     const settings = await getSettings(userId);
-    prefix = isQuote
-      ? settings.quoteNumberPrefix
-      : settings.invoiceNumberPrefix;
+    prefix =
+      type === "DEVIS"
+        ? settings.quoteNumberPrefix
+        : type === "FACTURE"
+          ? settings.invoiceNumberPrefix
+          : overrides?.prefix ?? "REC";
     resetAnnually = settings.resetNumberingAnnually;
   }
 
-  const resolvedPrefix = prefix ?? (isQuote ? "DEV" : "FAC");
+  const resolvedPrefix =
+    prefix ??
+    (type === "DEVIS" ? "DEV" : type === "FACTURE" ? "FAC" : "REC");
   const resolvedResetAnnually = Boolean(resetAnnually);
   const year = resolvedResetAnnually ? new Date().getFullYear() : 0;
 
@@ -100,6 +104,11 @@ type InvoiceNumberingSettings = {
   resetNumberingAnnually: boolean;
 };
 
+type ReceiptNumberingSettings = {
+  resetNumberingAnnually: boolean;
+  receiptNumberPrefix?: string | null;
+};
+
 export async function nextQuoteNumber(
   userId?: string,
   settings?: QuoteNumberingSettings,
@@ -116,6 +125,16 @@ export async function nextInvoiceNumber(
 ) {
   return nextNumber("FACTURE", userId, {
     prefix: settings?.invoiceNumberPrefix,
+    resetAnnually: settings?.resetNumberingAnnually,
+  });
+}
+
+export async function nextReceiptNumber(
+  userId?: string,
+  settings?: ReceiptNumberingSettings,
+) {
+  return nextNumber("RECU", userId, {
+    prefix: settings?.receiptNumberPrefix ?? "REC",
     resetAnnually: settings?.resetNumberingAnnually,
   });
 }

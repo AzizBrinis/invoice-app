@@ -22,6 +22,7 @@ export default async function AdvancedCustomizationPage() {
         accentColor: admin.website.accentColor,
         published: admin.website.published,
       }}
+      signupSettings={admin.website.ecommerceSettings.signup}
       catalog={previewPayload}
     />
   );

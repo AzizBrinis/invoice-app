@@ -47,4 +47,32 @@ describe("sanitizeEmailHtml", () => {
     expect(sanitized).toContain("border-spacing:0");
     expect(sanitized).not.toContain("{{");
   });
+
+  it("keeps styling on the default receipt template after placeholder substitution", () => {
+    const template =
+      DEFAULT_SAVED_RESPONSES.find(
+        (entry) =>
+          entry.slug === "default-receipt-template" && entry.format === "HTML",
+      )?.content ?? "";
+    const values = {
+      client_name: "Jean Dupont",
+      receipt_number: "REC-2026-0001",
+      payment_date: "17/03/2026",
+      amount_paid: "450,00 TND",
+      services_summary: "Coaching mensuel, Suivi projet",
+      payment_method: "Virement bancaire",
+      payment_reference: "VIR-12345",
+      company_name: "Studio Alpha",
+      company_email: "contact@studio-alpha.fr",
+      company_phone: "+216 70 00 00 00",
+      company_address: "10 avenue Habib Bourguiba, Tunis",
+    };
+
+    const filled = fillPlaceholders(template, values);
+    const sanitized = sanitizeEmailHtml(filled);
+
+    expect(sanitized).toContain("border-collapse:separate");
+    expect(sanitized).toContain("border-spacing:0");
+    expect(sanitized).not.toContain("{{");
+  });
 });

@@ -4,6 +4,11 @@ import { redirect } from "next/navigation";
 import type { Route } from "next";
 import { z } from "zod";
 import { signIn } from "@/lib/auth";
+import {
+  acceptAccountInvitation,
+  getPendingAccountInvitation,
+  setSessionActiveTenant,
+} from "@/server/accounts";
 
 const loginSchema = z.object({
   email: z.string().email({ message: "Adresse e-mail invalide" }),
@@ -11,6 +16,7 @@ const loginSchema = z.object({
     .string()
     .min(8, { message: "Mot de passe requis (8 caractères min.)" }),
   redirectTo: z.string().default("/tableau-de-bord"),
+  invitationToken: z.string().optional().or(z.literal("")),
 });
 
 export type LoginFormState = {
@@ -37,9 +43,42 @@ export async function authenticate(
   }
 
   try {
+    const invitationToken = parsed.data.invitationToken?.trim() || null;
+    const normalizedEmail = parsed.data.email.trim().toLowerCase();
+
+    if (invitationToken) {
+      const invitation = await getPendingAccountInvitation(invitationToken);
+      if (!invitation) {
+        return {
+          message: "Invitation invalide ou expirée.",
+        };
+      }
+
+      if (invitation.email !== normalizedEmail) {
+        return {
+          message: "Utilisez l'adresse e-mail qui a reçu l'invitation.",
+          fieldErrors: {
+            email: "Cette invitation est liée à une autre adresse e-mail.",
+          },
+        };
+      }
+    }
+
     const user = await signIn(parsed.data.email, parsed.data.password);
     if (!user) {
       return { message: "Identifiants incorrects" };
+    }
+
+    if (invitationToken) {
+      const invitationContext = await acceptAccountInvitation({
+        rawToken: invitationToken,
+        userId: user.id,
+      });
+      await setSessionActiveTenant(
+        user.sessionId,
+        user.id,
+        invitationContext.accountId,
+      );
     }
   } catch (error) {
     console.error("[authenticate] Échec de la connexion", error);

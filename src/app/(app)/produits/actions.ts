@@ -10,9 +10,42 @@ import { toCents } from "@/lib/money";
 import { prisma } from "@/lib/prisma";
 import { getSettings } from "@/server/settings";
 import { requireUser } from "@/lib/auth";
+import { requireAppSectionAccess } from "@/lib/authorization";
 import type { ProductFormState } from "@/app/(app)/produits/form-state";
 import { isRedirectError } from "@/lib/next";
 import type { Route } from "next";
+
+function parseOptionalJsonField(formData: FormData, fieldName: string) {
+  const raw = formData.get(fieldName);
+  if (!raw) {
+    return null;
+  }
+  const value = raw.toString().trim();
+  if (!value) {
+    return null;
+  }
+  try {
+    return JSON.parse(value);
+  } catch {
+    throw new ZodError([
+      {
+        code: "custom",
+        path: [fieldName],
+        message: "JSON invalide.",
+      },
+    ]);
+  }
+}
+
+function slugify(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-{2,}/g, "-");
+}
 
 async function parseProductForm(formData: FormData, currency: string) {
   const priceHT = Number(formData.get("priceHT") ?? 0);
@@ -20,13 +53,47 @@ async function parseProductForm(formData: FormData, currency: string) {
   const discountRateRaw = formData.get("defaultDiscountRate");
   const priceHTCents = toCents(priceHT, currency);
   const priceTTCCents = Math.round(priceHTCents * (1 + vatRate / 100));
+  const publicSlugRaw = formData.get("publicSlug")?.toString().trim() ?? "";
+  const publicSlug = publicSlugRaw.length > 0 ? publicSlugRaw : undefined;
+  const excerptRaw = formData.get("excerpt")?.toString().trim();
+  const metaTitleRaw = formData.get("metaTitle")?.toString().trim();
+  const metaDescriptionRaw = formData.get("metaDescription")?.toString().trim();
+  const coverImageUrlRaw = formData.get("coverImageUrl")?.toString().trim();
+  const gallery = parseOptionalJsonField(formData, "gallery");
+  const quoteFormSchema = parseOptionalJsonField(formData, "quoteFormSchema");
+  const optionConfig = parseOptionalJsonField(formData, "optionConfig");
+  const variantStock = parseOptionalJsonField(formData, "variantStock");
+  const descriptionHtmlRaw = formData.get("descriptionHtml")?.toString();
+  const stockQuantityRaw = formData.get("stockQuantity")?.toString();
+  const stockQuantity =
+    stockQuantityRaw && stockQuantityRaw.trim().length > 0
+      ? Number(stockQuantityRaw)
+      : null;
 
   const payload = {
     sku: formData.get("sku")?.toString() ?? "",
     name: formData.get("name")?.toString() ?? "",
+    saleMode: formData.get("saleMode")?.toString() ?? "INSTANT",
+    publicSlug,
     description: formData.get("description")?.toString() || null,
+    descriptionHtml: descriptionHtmlRaw ?? null,
+    excerpt: excerptRaw && excerptRaw.length > 0 ? excerptRaw : null,
+    metaTitle: metaTitleRaw && metaTitleRaw.length > 0 ? metaTitleRaw : null,
+    metaDescription:
+      metaDescriptionRaw && metaDescriptionRaw.length > 0
+        ? metaDescriptionRaw
+        : null,
+    coverImageUrl:
+      coverImageUrlRaw && coverImageUrlRaw.length > 0
+        ? coverImageUrlRaw
+        : null,
+    gallery,
+    quoteFormSchema,
+    optionConfig,
+    variantStock,
     category: formData.get("category")?.toString() || null,
     unit: formData.get("unit")?.toString() || "unité",
+    stockQuantity,
     priceHTCents,
     priceTTCCents,
     vatRate,
@@ -103,11 +170,16 @@ function redirectWithFeedback(
   return redirect(href);
 }
 
+async function requireProductsAccess() {
+  return requireAppSectionAccess("products");
+}
+
 export async function submitProductFormAction(
   _prevState: ProductFormState,
   formData: FormData,
 ): Promise<ProductFormState> {
   try {
+    await requireProductsAccess();
     const productId = formData.get("productId")?.toString() || undefined;
     const settings = await getSettings();
     const data = await parseProductForm(formData, settings.defaultCurrency);
@@ -115,6 +187,7 @@ export async function submitProductFormAction(
     if (productId) {
       const updated = await updateProduct(productId, data);
       revalidatePath("/produits");
+      revalidatePath("/catalogue");
       return {
         status: "success",
         message: "Produit mis à jour",
@@ -124,6 +197,7 @@ export async function submitProductFormAction(
 
     const created = await createProduct(data);
     revalidatePath("/produits");
+    revalidatePath("/catalogue");
     return {
       status: "success",
       message: "Produit créé",
@@ -141,6 +215,18 @@ export async function submitProductFormAction(
         vatRate: "TVA invalide",
         defaultDiscountRate: "Remise invalide",
         unit: "Unité requise",
+        publicSlug: "Slug invalide",
+        saleMode: "Mode de vente invalide",
+        excerpt: "Extrait invalide",
+        descriptionHtml: "Description HTML invalide",
+        metaTitle: "Meta title invalide",
+        metaDescription: "Meta description invalide",
+        coverImageUrl: "URL invalide",
+        gallery: "Galerie JSON invalide",
+        quoteFormSchema: "Schéma JSON invalide",
+        optionConfig: "Options invalides",
+        variantStock: "Stocks variantes invalides",
+        stockQuantity: "Stock invalide",
       };
       const pick = (key: string) =>
         fieldErrors[key]?.[0] ?? fallbackMessages[key] ?? undefined;
@@ -150,7 +236,19 @@ export async function submitProductFormAction(
         fieldErrors: {
           sku: fieldErrors.sku?.[0],
           name: fieldErrors.name?.[0],
+          publicSlug: pick("publicSlug"),
+          saleMode: pick("saleMode"),
+          excerpt: pick("excerpt"),
+          descriptionHtml: pick("descriptionHtml"),
+          metaTitle: pick("metaTitle"),
+          metaDescription: pick("metaDescription"),
+          coverImageUrl: pick("coverImageUrl"),
+          gallery: pick("gallery"),
+          quoteFormSchema: pick("quoteFormSchema"),
+          optionConfig: pick("optionConfig"),
+          variantStock: pick("variantStock"),
           unit: pick("unit"),
+          stockQuantity: pick("stockQuantity"),
           priceHTCents: pick("priceHTCents"),
           vatRate: pick("vatRate"),
           defaultDiscountRate: pick("defaultDiscountRate"),
@@ -164,6 +262,15 @@ export async function submitProductFormAction(
         message: "Impossible d'enregistrer le produit. Vérifiez les champs.",
         fieldErrors: {
           sku: "Ce SKU est déjà utilisé.",
+        },
+      };
+    }
+    if (isUniqueConstraintError(error, "publicSlug")) {
+      return {
+        status: "error",
+        message: "Impossible d'enregistrer le produit. Vérifiez les champs.",
+        fieldErrors: {
+          publicSlug: "Ce slug est déjà utilisé.",
         },
       };
     }
@@ -181,12 +288,14 @@ export async function submitProductFormAction(
 }
 
 export async function createProductAction(formData: FormData) {
-  const settings = await getSettings();
   const redirectTarget = resolveRedirectTarget(formData, "/produits");
   try {
+    await requireProductsAccess();
+    const settings = await getSettings();
     const data = await parseProductForm(formData, settings.defaultCurrency);
     await createProduct(data);
     revalidatePath("/produits");
+    revalidatePath("/catalogue");
     redirectWithFeedback(redirectTarget, {
       message: "Produit créé",
     });
@@ -200,6 +309,8 @@ export async function createProductAction(formData: FormData) {
       message = "Informations produit invalides.";
     } else if (isUniqueConstraintError(error, "sku")) {
       message = "Ce SKU est déjà utilisé.";
+    } else if (isUniqueConstraintError(error, "publicSlug")) {
+      message = "Ce slug est déjà utilisé.";
     }
     redirectWithFeedback(redirectTarget, {
       error: message,
@@ -208,12 +319,14 @@ export async function createProductAction(formData: FormData) {
 }
 
 export async function updateProductAction(id: string, formData: FormData) {
-  const settings = await getSettings();
   const redirectTarget = resolveRedirectTarget(formData, "/produits");
   try {
+    await requireProductsAccess();
+    const settings = await getSettings();
     const data = await parseProductForm(formData, settings.defaultCurrency);
     await updateProduct(id, data);
     revalidatePath("/produits");
+    revalidatePath("/catalogue");
     redirectWithFeedback(redirectTarget, {
       message: "Produit mis à jour",
     });
@@ -227,6 +340,8 @@ export async function updateProductAction(id: string, formData: FormData) {
       message = "Informations produit invalides.";
     } else if (isUniqueConstraintError(error, "sku")) {
       message = "Ce SKU est déjà utilisé.";
+    } else if (isUniqueConstraintError(error, "publicSlug")) {
+      message = "Ce slug est déjà utilisé.";
     }
     redirectWithFeedback(redirectTarget, {
       error: message,
@@ -237,8 +352,10 @@ export async function updateProductAction(id: string, formData: FormData) {
 export async function deleteProductAction(id: string, formData?: FormData) {
   const redirectTarget = resolveRedirectTarget(formData, "/produits");
   try {
+    await requireProductsAccess();
     await deleteProduct(id);
     revalidatePath("/produits");
+    revalidatePath("/catalogue");
     redirectWithFeedback(redirectTarget, {
       message: "Produit supprimé avec succès",
     });
@@ -255,8 +372,10 @@ export async function deleteProductAction(id: string, formData?: FormData) {
 
 export async function deleteProductInlineAction(id: string) {
   try {
+    await requireProductsAccess();
     await deleteProduct(id);
     revalidatePath("/produits");
+    revalidatePath("/catalogue");
     return { success: true };
   } catch (error) {
     if (isRedirectError(error)) {
@@ -278,6 +397,7 @@ export async function importProductsAction(formData: FormData) {
   const redirectTarget = resolveRedirectTarget(formData, "/produits");
 
   try {
+    await requireProductsAccess();
     const user = await requireUser();
     const file = formData.get("file");
     if (!(file instanceof File)) {
@@ -313,6 +433,7 @@ export async function importProductsAction(formData: FormData) {
 
     const entries: Array<{
       sku: string;
+      publicSlug: string;
       data: {
         name: string;
         description: string | null;
@@ -370,8 +491,14 @@ export async function importProductsAction(formData: FormData) {
     const unitValue =
       findValue(row, "unité") || findValue(row, "unite") || "unité";
 
+    const publicSlugBase =
+      slugify(sku) ||
+      slugify(name) ||
+      `product-${randomUUID().slice(0, 8)}`;
+
     entries.push({
       sku,
+      publicSlug: publicSlugBase,
       data: {
         name,
         description,
@@ -407,6 +534,7 @@ export async function importProductsAction(formData: FormData) {
           create: {
             userId: user.id,
             sku: entry.sku,
+            publicSlug: entry.publicSlug,
             ...entry.data,
           },
         }),
@@ -422,6 +550,7 @@ export async function importProductsAction(formData: FormData) {
     }
 
     revalidatePath("/produits");
+    revalidatePath("/catalogue");
     redirectWithFeedback(redirectTarget, {
       message: `Import terminé (${entries.length} produit(s))`,
       warning:

@@ -40,6 +40,7 @@ beforeAll(async () => {
   const product = await prisma.product.create({
     data: {
       sku: `SKU-INV-${Date.now()}`,
+      publicSlug: `service-facturation-${Date.now()}`,
       name: "Service Facturation",
       priceHTCents: 10000,
       priceTTCCents: 12000,

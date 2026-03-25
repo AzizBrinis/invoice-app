@@ -20,7 +20,8 @@
     "types": [
       "react",
       "react-dom",
-      "node"
+      "node",
+      "vitest/globals"
     ],
     "incremental": true,
     "plugins": [

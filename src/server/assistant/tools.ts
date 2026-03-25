@@ -3,6 +3,7 @@ import {
   ClientSource,
   InvoiceStatus,
   Prisma,
+  ProductSaleMode,
   QuoteStatus,
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
@@ -634,6 +635,7 @@ function buildProductPayload(input: CreateProductInput) {
   return {
     sku: input.sku,
     name: input.name,
+    saleMode: ProductSaleMode.INSTANT,
     description: input.description ?? null,
     category: input.category ?? null,
     unit: input.unit,

@@ -37,12 +37,16 @@ type CacheEntry = {
   data?: ClientDirectoryResponse;
   updatedAt?: number;
   promise?: Promise<ClientDirectoryResponse>;
+  controller?: AbortController;
+  generation: number;
 };
 
 export const CLIENT_CACHE_TTL_MS = 45_000;
 export const CLIENT_CACHE_SWR_MS = 90_000;
 
 const cache = new Map<string, CacheEntry>();
+let cacheGeneration = 0;
+let pendingClientRefetch = false;
 
 export function buildClientQueryKey(query: ClientDirectoryQuery) {
   const normalizedSearch = query.search?.trim() ?? "";
@@ -59,7 +63,11 @@ export function readClientCache(
 ): ClientCacheHit | null {
   const key = buildClientQueryKey(query);
   const entry = cache.get(key);
-  if (!entry?.data || !entry.updatedAt) {
+  if (
+    !entry?.data ||
+    !entry.updatedAt ||
+    entry.generation !== cacheGeneration
+  ) {
     return null;
   }
   const age = Date.now() - entry.updatedAt;
@@ -74,12 +82,31 @@ export function readClientCache(
 function storeCacheEntry(
   key: string,
   data: ClientDirectoryResponse,
+  generation: number,
 ): ClientDirectoryResponse {
-  cache.set(key, { data, updatedAt: Date.now() });
+  if (generation !== cacheGeneration) {
+    return data;
+  }
+  cache.set(key, {
+    data,
+    updatedAt: Date.now(),
+    generation,
+  });
   return data;
 }
 
-async function requestClients(query: ClientDirectoryQuery) {
+export function primeClientCache(
+  query: ClientDirectoryQuery,
+  data: ClientDirectoryResponse,
+) {
+  const key = buildClientQueryKey(query);
+  return storeCacheEntry(key, data, cacheGeneration);
+}
+
+async function requestClients(
+  query: ClientDirectoryQuery,
+  signal?: AbortSignal,
+) {
   const params = new URLSearchParams();
   if (query.search) params.set("search", query.search);
   if (query.status && query.status !== "all") {
@@ -92,6 +119,7 @@ async function requestClients(query: ClientDirectoryQuery) {
     method: "GET",
     credentials: "same-origin",
     cache: "no-store",
+    signal,
   });
 
   if (!response.ok) {
@@ -112,41 +140,74 @@ export function loadClientPage(
 ) {
   const key = buildClientQueryKey(query);
   const entry = cache.get(key);
+  const generation = cacheGeneration;
   const now = Date.now();
   const isFresh =
     !options.force &&
     entry?.data &&
+    entry.generation === generation &&
     entry.updatedAt !== undefined &&
     now - entry.updatedAt < CLIENT_CACHE_TTL_MS;
   if (isFresh && entry?.data) {
     return Promise.resolve(entry.data);
   }
 
-  if (entry?.promise) {
+  if (entry?.promise && entry.generation === generation) {
     return entry.promise;
   }
 
-  const pendingPromise = requestClients(query)
-    .then((data) => storeCacheEntry(key, data))
+  const controller = new AbortController();
+  const fallbackData =
+    entry?.generation === generation ? entry.data : undefined;
+  const fallbackUpdatedAt =
+    entry?.generation === generation ? entry.updatedAt : undefined;
+  const pendingPromise = requestClients(query, controller.signal)
+    .then((data) => storeCacheEntry(key, data, generation))
     .catch((error) => {
-      cache.delete(key);
+      const latest = cache.get(key);
+      if (latest?.promise === pendingPromise) {
+        if (
+          latest.data &&
+          latest.updatedAt !== undefined &&
+          latest.generation === cacheGeneration
+        ) {
+          cache.set(key, {
+            data: latest.data,
+            updatedAt: latest.updatedAt,
+            generation: latest.generation,
+          });
+        } else {
+          cache.delete(key);
+        }
+      }
       throw error;
     });
 
   cache.set(key, {
-    data: entry?.data,
-    updatedAt: entry?.updatedAt,
+    data: fallbackData,
+    updatedAt: fallbackUpdatedAt,
     promise: pendingPromise,
+    controller,
+    generation,
   });
 
   pendingPromise.finally(() => {
     const latest = cache.get(key);
     if (!latest) return;
     if (latest.promise === pendingPromise) {
-      cache.set(key, {
-        data: latest.data,
-        updatedAt: latest.updatedAt,
-      });
+      if (
+        latest.data &&
+        latest.updatedAt !== undefined &&
+        latest.generation === cacheGeneration
+      ) {
+        cache.set(key, {
+          data: latest.data,
+          updatedAt: latest.updatedAt,
+          generation: latest.generation,
+        });
+      } else {
+        cache.delete(key);
+      }
     }
   });
 
@@ -161,8 +222,19 @@ export function prefetchClientPage(query: ClientDirectoryQuery) {
   return loadClientPage(query, { force: true }).catch(() => undefined);
 }
 
-export function clearClientCache() {
+export function clearClientCache(options: { refetchOnNextLoad?: boolean } = {}) {
+  cacheGeneration += 1;
+  pendingClientRefetch = options.refetchOnNextLoad === true;
+  for (const entry of cache.values()) {
+    entry.controller?.abort();
+  }
   cache.clear();
+}
+
+export function consumePendingClientRefetch() {
+  const shouldRefetch = pendingClientRefetch;
+  pendingClientRefetch = false;
+  return shouldRefetch;
 }
 
 export type { ClientDirectoryStatusFilter };

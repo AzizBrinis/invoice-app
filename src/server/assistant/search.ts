@@ -43,6 +43,9 @@ const productSearchSelect = Prisma.validator<Prisma.ProductSelect>()({
   priceHTCents: true,
   priceTTCCents: true,
   vatRate: true,
+  defaultDiscountRate: true,
+  isActive: true,
+  isListedInCatalog: true,
   updatedAt: true,
 });
 

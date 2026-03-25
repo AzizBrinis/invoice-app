@@ -1,16 +1,113 @@
 import { unstable_cache, revalidateTag } from "next/cache";
-import { Prisma } from "@prisma/client";
+import { Prisma, ProductSaleMode } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
+import { sanitizeProductHtml } from "@/lib/product-html";
 import { z } from "zod";
+
+const productSlugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const relativeOrAbsoluteUrl = /^(?:https?:\/\/|\/|data:image\/)/i;
+const MAX_COVER_URL_LENGTH = 400;
+const MAX_COVER_DATA_URL_LENGTH = 1_000_000;
+
+const productSlugSchema = z
+  .string()
+  .min(1, "Slug requis")
+  .max(80, "Le slug doit contenir au maximum 80 caractères.")
+  .regex(
+    productSlugPattern,
+    "Utilisez uniquement des lettres minuscules, chiffres et tirets.",
+  );
+
+const jsonObjectOrArraySchema = z.union([
+  z.record(z.string(), z.unknown()),
+  z.array(z.unknown()),
+]);
+
+const productOptionValueSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1),
+  enabled: z.boolean().optional(),
+  swatch: z.string().max(32).nullable().optional(),
+  position: z.number().int().optional(),
+});
+
+const productOptionGroupSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  values: z.array(productOptionValueSchema).optional(),
+});
+
+const productOptionConfigSchema = z
+  .object({
+    colors: z.array(productOptionValueSchema).optional(),
+    sizes: z.array(productOptionValueSchema).optional(),
+    options: z.array(productOptionGroupSchema).optional(),
+  })
+  .optional();
+
+const productVariantStockSchema = z
+  .array(
+    z.object({
+      colorId: z.string().nullable().optional(),
+      sizeId: z.string().nullable().optional(),
+      stock: z.number().int().nonnegative().nullable().optional(),
+    }),
+  )
+  .optional();
 
 export const productSchema = z.object({
   id: z.string().optional(),
   sku: z.string().min(1, "SKU requis"),
   name: z.string().min(2, "Nom requis"),
+  publicSlug: productSlugSchema.optional(),
+  saleMode: z.nativeEnum(ProductSaleMode).default(ProductSaleMode.INSTANT),
   description: z.string().nullable().optional(),
+  descriptionHtml: z.string().max(20000).nullable().optional(),
+  excerpt: z.string().max(280).nullable().optional(),
+  metaTitle: z.string().max(160).nullable().optional(),
+  metaDescription: z.string().max(260).nullable().optional(),
+  coverImageUrl: z
+    .string()
+    .nullable()
+    .optional()
+    .refine(
+      (value) => !value || relativeOrAbsoluteUrl.test(value),
+      "L'URL doit commencer par http(s):// ou /",
+    )
+    .refine(
+      (value) => {
+        if (!value) return true;
+        const trimmed = value.trim();
+        if (!trimmed) return true;
+        if (trimmed.toLowerCase().startsWith("data:image/")) {
+          return trimmed.length <= MAX_COVER_DATA_URL_LENGTH;
+        }
+        return trimmed.length <= MAX_COVER_URL_LENGTH;
+      },
+      "L'URL est trop longue.",
+    ),
+  gallery: z
+    .array(
+      z.union([
+        z.string(),
+        z.object({
+          src: z.string().min(1),
+          alt: z.string().nullable().optional(),
+          isPrimary: z.boolean().optional(),
+          position: z.number().int().optional(),
+          id: z.string().optional(),
+        }),
+      ]),
+    )
+    .nullable()
+    .optional(),
+  quoteFormSchema: jsonObjectOrArraySchema.nullable().optional(),
+  optionConfig: productOptionConfigSchema.nullable().optional(),
+  variantStock: productVariantStockSchema.nullable().optional(),
   category: z.string().nullable().optional(),
   unit: z.string().min(1, "Unité requise"),
+  stockQuantity: z.number().int().nonnegative().nullable().optional(),
   priceHTCents: z.number().int().nonnegative(),
   priceTTCCents: z.number().int().nonnegative(),
   vatRate: z.number().min(0).max(100),
@@ -58,6 +155,119 @@ export type ProductListResult = {
 
 const productCategoryTag = (userId: string) =>
   `products:categories:${userId}`;
+
+function slugify(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-{2,}/g, "-");
+}
+
+function normalizeOptionalString(value: string | null | undefined) {
+  if (!value) return null;
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : null;
+}
+
+function normalizeProductPayload(input: ProductInput) {
+  const normalizedDescription = normalizeOptionalString(input.description);
+  const sanitizedHtml = normalizeOptionalString(
+    input.descriptionHtml ? sanitizeProductHtml(input.descriptionHtml) : "",
+  );
+  const normalizedMetaTitle = normalizeOptionalString(input.metaTitle);
+  const normalizedMetaDescription = normalizeOptionalString(
+    input.metaDescription,
+  );
+  return {
+    ...input,
+    description: normalizedDescription,
+    descriptionHtml: sanitizedHtml,
+    metaTitle: normalizedMetaTitle,
+    metaDescription: normalizedMetaDescription,
+  };
+}
+
+function toJsonInput(
+  value: unknown,
+): Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === null) {
+    return Prisma.JsonNull;
+  }
+  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+}
+
+function buildProductWriteData(
+  data: Omit<ProductInput, "id" | "publicSlug">,
+) {
+  return {
+    sku: data.sku,
+    name: data.name,
+    saleMode: data.saleMode,
+    description: data.description ?? null,
+    descriptionHtml: data.descriptionHtml ?? null,
+    excerpt: data.excerpt ?? null,
+    metaTitle: data.metaTitle ?? null,
+    metaDescription: data.metaDescription ?? null,
+    coverImageUrl: data.coverImageUrl ?? null,
+    gallery: toJsonInput(data.gallery),
+    quoteFormSchema: toJsonInput(data.quoteFormSchema),
+    optionConfig: toJsonInput(data.optionConfig),
+    variantStock: toJsonInput(data.variantStock),
+    category: data.category ?? null,
+    unit: data.unit,
+    stockQuantity: data.stockQuantity ?? null,
+    priceHTCents: data.priceHTCents,
+    priceTTCCents: data.priceTTCCents,
+    vatRate: data.vatRate,
+    defaultDiscountRate: data.defaultDiscountRate ?? null,
+    isActive: data.isActive,
+    isListedInCatalog: data.isListedInCatalog,
+  };
+}
+
+async function findAvailableProductSlug(userId: string, base: string) {
+  const cleaned = base.length ? base : "produit";
+  let candidate = cleaned;
+  let attempt = 1;
+  while (true) {
+    const existing = await prisma.product.findFirst({
+      where: {
+        userId,
+        publicSlug: candidate,
+      },
+      select: { id: true },
+    });
+    if (!existing) {
+      return candidate;
+    }
+    attempt += 1;
+    candidate = `${cleaned}-${attempt}`;
+  }
+}
+
+async function resolveProductSlug(options: {
+  userId: string;
+  sku: string;
+  name: string;
+  requestedSlug?: string | null;
+  existingSlug?: string | null;
+}) {
+  const requested = options.requestedSlug?.trim();
+  if (!requested && options.existingSlug) {
+    return options.existingSlug;
+  }
+  if (requested) {
+    return requested;
+  }
+  const base = slugify(options.sku || options.name || "produit");
+  return findAvailableProductSlug(options.userId, base || "produit");
+}
 
 function normalizePage(value?: number) {
   if (!value || Number.isNaN(value) || value < 1) {
@@ -200,14 +410,22 @@ export async function getProduct(id: string) {
 
 export async function createProduct(input: ProductInput) {
   const { id: userId } = await requireUser();
-  const payload = productSchema.parse(input);
-  const { id: _id, ...data } = payload;
+  const payload = productSchema.parse(normalizeProductPayload(input));
+  const { id: _id, publicSlug, ...data } = payload;
   void _id;
+  const resolvedSlug = await resolveProductSlug({
+    userId,
+    sku: data.sku,
+    name: data.name,
+    requestedSlug: publicSlug,
+  });
+  const writeData: Prisma.ProductUncheckedCreateInput = {
+    userId,
+    publicSlug: resolvedSlug,
+    ...buildProductWriteData(data),
+  };
   const created = await prisma.product.create({
-    data: {
-      userId,
-      ...data,
-    },
+    data: writeData,
   });
   invalidateProductCaches(userId);
   return created;
@@ -224,15 +442,24 @@ export async function updateProduct(
   if (!existing) {
     throw new Error("Produit introuvable");
   }
-  const payload = productSchema.parse({ ...input, id });
-  const { id: _id, ...data } = payload;
+  const payload = productSchema.parse(normalizeProductPayload({ ...input, id }));
+  const { id: _id, publicSlug, ...data } = payload;
   void _id;
+  const resolvedSlug = await resolveProductSlug({
+    userId,
+    sku: data.sku,
+    name: data.name,
+    requestedSlug: publicSlug,
+    existingSlug: existing.publicSlug,
+  });
+  const writeData: Prisma.ProductUncheckedUpdateInput = {
+    userId,
+    publicSlug: resolvedSlug,
+    ...buildProductWriteData(data),
+  };
   const updated = await prisma.product.update({
     where: { id },
-    data: {
-      ...data,
-      userId,
-    },
+    data: writeData,
   });
   invalidateProductCaches(userId);
   return updated;

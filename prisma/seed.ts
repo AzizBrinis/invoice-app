@@ -3,6 +3,7 @@ import {
   PrismaClient,
   InvoiceStatus,
   QuoteStatus,
+  ProductSaleMode,
   UserRole,
   SavedResponseFormat,
 } from "@prisma/client";
@@ -218,6 +219,9 @@ async function seed() {
       sku: "SERV-CONSTR",
       name: "Prestation de conseil",
       description: "Accompagnement stratégique sur mesure.",
+      excerpt: "Conseil stratégique pour cadrer vos projets digitaux.",
+      publicSlug: "prestation-conseil",
+      saleMode: ProductSaleMode.QUOTE,
       category: "Services",
       unit: "jour",
       priceHT: 720,
@@ -228,6 +232,9 @@ async function seed() {
       sku: "SERV-INTEG",
       name: "Intégration applicative",
       description: "Intégration technique et tests QA.",
+      excerpt: "Intégration technique avec validation QA.",
+      publicSlug: "integration-applicative",
+      saleMode: ProductSaleMode.INSTANT,
       category: "Services",
       unit: "jour",
       priceHT: 580,
@@ -238,6 +245,9 @@ async function seed() {
       sku: "LIC-PLATEFORME",
       name: "Licence plateforme SaaS",
       description: "Licence annuelle pour la plateforme SaaS.",
+      excerpt: "Accès annuel à la plateforme SaaS.",
+      publicSlug: "licence-plateforme-saas",
+      saleMode: ProductSaleMode.INSTANT,
       category: "Licences",
       unit: "unité",
       priceHT: 3200,
@@ -248,6 +258,9 @@ async function seed() {
       sku: "MAINT-STD",
       name: "Maintenance standard",
       description: "Maintenance corrective et évolutive.",
+      excerpt: "Support et évolutions mensuelles.",
+      publicSlug: "maintenance-standard",
+      saleMode: ProductSaleMode.INSTANT,
       category: "Maintenance",
       unit: "mois",
       priceHT: 450,
@@ -258,6 +271,9 @@ async function seed() {
       sku: "FORM-TEAM",
       name: "Formation équipe",
       description: "Formation présentielle pour 6 personnes.",
+      excerpt: "Session immersive pour vos équipes.",
+      publicSlug: "formation-equipe",
+      saleMode: ProductSaleMode.INSTANT,
       category: "Formation",
       unit: "session",
       priceHT: 980,
@@ -268,6 +284,9 @@ async function seed() {
       sku: "AUDIT-SEC",
       name: "Audit de sécurité",
       description: "Audit complet des infrastructures.",
+      excerpt: "Audit complet et recommandations prioritaires.",
+      publicSlug: "audit-securite",
+      saleMode: ProductSaleMode.QUOTE,
       category: "Audit",
       unit: "prestation",
       priceHT: 2800,
@@ -278,6 +297,9 @@ async function seed() {
       sku: "SUPPORT-PREM",
       name: "Support premium",
       description: "Support prioritaire 24/7.",
+      excerpt: "Assistance 24/7 avec SLA renforcé.",
+      publicSlug: "support-premium",
+      saleMode: ProductSaleMode.INSTANT,
       category: "Support",
       unit: "mois",
       priceHT: 390,
@@ -288,6 +310,9 @@ async function seed() {
       sku: "SERV-DESIGN",
       name: "Atelier design UX",
       description: "Atelier UX/UI pour équipes produit.",
+      excerpt: "Atelier collaboratif pour UX/UI.",
+      publicSlug: "atelier-design-ux",
+      saleMode: ProductSaleMode.QUOTE,
       category: "Design",
       unit: "jour",
       priceHT: 650,
@@ -308,6 +333,9 @@ async function seed() {
           sku: product.sku,
           name: product.name,
           description: product.description,
+          excerpt: product.excerpt,
+          publicSlug: product.publicSlug,
+          saleMode: product.saleMode,
           category: product.category,
           unit: product.unit,
           priceHTCents,
@@ -323,6 +351,25 @@ async function seed() {
   );
 
   const featuredProductIds = products.slice(0, 4).map((product) => product.id);
+  const ecommerceSettingsSeed: Prisma.JsonObject = {
+    payments: {
+      methods: {
+        card: true,
+        bankTransfer: true,
+        cashOnDelivery: false,
+      },
+      bankTransfer: {
+        instructions:
+          "Virement bancaire sous 3 jours ouvrés. IBAN : TN5900100012345678901234.",
+      },
+    },
+    checkout: {
+      requirePhone: true,
+      allowNotes: true,
+      termsUrl: "/cgv",
+    },
+    featuredProductIds,
+  };
   await prisma.websiteConfig.create({
     data: {
       userId: adminUser.id,
@@ -346,6 +393,7 @@ async function seed() {
       seoDescription:
         "Découvrez les prestations et produits de Société Démonstration Tunisie et capturez vos prospects en ligne.",
       featuredProductIds: featuredProductIds as Prisma.JsonArray,
+      ecommerceSettings: ecommerceSettingsSeed,
     },
   });
 

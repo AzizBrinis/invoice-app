@@ -1,8 +1,11 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
-import type { CompanySettings } from "@prisma/client";
-import { settingsSchema, updateSettings } from "@/server/settings";
+import {
+  getSettings,
+  revalidateSettings,
+  settingsSchema,
+  updateSettings,
+} from "@/server/settings";
 import {
   DEFAULT_TAX_CONFIGURATION,
   normalizeTaxConfiguration,
@@ -10,8 +13,11 @@ import {
   RoundingMode,
 } from "@/lib/taxes";
 import { fromCents, toCents } from "@/lib/money";
-import { prisma } from "@/lib/prisma";
-import { requireUser } from "@/lib/auth";
+import {
+  isClientPaymentsAccount,
+  requireAppSectionAccess,
+} from "@/lib/authorization";
+import { getClientTenantId } from "@/server/clients";
 
 const IMAGE_POSITIONS = [
   "top-left",
@@ -21,6 +27,13 @@ const IMAGE_POSITIONS = [
 ] as const;
 
 type ImagePosition = (typeof IMAGE_POSITIONS)[number];
+
+type CurrentSettings = Awaited<ReturnType<typeof getSettings>>;
+
+export type ClientPaymentSettingsActionState = {
+  status?: "success" | "error";
+  message?: string;
+};
 
 const isImagePosition = (value: string | undefined | null): value is ImagePosition =>
   !!value && IMAGE_POSITIONS.includes(value as ImagePosition);
@@ -37,7 +50,7 @@ async function fileToDataUrl(entry: FormDataEntryValue | null): Promise<string |
 
 async function parseSettingsForm(
   formData: FormData,
-  currentSettings: CompanySettings | null,
+  currentSettings: CurrentSettings | null,
 ) {
   const tvaRatesRaw = formData.get("tvaRatesJson")?.toString().trim();
   let tvaRates = DEFAULT_TAX_CONFIGURATION.tva.rates;
@@ -191,12 +204,120 @@ async function parseSettingsForm(
   return settingsSchema.parse(data);
 }
 
+async function parseClientPaymentSettingsForm(
+  formData: FormData,
+  currentSettings: CurrentSettings,
+) {
+  const defaultCurrency =
+    formData.get("defaultCurrency")?.toString().toUpperCase() ??
+    currentSettings.defaultCurrency;
+
+  const logoClear = formData.get("logoClear")?.toString() === "on";
+  const stampClear = formData.get("stampClear")?.toString() === "on";
+  const signatureClear = formData.get("signatureClear")?.toString() === "on";
+
+  const [logoFileData, stampFileData, signatureFileData] = await Promise.all([
+    fileToDataUrl(formData.get("logoFile")),
+    fileToDataUrl(formData.get("stampFile")),
+    fileToDataUrl(formData.get("signatureFile")),
+  ]);
+
+  const resolvePosition = (
+    raw: string | undefined,
+    fallback: ImagePosition = "bottom-right",
+  ): ImagePosition => {
+    if (isImagePosition(raw)) {
+      return raw;
+    }
+    if (isImagePosition(fallback)) {
+      return fallback;
+    }
+    return "bottom-right";
+  };
+
+  const data = {
+    companyName: formData.get("companyName")?.toString() ?? "",
+    logoUrl: formData.get("logoUrl")?.toString() || null,
+    logoData: logoClear
+      ? null
+      : logoFileData ?? currentSettings.logoData ?? null,
+    matriculeFiscal: currentSettings.matriculeFiscal ?? null,
+    tvaNumber: currentSettings.tvaNumber ?? null,
+    address: formData.get("address")?.toString() || null,
+    email: formData.get("email")?.toString() || null,
+    phone: formData.get("phone")?.toString() || null,
+    iban: formData.get("iban")?.toString() || null,
+    stampImage: stampClear
+      ? null
+      : stampFileData ?? currentSettings.stampImage ?? null,
+    signatureImage: signatureClear
+      ? null
+      : signatureFileData ?? currentSettings.signatureImage ?? null,
+    stampPosition: resolvePosition(
+      formData.get("stampPosition")?.toString(),
+      (currentSettings.stampPosition as ImagePosition | undefined) ??
+        "bottom-right",
+    ),
+    signaturePosition: resolvePosition(
+      formData.get("signaturePosition")?.toString(),
+      (currentSettings.signaturePosition as ImagePosition | undefined) ??
+        "bottom-right",
+    ),
+    defaultCurrency,
+    defaultVatRate: currentSettings.defaultVatRate,
+    paymentTerms: currentSettings.paymentTerms ?? null,
+    invoiceNumberPrefix: currentSettings.invoiceNumberPrefix,
+    quoteNumberPrefix: currentSettings.quoteNumberPrefix,
+    resetNumberingAnnually: currentSettings.resetNumberingAnnually,
+    defaultInvoiceFooter: currentSettings.defaultInvoiceFooter ?? null,
+    defaultQuoteFooter: currentSettings.defaultQuoteFooter ?? null,
+    legalFooter: formData.get("legalFooter")?.toString() || null,
+    defaultConditions: currentSettings.defaultConditions ?? null,
+    invoiceTemplateId: currentSettings.invoiceTemplateId ?? null,
+    quoteTemplateId: currentSettings.quoteTemplateId ?? null,
+    taxConfiguration: currentSettings.taxConfiguration,
+  } satisfies Record<string, unknown>;
+
+  return settingsSchema.parse(data);
+}
+
 export async function updateSettingsAction(formData: FormData) {
-  const { id: userId } = await requireUser();
-  const currentSettings = await prisma.companySettings.findUnique({
-    where: { userId },
-  });
-  const parsed = await parseSettingsForm(formData, currentSettings);
-  await updateSettings(parsed, userId);
-  revalidatePath("/parametres");
+  const user = await requireAppSectionAccess("settings");
+  const tenantId = getClientTenantId(user);
+  const currentSettings = await getSettings(tenantId);
+  const parsed = isClientPaymentsAccount(user)
+    ? await parseClientPaymentSettingsForm(formData, currentSettings)
+    : await parseSettingsForm(formData, currentSettings);
+  await updateSettings(parsed, tenantId);
+  revalidateSettings(tenantId);
+}
+
+export async function updateClientPaymentSettingsInlineAction(
+  _previousState: ClientPaymentSettingsActionState,
+  formData: FormData,
+): Promise<ClientPaymentSettingsActionState> {
+  try {
+    const user = await requireAppSectionAccess("settings");
+    const tenantId = getClientTenantId(user);
+    const currentSettings = await getSettings(tenantId);
+    const parsed = await parseClientPaymentSettingsForm(formData, currentSettings);
+    await updateSettings(parsed, tenantId);
+    revalidateSettings(tenantId);
+    return {
+      status: "success",
+      message: "Paramètres du reçu enregistrés",
+    };
+  } catch (error) {
+    console.error(
+      "[updateClientPaymentSettingsInlineAction] Échec de mise à jour",
+      error,
+    );
+    return {
+      status: "error",
+      message:
+        error instanceof Error
+          ? error.message
+          : "Impossible d'enregistrer ces paramètres.",
+    };
+  }
 }

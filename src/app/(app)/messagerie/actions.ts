@@ -10,6 +10,7 @@ import { randomUUID } from "node:crypto";
 import { callSelectedModel } from "@/server/assistant/providers";
 import {
   fetchMailboxMessages,
+  searchMailboxMessages,
   fetchMessageDetail,
   sendEmailMessage,
   testImapConnection,
@@ -22,6 +23,7 @@ import {
   moveMailboxMessage,
   type Mailbox,
   type MailboxPageResult,
+  type MailboxSearchResult,
   type MessageDetail,
   type MailboxListItem,
   type MessagingConnectionsInput,
@@ -31,11 +33,15 @@ import {
   type AutoMovedSummary,
 } from "@/server/messaging";
 import {
+  MAILBOX_SEARCHABLE_VALUES,
+  normalizeMailboxSearchQuery,
+} from "@/lib/messaging/mailbox-search";
+import {
   scheduleEmailDraft,
   rescheduleScheduledEmail,
   cancelScheduledEmail,
 } from "@/server/messaging-scheduled";
-import { requireUser } from "@/lib/auth";
+import { requireAppSectionAccess } from "@/lib/authorization";
 import { recordManualSpamFeedback } from "@/server/spam-detection";
 import {
   createSavedResponse,
@@ -87,6 +93,10 @@ const ALLOWED_LOGO_MIME_TYPES = new Map<string, string>([
   ["image/gif", "gif"],
   ["image/svg+xml", "svg"],
 ]);
+
+async function requireMessagingUser() {
+  return requireAppSectionAccess("messaging");
+}
 
 const messagingIdentitySchema = z.object({
   senderName: z.string().optional().transform((value) => value?.trim() ?? ""),
@@ -263,7 +273,7 @@ export async function summarizeMessageWithAiAction(
 ): Promise<ActionResult<{ summary: string }>> {
   try {
     const parsed = aiSummaryRequestSchema.parse(input);
-    const user = await requireUser();
+    const user = await requireMessagingUser();
     const detail = await fetchMessageDetail({
       mailbox: parsed.mailbox,
       uid: parsed.uid,
@@ -461,6 +471,23 @@ const mailboxDetailSchema = z.object({
 const mailboxUpdatesSchema = z.object({
   mailbox: z.enum(MAILBOX_VALUES),
   sinceUid: z.number().int().min(0),
+});
+
+const mailboxSearchSchema = z.object({
+  mailbox: z.enum(MAILBOX_SEARCHABLE_VALUES),
+  query: z
+    .string()
+    .transform((value) => normalizeMailboxSearchQuery(value))
+    .refine(
+      (value) => value.length >= 2,
+      "Saisissez au moins deux caractères.",
+    )
+    .refine(
+      (value) => value.length <= 160,
+      "La recherche est trop longue.",
+    ),
+  page: z.number().int().min(1).optional(),
+  pageSize: z.number().int().min(1).max(50).optional(),
 });
 
 const mailboxMoveSchema = z.object({
@@ -795,14 +822,13 @@ export async function updateMessagingIdentityAction(
   let existingLogoUrl: string | null = null;
   let nextLogoUrl: string | null = null;
   try {
+    const user = await requireMessagingUser();
     const { senderName, senderLogoUrl, removeLogo } = parseIdentityInput(formData);
     const potentialFile = formData.get("senderLogoFile");
     const logoFile =
       potentialFile instanceof File && potentialFile.size > 0
         ? potentialFile
         : null;
-
-    const user = await requireUser();
     const currentUserId = user.id;
     userId = currentUserId;
     const summary = await getMessagingSettingsSummary(currentUserId);
@@ -854,6 +880,7 @@ export async function updateAutoReplySettingsAction(
   formData: FormData,
 ): Promise<ActionResult> {
   try {
+    await requireMessagingUser();
     const parsed = autoReplySettingsSchema.parse(
       Object.fromEntries(formData),
     );
@@ -931,6 +958,7 @@ export async function updateMessagingConnectionsAction(
   formData: FormData,
 ): Promise<ActionResult> {
   try {
+    await requireMessagingUser();
     const input = parseConnectionsUpdateInput(formData);
     await updateMessagingConnections(input);
     revalidatePath("/messagerie/recus");
@@ -961,6 +989,7 @@ export async function updateEmailTrackingPreferenceAction(
   formData: FormData,
 ): Promise<ActionResult> {
   try {
+    await requireMessagingUser();
     const rawEnabled = formData.get("enabled");
     const parsed = booleanSchema.safeParse(
       typeof rawEnabled === "string" ? rawEnabled : "",
@@ -996,6 +1025,7 @@ export async function testImapConnectionAction(
   formData: FormData,
 ): Promise<ActionResult> {
   try {
+    await requireMessagingUser();
     const parsed = parseConnectionsTestInput(formData);
     await testImapConnection({
       host: parsed.imapHost,
@@ -1026,6 +1056,7 @@ export async function testSmtpConnectionAction(
   formData: FormData,
 ): Promise<ActionResult> {
   try {
+    await requireMessagingUser();
     const parsed = parseConnectionsTestInput(formData);
     await testSmtpConnection({
       host: parsed.smtpHost,
@@ -1067,6 +1098,7 @@ export async function fetchMailboxPageAction(
   const { mailbox } = parsed.data;
 
   try {
+    await requireMessagingUser();
     const data = await fetchMailboxMessages(parsed.data);
     return {
       success: true,
@@ -1102,6 +1134,7 @@ export async function fetchMailboxUpdatesAction(
   const { mailbox } = parsed.data;
 
   try {
+    await requireMessagingUser();
     const data = await fetchMailboxUpdates(parsed.data);
     return {
       success: true,
@@ -1119,10 +1152,41 @@ export async function fetchMailboxUpdatesAction(
   }
 }
 
+export async function searchMailboxMessagesAction(
+  input: unknown,
+): Promise<ActionResult<MailboxSearchResult>> {
+  const parsed = mailboxSearchSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      success: false,
+      message:
+        parsed.error.issues[0]?.message ?? "Champs invalides.",
+    };
+  }
+
+  try {
+    await requireMessagingUser();
+    const data = await searchMailboxMessages(parsed.data);
+    return {
+      success: true,
+      data,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: mapConnectionError(
+        error,
+        "Échec de la recherche dans la messagerie.",
+      ),
+    };
+  }
+}
+
 export async function fetchMessageDetailAction(
   input: unknown,
 ): Promise<ActionResult<MessageDetail>> {
   try {
+    await requireMessagingUser();
     const parsed = mailboxDetailSchema.parse(input);
     const data = await fetchMessageDetail(parsed);
     return {
@@ -1158,6 +1222,7 @@ export async function moveMailboxMessageAction(
   }
 
   try {
+    await requireMessagingUser();
     await moveMailboxMessage(parsed.data);
 
     const isManualSpam =
@@ -1290,6 +1355,7 @@ export async function sendEmailAction(
   formData: FormData,
 ): Promise<ActionResult<SentMailboxAppendResult>> {
   try {
+    await requireMessagingUser();
     const payload = await buildPreparedComposePayload(formData);
     const sentResult = await sendEmailMessage(payload);
 
@@ -1319,6 +1385,7 @@ export async function scheduleEmailAction(
   formData: FormData,
 ): Promise<ActionResult<{ id: string }>> {
   try {
+    const user = await requireMessagingUser();
     const scheduledAtRaw = formData.get("scheduledAt");
     if (typeof scheduledAtRaw !== "string" || scheduledAtRaw.trim().length === 0) {
       return {
@@ -1341,7 +1408,6 @@ export async function scheduleEmailAction(
     }
 
     const payload = await buildPreparedComposePayload(formData);
-    const user = await requireUser();
     const summary = await getMessagingSettingsSummary(user.id);
     if (!summary.smtpConfigured) {
       return {
@@ -1388,6 +1454,7 @@ export async function runAiDraftPolishAction(
   input: AiDraftPolishActionInput,
 ): Promise<ActionResult<{ plainBody: string; htmlBody?: string }>> {
   try {
+    await requireMessagingUser();
     const parsed = aiDraftPolishSchema.parse(input);
     const plainDraft = parsed.plainBody;
     const htmlDraft = parsed.htmlBody;
@@ -1495,6 +1562,7 @@ export async function runAiSubjectAction(
   input: AiSubjectActionInput,
 ): Promise<ActionResult<{ subject: string }>> {
   try {
+    await requireMessagingUser();
     const parsed = aiSubjectRequestSchema.parse(input);
     const sourcePlain = parsed.plainBody;
     const sourceHtml = parsed.htmlBody;
@@ -1566,6 +1634,7 @@ export async function runAiReplyAction(
   input: AiReplyActionInput,
 ): Promise<ActionResult<{ plainBody: string; htmlBody?: string }>> {
   try {
+    const user = await requireMessagingUser();
     const parsed = aiReplyRequestSchema.parse(input);
     const normalizedIntent = normalizeAiIntent(parsed.intent);
     const originalHtml = parsed.currentHtmlBody ?? "";
@@ -1587,8 +1656,6 @@ export async function runAiReplyAction(
         message: "Ajoutez un texte brut avant de lancer cette option.",
       };
     }
-
-    const user = await requireUser();
     const detail = await fetchMessageDetail({
       mailbox: parsed.mailbox,
       uid: parsed.uid,
@@ -1750,6 +1817,7 @@ export async function rescheduleScheduledEmailAction(
   formData: FormData,
 ): Promise<ActionResult<{ sendAt: string }>> {
   try {
+    await requireMessagingUser();
     const id = formData.get("id")?.toString() ?? "";
     const scheduledAtRaw = formData.get("scheduledAt")?.toString() ?? "";
     if (!id) {
@@ -1796,6 +1864,7 @@ export async function cancelScheduledEmailAction(
   formData: FormData,
 ): Promise<ActionResult> {
   try {
+    await requireMessagingUser();
     const id = formData.get("id")?.toString() ?? "";
     if (!id) {
       return {
@@ -1841,6 +1910,7 @@ export async function createSavedResponseAction(
   formData: FormData,
 ): Promise<ActionResult<{ response: SavedResponse }>> {
   try {
+    await requireMessagingUser();
     const parsed = savedResponseSchema.parse(
       Object.fromEntries(formData),
     );
@@ -1878,6 +1948,7 @@ export async function updateSavedResponseAction(
   formData: FormData,
 ): Promise<ActionResult<{ response: SavedResponse }>> {
   try {
+    await requireMessagingUser();
     const parsed = savedResponseUpdateSchema.parse(
       Object.fromEntries(formData),
     );
@@ -1924,6 +1995,7 @@ export async function deleteSavedResponseAction(
   }
 
   try {
+    await requireMessagingUser();
     const result = await deleteSavedResponse(responseId);
     revalidatePath("/messagerie/parametres");
     revalidatePath("/messagerie/nouveau-message");

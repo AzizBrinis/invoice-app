@@ -1,17 +1,26 @@
-import Link from "next/link";
+import { AccountPermission } from "@prisma/client";
 import type { Route } from "next";
 import { notFound } from "next/navigation";
 import { getClient } from "@/server/clients";
+import {
+  canAccessAppSection,
+  requireAccountPermission,
+} from "@/lib/authorization";
 import { ClientForm } from "@/app/(app)/clients/client-form";
-import { updateClientAction } from "@/app/(app)/clients/actions";
+import { updateClientFormAction } from "@/app/(app)/clients/actions";
+import { PrefetchLink } from "@/components/ui/prefetch-link";
 
 export default async function EditClientPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
+  const user = await requireAccountPermission(AccountPermission.CLIENTS_MANAGE, {
+    redirectOnFailure: true,
+  });
   const { id } = await params;
-  const client = await getClient(id);
+  const tenantId = user.activeTenantId ?? user.tenantId ?? user.id;
+  const client = await getClient(id, tenantId);
 
   if (!client) {
     notFound();
@@ -28,26 +37,28 @@ export default async function EditClientPage({
             Mettez à jour les coordonnées et les préférences.
           </p>
         </div>
-        <Link
-          href="/clients"
+        <PrefetchLink
+          href={`/clients/${client.id}` as Route}
           className="self-start text-sm font-medium text-blue-600 hover:underline dark:text-blue-400 sm:self-auto"
         >
-          Retour à la liste
-        </Link>
-        <Link
-          href={
-            `/assistant?contextType=client&contextId=${client.id}` as Route
-          }
-          className="inline-flex items-center justify-center rounded-full border border-blue-200 px-4 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-50 dark:border-blue-500/40 dark:text-blue-200 dark:hover:bg-blue-500/10"
-        >
-          Assistant AI
-        </Link>
+          Retour au dossier
+        </PrefetchLink>
+        {canAccessAppSection(user, "assistant") ? (
+          <PrefetchLink
+            href={
+              `/assistant?contextType=client&contextId=${client.id}` as Route
+            }
+            className="inline-flex items-center justify-center rounded-full border border-blue-200 px-4 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-50 dark:border-blue-500/40 dark:text-blue-200 dark:hover:bg-blue-500/10"
+          >
+            Assistant AI
+          </PrefetchLink>
+        ) : null}
       </div>
       <ClientForm
-        action={updateClientAction.bind(null, client.id)}
+        action={updateClientFormAction.bind(null, client.id)}
         submitLabel="Enregistrer"
         defaultValues={client}
-        redirectTo="/clients"
+        redirectTo={`/clients/${client.id}`}
       />
     </div>
   );

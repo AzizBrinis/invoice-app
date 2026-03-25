@@ -1,8 +1,9 @@
-import { unstable_cache } from "next/cache";
+import { unstable_cache, revalidateTag } from "next/cache";
 import { z } from "zod";
 import {
   Prisma,
   ClientSource,
+  ProductSaleMode,
   WebsiteDomainStatus,
   WebsiteThemeMode,
   type WebsiteConfig,
@@ -23,13 +24,21 @@ import {
   WEBSITE_TEMPLATE_KEY_VALUES,
   type WebsiteTemplateKey,
 } from "@/lib/website/templates";
-import { DEFAULT_PRIMARY_CTA_LABEL } from "@/lib/website/defaults";
+import { resolvePage as resolveCisecoPage } from "@/components/website/templates/ecommerce-ciseco/utils";
 import {
+  CONTACT_SOCIAL_ICON_VALUES,
+  type ContactSocialLink,
+} from "@/lib/website/contact";
+import { DEFAULT_PRIMARY_CTA_LABEL } from "@/lib/website/defaults";
+import { slugify } from "@/lib/slug";
+import {
+  ensureCisecoPageConfigs,
   applyThemeFallbacks,
   builderConfigSchema,
   builderVersionHistorySchema,
   createDefaultBuilderConfig,
   createSectionTemplate,
+  sanitizeBuilderPages,
   type BuilderSectionType,
   type WebsiteBuilderConfig,
   type WebsiteBuilderVersionEntry,
@@ -41,18 +50,43 @@ import { revalidateQuoteFilterClients } from "@/server/quotes";
 const slugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const hexColorPattern = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
 const relativeOrAbsoluteUrl = /^(?:https?:\/\/|\/)/i;
+const socialLinkUrlPattern = /^(?:https?:\/\/|mailto:|tel:|\/)/i;
 const domainHostnamePattern = /^[a-z0-9.-]+$/i;
+const catalogPathPattern = /^\/[a-z0-9/_-]*$/i;
+const CATALOG_PATH_MAX_LENGTH = 180;
 const WEBSITE_ADMIN_CACHE_REVALIDATE_SECONDS = 15;
-const CATALOG_PAYLOAD_REVALIDATE_SECONDS = 30;
+export const CATALOG_PAYLOAD_REVALIDATE_SECONDS = 30;
 const WEBSITE_PRODUCT_STATS_CACHE_SECONDS = 30;
 const WEBSITE_PRODUCT_LIST_DEFAULT_PAGE_SIZE = 40;
 const WEBSITE_PRODUCT_LIST_MAX_PAGE_SIZE = 80;
+
+function websiteAdminTag(userId: string) {
+  return `website-admin:${userId}`;
+}
 
 const slugSchema = z
   .string()
   .min(3, "Le slug doit contenir au moins 3 caractères.")
   .max(64, "Le slug doit contenir au maximum 64 caractères.")
   .regex(slugPattern, "Utilisez uniquement des lettres minuscules, chiffres et tirets.");
+
+const contactSocialLinkSchema = z.object({
+  id: z.string().default(() => generateId("social")),
+  label: z.string().max(60),
+  href: z
+    .string()
+    .max(200)
+    .refine(
+      (value) => socialLinkUrlPattern.test(value),
+      "L'URL doit commencer par http(s)://, /, mailto: ou tel:",
+    ),
+  icon: z.enum(CONTACT_SOCIAL_ICON_VALUES),
+});
+
+const contactSocialLinksSchema = z
+  .array(contactSocialLinkSchema)
+  .max(12)
+  .default([]);
 
 const websiteContentSchema = z.object({
   slug: slugSchema.optional(),
@@ -97,6 +131,182 @@ const websiteContentSchema = z.object({
   templateKey: z.enum(WEBSITE_TEMPLATE_KEY_VALUES).default("dev-agency"),
 });
 
+const contactPageSchema = z.object({
+  contactBlurb: z.string().max(600).nullable().optional(),
+  contactEmailOverride: z.string().email().max(160).nullable().optional(),
+  contactPhoneOverride: z.string().max(60).nullable().optional(),
+  contactAddressOverride: z.string().max(280).nullable().optional(),
+  socialLinks: contactSocialLinksSchema.default([]),
+});
+
+export function resolveContactSocialLinks(
+  value: unknown,
+): ContactSocialLink[] {
+  const parsed = contactSocialLinksSchema.safeParse(value ?? []);
+  if (!parsed.success) {
+    return [];
+  }
+  return parsed.data;
+}
+
+const signupProviderSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    useEnv: z.boolean().default(true),
+    clientId: z.string().max(220).nullable().optional(),
+    clientSecret: z.string().max(220).nullable().optional(),
+  })
+  .default({
+    enabled: false,
+    useEnv: true,
+    clientId: null,
+    clientSecret: null,
+  });
+
+const DEFAULT_SIGNUP_PROVIDERS = {
+  facebook: {
+    enabled: false,
+    useEnv: true,
+    clientId: null,
+    clientSecret: null,
+  },
+  google: {
+    enabled: false,
+    useEnv: true,
+    clientId: null,
+    clientSecret: null,
+  },
+  twitter: {
+    enabled: false,
+    useEnv: true,
+    clientId: null,
+    clientSecret: null,
+  },
+} as const;
+
+const DEFAULT_PAYMENT_METHODS = {
+  card: false,
+  bankTransfer: false,
+  cashOnDelivery: false,
+} as const;
+
+const DEFAULT_BANK_TRANSFER_SETTINGS = {
+  instructions: "",
+} as const;
+
+const DEFAULT_CHECKOUT_SETTINGS = {
+  requirePhone: false,
+  allowNotes: true,
+  termsUrl: "",
+} as const;
+
+const signupProvidersSchema = z
+  .object({
+    facebook: signupProviderSchema.optional(),
+    google: signupProviderSchema.optional(),
+    twitter: signupProviderSchema.optional(),
+  })
+  .default(DEFAULT_SIGNUP_PROVIDERS)
+  .transform((value) => ({
+    facebook: signupProviderSchema.parse(value.facebook),
+    google: signupProviderSchema.parse(value.google),
+    twitter: signupProviderSchema.parse(value.twitter),
+  }));
+
+const signupSettingsSchema = z
+  .object({
+    redirectTarget: z.enum(["home", "account"]).default("home"),
+    providers: signupProvidersSchema,
+  })
+  .default({
+    redirectTarget: "home",
+    providers: DEFAULT_SIGNUP_PROVIDERS,
+  });
+
+const ecommerceSettingsSchema = z.object({
+  payments: z
+    .object({
+      methods: z
+        .object({
+          card: z.boolean().default(false),
+          bankTransfer: z.boolean().default(false),
+          cashOnDelivery: z.boolean().default(false),
+        })
+        .default(DEFAULT_PAYMENT_METHODS),
+      bankTransfer: z
+        .object({
+          instructions: z.string().max(2000).default(""),
+        })
+        .default(DEFAULT_BANK_TRANSFER_SETTINGS),
+    })
+    .default({
+      methods: DEFAULT_PAYMENT_METHODS,
+      bankTransfer: DEFAULT_BANK_TRANSFER_SETTINGS,
+    }),
+  checkout: z
+    .object({
+      requirePhone: z.boolean().default(false),
+      allowNotes: z.boolean().default(true),
+      termsUrl: z
+        .string()
+        .max(200)
+        .default("")
+        .refine(
+          (value) => !value || relativeOrAbsoluteUrl.test(value),
+          "L'URL doit commencer par http(s):// ou /",
+        ),
+    })
+    .default(DEFAULT_CHECKOUT_SETTINGS),
+  featuredProductIds: z.array(z.string()).default([]),
+  signup: signupSettingsSchema,
+});
+
+export type EcommerceSettingsInput = z.infer<typeof ecommerceSettingsSchema>;
+export type SignupSettingsInput = z.infer<typeof signupSettingsSchema>;
+export type SignupProviderInput = z.infer<typeof signupProviderSchema>;
+
+const DEFAULT_ECOMMERCE_SETTINGS: EcommerceSettingsInput = {
+  payments: {
+    methods: {
+      card: false,
+      bankTransfer: false,
+      cashOnDelivery: false,
+    },
+    bankTransfer: {
+      instructions: "",
+    },
+  },
+  checkout: {
+    requirePhone: false,
+    allowNotes: true,
+    termsUrl: "",
+  },
+  featuredProductIds: [],
+  signup: {
+    redirectTarget: "home",
+    providers: {
+      facebook: {
+        enabled: false,
+        useEnv: true,
+        clientId: null,
+        clientSecret: null,
+      },
+      google: {
+        enabled: false,
+        useEnv: true,
+        clientId: null,
+        clientSecret: null,
+      },
+      twitter: {
+        enabled: false,
+        useEnv: true,
+        clientId: null,
+        clientSecret: null,
+      },
+    },
+  },
+};
+
 const domainSchema = z.object({
   customDomain: z.preprocess(
     (value) =>
@@ -135,12 +345,25 @@ export type CatalogProduct = {
   id: string;
   name: string;
   description: string | null;
+  descriptionHtml: string | null;
+  excerpt: string | null;
+  metaTitle: string | null;
+  metaDescription: string | null;
+  coverImageUrl: string | null;
+  gallery: Prisma.JsonValue | null;
+  quoteFormSchema: Prisma.JsonValue | null;
+  optionConfig: Prisma.JsonValue | null;
+  variantStock: Prisma.JsonValue | null;
   category: string | null;
   unit: string;
+  stockQuantity: number | null;
   priceHTCents: number;
   priceTTCCents: number;
   vatRate: number;
+  defaultDiscountRate: number | null;
   sku: string;
+  publicSlug: string;
+  saleMode: ProductSaleMode;
   isActive: boolean;
 };
 
@@ -149,6 +372,7 @@ export type CatalogWebsiteMetadata = {
   description: string;
   canonicalUrl: string;
   socialImageUrl: string | null;
+  keywords: string | null;
 };
 
 export type CatalogWebsiteSummary = {
@@ -167,12 +391,14 @@ export type CatalogWebsiteSummary = {
   accentColor: string;
   theme: WebsiteThemeMode;
   showPrices: boolean;
+  ecommerceSettings: EcommerceSettingsInput;
   leadThanksMessage: string | null;
   spamProtectionEnabled: boolean;
   published: boolean;
   domainStatus: WebsiteDomainStatus;
   customDomain: string | null;
   currencyCode: string;
+  socialLinks: ContactSocialLink[];
   contact: {
     companyName: string;
     email: string | null;
@@ -197,6 +423,8 @@ export type WebsiteBuilderState = {
   config: WebsiteBuilderConfig;
   history: WebsiteBuilderVersionEntry[];
 };
+
+export type ContactPageInput = z.infer<typeof contactPageSchema>;
 
 export type WebsiteLeadInput = z.input<typeof leadSchema> & {
   slug?: string | null;
@@ -253,16 +481,6 @@ async function resolveUserId(userId?: string) {
   return user.id;
 }
 
-function slugify(value: string): string {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .replace(/-{2,}/g, "-");
-}
-
 async function findAvailableSlug(base: string) {
   const cleaned = base.length >= 3 && slugPattern.test(base) ? base : "catalogue";
   let candidate = cleaned;
@@ -290,6 +508,68 @@ function sanitizeDomain(domain: string) {
 
 function normalizeDomain(domain: string) {
   return sanitizeDomain(domain).toLowerCase();
+}
+
+export function normalizeCatalogDomainInput(value?: string | null) {
+  if (!value) return null;
+  const sanitized = sanitizeDomain(value);
+  if (!sanitized) return null;
+  const candidate = /^https?:\/\//i.test(sanitized)
+    ? sanitized
+    : `https://${sanitized}`;
+  try {
+    const hostname = new URL(candidate).hostname.toLowerCase();
+    if (!hostname || !domainHostnamePattern.test(hostname)) {
+      return null;
+    }
+    return hostname;
+  } catch {
+    return null;
+  }
+}
+
+export function normalizeCatalogSlugInput(value?: string | null) {
+  if (!value) return null;
+  const trimmed = value.trim().toLowerCase();
+  if (!trimmed) return null;
+  if (!slugPattern.test(trimmed)) return null;
+  return trimmed;
+}
+
+export function normalizeCatalogPathInput(value?: string | null) {
+  if (value == null) return null;
+  const normalized = normalizeCatalogPath(value);
+  if (normalized.length > CATALOG_PATH_MAX_LENGTH) {
+    return null;
+  }
+  if (!catalogPathPattern.test(normalized)) {
+    return null;
+  }
+  if (normalized.includes("..") || normalized.includes("\\")) {
+    return null;
+  }
+  return normalized;
+}
+
+export function resolveCatalogCurrencyCode(
+  website: WebsiteConfig,
+  configuredCurrency?: string | null,
+) {
+  const normalized = configuredCurrency?.trim().toUpperCase() || "TND";
+  if (
+    website.templateKey === "ecommerce-tech-agency" ||
+    website.templateKey === "ecommerce-cesco"
+  ) {
+    if (normalized !== "TND") {
+      console.warn("[catalogue] currency mismatch", {
+        websiteId: website.id,
+        templateKey: website.templateKey,
+        configuredCurrency: normalized,
+      });
+    }
+    return "TND";
+  }
+  return normalized;
 }
 
 function pickFeaturedProducts(
@@ -346,6 +626,7 @@ async function ensureWebsiteConfig(userId: string) {
       contactEmailOverride: settings?.email,
       contactPhoneOverride: settings?.phone,
       leadNotificationEmail: settings?.email,
+      ecommerceSettings: DEFAULT_ECOMMERCE_SETTINGS,
       accentColor: "#2563eb",
       builderConfig: createDefaultBuilderConfig({
         heroEyebrow: "Catalogue public",
@@ -429,10 +710,75 @@ export async function saveWebsiteContent(
     templateKey: parsed.templateKey,
   };
 
-  return prisma.websiteConfig.update({
+  const updated = await prisma.websiteConfig.update({
     where: { id: currentConfig.id },
     data: payload,
   });
+  revalidateTag(websiteAdminTag(resolvedUserId), "max");
+  return updated;
+}
+
+export async function saveWebsiteContactPage(
+  input: ContactPageInput,
+  userId?: string,
+) {
+  const resolvedUserId = await resolveUserId(userId);
+  const currentConfig = await ensureWebsiteConfig(resolvedUserId);
+  const parsed = contactPageSchema.parse(input);
+
+  const cleanValue = (value?: string | null) => {
+    if (!value) return null;
+    const trimmed = value.trim();
+    return trimmed.length ? trimmed : null;
+  };
+
+  const socialLinks = parsed.socialLinks
+    .map((link) => ({
+      ...link,
+      label: link.label.trim(),
+      href: link.href.trim(),
+    }))
+    .filter((link) => link.label.length > 0 && link.href.length > 0);
+
+  const updated = await prisma.websiteConfig.update({
+    where: { id: currentConfig.id },
+    data: {
+      contactBlurb: cleanValue(parsed.contactBlurb),
+      contactEmailOverride: cleanValue(parsed.contactEmailOverride),
+      contactPhoneOverride: cleanValue(parsed.contactPhoneOverride),
+      contactAddressOverride: cleanValue(parsed.contactAddressOverride),
+      socialLinks: socialLinks as Prisma.JsonArray,
+    },
+  });
+  revalidateTag(websiteAdminTag(resolvedUserId), "max");
+  return updated;
+}
+
+export async function saveWebsiteEcommerceSettings(
+  input: EcommerceSettingsInput,
+  userId?: string,
+) {
+  const resolvedUserId = await resolveUserId(userId);
+  const currentConfig = await ensureWebsiteConfig(resolvedUserId);
+  const parsed = ecommerceSettingsSchema.parse(input);
+  const updated = await prisma.websiteConfig.update({
+    where: { id: currentConfig.id },
+    data: {
+      ecommerceSettings: parsed as Prisma.JsonObject,
+      featuredProductIds: parsed.featuredProductIds as Prisma.JsonArray,
+    },
+  });
+  revalidateTag(websiteAdminTag(resolvedUserId), "max");
+  return updated;
+}
+
+export async function getWebsiteEcommerceSettings(
+  userId?: string,
+  options?: { includeSecrets?: boolean },
+) {
+  const resolvedUserId = await resolveUserId(userId);
+  const website = await ensureWebsiteConfig(resolvedUserId);
+  return resolveEcommerceSettingsFromWebsite(website, options);
 }
 
 export async function updateWebsitePublishing(
@@ -588,13 +934,10 @@ function buildMetadata(options: {
   companyName: string;
   path?: string | null;
 }) {
-  const baseUrl = getAppBaseUrl();
-  const pathSegment =
-    options.path && options.path !== "/" ? options.path : "";
-  const canonicalUrl = options.website.customDomain &&
-    options.website.domainStatus === WebsiteDomainStatus.ACTIVE
-    ? `https://${options.website.customDomain}${pathSegment}`
-    : `${baseUrl}/catalogue/${options.website.slug}${pathSegment}`;
+  const canonicalUrl = buildCatalogUrl({
+    website: options.website,
+    path: options.path,
+  });
 
   return {
     title:
@@ -606,7 +949,316 @@ function buildMetadata(options: {
         "Découvrez nos prestations et contactez-nous facilement."),
     canonicalUrl,
     socialImageUrl: options.website.socialImageUrl,
+    keywords: options.website.seoKeywords ?? null,
   } satisfies CatalogWebsiteMetadata;
+}
+
+export type CatalogMetadataTarget =
+  | { kind: "home" }
+  | { kind: "category"; slug: string }
+  | { kind: "product"; slug: string }
+  | { kind: "cart" }
+  | { kind: "checkout" }
+  | { kind: "confirmation" }
+  | { kind: "contact" };
+
+function normalizeCatalogPath(path?: string | null): string {
+  if (!path) return "/";
+  const trimmed = path.trim();
+  if (!trimmed) return "/";
+  return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+}
+
+export function buildCatalogUrl(options: {
+  website: Pick<WebsiteConfig, "slug" | "customDomain" | "domainStatus">;
+  path?: string | null;
+}) {
+  const baseUrl = getAppBaseUrl();
+  const normalizedPath = normalizeCatalogPath(options.path);
+  const pathSegment = normalizedPath !== "/" ? normalizedPath : "";
+  if (
+    options.website.customDomain &&
+    options.website.domainStatus === WebsiteDomainStatus.ACTIVE
+  ) {
+    return `https://${options.website.customDomain}${pathSegment}`;
+  }
+  return `${baseUrl}/catalogue/${options.website.slug}${pathSegment}`;
+}
+
+export function resolveCatalogMetadataTarget(
+  path?: string | null,
+): CatalogMetadataTarget {
+  const normalized = normalizeCatalogPath(path);
+  const segments = normalized.split("/").filter(Boolean);
+  const [head, second, third] = segments;
+  if (!head) return { kind: "home" };
+  if (head === "panier" || head === "cart") {
+    return { kind: "cart" };
+  }
+  if (head === "checkout" || head === "paiement" || head === "payment") {
+    return { kind: "checkout" };
+  }
+  if (
+    head === "confirmation" ||
+    head === "merci" ||
+    head === "order-success" ||
+    head === "order-successful" ||
+    head === "payment-success" ||
+    head === "payment-successful" ||
+    (head === "order" && second === "success") ||
+    (head === "payment" && second === "success")
+  ) {
+    return { kind: "confirmation" };
+  }
+  if (head === "contact") {
+    return { kind: "contact" };
+  }
+  if (head === "catalogue") {
+    if (
+      (second === "categories" || second === "category" || second === "categorie") &&
+      third
+    ) {
+      return { kind: "category", slug: third };
+    }
+    if (
+      (second === "collections" || second === "collection" || second === "shop") &&
+      third
+    ) {
+      return { kind: "category", slug: third };
+    }
+    if ((second === "produit" || second === "product") && third) {
+      return { kind: "product", slug: third };
+    }
+  }
+  if ((head === "categories" || head === "category" || head === "categorie") && second) {
+    return { kind: "category", slug: second };
+  }
+  if (
+    (head === "collections" || head === "collection" || head === "shop") &&
+    second
+  ) {
+    return { kind: "category", slug: second };
+  }
+  if ((head === "produit" || head === "product") && second) {
+    return { kind: "product", slug: second };
+  }
+  return { kind: "home" };
+}
+
+function titleizeCategorySlug(value: string) {
+  return value
+    .split("-")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function resolveCategoryLabel(products: CatalogProduct[], slug: string) {
+  const match = products.find(
+    (product) => product.category && slugify(product.category) === slug,
+  );
+  if (match?.category) {
+    return match.category;
+  }
+  return titleizeCategorySlug(slug);
+}
+
+const SEO_TEMPLATE_TOKEN_PATTERN = /\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g;
+
+function renderSeoTemplate(
+  template: string | null | undefined,
+  context: Record<string, string>,
+) {
+  const trimmed = template?.trim();
+  if (!trimmed) return null;
+  const rendered = trimmed
+    .replace(SEO_TEMPLATE_TOKEN_PATTERN, (_match, rawKey: string) => {
+      return context[rawKey] ?? "";
+    })
+    .replace(/\s+/g, " ")
+    .trim();
+  return rendered.length ? rendered : null;
+}
+
+function renderProductSeoTemplate(
+  template: string | null | undefined,
+  product: CatalogProduct,
+  companyName: string,
+) {
+  return renderSeoTemplate(template, {
+    "product.name": product.name,
+    productName: product.name,
+    "product.category": product.category ?? "",
+    productCategory: product.category ?? "",
+    "product.sku": product.sku,
+    productSku: product.sku,
+    "product.slug": product.publicSlug,
+    productSlug: product.publicSlug,
+    "product.description": product.description ?? "",
+    productDescription: product.description ?? "",
+    "product.excerpt": product.excerpt ?? "",
+    productExcerpt: product.excerpt ?? "",
+    "site.name": companyName,
+    siteName: companyName,
+    "company.name": companyName,
+    companyName,
+  });
+}
+
+const STATIC_PAGE_METADATA: Record<
+  Extract<
+    CatalogMetadataTarget["kind"],
+    "cart" | "checkout" | "confirmation" | "contact"
+  >,
+  { title: string; description: string }
+> = {
+  cart: {
+    title: "Panier",
+    description: "Passez en revue vos services et finalisez votre commande.",
+  },
+  checkout: {
+    title: "Paiement",
+    description: "Finalisez votre commande en toute sécurité.",
+  },
+  confirmation: {
+    title: "Confirmation",
+    description: "Votre commande a bien été enregistrée.",
+  },
+  contact: {
+    title: "Contact",
+    description: "Parlez-nous de votre projet et recevez un devis sur mesure.",
+  },
+};
+
+function resolveCisecoPageSeo(options: {
+  payload: CatalogPayload;
+  path?: string | null;
+}) {
+  if (options.payload.website.templateKey !== "ecommerce-ciseco-home") {
+    return null;
+  }
+  const page = resolveCisecoPage(options.path);
+  const pageConfig = options.payload.website.builder.pages?.[page.page];
+  if (!pageConfig?.seo) return null;
+  const title = pageConfig.seo.title?.trim();
+  const description = pageConfig.seo.description?.trim();
+  const keywords = pageConfig.seo.keywords?.trim();
+  const imageId = pageConfig.seo.imageId;
+  const image =
+    imageId && pageConfig.mediaLibrary?.length
+      ? pageConfig.mediaLibrary.find((asset) => asset.id === imageId)?.src
+      : null;
+  return {
+    title: title && title.length > 0 ? title : null,
+    description: description && description.length > 0 ? description : null,
+    socialImageUrl: image ?? null,
+    keywords: keywords && keywords.length > 0 ? keywords : null,
+  };
+}
+
+export function resolveCatalogMetadata(options: {
+  payload: CatalogPayload;
+  path?: string | null;
+}): CatalogWebsiteMetadata {
+  const base = options.payload.website.metadata;
+  const companyName = options.payload.website.contact.companyName;
+  const target = resolveCatalogMetadataTarget(options.path);
+  const cisecoSeo = resolveCisecoPageSeo(options);
+  let resolved = base;
+  let resolvedProduct: CatalogProduct | null = null;
+  if (target.kind === "product") {
+    const product = options.payload.products.all.find(
+      (item) => item.publicSlug === target.slug,
+    );
+    resolvedProduct = product ?? null;
+    if (!product) {
+      resolved = base;
+    } else {
+      const galleryFallback = Array.isArray(product.gallery)
+        ? product.gallery
+            .map((entry) => {
+              if (typeof entry === "string") return entry;
+              if (entry && typeof entry === "object") {
+                const record = entry as Record<string, unknown>;
+                if (typeof record.src === "string") return record.src;
+                if (typeof record.url === "string") return record.url;
+              }
+              return null;
+            })
+            .find((entry): entry is string => Boolean(entry))
+        : null;
+      const metaTitle = product.metaTitle?.trim();
+      const metaDescription = product.metaDescription?.trim();
+      resolved = {
+        ...base,
+        title: metaTitle && metaTitle.length > 0
+          ? metaTitle
+          : `${product.name} — ${companyName}`,
+        description:
+          metaDescription && metaDescription.length > 0
+            ? metaDescription
+            : product.excerpt ?? product.description ?? base.description,
+        socialImageUrl:
+          product.coverImageUrl ?? galleryFallback ?? base.socialImageUrl,
+      };
+    }
+  } else if (target.kind === "category") {
+    const label = resolveCategoryLabel(
+      options.payload.products.all,
+      target.slug,
+    );
+    if (!label) {
+      resolved = base;
+    } else {
+      resolved = {
+        ...base,
+        title: `Catégorie ${label} — ${companyName}`,
+        description: `Découvrez notre sélection ${label}.`,
+      };
+    }
+  } else if (
+    target.kind === "cart" ||
+    target.kind === "checkout" ||
+    target.kind === "confirmation" ||
+    target.kind === "contact"
+  ) {
+    const pageMetadata = STATIC_PAGE_METADATA[target.kind];
+    resolved = {
+      ...base,
+      title: `${pageMetadata.title} — ${companyName}`,
+      description: pageMetadata.description,
+    };
+  }
+  if (cisecoSeo) {
+    const cisecoTitle =
+      target.kind === "product"
+        ? resolvedProduct
+          ? renderProductSeoTemplate(
+              cisecoSeo.title,
+              resolvedProduct,
+              companyName,
+            )
+          : null
+        : cisecoSeo.title;
+    const cisecoDescription =
+      target.kind === "product"
+        ? resolvedProduct
+          ? renderProductSeoTemplate(
+              cisecoSeo.description,
+              resolvedProduct,
+              companyName,
+            )
+          : null
+        : cisecoSeo.description;
+    resolved = {
+      ...resolved,
+      title: cisecoTitle ?? resolved.title,
+      description: cisecoDescription ?? resolved.description,
+      socialImageUrl: cisecoSeo.socialImageUrl ?? resolved.socialImageUrl,
+      keywords: cisecoSeo.keywords ?? resolved.keywords,
+    };
+  }
+  return resolved;
 }
 
 async function loadCatalogWebsite(
@@ -644,6 +1296,31 @@ async function listCatalogProducts(userId: string, options?: { includeInactive?:
       ...(options?.includeInactive ? {} : { isActive: true }),
     },
     orderBy: [{ category: "asc" }, { name: "asc" }],
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        descriptionHtml: true,
+        excerpt: true,
+        metaTitle: true,
+        metaDescription: true,
+        coverImageUrl: true,
+        gallery: true,
+        quoteFormSchema: true,
+        optionConfig: true,
+        variantStock: true,
+        category: true,
+        unit: true,
+        stockQuantity: true,
+        priceHTCents: true,
+        priceTTCCents: true,
+        vatRate: true,
+        defaultDiscountRate: true,
+      sku: true,
+      publicSlug: true,
+      saleMode: true,
+      isActive: true,
+    },
   });
   return products as CatalogProduct[];
 }
@@ -666,8 +1343,13 @@ function getCatalogDataForWebsite(website: WebsiteConfig) {
           includeInactive: website.showInactiveProducts,
         }),
       ]);
-      const featuredIds = (website.featuredProductIds as string[] | null) ?? [];
-      const featured = pickFeaturedProducts(products, featuredIds);
+      const ecommerceSettings = resolveEcommerceSettingsFromWebsite(website, {
+        includeSecrets: true,
+      });
+      const featured = pickFeaturedProducts(
+        products,
+        ecommerceSettings.featuredProductIds,
+      );
       return {
         settings,
         products,
@@ -682,11 +1364,41 @@ function getCatalogDataForWebsite(website: WebsiteConfig) {
   return cached();
 }
 
+function catalogPayloadCacheKey(website: WebsiteConfig, path: string) {
+  return [
+    "catalog-payload",
+    website.id,
+    website.updatedAt?.toISOString() ?? "0",
+    website.showInactiveProducts ? "with-inactive" : "active",
+    path,
+  ];
+}
+
+function getCatalogPayloadForWebsite(
+  website: WebsiteConfig,
+  options?: { path?: string | null },
+) {
+  const normalizedPath = normalizeCatalogPath(options?.path);
+  const cached = unstable_cache(
+    async () =>
+      buildCatalogPayloadFromWebsite(website, { path: normalizedPath }),
+    catalogPayloadCacheKey(website, normalizedPath),
+    {
+      revalidate: CATALOG_PAYLOAD_REVALIDATE_SECONDS,
+    },
+  );
+  return cached();
+}
+
 async function buildCatalogPayloadFromWebsite(
   website: WebsiteConfig,
   options?: { path?: string | null },
 ) {
   const { settings, products, featured } = await getCatalogDataForWebsite(website);
+  const currencyCode = resolveCatalogCurrencyCode(
+    website,
+    settings.defaultCurrency,
+  );
   const metadata = buildMetadata({
     website,
     companyName: settings.companyName,
@@ -711,12 +1423,14 @@ async function buildCatalogPayloadFromWebsite(
       accentColor: website.accentColor,
       theme: website.theme,
       showPrices: website.showPrices,
+      ecommerceSettings: resolveEcommerceSettingsFromWebsite(website),
       leadThanksMessage: website.leadThanksMessage,
       spamProtectionEnabled: website.spamProtectionEnabled,
       published: website.published,
       domainStatus: website.domainStatus,
       customDomain: website.customDomain,
-      currencyCode: settings.defaultCurrency,
+      currencyCode,
+      socialLinks: resolveContactSocialLinks(website.socialLinks),
       contact: {
         companyName: settings.companyName,
         email: website.contactEmailOverride ?? settings.email,
@@ -746,16 +1460,55 @@ export async function getCatalogPayloadBySlug(
   if (!website) {
     return null;
   }
-  return buildCatalogPayloadFromWebsite(website, { path: options?.path });
+  if (options?.preview) {
+    return buildCatalogPayloadFromWebsite(website, { path: options?.path });
+  }
+  return getCatalogPayloadForWebsite(website, { path: options?.path });
 }
 
 export async function getCatalogPayloadByDomain(domain: string, path?: string | null) {
-  const normalized = normalizeDomain(domain);
+  const normalized = normalizeCatalogDomainInput(domain);
+  if (!normalized) {
+    return null;
+  }
   const website = await loadCatalogWebsite({ domain: normalized });
   if (!website) {
     return null;
   }
-  return buildCatalogPayloadFromWebsite(website, { path });
+  return getCatalogPayloadForWebsite(website, { path });
+}
+
+export async function resolveCatalogWebsite(input: {
+  slug?: string | null;
+  domain?: string | null;
+  preview?: boolean;
+}) {
+  const domain = normalizeCatalogDomainInput(input.domain);
+  const slug = normalizeCatalogSlugInput(input.slug);
+  if (domain) {
+    const website = await loadCatalogWebsite(
+      { domain },
+      { allowUnpublished: input.preview },
+    );
+    if (!website) {
+      return null;
+    }
+    if (slug && website.slug !== slug) {
+      console.warn("[catalogue] slug/domain mismatch", {
+        domain,
+        slug,
+        resolvedSlug: website.slug,
+      });
+    }
+    return website;
+  }
+  if (!slug) {
+    return null;
+  }
+  return loadCatalogWebsite(
+    { slug },
+    { allowUnpublished: input.preview },
+  );
 }
 
 export async function getWebsiteBuilderState(userId?: string): Promise<WebsiteBuilderState> {
@@ -773,7 +1526,10 @@ export async function saveWebsiteBuilderConfig(
 ): Promise<WebsiteBuilderState> {
   const resolvedUserId = await resolveUserId(userId);
   const website = await ensureWebsiteConfig(resolvedUserId);
-  const parsed = builderConfigSchema.parse(input);
+  const parsed = builderConfigSchema.parse({
+    ...input,
+    pages: sanitizeBuilderPages(input.pages),
+  });
   const accent = parsed.theme?.accent ?? website.accentColor ?? "#2563eb";
   const normalizedNext = applyThemeFallbacks(parsed, accent);
   const previousConfig = resolveBuilderConfigFromWebsite(website);
@@ -801,6 +1557,7 @@ export async function saveWebsiteBuilderConfig(
       accentColor: accent,
     },
   });
+  revalidateTag(websiteAdminTag(resolvedUserId), "max");
   return {
     config: resolveBuilderConfigFromWebsite(updated),
     history: nextHistory,
@@ -815,17 +1572,11 @@ export async function recordWebsiteLead(input: WebsiteLeadInput) {
   if (parsed.mode === "preview") {
     return { status: "preview-only" } as const;
   }
-  const identifier = input.domain
-    ? ({ kind: "domain", domain: normalizeDomain(input.domain) } as const)
-    : input.slug
-      ? ({ kind: "slug", slug: input.slug } as const)
-      : null;
-  if (!identifier) {
-    throw new Error("Site introuvable.");
-  }
-  const website = identifier.kind === "domain"
-    ? await loadCatalogWebsite({ domain: identifier.domain })
-    : await loadCatalogWebsite({ slug: identifier.slug });
+  const website = await resolveCatalogWebsite({
+    slug: input.slug ?? null,
+    domain: input.domain ?? null,
+    preview: false,
+  });
   if (!website) {
     throw new Error("Site indisponible.");
   }
@@ -1023,7 +1774,12 @@ function ensureTemplateSections(
   config: WebsiteBuilderConfig,
   website: WebsiteConfig,
 ): WebsiteBuilderConfig {
-  if (website.templateKey !== "ecommerce-luxe") {
+  const templatesRequiringDefaults: WebsiteTemplateKey[] = [
+    "ecommerce-luxe",
+    "ecommerce-tech-agency",
+    "ecommerce-cesco",
+  ];
+  if (!(templatesRequiringDefaults as readonly string[]).includes(website.templateKey)) {
     return config;
   }
   const required: BuilderSectionType[] = [
@@ -1050,16 +1806,28 @@ function ensureTemplateSections(
 function resolveBuilderConfigFromWebsite(
   website: WebsiteConfig,
 ) {
-  const parsed = builderConfigSchema.safeParse(
-    website.builderConfig,
-  );
+  const parsedConfig =
+    typeof website.builderConfig === "string"
+      ? (() => {
+          try {
+            return JSON.parse(website.builderConfig);
+          } catch {
+            return null;
+          }
+        })()
+      : website.builderConfig;
+  const parsed = builderConfigSchema.safeParse(parsedConfig);
   const base = parsed.success
     ? parsed.data
     : createDefaultBuilderConfig(
       buildDefaultBuilderOptions(website),
     );
   const withTemplateDefaults = ensureTemplateSections(base, website);
-  return applyThemeFallbacks(withTemplateDefaults, website.accentColor);
+  const withCisecoPages =
+    website.templateKey === "ecommerce-ciseco-home"
+      ? ensureCisecoPageConfigs(withTemplateDefaults)
+      : withTemplateDefaults;
+  return applyThemeFallbacks(withCisecoPages, website.accentColor);
 }
 
 function resolveBuilderHistoryFromWebsite(
@@ -1072,6 +1840,77 @@ function resolveBuilderHistoryFromWebsite(
     return [];
   }
   return parsed.data.slice(0, 3);
+}
+
+function isSignupProviderConfigured(provider: SignupProviderInput) {
+  if (provider.useEnv) {
+    return true;
+  }
+  return Boolean(provider.clientId && provider.clientSecret);
+}
+
+function sanitizeSignupSettings(settings: SignupSettingsInput) {
+  const parsed = signupSettingsSchema.safeParse(settings);
+  const safeSettings = parsed.success
+    ? parsed.data
+    : signupSettingsSchema.parse({});
+  const providers = safeSettings.providers ?? signupProvidersSchema.parse({});
+  const facebook = signupProviderSchema.parse(providers.facebook ?? {});
+  const google = signupProviderSchema.parse(providers.google ?? {});
+  const twitter = signupProviderSchema.parse(providers.twitter ?? {});
+  return {
+    ...safeSettings,
+    providers: {
+      facebook: {
+        ...facebook,
+        enabled:
+          facebook.enabled && isSignupProviderConfigured(facebook),
+        clientId: null,
+        clientSecret: null,
+      },
+      google: {
+        ...google,
+        enabled:
+          google.enabled && isSignupProviderConfigured(google),
+        clientId: null,
+        clientSecret: null,
+      },
+      twitter: {
+        ...twitter,
+        enabled:
+          twitter.enabled && isSignupProviderConfigured(twitter),
+        clientId: null,
+        clientSecret: null,
+      },
+    },
+  } satisfies SignupSettingsInput;
+}
+
+export function resolveEcommerceSettingsFromWebsite(
+  website: WebsiteConfig,
+  options?: { includeSecrets?: boolean },
+) {
+  const source = website.ecommerceSettings ?? DEFAULT_ECOMMERCE_SETTINGS;
+  const parsed = ecommerceSettingsSchema.safeParse(source);
+  const baseSettings = parsed.success
+    ? parsed.data
+    : DEFAULT_ECOMMERCE_SETTINGS;
+  const legacyFeaturedIds = Array.isArray(website.featuredProductIds)
+    ? (website.featuredProductIds as Array<unknown>)
+      .filter((value): value is string => typeof value === "string")
+    : [];
+  if (!baseSettings.featuredProductIds.length && legacyFeaturedIds.length) {
+    const merged = {
+      ...baseSettings,
+      featuredProductIds: legacyFeaturedIds,
+    };
+    return options?.includeSecrets
+      ? merged
+      : { ...merged, signup: sanitizeSignupSettings(merged.signup) };
+  }
+  return options?.includeSecrets
+    ? baseSettings
+    : { ...baseSettings, signup: sanitizeSignupSettings(baseSettings.signup) };
 }
 
 export async function listWebsiteProductSummaries(
@@ -1128,8 +1967,12 @@ export async function getWebsiteAdminPayload(userId?: string) {
       const edgeDomain = getCatalogEdgeDomain();
       const builderConfig = resolveBuilderConfigFromWebsite(website);
       const builderHistory = resolveBuilderHistoryFromWebsite(website);
+      const ecommerceSettings = resolveEcommerceSettingsFromWebsite(website);
       return {
-        website,
+        website: {
+          ...website,
+          ecommerceSettings,
+        },
         company: settings,
         links: {
           slugPreviewUrl,
@@ -1155,6 +1998,7 @@ export async function getWebsiteAdminPayload(userId?: string) {
     ["website-admin", resolvedUserId],
     {
       revalidate: WEBSITE_ADMIN_CACHE_REVALIDATE_SECONDS,
+      tags: [websiteAdminTag(resolvedUserId)],
     },
   );
   return cached();

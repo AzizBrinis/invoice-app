@@ -4,31 +4,40 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useOptimistic,
   useRef,
   useState,
-  type FormEventHandler,
+  useTransition,
 } from "react";
-import Link from "next/link";
 import type { Route } from "next";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { clsx } from "clsx";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Alert } from "@/components/ui/alert";
 import { ExportButton } from "@/components/export-button";
-import { FormSubmitButton } from "@/components/ui/form-submit-button";
 import { formatDate } from "@/lib/formatters";
-import { deleteClientAction } from "@/app/(app)/clients/actions";
+import { deleteClientInlineAction } from "@/app/(app)/clients/actions";
 import { useClientsDirectory } from "@/hooks/use-clients-directory";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { clearClientCache } from "@/lib/client-directory-cache";
+import { canApplyPathScopedNavigationUpdate } from "@/lib/path-scoped-navigation";
+import { PrefetchLink } from "@/components/ui/prefetch-link";
+import { useToast } from "@/components/ui/toast-provider";
+import type { ClientDirectoryQuery, ClientDirectoryResponse } from "@/lib/client-directory-cache";
 
 type ClientDirectoryPanelProps = {
-  redirectBase: string;
+  canManageClients: boolean;
+  isFocusedAccount: boolean;
+  initialDirectoryPage?: {
+    query: ClientDirectoryQuery;
+    data: ClientDirectoryResponse;
+  } | null;
   initialSearch: string;
   initialStatus: "all" | "actifs" | "inactifs";
   initialPage: number;
+  refreshKey?: string | null;
 };
 
 const ROW_HEIGHT = 76;
@@ -42,6 +51,26 @@ function getStatusBadgeClasses(isActive: boolean) {
       ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-100"
       : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300",
   );
+}
+
+function buildClientDirectoryTarget(options: {
+  pathname: string;
+  search?: string;
+  status?: "all" | "actifs" | "inactifs";
+  page?: number | null;
+}) {
+  const params = new URLSearchParams();
+  if (options.search?.trim()) {
+    params.set("recherche", options.search.trim());
+  }
+  if (options.status && options.status !== "all") {
+    params.set("statut", options.status);
+  }
+  if (options.page && options.page > 1) {
+    params.set("page", String(options.page));
+  }
+  const query = params.toString();
+  return (query ? `${options.pathname}?${query}` : options.pathname) as Route;
 }
 
 function ClientTableSkeleton({ rows = 6 }: { rows?: number }) {
@@ -58,20 +87,23 @@ function ClientTableSkeleton({ rows = 6 }: { rows?: number }) {
 }
 
 export function ClientDirectoryPanel({
-  redirectBase,
+  canManageClients,
+  isFocusedAccount,
+  initialDirectoryPage = null,
   initialSearch,
   initialStatus,
   initialPage,
+  refreshKey = null,
 }: ClientDirectoryPanelProps) {
-  const router = useRouter();
-  const pathname = usePathname();
+  const { addToast } = useToast();
+  const pathname = usePathname() || "/clients";
+  const pagePathnameRef = useRef(pathname);
+  const pagePathname = pagePathnameRef.current;
   const [searchInput, setSearchInput] = useState(initialSearch);
   const [status, setStatus] = useState<"all" | "actifs" | "inactifs">(
     initialStatus,
   );
   const normalizedInitialPage = Math.max(initialPage, 1);
-  const [initialTarget, setInitialTarget] = useState(normalizedInitialPage);
-  const [redirectTarget, setRedirectTarget] = useState(redirectBase);
   const debouncedSearch = useDebouncedValue(searchInput, 350);
   const isDesktopViewport = useMediaQuery("(min-width: 768px)");
   const {
@@ -90,6 +122,8 @@ export function ClientDirectoryPanel({
   } = useClientsDirectory({
     search: debouncedSearch,
     status,
+    initialPageData: initialDirectoryPage,
+    refreshKey,
   });
   const loadMoreRef = useRef(loadMore);
   const scrollMetricsRef = useRef({ top: 0, height: 480 });
@@ -100,11 +134,32 @@ export function ClientDirectoryPanel({
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const hydrationDoneRef = useRef(false);
-  const handleClientMutationSubmit = useCallback<FormEventHandler<HTMLFormElement>>(
-    () => {
-      clearClientCache();
-    },
-    [],
+  const [pendingDeleteIds, setPendingDeleteIds] = useState<
+    Record<string, true>
+  >({});
+  const [, startDeleteTransition] = useTransition();
+  const baseDirectoryState = useMemo(
+    () => ({
+      items,
+      total,
+    }),
+    [items, total],
+  );
+  const [clientDirectoryState, setClientDirectoryState] = useState(
+    baseDirectoryState,
+  );
+  const [optimisticDirectory, applyOptimisticUpdate] = useOptimistic(
+    clientDirectoryState,
+    (
+      currentState,
+      action: {
+        type: "delete";
+        clientId: string;
+      },
+    ) => ({
+      items: currentState.items.filter((client) => client.id !== action.clientId),
+      total: Math.max(currentState.total - 1, 0),
+    }),
   );
 
   useEffect(() => {
@@ -112,12 +167,8 @@ export function ClientDirectoryPanel({
   }, [loadMore]);
 
   useEffect(() => {
-    setInitialTarget(normalizedInitialPage);
-  }, [normalizedInitialPage]);
-
-  useEffect(() => {
     hydrationDoneRef.current = false;
-  }, [initialTarget]);
+  }, [initialSearch, initialStatus, normalizedInitialPage, refreshKey]);
 
   useEffect(() => {
     setSearchInput(initialSearch);
@@ -128,27 +179,23 @@ export function ClientDirectoryPanel({
   }, [initialStatus]);
 
   useEffect(() => {
-    if (hydrationDoneRef.current) {
+    setClientDirectoryState(baseDirectoryState);
+  }, [baseDirectoryState]);
+
+  useEffect(() => {
+    if (hydrationDoneRef.current || isInitialLoading) {
       return;
     }
-    if (initialTarget <= 1) {
+    if (
+      normalizedInitialPage <= 1 ||
+      lastLoadedPage >= normalizedInitialPage ||
+      !hasMore
+    ) {
       hydrationDoneRef.current = true;
       return;
     }
-    let cancelled = false;
-    async function hydrate(target: number) {
-      let cursor = 1;
-      while (!cancelled && cursor < target) {
-        await loadMoreRef.current();
-        cursor += 1;
-      }
-      hydrationDoneRef.current = true;
-    }
-    void hydrate(initialTarget);
-    return () => {
-      cancelled = true;
-    };
-  }, [initialTarget]);
+    void loadMoreRef.current();
+  }, [hasMore, isInitialLoading, lastLoadedPage, normalizedInitialPage]);
 
   useEffect(() => {
     if (!hasMore) {
@@ -216,8 +263,10 @@ export function ClientDirectoryPanel({
     };
   }, [updateVirtualWindow, isDesktopViewport]);
 
+  const displayedItems = optimisticDirectory.items;
+  const totalRecords = optimisticDirectory.total;
   const virtualizationEnabled =
-    isDesktopViewport && items.length > VIRTUALIZATION_THRESHOLD;
+    isDesktopViewport && displayedItems.length > VIRTUALIZATION_THRESHOLD;
   const startIndex = virtualizationEnabled
     ? Math.max(
         Math.floor(virtualWindow.top / ROW_HEIGHT) - OVERSCAN,
@@ -226,36 +275,52 @@ export function ClientDirectoryPanel({
     : 0;
   const viewportCount = virtualizationEnabled
     ? Math.ceil(virtualWindow.height / ROW_HEIGHT) + OVERSCAN * 2
-    : items.length;
+    : displayedItems.length;
   const endIndex = virtualizationEnabled
-    ? Math.min(startIndex + viewportCount, items.length)
-    : items.length;
+    ? Math.min(startIndex + viewportCount, displayedItems.length)
+    : displayedItems.length;
   const virtualizedItems = virtualizationEnabled
-    ? items.slice(startIndex, endIndex)
-    : items;
+    ? displayedItems.slice(startIndex, endIndex)
+    : displayedItems;
   const offsetTop = virtualizationEnabled ? startIndex * ROW_HEIGHT : 0;
   const offsetBottom = virtualizationEnabled
-    ? (items.length - endIndex) * ROW_HEIGHT
+    ? (displayedItems.length - endIndex) * ROW_HEIGHT
     : 0;
 
-  useEffect(() => {
-    const params = new URLSearchParams();
-    if (debouncedSearch) {
-      params.set("recherche", debouncedSearch);
-    }
-    if (status !== "all") {
-      params.set("statut", status);
-    }
-    if (lastLoadedPage > 1) {
-      params.set("page", String(lastLoadedPage));
-    }
-    const query = params.toString();
-    const target = (query ? `${pathname}?${query}` : pathname) as Route;
-    setRedirectTarget(target);
-    router.replace(target);
-  }, [debouncedSearch, status, lastLoadedPage, pathname, router]);
+  const shareableTarget = useMemo(
+    () =>
+      buildClientDirectoryTarget({
+        pathname: pagePathname,
+        search: debouncedSearch,
+        status,
+      }),
+    [debouncedSearch, pagePathname, status],
+  );
 
-  const totalDisplayed = items.length;
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    if (
+      !canApplyPathScopedNavigationUpdate({
+        currentHref: window.location.href,
+        ownedPathname: pagePathname,
+        nextHref: shareableTarget,
+      })
+    ) {
+      return;
+    }
+    const currentUrl = new URL(window.location.href);
+    const nextUrl = new URL(shareableTarget, window.location.origin);
+    const currentPath = `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`;
+    const nextPath = `${nextUrl.pathname}${nextUrl.search}${currentUrl.hash}`;
+    if (currentPath === nextPath) {
+      return;
+    }
+    window.history.replaceState(window.history.state, "", nextPath);
+  }, [pagePathname, shareableTarget]);
+
+  const totalDisplayed = displayedItems.length;
   const currentPageDisplay = Math.max(
     lastLoadedPage || (totalDisplayed > 0 ? 1 : 0),
     1,
@@ -270,6 +335,71 @@ export function ClientDirectoryPanel({
     [],
   );
 
+  const handleDeleteClient = useCallback(
+    (clientId: string) => {
+      if (pendingDeleteIds[clientId]) {
+        return;
+      }
+
+      clearClientCache({ refetchOnNextLoad: true });
+      setPendingDeleteIds((current) => ({
+        ...current,
+        [clientId]: true,
+      }));
+
+      startDeleteTransition(async () => {
+        applyOptimisticUpdate({
+          type: "delete",
+          clientId,
+        });
+        try {
+          const result = await deleteClientInlineAction(clientId);
+          if (result.status !== "success") {
+            setClientDirectoryState((current) => ({ ...current }));
+            addToast({
+              variant: "error",
+              title: result.message,
+            });
+            return;
+          }
+
+          setClientDirectoryState((current) => ({
+            items: current.items.filter((client) => client.id !== clientId),
+            total: Math.max(current.total - 1, 0),
+          }));
+          addToast({
+            variant: "success",
+            title: result.message,
+          });
+          await refresh(lastLoadedPage || 1);
+        } catch (error) {
+          setClientDirectoryState((current) => ({ ...current }));
+          addToast({
+            variant: "error",
+            title:
+              error instanceof Error
+                ? error.message
+                : "Impossible de supprimer ce client.",
+          });
+        } finally {
+          setPendingDeleteIds((current) => {
+            const next = { ...current };
+            delete next[clientId];
+            return next;
+          });
+        }
+      });
+    },
+    [
+      addToast,
+      applyOptimisticUpdate,
+      lastLoadedPage,
+      pendingDeleteIds,
+      refresh,
+      startDeleteTransition,
+    ],
+  );
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -278,7 +408,9 @@ export function ClientDirectoryPanel({
             Clients
           </h1>
           <p className="text-sm text-zinc-600 dark:text-zinc-300">
-            Recherche incrémentale, pagination fluide et actions rapides.
+            {isFocusedAccount
+              ? "Accédez au dossier client, aux services liés et à l'historique des paiements."
+              : "Recherche incrémentale, pagination fluide et actions rapides."}
           </p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
@@ -290,19 +422,25 @@ export function ClientDirectoryPanel({
           >
             Export CSV
           </ExportButton>
-          <Button
-            asChild
-            className="w-full sm:w-auto"
-          >
-            <Link href="/clients/nouveau">Nouveau client</Link>
-          </Button>
+          {canManageClients ? (
+            <Button
+              asChild
+              className="w-full sm:w-auto"
+            >
+              <PrefetchLink href="/clients/nouveau">Nouveau client</PrefetchLink>
+            </Button>
+          ) : null}
         </div>
       </div>
 
       {error ? (
         <Alert variant="error" title={error}>
           <div className="pt-2">
-            <Button type="button" variant="secondary" onClick={() => void refresh()}>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => void refresh(lastLoadedPage || 1)}
+            >
               Réessayer
             </Button>
           </div>
@@ -349,7 +487,7 @@ export function ClientDirectoryPanel({
           <div className="space-y-1">
             {totalDisplayed > 0 ? (
               <span>
-                {totalDisplayed} / {total} clients visibles
+                {totalDisplayed} / {totalRecords} clients visibles
               </span>
             ) : (
               <span>0 client trouvé</span>
@@ -372,7 +510,7 @@ export function ClientDirectoryPanel({
               loading={isValidating && !isInitialLoading}
               onClick={() => {
                 hydrationDoneRef.current = true;
-                void refresh();
+                void refresh(lastLoadedPage || 1);
               }}
             >
               Actualiser
@@ -455,29 +593,36 @@ export function ClientDirectoryPanel({
                         <td className="px-4 py-3 align-top">
                           <div className="flex justify-end gap-2">
                             <Button asChild variant="secondary" className="px-2 py-1 text-xs">
-                              <Link
-                                href={`/clients/${client.id}/modifier`}
-                                prefetch
-                                onMouseEnter={() => {
-                                  void router.prefetch(`/clients/${client.id}/modifier`);
+                              <PrefetchLink href={`/clients/${client.id}`}>
+                                Ouvrir
+                              </PrefetchLink>
+                            </Button>
+                            {canManageClients ? (
+                              <Button asChild variant="ghost" className="px-2 py-1 text-xs">
+                                <PrefetchLink
+                                  href={`/clients/${client.id}/modifier`}
+                                >
+                                  Modifier
+                                </PrefetchLink>
+                              </Button>
+                            ) : null}
+                            {canManageClients ? (
+                              <form
+                                onSubmit={(event) => {
+                                  event.preventDefault();
+                                  handleDeleteClient(client.id);
                                 }}
                               >
-                                Modifier
-                              </Link>
-                            </Button>
-                            <form
-                              action={deleteClientAction.bind(null, client.id)}
-                              onSubmit={handleClientMutationSubmit}
-                            >
-                              <FormSubmitButton
-                                variant="ghost"
-                                className="px-2 py-1 text-xs text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
-                                pendingLabel="Suppression…"
-                              >
-                                Supprimer
-                              </FormSubmitButton>
-                              <input type="hidden" name="redirectTo" value={redirectTarget} />
-                            </form>
+                                <Button
+                                  type="submit"
+                                  variant="ghost"
+                                  loading={Boolean(pendingDeleteIds[client.id])}
+                                  className="px-2 py-1 text-xs text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+                                >
+                                  Supprimer
+                                </Button>
+                              </form>
+                            ) : null}
                           </div>
                         </td>
                       </tr>
@@ -487,7 +632,7 @@ export function ClientDirectoryPanel({
                         <td colSpan={6} style={{ height: offsetBottom }} />
                       </tr>
                     ) : null}
-                    {!isInitialLoading && items.length === 0 ? (
+                    {!isInitialLoading && displayedItems.length === 0 ? (
                       <tr>
                         <td
                           colSpan={6}
@@ -504,12 +649,12 @@ export function ClientDirectoryPanel({
             ) : (
               <>
                 <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                  {items.length === 0 ? (
+                  {displayedItems.length === 0 ? (
                     <div className="px-4 py-10 text-center text-sm text-zinc-500 dark:text-zinc-400">
                       Aucun client ne correspond à ces critères.
                     </div>
                   ) : (
-                    items.map((client) => (
+                    displayedItems.map((client) => (
                       <article
                         key={client.id}
                         className="space-y-4 px-4 py-4"
@@ -573,29 +718,40 @@ export function ClientDirectoryPanel({
                             variant="secondary"
                             className="w-full justify-center"
                           >
-                            <Link
-                              href={`/clients/${client.id}/modifier`}
-                              prefetch
-                              onMouseEnter={() => {
-                                void router.prefetch(`/clients/${client.id}/modifier`);
+                            <PrefetchLink href={`/clients/${client.id}`}>
+                              Ouvrir le dossier
+                            </PrefetchLink>
+                          </Button>
+                          {canManageClients ? (
+                            <Button
+                              asChild
+                              variant="ghost"
+                              className="w-full justify-center"
+                            >
+                              <PrefetchLink
+                                href={`/clients/${client.id}/modifier`}
+                              >
+                                Modifier
+                              </PrefetchLink>
+                            </Button>
+                          ) : null}
+                          {canManageClients ? (
+                            <form
+                              onSubmit={(event) => {
+                                event.preventDefault();
+                                handleDeleteClient(client.id);
                               }}
                             >
-                              Modifier
-                            </Link>
-                          </Button>
-                          <form
-                            action={deleteClientAction.bind(null, client.id)}
-                            onSubmit={handleClientMutationSubmit}
-                          >
-                            <FormSubmitButton
-                              variant="danger"
-                              className="w-full justify-center"
-                              pendingLabel="Suppression…"
-                            >
-                              Supprimer
-                            </FormSubmitButton>
-                            <input type="hidden" name="redirectTo" value={redirectTarget} />
-                          </form>
+                              <Button
+                                type="submit"
+                                variant="danger"
+                                loading={Boolean(pendingDeleteIds[client.id])}
+                                className="w-full justify-center"
+                              >
+                                Supprimer
+                              </Button>
+                            </form>
+                          ) : null}
                         </div>
                       </article>
                     ))

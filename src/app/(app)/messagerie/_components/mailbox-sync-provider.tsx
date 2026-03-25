@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import type { Mailbox } from "@/server/messaging";
 import {
   fetchMailboxPageAction,
@@ -13,12 +13,12 @@ import {
   useMailboxStore,
   appendMailboxMessages,
   replaceMailboxMessages,
+  updateMailboxMetadata,
   getMailboxStoreSnapshot,
   MAILBOX_KEYS,
   removeMailboxMessage,
   invalidateMailboxCache,
   setMailboxCacheUser,
-  clearMailboxCache,
   beginMailboxSync,
   endMailboxSync,
 } from "@/app/(app)/messagerie/_state/mailbox-store";
@@ -28,17 +28,15 @@ const BACKGROUND_SYNC_INTERVAL = 3 * 60 * 1000;
 const VISIBILITY_SYNC_DELAY = 2000;
 const INITIAL_SYNC_DELAY_MS = 200;
 const ALWAYS_SYNC_MAILBOXES: Mailbox[] = ["inbox"];
-type MailboxCacheState =
-  ReturnType<typeof getMailboxStoreSnapshot>["mailboxes"][Mailbox];
 
 function shouldBackgroundSync(
   mailbox: Mailbox,
-  cache: MailboxCacheState | undefined,
+  currentMailbox: Mailbox | null,
 ) {
   if (ALWAYS_SYNC_MAILBOXES.includes(mailbox)) {
     return true;
   }
-  return cache?.active ?? false;
+  return currentMailbox === mailbox;
 }
 
 function createInitialSyncStatus(): Record<Mailbox, boolean> {
@@ -63,12 +61,9 @@ export function MailboxSyncProvider({
   const syncStatusRef = useRef<Record<Mailbox, boolean>>(createInitialSyncStatus());
   const visibilityTimeoutRef = useRef<number | null>(null);
   const primedUserIdRef = useRef<string | null>(null);
+  const pathname = usePathname();
 
   if (primedUserIdRef.current !== userId) {
-    const previousUserId = primedUserIdRef.current;
-    if (previousUserId && previousUserId !== userId) {
-      clearMailboxCache(previousUserId);
-    }
     setMailboxCacheUser(userId);
     syncStatusRef.current = createInitialSyncStatus();
     primedUserIdRef.current = userId;
@@ -77,6 +72,17 @@ export function MailboxSyncProvider({
   useMailboxStore(() => null);
   const { addToast } = useToast();
   const router = useRouter();
+  const currentMailbox = pathname?.startsWith("/messagerie/recus")
+    ? "inbox"
+    : pathname?.startsWith("/messagerie/envoyes")
+      ? "sent"
+      : pathname?.startsWith("/messagerie/brouillons")
+        ? "drafts"
+        : pathname?.startsWith("/messagerie/corbeille")
+          ? "trash"
+          : pathname?.startsWith("/messagerie/spam")
+            ? "spam"
+            : null;
 
   const safeActionCall = useCallback(
     async <T,>(action: () => Promise<ActionResult<T>>): Promise<ActionResult<T> | null> => {
@@ -84,14 +90,10 @@ export function MailboxSyncProvider({
         return await action();
       } catch (error) {
         console.error("Erreur réseau lors de la synchronisation de messagerie:", error);
-        addToast({
-          variant: "error",
-          title: "Erreur de synchronisation des messages.",
-        });
         return null;
       }
     },
-    [addToast],
+    [],
   );
 
   const handleAutoMoved = useCallback(
@@ -165,7 +167,7 @@ export function MailboxSyncProvider({
       try {
         const snapshot = getMailboxStoreSnapshot();
         const cached = snapshot.mailboxes[mailbox];
-        if (!shouldBackgroundSync(mailbox, cached)) {
+        if (!shouldBackgroundSync(mailbox, currentMailbox)) {
           return;
         }
         if (!cached.initialized || !cached.latestUid) {
@@ -213,12 +215,9 @@ export function MailboxSyncProvider({
             });
           }
         } else if (typeof payload.totalMessages === "number") {
-          replaceMailboxMessages(mailbox, {
-            messages: cached.messages,
-            page: cached.page,
-            pageSize: cached.pageSize,
-            hasMore: cached.hasMore,
+          updateMailboxMetadata(mailbox, {
             totalMessages: payload.totalMessages,
+            lastSync: Date.now(),
           });
           handleAutoMoved(mailbox, payload.autoMoved);
         }
@@ -233,7 +232,7 @@ export function MailboxSyncProvider({
         syncStatusRef.current[mailbox] = false;
       }
     },
-    [addToast, enabled, handleAutoMoved, router, safeActionCall, synchronizeSnapshot],
+    [addToast, currentMailbox, enabled, handleAutoMoved, router, safeActionCall, synchronizeSnapshot],
   );
 
   useEffect(() => {

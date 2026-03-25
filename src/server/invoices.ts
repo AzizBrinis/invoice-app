@@ -95,8 +95,13 @@ export const invoiceDetailTag = (tenantId: string, invoiceId: string) =>
 export const invoiceStatsTag = (tenantId: string) =>
   `invoices:stats:${tenantId}`;
 
-function resolveTenantId(user: Pick<User, "id"> & { tenantId?: string | null }) {
-  return user.tenantId ?? user.id;
+function resolveTenantId(
+  user: Pick<User, "id"> & {
+    activeTenantId?: string | null;
+    tenantId?: string | null;
+  },
+) {
+  return user.activeTenantId ?? user.tenantId ?? user.id;
 }
 
 const invoiceListSelect = Prisma.validator<Prisma.InvoiceSelect>()({
@@ -723,7 +728,11 @@ export async function createInvoiceForUser(userId: string, input: InvoiceInput) 
   );
   const { computedLines, totals, timbreAmountCents, taxConfigurationSnapshot } =
     computeInvoiceTotals(payload, taxConfig);
-  const number = payload.number ?? (await nextInvoiceNumber(userId));
+  const normalizedNumber = payload.number?.trim();
+  const number =
+    normalizedNumber && normalizedNumber.length > 0
+      ? normalizedNumber
+      : await nextInvoiceNumber(userId, settings);
 
   const invoice = await prisma.invoice.create({
     data: {
@@ -773,6 +782,86 @@ export async function createInvoiceForUser(userId: string, input: InvoiceInput) 
       client: true,
       lines: true,
       payments: true,
+    },
+  });
+
+  return invoice;
+}
+
+export async function createInvoiceFromOrder(
+  orderId: string,
+  providedUserId?: string,
+) {
+  const userId = providedUserId ?? (await requireUser()).id;
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, userId },
+    include: {
+      items: {
+        orderBy: { position: "asc" },
+      },
+      invoice: true,
+    },
+  });
+  if (!order) {
+    throw new Error("Commande introuvable");
+  }
+  if (order.invoice) {
+    return order.invoice;
+  }
+
+  if (order.items.length === 0) {
+    throw new Error("Commande sans lignes");
+  }
+
+  const productIds = Array.from(
+    new Set(
+      order.items
+        .map((item) => item.productId)
+        .filter((value): value is string => Boolean(value)),
+    ),
+  );
+  const existingProducts = productIds.length
+    ? await prisma.product.findMany({
+        where: { id: { in: productIds }, userId },
+        select: { id: true },
+      })
+    : [];
+  const productIdSet = new Set(existingProducts.map((product) => product.id));
+
+  const invoice = await createInvoiceForUser(userId, {
+    clientId: order.clientId,
+    status: InvoiceStatus.BROUILLON,
+    reference: order.orderNumber,
+    issueDate: new Date(),
+    dueDate: null,
+    currency: order.currency,
+    notes: order.notes ?? null,
+    terms: null,
+    lines: order.items.map((item, index) => ({
+      productId:
+        item.productId && productIdSet.has(item.productId)
+          ? item.productId
+          : null,
+      description: item.description,
+      quantity: item.quantity,
+      unit: item.unit,
+      unitPriceHTCents: item.unitPriceHTCents,
+      vatRate: item.vatRate,
+      discountRate: item.discountRate ?? null,
+      discountAmountCents: item.discountAmountCents ?? null,
+      fodecRate: null,
+      position: index,
+    })),
+    taxes: {
+      applyFodec: false,
+      applyTimbre: false,
+    },
+  });
+
+  await prisma.order.update({
+    where: { id: order.id },
+    data: {
+      invoiceId: invoice.id,
     },
   });
 

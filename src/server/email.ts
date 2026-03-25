@@ -1,7 +1,11 @@
 import { DocumentType, EmailStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
-import { generateQuotePdf, generateInvoicePdf } from "@/server/pdf";
+import {
+  generateQuotePdf,
+  generateInvoicePdf,
+  generateClientPaymentReceiptPdfForUser,
+} from "@/server/pdf";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import { fromCents } from "@/lib/money";
 import { sanitizeEmailHtml } from "@/lib/email-html";
@@ -11,26 +15,23 @@ import {
 import { DEFAULT_SAVED_RESPONSES } from "@/lib/messaging/default-responses";
 import {
   sendEmailMessage,
+  sendEmailMessageForUser,
   getMessagingSettingsSummary,
   type EmailAttachment,
   type MessagingSettingsSummary,
 } from "@/server/messaging";
 import { getSettings } from "@/server/settings";
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
+import {
+  getClientPaymentReceipt,
+  markClientPaymentReceiptSent,
+} from "@/server/client-payments";
 
 const CONFIG_WARNING =
   "Veuillez configurer votre messagerie (SMTP/IMAP) avant d'envoyer des emails.";
 
 const QUOTE_TEMPLATE_SLUG = "default-quote-template";
 const INVOICE_TEMPLATE_SLUG = "default-invoice-template";
+const RECEIPT_TEMPLATE_SLUG = "default-receipt-template";
 
 const QUOTE_PLAIN_TEXT_TEMPLATE = `Bonjour {{client_name}},
 
@@ -52,6 +53,18 @@ Montant TTC : {{total_ttc}}
 Montant payé : {{amount_paid}}
 Solde restant : {{balance_due}}
 Échéance : {{due_date}}
+
+Cordialement,
+{{company_name}}`;
+
+const RECEIPT_PLAIN_TEXT_TEMPLATE = `Bonjour {{client_name}},
+
+Veuillez trouver ci-joint le reçu {{receipt_number}} pour votre paiement du {{payment_date}}.
+
+Montant reçu : {{amount_paid}}
+Services : {{services_summary}}
+Mode de paiement : {{payment_method}}
+Référence : {{payment_reference}}
 
 Cordialement,
 {{company_name}}`;
@@ -217,6 +230,84 @@ function fallbackInvoiceHtmlTemplate(): string {
   `;
 }
 
+function fallbackReceiptHtmlTemplate(): string {
+  return `
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;font-family:'Segoe UI','Helvetica Neue',Arial,'Liberation Sans',sans-serif;color:#0f172a;">
+      <tr>
+        <td style="padding-bottom:16px;font-size:20px;font-weight:600;">
+          Reçu {{receipt_number}}
+        </td>
+      </tr>
+      <tr>
+        <td style="padding-bottom:12px;color:#334155;font-size:15px;line-height:1.6;">
+          Bonjour {{client_name}},
+        </td>
+      </tr>
+      <tr>
+        <td style="padding-bottom:16px;color:#334155;font-size:15px;line-height:1.6;">
+          Veuillez trouver ci-joint votre reçu pour le paiement enregistré le {{payment_date}}.
+        </td>
+      </tr>
+      <tr>
+        <td style="padding-bottom:18px;">
+          <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border:1px solid #e2e8f0;border-radius:12px;background-color:#f9fbff;">
+            <tr>
+              <td style="padding:16px;font-size:14px;color:#334155;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;">
+                  <tr>
+                    <td style="padding:12px 0;font-size:14px;color:#334155;border-bottom:1px solid #e2e8f0;">
+                      <strong>Montant reçu :</strong>
+                    </td>
+                    <td style="padding:12px 0;font-size:14px;color:#1d4ed8;font-weight:600;text-align:right;border-bottom:1px solid #e2e8f0;">
+                      {{amount_paid}}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding:12px 0;font-size:14px;color:#334155;border-bottom:1px solid #e2e8f0;">
+                      <strong>Services :</strong>
+                    </td>
+                    <td style="padding:12px 0;font-size:14px;color:#0f172a;font-weight:600;text-align:right;border-bottom:1px solid #e2e8f0;">
+                      {{services_summary}}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding:12px 0;font-size:14px;color:#334155;border-bottom:1px solid #e2e8f0;">
+                      <strong>Mode de paiement :</strong>
+                    </td>
+                    <td style="padding:12px 0;font-size:14px;color:#0f172a;font-weight:600;text-align:right;border-bottom:1px solid #e2e8f0;">
+                      {{payment_method}}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding:12px 0;font-size:14px;color:#334155;border-top:1px solid #e2e8f0;">
+                      <strong>Référence :</strong>
+                    </td>
+                    <td style="padding:12px 0;font-size:14px;color:#0f172a;font-weight:600;text-align:right;border-top:1px solid #e2e8f0;">
+                      {{payment_reference}}
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding-bottom:16px;color:#334155;font-size:15px;line-height:1.6;">
+          Merci pour votre règlement.
+        </td>
+      </tr>
+      <tr>
+        <td style="font-size:13px;color:#64748b;line-height:1.5;">
+          {{company_name}}<br />
+          {{company_email}} &middot; {{company_phone}}<br />
+          {{company_address}}
+        </td>
+      </tr>
+    </table>
+  `;
+}
+
 async function loadHtmlTemplate(
   userId: string,
   slug: string,
@@ -252,6 +343,10 @@ async function loadQuoteHtmlTemplate(userId: string): Promise<string> {
 
 async function loadInvoiceHtmlTemplate(userId: string): Promise<string> {
   return loadHtmlTemplate(userId, INVOICE_TEMPLATE_SLUG, fallbackInvoiceHtmlTemplate);
+}
+
+async function loadReceiptHtmlTemplate(userId: string): Promise<string> {
+  return loadHtmlTemplate(userId, RECEIPT_TEMPLATE_SLUG, fallbackReceiptHtmlTemplate);
 }
 
 async function getValidatedMessagingSummary(userId?: string): Promise<MessagingSettingsSummary> {
@@ -466,6 +561,106 @@ export async function sendInvoiceEmail(params: {
     subject,
     body: sanitizedHtml,
   });
+}
+
+export async function sendClientPaymentReceiptEmail(params: {
+  paymentId: string;
+  to: string;
+  subject?: string;
+  userId?: string;
+  emailLogId?: string | null;
+}) {
+  const sessionUser = params.userId ? null : await requireUser();
+  const userId =
+    params.userId ??
+    sessionUser?.activeTenantId ??
+    sessionUser?.tenantId ??
+    sessionUser?.id;
+  if (!userId) {
+    throw new Error("Compte introuvable");
+  }
+  const { payment, snapshot } = await getClientPaymentReceipt(params.paymentId, userId);
+
+  const [pdfBuffer, messagingSummary, templateSource] = await Promise.all([
+    generateClientPaymentReceiptPdfForUser(userId, payment.id),
+    getValidatedMessagingSummary(userId),
+    loadReceiptHtmlTemplate(userId),
+  ]);
+
+  const amountPaid = formatCurrency(
+    fromCents(snapshot.amountCents, snapshot.currency),
+    snapshot.currency,
+  );
+  const servicesSummary = snapshot.services.length
+    ? snapshot.services.map((service) => service.title).join(", ")
+    : snapshot.description?.trim() || "Paiement reçu";
+  const paymentMethod = snapshot.method?.trim() || "Non précisé";
+  const paymentReference = snapshot.reference?.trim() || "Non précisée";
+
+  const subject =
+    params.subject ??
+    `Votre reçu ${snapshot.receiptNumber} — ${amountPaid}`;
+
+  const placeholderValues: Record<string, string> = {
+    receipt_number: snapshot.receiptNumber,
+    receipt_date: formatDate(new Date(snapshot.issuedAt)),
+    payment_date: formatDate(new Date(snapshot.paymentDate)),
+    client_name: snapshot.client.displayName,
+    services_summary: servicesSummary,
+    amount_paid: amountPaid,
+    payment_method: paymentMethod,
+    payment_reference: paymentReference,
+    company_name: snapshot.company.companyName?.trim() ?? "",
+    company_email:
+      snapshot.company.email?.trim() ??
+      messagingSummary.fromEmail ??
+      "",
+    company_phone: snapshot.company.phone?.trim() ?? "",
+    company_address: snapshot.company.address?.trim() ?? "",
+    sender_name: messagingSummary.senderName?.trim() ?? "",
+  };
+
+  const filledHtml = fillPlaceholders(templateSource, placeholderValues);
+  const sanitizedHtml = sanitizeEmailHtml(filledHtml);
+  const textBody = fillPlaceholders(
+    RECEIPT_PLAIN_TEXT_TEMPLATE,
+    placeholderValues,
+  );
+
+  const attachments: EmailAttachment[] = [
+    {
+      filename: `recu-${snapshot.receiptNumber}.pdf`,
+      content: pdfBuffer,
+      contentType: "application/pdf",
+    },
+  ];
+
+  await sendEmailMessageForUser(userId, {
+    to: [params.to],
+    subject,
+    text: textBody,
+    html: sanitizedHtml,
+    attachments,
+  });
+
+  await recordEmailLogEntry({
+    emailLogId: params.emailLogId,
+    userId,
+    documentType: DocumentType.RECU,
+    documentId: payment.id,
+    to: params.to,
+    subject,
+    body: sanitizedHtml,
+  });
+
+  await markClientPaymentReceiptSent(payment.id, new Date(), userId).catch(
+    (error) => {
+      console.error(
+        "[sendClientPaymentReceiptEmail] Impossible de marquer le reçu comme envoyé",
+        error,
+      );
+    },
+  );
 }
 
 async function recordEmailLogEntry(options: {

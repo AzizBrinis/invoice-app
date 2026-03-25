@@ -1,10 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { clsx } from "clsx";
 import { useState } from "react";
-import type { Route } from "next";
 import {
   LayoutDashboard,
   FileText,
@@ -18,6 +16,7 @@ import {
   Sparkles,
   type LucideIcon,
 } from "lucide-react";
+import { PrefetchLink } from "@/components/ui/prefetch-link";
 
 export type NavIcon =
   | "dashboard"
@@ -92,13 +91,13 @@ export function SidebarNav({ items }: { items: NavItem[] }) {
                     : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-zinc-100",
                 )}
               >
-                <Link
-                  href={item.href as Route}
+                <PrefetchLink
+                  href={item.href}
                   className="flex flex-1 items-center gap-3"
                 >
                   <Icon aria-hidden="true" className="h-4 w-4" />
                   <span>{item.label}</span>
-                </Link>
+                </PrefetchLink>
                 {hasChildren ? (
                   <button
                     type="button"
@@ -136,8 +135,8 @@ export function SidebarNav({ items }: { items: NavItem[] }) {
                     const childActive = pathname === child.href;
                     return (
                       <li key={child.href}>
-                        <Link
-                          href={child.href as Route}
+                        <PrefetchLink
+                          href={child.href}
                           className={clsx(
                             "block rounded-md px-3 py-2 text-sm transition",
                             childActive
@@ -146,7 +145,7 @@ export function SidebarNav({ items }: { items: NavItem[] }) {
                           )}
                         >
                           {child.label}
-                        </Link>
+                        </PrefetchLink>
                       </li>
                     );
                   })}

@@ -1,16 +1,29 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { MailPlus } from "lucide-react";
+import { requireAppSectionAccess } from "@/lib/authorization";
+import { getMessagingSettingsSummary } from "@/server/messaging";
+import { MailboxSyncProvider } from "@/app/(app)/messagerie/_components/mailbox-sync-provider";
 
 const composeSafeAreaPadding = "calc(env(safe-area-inset-bottom) + 1.5rem)";
 
-export default function MessagerieLayout({
+export default async function MessagerieLayout({
   children,
 }: {
   children: ReactNode;
 }) {
+  const user = await requireAppSectionAccess("messaging", {
+    redirectOnFailure: true,
+  });
+  const tenantId = user.activeTenantId ?? user.tenantId ?? user.id;
+  const summary = await getMessagingSettingsSummary(tenantId);
+
   return (
     <div className="relative min-h-full overflow-x-hidden">
+      <MailboxSyncProvider
+        enabled={summary.imapConfigured}
+        userId={tenantId}
+      />
       {children}
       <div
         className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-end pr-4 pb-6 sm:pr-6 md:pr-8"

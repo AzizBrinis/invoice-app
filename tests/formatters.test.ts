@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { formatCurrency, formatDecimal, formatPercent } from "@/lib/formatters";
+import { calculateLineTotals } from "@/lib/documents";
+import { fromCents } from "@/lib/money";
 
 describe("formatters", () => {
   it("formats percentage values in Tunisian locale", () => {
@@ -14,6 +16,23 @@ describe("formatters", () => {
   it("renders Tunisian dinar amounts with millimes", () => {
     expect(formatCurrency(12.345, "TND")).toBe("12,345\u00a0DT");
     expect(formatDecimal(98.765, "TND")).toBe("98,765");
+  });
+
+  it("formats cart totals with discount and VAT", () => {
+    const line = calculateLineTotals({
+      quantity: 2,
+      unitPriceHTCents: 10000,
+      vatRate: 19,
+      discountRate: 10,
+    });
+
+    const total = fromCents(line.totalTTCCents, "TND");
+    const tax = fromCents(line.totalTVACents, "TND");
+    const discount = fromCents(line.discountAmountCents, "TND");
+
+    expect(formatCurrency(total, "TND")).toBe("21,420\u00a0DT");
+    expect(formatDecimal(tax, "TND")).toBe("3,420");
+    expect(formatDecimal(discount, "TND")).toBe("2,000");
   });
 
   it("keeps two decimals for euro amounts", () => {

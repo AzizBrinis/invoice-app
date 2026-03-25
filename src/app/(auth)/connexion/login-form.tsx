@@ -7,7 +7,13 @@ import { FormSubmitButton } from "@/components/ui/form-submit-button";
 import { Alert } from "@/components/ui/alert";
 import { useToast } from "@/components/ui/toast-provider";
 
-export function LoginForm({ redirectTo }: { redirectTo: string }) {
+export function LoginForm({
+  redirectTo,
+  invitationToken,
+}: {
+  redirectTo: string;
+  invitationToken?: string | null;
+}) {
   const [state, formAction] = useActionState<LoginFormState, FormData>(
     authenticate,
     {},
@@ -30,6 +36,11 @@ export function LoginForm({ redirectTo }: { redirectTo: string }) {
   return (
     <form action={formAction} className="space-y-5">
       <input type="hidden" name="redirectTo" value={redirectTo} />
+      <input
+        type="hidden"
+        name="invitationToken"
+        value={invitationToken ?? ""}
+      />
       {state?.message ? (
         <Alert variant="error" title={state.message} />
       ) : null}

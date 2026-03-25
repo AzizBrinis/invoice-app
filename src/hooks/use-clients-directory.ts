@@ -8,12 +8,15 @@ import {
   useState,
 } from "react";
 import {
+  buildClientQueryKey,
+  consumePendingClientRefetch,
   type ClientDirectoryItem,
   type ClientDirectoryQuery,
   type ClientDirectoryResponse,
   type ClientDirectoryStatusFilter,
   loadClientPage,
   prefetchClientPage,
+  primeClientCache,
   readClientCache,
 } from "@/lib/client-directory-cache";
 
@@ -23,6 +26,11 @@ type UseClientsDirectoryParams = {
   search: string;
   status: ClientDirectoryStatusFilter;
   pageSize?: number;
+  refreshKey?: string | null;
+  initialPageData?: {
+    query: ClientDirectoryQuery;
+    data: ClientDirectoryResponse;
+  } | null;
 };
 
 type UseClientsDirectoryResult = {
@@ -36,7 +44,7 @@ type UseClientsDirectoryResult = {
   error: string | null;
   hasMore: boolean;
   loadMore: () => Promise<void>;
-  refresh: () => Promise<void>;
+  refresh: (targetPage?: number) => Promise<void>;
   prefetchPage: (page: number) => void;
 };
 
@@ -57,6 +65,8 @@ export function useClientsDirectory({
   search,
   status,
   pageSize = DEFAULT_PAGE_SIZE,
+  refreshKey = null,
+  initialPageData = null,
 }: UseClientsDirectoryParams): UseClientsDirectoryResult {
   const normalizedSearch = search.trim();
   const baseQuery = useMemo(
@@ -67,9 +77,25 @@ export function useClientsDirectory({
     }),
     [normalizedSearch, status, pageSize],
   );
+  const initialFirstPageQuery = useMemo<ClientDirectoryQuery>(
+    () => ({
+      ...baseQuery,
+      page: 1,
+    }),
+    [baseQuery],
+  );
+  const initialPageDataRef = useRef(initialPageData);
+  const initialSeed =
+    initialPageDataRef.current &&
+    buildClientQueryKey(initialPageDataRef.current.query) ===
+      buildClientQueryKey(initialFirstPageQuery)
+      ? initialPageDataRef.current.data
+      : null;
 
-  const [pages, setPages] = useState<ClientDirectoryResponse[]>([]);
-  const [isInitialLoading, setInitialLoading] = useState(true);
+  const [pages, setPages] = useState<ClientDirectoryResponse[]>(() =>
+    initialSeed ? [initialSeed] : [],
+  );
+  const [isInitialLoading, setInitialLoading] = useState(() => !initialSeed);
   const [isFetchingMore, setFetchingMore] = useState(false);
   const [isValidating, setIsValidating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -83,6 +109,10 @@ export function useClientsDirectory({
     };
   }, []);
 
+  useEffect(() => {
+    initialPageDataRef.current = initialPageData;
+  }, [initialPageData]);
+
   const beginValidation = useCallback(() => {
     validatingCountRef.current += 1;
     setIsValidating(true);
@@ -95,9 +125,39 @@ export function useClientsDirectory({
     }
   }, []);
 
+  const refreshUpToPage = useCallback(
+    async (targetPage: number) => {
+      const refreshedPages: ClientDirectoryResponse[] = [];
+      let pageNumber = 1;
+      const safeTargetPage = Math.max(1, targetPage);
+
+      while (pageNumber <= safeTargetPage) {
+        const query: ClientDirectoryQuery = { ...baseQuery, page: pageNumber };
+        const data = await loadClientPage(query, { force: true });
+        refreshedPages.push(data);
+        if (pageNumber >= data.pageCount) {
+          break;
+        }
+        pageNumber += 1;
+      }
+
+      return refreshedPages;
+    },
+    [baseQuery],
+  );
+
   useEffect(() => {
     let cancelled = false;
     const firstPageQuery: ClientDirectoryQuery = { ...baseQuery, page: 1 };
+    const initialSeed = initialPageDataRef.current;
+    const initialSeedMatches =
+      initialSeed &&
+      buildClientQueryKey(initialSeed.query) === buildClientQueryKey(firstPageQuery);
+
+    if (initialSeedMatches && initialSeed) {
+      primeClientCache(initialSeed.query, initialSeed.data);
+    }
+    const shouldForceRefetch = consumePendingClientRefetch();
     const cacheHit = readClientCache(firstPageQuery);
     setError(null);
     if (cacheHit?.data) {
@@ -107,7 +167,7 @@ export function useClientsDirectory({
       setPages([]);
       setInitialLoading(true);
     }
-    const needsFetch = !cacheHit?.isFresh;
+    const needsFetch = shouldForceRefetch || !cacheHit?.isFresh;
     if (!needsFetch) {
       setInitialLoading(false);
       setIsValidating(false);
@@ -141,7 +201,7 @@ export function useClientsDirectory({
     return () => {
       cancelled = true;
     };
-  }, [baseQuery, beginValidation, endValidation]);
+  }, [baseQuery, beginValidation, endValidation, refreshKey]);
 
   const loadMore = useCallback(async () => {
     if (isFetchingMore) {
@@ -195,16 +255,15 @@ export function useClientsDirectory({
     }
   }, [baseQuery, beginValidation, endValidation, isFetchingMore, pages]);
 
-  const refresh = useCallback(async () => {
-    const firstPageQuery: ClientDirectoryQuery = { ...baseQuery, page: 1 };
+  const refresh = useCallback(async (targetPage = 1) => {
     beginValidation();
     setError(null);
     try {
-      const data = await loadClientPage(firstPageQuery, { force: true });
+      const refreshedPages = await refreshUpToPage(targetPage);
       if (!mountedRef.current) {
         return;
       }
-      setPages([data]);
+      setPages(refreshedPages);
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") {
         return;
@@ -224,7 +283,7 @@ export function useClientsDirectory({
       endValidation();
       setInitialLoading(false);
     }
-  }, [baseQuery, beginValidation, endValidation]);
+  }, [beginValidation, endValidation, refreshUpToPage]);
 
   const prefetchPage = useCallback(
     (pageNumber: number) => {

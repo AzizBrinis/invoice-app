@@ -1,8 +1,14 @@
-import Link from "next/link";
+import { AccountPermission } from "@prisma/client";
+import { requireAccountPermission } from "@/lib/authorization";
 import { ClientForm } from "@/app/(app)/clients/client-form";
-import { createClientAction } from "@/app/(app)/clients/actions";
+import { createClientFormAction } from "@/app/(app)/clients/actions";
+import { PrefetchLink } from "@/components/ui/prefetch-link";
 
-export default function NouveauClientPage() {
+export default async function NouveauClientPage() {
+  await requireAccountPermission(AccountPermission.CLIENTS_MANAGE, {
+    redirectOnFailure: true,
+  });
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -14,15 +20,15 @@ export default function NouveauClientPage() {
             Renseignez les informations de contact et les notes internes.
           </p>
         </div>
-        <Link
+        <PrefetchLink
           href="/clients"
           className="self-start text-sm font-medium text-blue-600 hover:underline dark:text-blue-400 sm:self-auto"
         >
           Retour à la liste
-        </Link>
+        </PrefetchLink>
       </div>
       <ClientForm
-        action={createClientAction}
+        action={createClientFormAction}
         submitLabel="Créer le client"
         redirectTo="/clients"
       />

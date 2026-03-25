@@ -20,11 +20,12 @@ import { isUniqueConstraintViolation } from "@/lib/db-errors";
 import { getMessagingSettingsSummary } from "@/server/messaging";
 import { queueInvoiceEmailJob } from "@/server/document-email-jobs";
 import { prisma } from "@/lib/prisma";
-import { requireUser } from "@/lib/auth";
 import {
   ensureCanManageBilling,
   BILLING_MANAGER_ROLES,
+  requireAppSectionAccess,
 } from "@/lib/authorization";
+import { AuthorizationError } from "@/lib/errors";
 import { isRedirectError } from "@/lib/next";
 import type { InvoiceFormState } from "@/app/(app)/factures/form-state";
 import type { Route } from "next";
@@ -34,7 +35,7 @@ import type {
 } from "@/types/document-email";
 
 async function requireBillingAccess() {
-  const user = await requireUser();
+  const user = await requireAppSectionAccess("invoices");
   const managerRoles: UserRole[] = [...BILLING_MANAGER_ROLES];
   if (!managerRoles.includes(user.role)) {
     const billingManagerCount = await prisma.user.count({
@@ -96,10 +97,14 @@ function redirectWithFeedback(
 }
 
 function revalidateInvoiceData(
-  user: { id: string; tenantId?: string | null },
+  user: {
+    id: string;
+    activeTenantId?: string | null;
+    tenantId?: string | null;
+  },
   invoiceId?: string,
 ) {
-  const tenantId = user.tenantId ?? user.id;
+  const tenantId = user.activeTenantId ?? user.tenantId ?? user.id;
   revalidateTag(invoiceListTag(tenantId), "max");
   revalidateTag(invoiceStatsTag(tenantId), "max");
   if (invoiceId) {
@@ -194,6 +199,13 @@ export async function submitInvoiceFormAction(
       };
     }
 
+    if (error instanceof AuthorizationError) {
+      return {
+        status: "error",
+        message: error.message,
+      };
+    }
+
     console.error("[submitInvoiceFormAction] Unexpected error", error);
     return {
       status: "error",
@@ -203,9 +215,9 @@ export async function submitInvoiceFormAction(
 }
 
 export async function createInvoiceAction(formData: FormData) {
-  const user = await requireBillingAccess();
   const redirectTarget = resolveRedirectTarget(formData, "/factures");
   try {
+    const user = await requireBillingAccess();
     const payload = parsePayload(formData);
     const created = await createInvoice(payload);
     revalidateInvoiceData(user, created.id);
@@ -215,6 +227,11 @@ export async function createInvoiceAction(formData: FormData) {
   } catch (error) {
     if (isRedirectError(error)) {
       throw error;
+    }
+    if (error instanceof AuthorizationError) {
+      redirectWithFeedback(redirectTarget, {
+        error: error.message,
+      });
     }
     console.error("[createInvoiceAction] Échec de création de facture", error);
     const message =
@@ -228,9 +245,9 @@ export async function createInvoiceAction(formData: FormData) {
 }
 
 export async function updateInvoiceAction(id: string, formData: FormData) {
-  const user = await requireBillingAccess();
   const redirectTarget = resolveRedirectTarget(formData, "/factures");
   try {
+    const user = await requireBillingAccess();
     const payload = parsePayload(formData);
     const updated = await updateInvoice(id, payload);
     revalidateInvoiceData(user, updated.id);
@@ -240,6 +257,11 @@ export async function updateInvoiceAction(id: string, formData: FormData) {
   } catch (error) {
     if (isRedirectError(error)) {
       throw error;
+    }
+    if (error instanceof AuthorizationError) {
+      redirectWithFeedback(redirectTarget, {
+        error: error.message,
+      });
     }
     console.error("[updateInvoiceAction] Échec de mise à jour", error);
     const message =
@@ -253,9 +275,9 @@ export async function updateInvoiceAction(id: string, formData: FormData) {
 }
 
 export async function deleteInvoiceAction(id: string, formData?: FormData) {
-  const user = await requireBillingAccess();
   const redirectTarget = resolveRedirectTarget(formData, "/factures");
   try {
+    const user = await requireBillingAccess();
     const outcome = await deleteInvoice(id);
     revalidateInvoiceData(user, id);
     const message =
@@ -270,6 +292,11 @@ export async function deleteInvoiceAction(id: string, formData?: FormData) {
   } catch (error) {
     if (isRedirectError(error)) {
       throw error;
+    }
+    if (error instanceof AuthorizationError) {
+      redirectWithFeedback(redirectTarget, {
+        error: error.message,
+      });
     }
     console.error("[deleteInvoiceAction] Échec de suppression", error);
     redirectWithFeedback(redirectTarget, {
@@ -291,9 +318,9 @@ async function changeInvoiceStatusActionInternal(
   status: InvoiceStatus,
   formData?: FormData,
 ) {
-  const user = await requireBillingAccess();
   const redirectTarget = resolveRedirectTarget(formData, "/factures");
   try {
+    const user = await requireBillingAccess();
     await changeInvoiceStatus(id, status);
     revalidateInvoiceData(user, id);
     redirectWithFeedback(redirectTarget, {
@@ -303,6 +330,11 @@ async function changeInvoiceStatusActionInternal(
     if (isRedirectError(error)) {
       throw error;
     }
+    if (error instanceof AuthorizationError) {
+      redirectWithFeedback(redirectTarget, {
+        error: error.message,
+      });
+    }
     console.error("[changeInvoiceStatusAction] Échec de mise à jour", error);
     redirectWithFeedback(redirectTarget, {
       error: "Impossible de mettre à jour le statut.",
@@ -311,11 +343,11 @@ async function changeInvoiceStatusActionInternal(
 }
 
 export async function recordPaymentAction(formData: FormData) {
-  const user = await requireBillingAccess();
   const invoiceId = formData.get("invoiceId")?.toString();
   const fallback = invoiceId ? `/factures/${invoiceId}` : "/factures";
   const redirectTarget = resolveRedirectTarget(formData, fallback);
   try {
+    const user = await requireBillingAccess();
     const amount = Number(formData.get("amount") ?? 0);
     const method = formData.get("method")?.toString() || null;
     const date = formData.get("date")?.toString();
@@ -341,6 +373,11 @@ export async function recordPaymentAction(formData: FormData) {
     if (isRedirectError(error)) {
       throw error;
     }
+    if (error instanceof AuthorizationError) {
+      redirectWithFeedback(redirectTarget, {
+        error: error.message,
+      });
+    }
     console.error("[recordPaymentAction] Échec d'enregistrement du paiement", error);
     redirectWithFeedback(redirectTarget, {
       error: "Impossible d'enregistrer ce paiement.",
@@ -353,12 +390,12 @@ export async function deletePaymentAction(
   invoiceId: string,
   formData?: FormData,
 ) {
-  const user = await requireBillingAccess();
   const redirectTarget = resolveRedirectTarget(
     formData,
     `/factures/${invoiceId}`,
   );
   try {
+    const user = await requireBillingAccess();
     await deletePayment(paymentId);
     revalidateInvoiceData(user, invoiceId);
     redirectWithFeedback(redirectTarget, {
@@ -367,6 +404,11 @@ export async function deletePaymentAction(
   } catch (error) {
     if (isRedirectError(error)) {
       throw error;
+    }
+    if (error instanceof AuthorizationError) {
+      redirectWithFeedback(redirectTarget, {
+        error: error.message,
+      });
     }
     console.error("[deletePaymentAction] Échec de suppression du paiement", error);
     redirectWithFeedback(redirectTarget, {
@@ -379,7 +421,19 @@ export async function sendInvoiceEmailAction(
   id: string,
   input: DocumentEmailActionInput,
 ): Promise<DocumentEmailActionResult> {
-  const user = await requireBillingAccess();
+  let user: Awaited<ReturnType<typeof requireBillingAccess>>;
+  try {
+    user = await requireBillingAccess();
+  } catch (error) {
+    if (error instanceof AuthorizationError) {
+      return {
+        status: "error",
+        variant: "error",
+        message: error.message,
+      };
+    }
+    throw error;
+  }
   const messagingSummary = await getMessagingSettingsSummary(user.id);
   const email = input.email?.trim() ?? "";
   const subject = input.subject?.trim();

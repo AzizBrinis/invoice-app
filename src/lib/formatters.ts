@@ -35,7 +35,7 @@ export function formatPercent(
 
 export function formatDate(
   date: Date | string,
-  locale: string = "fr-FR",
+  locale: string = "fr-TN",
   options: Intl.DateTimeFormatOptions = {
     day: "2-digit",
     month: "2-digit",

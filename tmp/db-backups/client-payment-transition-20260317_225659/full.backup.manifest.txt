@@ -1,0 +1,943 @@
+;
+; Archive created at 2026-03-17 22:57:19 CET
+;     dbname: postgres
+;     TOC Entries: 934
+;     Compression: gzip
+;     Dump Version: 1.16-0
+;     Format: CUSTOM
+;     Integer: 4 bytes
+;     Offset: 8 bytes
+;     Dumped from database version: 17.6
+;     Dumped by pg_dump version: 17.5 (Homebrew)
+;
+;
+; Selected TOC Entries:
+;
+31; 2615 16494 SCHEMA - auth supabase_admin
+38; 2615 28337 SCHEMA - extensions postgres
+29; 2615 16624 SCHEMA - graphql supabase_admin
+28; 2615 16613 SCHEMA - graphql_public supabase_admin
+12; 2615 16386 SCHEMA - pgbouncer pgbouncer
+39; 2615 28336 SCHEMA - public postgres
+5383; 0 0 COMMENT - SCHEMA public postgres
+40; 2615 16605 SCHEMA - realtime supabase_admin
+91; 2615 117606 SCHEMA - shadow postgres
+9; 2615 16542 SCHEMA - storage supabase_admin
+11; 2615 16653 SCHEMA - vault supabase_admin
+3; 3079 16689 EXTENSION - pg_graphql 
+5384; 0 0 COMMENT - EXTENSION pg_graphql 
+6; 3079 28340 EXTENSION - pg_trgm 
+5385; 0 0 COMMENT - EXTENSION pg_trgm 
+5; 3079 28421 EXTENSION - pgcrypto 
+5386; 0 0 COMMENT - EXTENSION pgcrypto 
+2; 3079 16654 EXTENSION - supabase_vault 
+5387; 0 0 COMMENT - EXTENSION supabase_vault 
+4; 3079 28458 EXTENSION - uuid-ossp 
+5388; 0 0 COMMENT - EXTENSION "uuid-ossp" 
+1240; 1247 16784 TYPE auth aal_level supabase_auth_admin
+1264; 1247 16925 TYPE auth code_challenge_method supabase_auth_admin
+1237; 1247 16778 TYPE auth factor_status supabase_auth_admin
+1234; 1247 16773 TYPE auth factor_type supabase_auth_admin
+1282; 1247 17028 TYPE auth oauth_authorization_status supabase_auth_admin
+1294; 1247 17101 TYPE auth oauth_client_type supabase_auth_admin
+1276; 1247 17006 TYPE auth oauth_registration_type supabase_auth_admin
+1285; 1247 17038 TYPE auth oauth_response_type supabase_auth_admin
+1270; 1247 16967 TYPE auth one_time_token_type supabase_auth_admin
+1600; 1247 29252 TYPE public AIAuditStatus postgres
+1594; 1247 29236 TYPE public AIConversationStatus postgres
+1597; 1247 29242 TYPE public AIMessageRole postgres
+1338; 1247 28470 TYPE public BackgroundJobEventType postgres
+1341; 1247 28484 TYPE public BackgroundJobStatus postgres
+1344; 1247 28496 TYPE public ClientSource postgres
+1347; 1247 28504 TYPE public DocumentType postgres
+1350; 1247 28510 TYPE public EmailStatus postgres
+1353; 1247 28518 TYPE public InvoiceAuditAction postgres
+1356; 1247 28524 TYPE public InvoiceStatus postgres
+1359; 1247 28538 TYPE public MessagingAutoReplyType postgres
+1362; 1247 28544 TYPE public MessagingEventType postgres
+1365; 1247 28550 TYPE public MessagingRecipientType postgres
+1368; 1247 28558 TYPE public MessagingScheduledStatus postgres
+1674; 1247 100339 TYPE public OrderPaymentProofStatus postgres
+1653; 1247 100192 TYPE public OrderPaymentStatus postgres
+1650; 1247 100181 TYPE public OrderStatus postgres
+1371; 1247 28570 TYPE public PdfTemplateType postgres
+1647; 1247 100173 TYPE public ProductSaleMode postgres
+1656; 1247 100206 TYPE public QuoteRequestStatus postgres
+1374; 1247 28576 TYPE public QuoteStatus postgres
+1377; 1247 28588 TYPE public SavedResponseFormat postgres
+1380; 1247 28594 TYPE public SequenceType postgres
+1383; 1247 28600 TYPE public UserRole postgres
+1386; 1247 28608 TYPE public WebsiteDomainStatus postgres
+1389; 1247 28616 TYPE public WebsiteThemeMode postgres
+1324; 1247 17316 TYPE realtime action supabase_admin
+1315; 1247 17272 TYPE realtime equality_op supabase_admin
+1318; 1247 17287 TYPE realtime user_defined_filter supabase_admin
+1330; 1247 17358 TYPE realtime wal_column supabase_admin
+1327; 1247 17329 TYPE realtime wal_rls supabase_admin
+1683; 1247 118260 TYPE shadow AIAuditStatus postgres
+1677; 1247 118245 TYPE shadow AIConversationStatus postgres
+1680; 1247 118250 TYPE shadow AIMessageRole postgres
+1704; 1247 118380 TYPE shadow BackgroundJobEventType postgres
+1701; 1247 118368 TYPE shadow BackgroundJobStatus postgres
+1515; 1247 117676 TYPE shadow ClientSource postgres
+1530; 1247 117722 TYPE shadow DocumentType postgres
+1533; 1247 117728 TYPE shadow EmailStatus postgres
+1524; 1247 117710 TYPE shadow InvoiceAuditAction postgres
+1521; 1247 117696 TYPE shadow InvoiceStatus postgres
+1503; 1247 117648 TYPE shadow MessagingAutoReplyType postgres
+1497; 1247 117630 TYPE shadow MessagingEventType postgres
+1494; 1247 117622 TYPE shadow MessagingRecipientType postgres
+1500; 1247 117636 TYPE shadow MessagingScheduledStatus postgres
+1512; 1247 117670 TYPE shadow PdfTemplateType postgres
+1518; 1247 117684 TYPE shadow QuoteStatus postgres
+1491; 1247 117616 TYPE shadow SavedResponseFormat postgres
+1527; 1247 117716 TYPE shadow SequenceType postgres
+1488; 1247 117608 TYPE shadow UserRole postgres
+1506; 1247 117654 TYPE shadow WebsiteDomainStatus postgres
+1509; 1247 117662 TYPE shadow WebsiteThemeMode postgres
+1309; 1247 17241 TYPE storage buckettype supabase_storage_admin
+442; 1255 16540 FUNCTION auth email() supabase_auth_admin
+5389; 0 0 COMMENT auth FUNCTION email() supabase_auth_admin
+455; 1255 16755 FUNCTION auth jwt() supabase_auth_admin
+441; 1255 16539 FUNCTION auth role() supabase_auth_admin
+5390; 0 0 COMMENT auth FUNCTION role() supabase_auth_admin
+440; 1255 16538 FUNCTION auth uid() supabase_auth_admin
+5391; 0 0 COMMENT auth FUNCTION uid() supabase_auth_admin
+574; 1255 28623 FUNCTION extensions grant_pg_cron_access() postgres
+5392; 0 0 COMMENT extensions FUNCTION grant_pg_cron_access() postgres
+575; 1255 28624 FUNCTION extensions grant_pg_graphql_access() postgres
+5393; 0 0 COMMENT extensions FUNCTION grant_pg_graphql_access() postgres
+576; 1255 28625 FUNCTION extensions grant_pg_net_access() postgres
+5394; 0 0 COMMENT extensions FUNCTION grant_pg_net_access() postgres
+577; 1255 28626 FUNCTION extensions pgrst_ddl_watch() postgres
+578; 1255 28627 FUNCTION extensions pgrst_drop_watch() postgres
+579; 1255 28628 FUNCTION extensions set_graphql_placeholder() postgres
+5395; 0 0 COMMENT extensions FUNCTION set_graphql_placeholder() postgres
+439; 1255 16387 FUNCTION pgbouncer get_auth(text) supabase_admin
+490; 1255 17351 FUNCTION realtime apply_rls(jsonb, integer) supabase_admin
+496; 1255 17431 FUNCTION realtime broadcast_changes(text, text, text, text, text, record, record, text) supabase_admin
+492; 1255 17363 FUNCTION realtime build_prepared_statement_sql(text, regclass, realtime.wal_column[]) supabase_admin
+488; 1255 17313 FUNCTION realtime cast(text, regtype) supabase_admin
+487; 1255 17308 FUNCTION realtime check_equality_op(realtime.equality_op, regtype, text, text) supabase_admin
+491; 1255 17359 FUNCTION realtime is_visible_through_filters(realtime.wal_column[], realtime.user_defined_filter[]) supabase_admin
+493; 1255 17370 FUNCTION realtime list_changes(name, name, integer, integer) supabase_admin
+486; 1255 17307 FUNCTION realtime quote_wal2json(regclass) supabase_admin
+495; 1255 17430 FUNCTION realtime send(jsonb, text, text, boolean) supabase_admin
+485; 1255 17301 FUNCTION realtime subscription_check_filters() supabase_admin
+489; 1255 17340 FUNCTION realtime to_regrole(text) supabase_admin
+494; 1255 17424 FUNCTION realtime topic() supabase_realtime_admin
+468; 1255 17219 FUNCTION storage add_prefixes(text, text) supabase_storage_admin
+461; 1255 17140 FUNCTION storage can_insert_object(text, text, uuid, jsonb) supabase_storage_admin
+480; 1255 17259 FUNCTION storage delete_leaf_prefixes(text[], text[]) supabase_storage_admin
+469; 1255 17220 FUNCTION storage delete_prefix(text, text) supabase_storage_admin
+472; 1255 17223 FUNCTION storage delete_prefix_hierarchy_trigger() supabase_storage_admin
+477; 1255 17238 FUNCTION storage enforce_bucket_name_length() supabase_storage_admin
+458; 1255 17114 FUNCTION storage extension(text) supabase_storage_admin
+457; 1255 17113 FUNCTION storage filename(text) supabase_storage_admin
+456; 1255 17112 FUNCTION storage foldername(text) supabase_storage_admin
+465; 1255 17201 FUNCTION storage get_level(text) supabase_storage_admin
+466; 1255 17217 FUNCTION storage get_prefix(text) supabase_storage_admin
+467; 1255 17218 FUNCTION storage get_prefixes(text) supabase_storage_admin
+475; 1255 17236 FUNCTION storage get_size_by_bucket() supabase_storage_admin
+463; 1255 17184 FUNCTION storage list_multipart_uploads_with_delimiter(text, text, text, integer, text, text) supabase_storage_admin
+462; 1255 17147 FUNCTION storage list_objects_with_delimiter(text, text, text, integer, text, text) supabase_storage_admin
+479; 1255 17258 FUNCTION storage lock_top_prefixes(text[], text[]) supabase_storage_admin
+481; 1255 17260 FUNCTION storage objects_delete_cleanup() supabase_storage_admin
+471; 1255 17222 FUNCTION storage objects_insert_prefix_trigger() supabase_storage_admin
+482; 1255 17261 FUNCTION storage objects_update_cleanup() supabase_storage_admin
+484; 1255 17266 FUNCTION storage objects_update_level_trigger() supabase_storage_admin
+476; 1255 17237 FUNCTION storage objects_update_prefix_trigger() supabase_storage_admin
+464; 1255 17200 FUNCTION storage operation() supabase_storage_admin
+483; 1255 17262 FUNCTION storage prefixes_delete_cleanup() supabase_storage_admin
+470; 1255 17221 FUNCTION storage prefixes_insert_trigger() supabase_storage_admin
+459; 1255 17129 FUNCTION storage search(text, text, integer, integer, integer, text, text, text) supabase_storage_admin
+474; 1255 17234 FUNCTION storage search_legacy_v1(text, text, integer, integer, integer, text, text, text) supabase_storage_admin
+473; 1255 17233 FUNCTION storage search_v1_optimised(text, text, integer, integer, integer, text, text, text) supabase_storage_admin
+478; 1255 17257 FUNCTION storage search_v2(text, text, integer, integer, text, text, text, text) supabase_storage_admin
+460; 1255 17130 FUNCTION storage update_updated_at_column() supabase_storage_admin
+307; 1259 16525 TABLE auth audit_log_entries supabase_auth_admin
+5396; 0 0 COMMENT auth TABLE audit_log_entries supabase_auth_admin
+426; 1259 142825 TABLE auth custom_oauth_providers supabase_auth_admin
+324; 1259 16929 TABLE auth flow_state supabase_auth_admin
+5397; 0 0 COMMENT auth TABLE flow_state supabase_auth_admin
+315; 1259 16727 TABLE auth identities supabase_auth_admin
+5398; 0 0 COMMENT auth TABLE identities supabase_auth_admin
+5399; 0 0 COMMENT auth COLUMN identities.email supabase_auth_admin
+306; 1259 16518 TABLE auth instances supabase_auth_admin
+5400; 0 0 COMMENT auth TABLE instances supabase_auth_admin
+319; 1259 16816 TABLE auth mfa_amr_claims supabase_auth_admin
+5401; 0 0 COMMENT auth TABLE mfa_amr_claims supabase_auth_admin
+318; 1259 16804 TABLE auth mfa_challenges supabase_auth_admin
+5402; 0 0 COMMENT auth TABLE mfa_challenges supabase_auth_admin
+317; 1259 16791 TABLE auth mfa_factors supabase_auth_admin
+5403; 0 0 COMMENT auth TABLE mfa_factors supabase_auth_admin
+5404; 0 0 COMMENT auth COLUMN mfa_factors.last_webauthn_challenge_data supabase_auth_admin
+327; 1259 17041 TABLE auth oauth_authorizations supabase_auth_admin
+378; 1259 57179 TABLE auth oauth_client_states supabase_auth_admin
+5405; 0 0 COMMENT auth TABLE oauth_client_states supabase_auth_admin
+326; 1259 17011 TABLE auth oauth_clients supabase_auth_admin
+328; 1259 17074 TABLE auth oauth_consents supabase_auth_admin
+325; 1259 16979 TABLE auth one_time_tokens supabase_auth_admin
+305; 1259 16507 TABLE auth refresh_tokens supabase_auth_admin
+5406; 0 0 COMMENT auth TABLE refresh_tokens supabase_auth_admin
+304; 1259 16506 SEQUENCE auth refresh_tokens_id_seq supabase_auth_admin
+5407; 0 0 SEQUENCE OWNED BY auth refresh_tokens_id_seq supabase_auth_admin
+322; 1259 16858 TABLE auth saml_providers supabase_auth_admin
+5408; 0 0 COMMENT auth TABLE saml_providers supabase_auth_admin
+323; 1259 16876 TABLE auth saml_relay_states supabase_auth_admin
+5409; 0 0 COMMENT auth TABLE saml_relay_states supabase_auth_admin
+308; 1259 16533 TABLE auth schema_migrations supabase_auth_admin
+5410; 0 0 COMMENT auth TABLE schema_migrations supabase_auth_admin
+316; 1259 16757 TABLE auth sessions supabase_auth_admin
+5411; 0 0 COMMENT auth TABLE sessions supabase_auth_admin
+5412; 0 0 COMMENT auth COLUMN sessions.not_after supabase_auth_admin
+5413; 0 0 COMMENT auth COLUMN sessions.refresh_token_hmac_key supabase_auth_admin
+5414; 0 0 COMMENT auth COLUMN sessions.refresh_token_counter supabase_auth_admin
+321; 1259 16843 TABLE auth sso_domains supabase_auth_admin
+5415; 0 0 COMMENT auth TABLE sso_domains supabase_auth_admin
+320; 1259 16834 TABLE auth sso_providers supabase_auth_admin
+5416; 0 0 COMMENT auth TABLE sso_providers supabase_auth_admin
+5417; 0 0 COMMENT auth COLUMN sso_providers.resource_id supabase_auth_admin
+303; 1259 16495 TABLE auth users supabase_auth_admin
+5418; 0 0 COMMENT auth TABLE users supabase_auth_admin
+5419; 0 0 COMMENT auth COLUMN users.is_sso_user supabase_auth_admin
+375; 1259 29292 TABLE public AIAuditLog postgres
+373; 1259 29257 TABLE public AIConversation postgres
+374; 1259 29274 TABLE public AIMessage postgres
+377; 1259 29328 TABLE public AIPendingToolCall postgres
+376; 1259 29311 TABLE public AIUsageStat postgres
+340; 1259 28629 TABLE public BackgroundJob postgres
+341; 1259 28641 TABLE public BackgroundJobEvent postgres
+342; 1259 28647 TABLE public Client postgres
+387; 1259 113161 TABLE public ClientSession postgres
+343; 1259 28655 TABLE public CompanySettings postgres
+386; 1259 111139 TABLE public ContactMessage postgres
+344; 1259 28668 TABLE public EmailLog postgres
+345; 1259 28675 TABLE public Invoice postgres
+346; 1259 28686 TABLE public InvoiceAuditLog postgres
+347; 1259 28692 TABLE public InvoiceLine postgres
+348; 1259 28698 TABLE public MessagingAutoReplyLog postgres
+349; 1259 28705 TABLE public MessagingEmail postgres
+350; 1259 28712 TABLE public MessagingEmailEvent postgres
+351; 1259 28719 TABLE public MessagingEmailLink postgres
+352; 1259 28725 TABLE public MessagingEmailLinkRecipient postgres
+353; 1259 28732 TABLE public MessagingEmailRecipient postgres
+354; 1259 28740 TABLE public MessagingInboxSyncState postgres
+355; 1259 28746 TABLE public MessagingSavedResponse postgres
+356; 1259 28754 TABLE public MessagingScheduledAttachment postgres
+357; 1259 28760 TABLE public MessagingScheduledEmail postgres
+358; 1259 28767 TABLE public MessagingSettings postgres
+359; 1259 28779 TABLE public NumberingSequence postgres
+381; 1259 100215 TABLE public Order postgres
+382; 1259 100227 TABLE public OrderItem postgres
+383; 1259 100235 TABLE public OrderPayment postgres
+360; 1259 28786 TABLE public Payment postgres
+361; 1259 28792 TABLE public PdfTemplate postgres
+362; 1259 28798 TABLE public Product postgres
+363; 1259 28807 TABLE public Quote postgres
+364; 1259 28817 TABLE public QuoteLine postgres
+384; 1259 100245 TABLE public QuoteRequest postgres
+385; 1259 100254 TABLE public QuoteRequestAttachment postgres
+365; 1259 28823 TABLE public Session postgres
+366; 1259 28829 TABLE public SpamDetectionLog postgres
+367; 1259 28838 SEQUENCE public SpamDetectionLog_id_seq postgres
+5420; 0 0 SEQUENCE OWNED BY public SpamDetectionLog_id_seq postgres
+368; 1259 28839 TABLE public SpamSenderReputation postgres
+369; 1259 28847 SEQUENCE public SpamSenderReputation_id_seq postgres
+5421; 0 0 SEQUENCE OWNED BY public SpamSenderReputation_id_seq postgres
+370; 1259 28848 TABLE public User postgres
+371; 1259 28855 TABLE public WebsiteConfig postgres
+425; 1259 118446 TABLE public WishlistItem postgres
+372; 1259 28875 TABLE public _prisma_migrations postgres
+339; 1259 17434 TABLE realtime messages supabase_realtime_admin
+329; 1259 17141 TABLE realtime schema_migrations supabase_admin
+336; 1259 17289 TABLE realtime subscription supabase_admin
+335; 1259 17288 SEQUENCE realtime subscription_id_seq supabase_admin
+419; 1259 118285 TABLE shadow AIAuditLog postgres
+417; 1259 118265 TABLE shadow AIConversation postgres
+418; 1259 118277 TABLE shadow AIMessage postgres
+421; 1259 118306 TABLE shadow AIPendingToolCall postgres
+420; 1259 118294 TABLE shadow AIUsageStat postgres
+423; 1259 118401 TABLE shadow BackgroundJob postgres
+424; 1259 118415 TABLE shadow BackgroundJobEvent postgres
+407; 1259 117915 TABLE shadow Client postgres
+390; 1259 117752 TABLE shadow CompanySettings postgres
+416; 1259 118002 TABLE shadow EmailLog postgres
+411; 1259 117956 TABLE shadow Invoice postgres
+414; 1259 117985 TABLE shadow InvoiceAuditLog postgres
+412; 1259 117969 TABLE shadow InvoiceLine postgres
+394; 1259 117811 TABLE shadow MessagingAutoReplyLog postgres
+397; 1259 117837 TABLE shadow MessagingEmail postgres
+401; 1259 117873 TABLE shadow MessagingEmailEvent postgres
+399; 1259 117856 TABLE shadow MessagingEmailLink postgres
+400; 1259 117864 TABLE shadow MessagingEmailLinkRecipient postgres
+398; 1259 117846 TABLE shadow MessagingEmailRecipient postgres
+422; 1259 118393 TABLE shadow MessagingInboxSyncState postgres
+393; 1259 117801 TABLE shadow MessagingSavedResponse postgres
+396; 1259 117829 TABLE shadow MessagingScheduledAttachment postgres
+395; 1259 117820 TABLE shadow MessagingScheduledEmail postgres
+392; 1259 117787 TABLE shadow MessagingSettings postgres
+415; 1259 117993 TABLE shadow NumberingSequence postgres
+413; 1259 117977 TABLE shadow Payment postgres
+406; 1259 117907 TABLE shadow PdfTemplate postgres
+408; 1259 117925 TABLE shadow Product postgres
+409; 1259 117936 TABLE shadow Quote postgres
+410; 1259 117948 TABLE shadow QuoteLine postgres
+389; 1259 117744 TABLE shadow Session postgres
+403; 1259 117883 TABLE shadow SpamDetectionLog postgres
+402; 1259 117882 SEQUENCE shadow SpamDetectionLog_id_seq postgres
+5422; 0 0 SEQUENCE OWNED BY shadow SpamDetectionLog_id_seq postgres
+405; 1259 117896 TABLE shadow SpamSenderReputation postgres
+404; 1259 117895 SEQUENCE shadow SpamSenderReputation_id_seq postgres
+5423; 0 0 SEQUENCE OWNED BY shadow SpamSenderReputation_id_seq postgres
+388; 1259 117735 TABLE shadow User postgres
+391; 1259 117767 TABLE shadow WebsiteConfig postgres
+309; 1259 16546 TABLE storage buckets supabase_storage_admin
+5424; 0 0 COMMENT storage COLUMN buckets.owner supabase_storage_admin
+333; 1259 17246 TABLE storage buckets_analytics supabase_storage_admin
+379; 1259 100075 TABLE storage buckets_vectors supabase_storage_admin
+311; 1259 16588 TABLE storage migrations supabase_storage_admin
+310; 1259 16561 TABLE storage objects supabase_storage_admin
+5425; 0 0 COMMENT storage COLUMN objects.owner supabase_storage_admin
+332; 1259 17202 TABLE storage prefixes supabase_storage_admin
+330; 1259 17149 TABLE storage s3_multipart_uploads supabase_storage_admin
+331; 1259 17163 TABLE storage s3_multipart_uploads_parts supabase_storage_admin
+380; 1259 100085 TABLE storage vector_indexes supabase_storage_admin
+4126; 2604 16510 DEFAULT auth refresh_tokens id supabase_auth_admin
+4248; 2604 28882 DEFAULT public SpamDetectionLog id postgres
+4253; 2604 28883 DEFAULT public SpamSenderReputation id postgres
+4360; 2604 117886 DEFAULT shadow SpamDetectionLog id postgres
+4365; 2604 117899 DEFAULT shadow SpamSenderReputation id postgres
+5262; 0 16525 TABLE DATA auth audit_log_entries supabase_auth_admin
+5374; 0 142825 TABLE DATA auth custom_oauth_providers supabase_auth_admin
+5276; 0 16929 TABLE DATA auth flow_state supabase_auth_admin
+5267; 0 16727 TABLE DATA auth identities supabase_auth_admin
+5261; 0 16518 TABLE DATA auth instances supabase_auth_admin
+5271; 0 16816 TABLE DATA auth mfa_amr_claims supabase_auth_admin
+5270; 0 16804 TABLE DATA auth mfa_challenges supabase_auth_admin
+5269; 0 16791 TABLE DATA auth mfa_factors supabase_auth_admin
+5279; 0 17041 TABLE DATA auth oauth_authorizations supabase_auth_admin
+5326; 0 57179 TABLE DATA auth oauth_client_states supabase_auth_admin
+5278; 0 17011 TABLE DATA auth oauth_clients supabase_auth_admin
+5280; 0 17074 TABLE DATA auth oauth_consents supabase_auth_admin
+5277; 0 16979 TABLE DATA auth one_time_tokens supabase_auth_admin
+5260; 0 16507 TABLE DATA auth refresh_tokens supabase_auth_admin
+5274; 0 16858 TABLE DATA auth saml_providers supabase_auth_admin
+5275; 0 16876 TABLE DATA auth saml_relay_states supabase_auth_admin
+5263; 0 16533 TABLE DATA auth schema_migrations supabase_auth_admin
+5268; 0 16757 TABLE DATA auth sessions supabase_auth_admin
+5273; 0 16843 TABLE DATA auth sso_domains supabase_auth_admin
+5272; 0 16834 TABLE DATA auth sso_providers supabase_auth_admin
+5258; 0 16495 TABLE DATA auth users supabase_auth_admin
+5323; 0 29292 TABLE DATA public AIAuditLog postgres
+5321; 0 29257 TABLE DATA public AIConversation postgres
+5322; 0 29274 TABLE DATA public AIMessage postgres
+5325; 0 29328 TABLE DATA public AIPendingToolCall postgres
+5324; 0 29311 TABLE DATA public AIUsageStat postgres
+5288; 0 28629 TABLE DATA public BackgroundJob postgres
+5289; 0 28641 TABLE DATA public BackgroundJobEvent postgres
+5290; 0 28647 TABLE DATA public Client postgres
+5335; 0 113161 TABLE DATA public ClientSession postgres
+5291; 0 28655 TABLE DATA public CompanySettings postgres
+5334; 0 111139 TABLE DATA public ContactMessage postgres
+5292; 0 28668 TABLE DATA public EmailLog postgres
+5293; 0 28675 TABLE DATA public Invoice postgres
+5294; 0 28686 TABLE DATA public InvoiceAuditLog postgres
+5295; 0 28692 TABLE DATA public InvoiceLine postgres
+5296; 0 28698 TABLE DATA public MessagingAutoReplyLog postgres
+5297; 0 28705 TABLE DATA public MessagingEmail postgres
+5298; 0 28712 TABLE DATA public MessagingEmailEvent postgres
+5299; 0 28719 TABLE DATA public MessagingEmailLink postgres
+5300; 0 28725 TABLE DATA public MessagingEmailLinkRecipient postgres
+5301; 0 28732 TABLE DATA public MessagingEmailRecipient postgres
+5302; 0 28740 TABLE DATA public MessagingInboxSyncState postgres
+5303; 0 28746 TABLE DATA public MessagingSavedResponse postgres
+5304; 0 28754 TABLE DATA public MessagingScheduledAttachment postgres
+5305; 0 28760 TABLE DATA public MessagingScheduledEmail postgres
+5306; 0 28767 TABLE DATA public MessagingSettings postgres
+5307; 0 28779 TABLE DATA public NumberingSequence postgres
+5329; 0 100215 TABLE DATA public Order postgres
+5330; 0 100227 TABLE DATA public OrderItem postgres
+5331; 0 100235 TABLE DATA public OrderPayment postgres
+5308; 0 28786 TABLE DATA public Payment postgres
+5309; 0 28792 TABLE DATA public PdfTemplate postgres
+5310; 0 28798 TABLE DATA public Product postgres
+5311; 0 28807 TABLE DATA public Quote postgres
+5312; 0 28817 TABLE DATA public QuoteLine postgres
+5332; 0 100245 TABLE DATA public QuoteRequest postgres
+5333; 0 100254 TABLE DATA public QuoteRequestAttachment postgres
+5313; 0 28823 TABLE DATA public Session postgres
+5314; 0 28829 TABLE DATA public SpamDetectionLog postgres
+5316; 0 28839 TABLE DATA public SpamSenderReputation postgres
+5318; 0 28848 TABLE DATA public User postgres
+5319; 0 28855 TABLE DATA public WebsiteConfig postgres
+5373; 0 118446 TABLE DATA public WishlistItem postgres
+5320; 0 28875 TABLE DATA public _prisma_migrations postgres
+5281; 0 17141 TABLE DATA realtime schema_migrations supabase_admin
+5287; 0 17289 TABLE DATA realtime subscription supabase_admin
+5367; 0 118285 TABLE DATA shadow AIAuditLog postgres
+5365; 0 118265 TABLE DATA shadow AIConversation postgres
+5366; 0 118277 TABLE DATA shadow AIMessage postgres
+5369; 0 118306 TABLE DATA shadow AIPendingToolCall postgres
+5368; 0 118294 TABLE DATA shadow AIUsageStat postgres
+5371; 0 118401 TABLE DATA shadow BackgroundJob postgres
+5372; 0 118415 TABLE DATA shadow BackgroundJobEvent postgres
+5355; 0 117915 TABLE DATA shadow Client postgres
+5338; 0 117752 TABLE DATA shadow CompanySettings postgres
+5364; 0 118002 TABLE DATA shadow EmailLog postgres
+5359; 0 117956 TABLE DATA shadow Invoice postgres
+5362; 0 117985 TABLE DATA shadow InvoiceAuditLog postgres
+5360; 0 117969 TABLE DATA shadow InvoiceLine postgres
+5342; 0 117811 TABLE DATA shadow MessagingAutoReplyLog postgres
+5345; 0 117837 TABLE DATA shadow MessagingEmail postgres
+5349; 0 117873 TABLE DATA shadow MessagingEmailEvent postgres
+5347; 0 117856 TABLE DATA shadow MessagingEmailLink postgres
+5348; 0 117864 TABLE DATA shadow MessagingEmailLinkRecipient postgres
+5346; 0 117846 TABLE DATA shadow MessagingEmailRecipient postgres
+5370; 0 118393 TABLE DATA shadow MessagingInboxSyncState postgres
+5341; 0 117801 TABLE DATA shadow MessagingSavedResponse postgres
+5344; 0 117829 TABLE DATA shadow MessagingScheduledAttachment postgres
+5343; 0 117820 TABLE DATA shadow MessagingScheduledEmail postgres
+5340; 0 117787 TABLE DATA shadow MessagingSettings postgres
+5363; 0 117993 TABLE DATA shadow NumberingSequence postgres
+5361; 0 117977 TABLE DATA shadow Payment postgres
+5354; 0 117907 TABLE DATA shadow PdfTemplate postgres
+5356; 0 117925 TABLE DATA shadow Product postgres
+5357; 0 117936 TABLE DATA shadow Quote postgres
+5358; 0 117948 TABLE DATA shadow QuoteLine postgres
+5337; 0 117744 TABLE DATA shadow Session postgres
+5351; 0 117883 TABLE DATA shadow SpamDetectionLog postgres
+5353; 0 117896 TABLE DATA shadow SpamSenderReputation postgres
+5336; 0 117735 TABLE DATA shadow User postgres
+5339; 0 117767 TABLE DATA shadow WebsiteConfig postgres
+5264; 0 16546 TABLE DATA storage buckets supabase_storage_admin
+5285; 0 17246 TABLE DATA storage buckets_analytics supabase_storage_admin
+5327; 0 100075 TABLE DATA storage buckets_vectors supabase_storage_admin
+5266; 0 16588 TABLE DATA storage migrations supabase_storage_admin
+5265; 0 16561 TABLE DATA storage objects supabase_storage_admin
+5284; 0 17202 TABLE DATA storage prefixes supabase_storage_admin
+5282; 0 17149 TABLE DATA storage s3_multipart_uploads supabase_storage_admin
+5283; 0 17163 TABLE DATA storage s3_multipart_uploads_parts supabase_storage_admin
+5328; 0 100085 TABLE DATA storage vector_indexes supabase_storage_admin
+4116; 0 16658 TABLE DATA vault secrets supabase_admin
+5426; 0 0 SEQUENCE SET auth refresh_tokens_id_seq supabase_auth_admin
+5427; 0 0 SEQUENCE SET public SpamDetectionLog_id_seq postgres
+5428; 0 0 SEQUENCE SET public SpamSenderReputation_id_seq postgres
+5429; 0 0 SEQUENCE SET realtime subscription_id_seq supabase_admin
+5430; 0 0 SEQUENCE SET shadow SpamDetectionLog_id_seq postgres
+5431; 0 0 SEQUENCE SET shadow SpamSenderReputation_id_seq postgres
+4544; 2606 16829 CONSTRAINT auth mfa_amr_claims amr_id_pk supabase_auth_admin
+4498; 2606 16531 CONSTRAINT auth audit_log_entries audit_log_entries_pkey supabase_auth_admin
+4939; 2606 142862 CONSTRAINT auth custom_oauth_providers custom_oauth_providers_identifier_key supabase_auth_admin
+4941; 2606 142860 CONSTRAINT auth custom_oauth_providers custom_oauth_providers_pkey supabase_auth_admin
+4567; 2606 16935 CONSTRAINT auth flow_state flow_state_pkey supabase_auth_admin
+4522; 2606 16953 CONSTRAINT auth identities identities_pkey supabase_auth_admin
+4524; 2606 16963 CONSTRAINT auth identities identities_provider_id_provider_unique supabase_auth_admin
+4496; 2606 16524 CONSTRAINT auth instances instances_pkey supabase_auth_admin
+4546; 2606 16822 CONSTRAINT auth mfa_amr_claims mfa_amr_claims_session_id_authentication_method_pkey supabase_auth_admin
+4542; 2606 16810 CONSTRAINT auth mfa_challenges mfa_challenges_pkey supabase_auth_admin
+4534; 2606 17003 CONSTRAINT auth mfa_factors mfa_factors_last_challenged_at_key supabase_auth_admin
+4536; 2606 16797 CONSTRAINT auth mfa_factors mfa_factors_pkey supabase_auth_admin
+4580; 2606 17062 CONSTRAINT auth oauth_authorizations oauth_authorizations_authorization_code_key supabase_auth_admin
+4582; 2606 17060 CONSTRAINT auth oauth_authorizations oauth_authorizations_authorization_id_key supabase_auth_admin
+4584; 2606 17058 CONSTRAINT auth oauth_authorizations oauth_authorizations_pkey supabase_auth_admin
+4761; 2606 57185 CONSTRAINT auth oauth_client_states oauth_client_states_pkey supabase_auth_admin
+4577; 2606 17022 CONSTRAINT auth oauth_clients oauth_clients_pkey supabase_auth_admin
+4588; 2606 17084 CONSTRAINT auth oauth_consents oauth_consents_pkey supabase_auth_admin
+4590; 2606 17086 CONSTRAINT auth oauth_consents oauth_consents_user_client_unique supabase_auth_admin
+4571; 2606 16988 CONSTRAINT auth one_time_tokens one_time_tokens_pkey supabase_auth_admin
+4490; 2606 16514 CONSTRAINT auth refresh_tokens refresh_tokens_pkey supabase_auth_admin
+4493; 2606 16740 CONSTRAINT auth refresh_tokens refresh_tokens_token_unique supabase_auth_admin
+4556; 2606 16869 CONSTRAINT auth saml_providers saml_providers_entity_id_key supabase_auth_admin
+4558; 2606 16867 CONSTRAINT auth saml_providers saml_providers_pkey supabase_auth_admin
+4563; 2606 16883 CONSTRAINT auth saml_relay_states saml_relay_states_pkey supabase_auth_admin
+4501; 2606 16537 CONSTRAINT auth schema_migrations schema_migrations_pkey supabase_auth_admin
+4529; 2606 16761 CONSTRAINT auth sessions sessions_pkey supabase_auth_admin
+4553; 2606 16850 CONSTRAINT auth sso_domains sso_domains_pkey supabase_auth_admin
+4548; 2606 16841 CONSTRAINT auth sso_providers sso_providers_pkey supabase_auth_admin
+4483; 2606 16923 CONSTRAINT auth users users_phone_key supabase_auth_admin
+4485; 2606 16501 CONSTRAINT auth users users_pkey supabase_auth_admin
+4749; 2606 29300 CONSTRAINT public AIAuditLog AIAuditLog_pkey postgres
+4741; 2606 29268 CONSTRAINT public AIConversation AIConversation_pkey postgres
+4745; 2606 29281 CONSTRAINT public AIMessage AIMessage_pkey postgres
+4757; 2606 29335 CONSTRAINT public AIPendingToolCall AIPendingToolCall_pkey postgres
+4753; 2606 29322 CONSTRAINT public AIUsageStat AIUsageStat_pkey postgres
+4619; 2606 28895 CONSTRAINT public BackgroundJobEvent BackgroundJobEvent_pkey postgres
+4613; 2606 28897 CONSTRAINT public BackgroundJob BackgroundJob_pkey postgres
+4794; 2606 113168 CONSTRAINT public ClientSession ClientSession_pkey postgres
+4626; 2606 28899 CONSTRAINT public Client Client_pkey postgres
+4631; 2606 28901 CONSTRAINT public CompanySettings CompanySettings_pkey postgres
+4789; 2606 111146 CONSTRAINT public ContactMessage ContactMessage_pkey postgres
+4634; 2606 28903 CONSTRAINT public EmailLog EmailLog_pkey postgres
+4645; 2606 28905 CONSTRAINT public InvoiceAuditLog InvoiceAuditLog_pkey postgres
+4648; 2606 28907 CONSTRAINT public InvoiceLine InvoiceLine_pkey postgres
+4637; 2606 28909 CONSTRAINT public Invoice Invoice_pkey postgres
+4650; 2606 28911 CONSTRAINT public MessagingAutoReplyLog MessagingAutoReplyLog_pkey postgres
+4660; 2606 28913 CONSTRAINT public MessagingEmailEvent MessagingEmailEvent_pkey postgres
+4667; 2606 28915 CONSTRAINT public MessagingEmailLinkRecipient MessagingEmailLinkRecipient_pkey postgres
+4664; 2606 28917 CONSTRAINT public MessagingEmailLink MessagingEmailLink_pkey postgres
+4673; 2606 28919 CONSTRAINT public MessagingEmailRecipient MessagingEmailRecipient_pkey postgres
+4654; 2606 28921 CONSTRAINT public MessagingEmail MessagingEmail_pkey postgres
+4675; 2606 28923 CONSTRAINT public MessagingInboxSyncState MessagingInboxSyncState_pkey postgres
+4677; 2606 28925 CONSTRAINT public MessagingSavedResponse MessagingSavedResponse_pkey postgres
+4681; 2606 28927 CONSTRAINT public MessagingScheduledAttachment MessagingScheduledAttachment_pkey postgres
+4684; 2606 28929 CONSTRAINT public MessagingScheduledEmail MessagingScheduledEmail_pkey postgres
+4688; 2606 28931 CONSTRAINT public MessagingSettings MessagingSettings_pkey postgres
+4691; 2606 28933 CONSTRAINT public NumberingSequence NumberingSequence_pkey postgres
+4776; 2606 100234 CONSTRAINT public OrderItem OrderItem_pkey postgres
+4779; 2606 100244 CONSTRAINT public OrderPayment OrderPayment_pkey postgres
+4769; 2606 100226 CONSTRAINT public Order Order_pkey postgres
+4695; 2606 28935 CONSTRAINT public Payment Payment_pkey postgres
+4698; 2606 28937 CONSTRAINT public PdfTemplate PdfTemplate_pkey postgres
+4703; 2606 28939 CONSTRAINT public Product Product_pkey postgres
+4717; 2606 28941 CONSTRAINT public QuoteLine QuoteLine_pkey postgres
+4786; 2606 100261 CONSTRAINT public QuoteRequestAttachment QuoteRequestAttachment_pkey postgres
+4782; 2606 100253 CONSTRAINT public QuoteRequest QuoteRequest_pkey postgres
+4709; 2606 28943 CONSTRAINT public Quote Quote_pkey postgres
+4719; 2606 28945 CONSTRAINT public Session Session_pkey postgres
+4722; 2606 28947 CONSTRAINT public SpamDetectionLog SpamDetectionLog_pkey postgres
+4725; 2606 28949 CONSTRAINT public SpamSenderReputation SpamSenderReputation_pkey postgres
+4730; 2606 28951 CONSTRAINT public User User_pkey postgres
+4734; 2606 28953 CONSTRAINT public WebsiteConfig WebsiteConfig_pkey postgres
+4931; 2606 118453 CONSTRAINT public WishlistItem WishlistItem_pkey postgres
+4739; 2606 28955 CONSTRAINT public _prisma_migrations _prisma_migrations_pkey postgres
+4611; 2606 17448 CONSTRAINT realtime messages messages_pkey supabase_realtime_admin
+4607; 2606 17297 CONSTRAINT realtime subscription pk_subscription supabase_admin
+4593; 2606 17146 CONSTRAINT realtime schema_migrations schema_migrations_pkey supabase_admin
+4909; 2606 118293 CONSTRAINT shadow AIAuditLog AIAuditLog_pkey postgres
+4901; 2606 118276 CONSTRAINT shadow AIConversation AIConversation_pkey postgres
+4905; 2606 118284 CONSTRAINT shadow AIMessage AIMessage_pkey postgres
+4917; 2606 118313 CONSTRAINT shadow AIPendingToolCall AIPendingToolCall_pkey postgres
+4913; 2606 118305 CONSTRAINT shadow AIUsageStat AIUsageStat_pkey postgres
+4928; 2606 118422 CONSTRAINT shadow BackgroundJobEvent BackgroundJobEvent_pkey postgres
+4922; 2606 118414 CONSTRAINT shadow BackgroundJob BackgroundJob_pkey postgres
+4861; 2606 117924 CONSTRAINT shadow Client Client_pkey postgres
+4803; 2606 117766 CONSTRAINT shadow CompanySettings CompanySettings_pkey postgres
+4898; 2606 118010 CONSTRAINT shadow EmailLog EmailLog_pkey postgres
+4891; 2606 117992 CONSTRAINT shadow InvoiceAuditLog InvoiceAuditLog_pkey postgres
+4886; 2606 117976 CONSTRAINT shadow InvoiceLine InvoiceLine_pkey postgres
+4878; 2606 117968 CONSTRAINT shadow Invoice Invoice_pkey postgres
+4820; 2606 117819 CONSTRAINT shadow MessagingAutoReplyLog MessagingAutoReplyLog_pkey postgres
+4849; 2606 117881 CONSTRAINT shadow MessagingEmailEvent MessagingEmailEvent_pkey postgres
+4843; 2606 117872 CONSTRAINT shadow MessagingEmailLinkRecipient MessagingEmailLinkRecipient_pkey postgres
+4840; 2606 117863 CONSTRAINT shadow MessagingEmailLink MessagingEmailLink_pkey postgres
+4837; 2606 117855 CONSTRAINT shadow MessagingEmailRecipient MessagingEmailRecipient_pkey postgres
+4831; 2606 117845 CONSTRAINT shadow MessagingEmail MessagingEmail_pkey postgres
+4920; 2606 118400 CONSTRAINT shadow MessagingInboxSyncState MessagingInboxSyncState_pkey postgres
+4816; 2606 117810 CONSTRAINT shadow MessagingSavedResponse MessagingSavedResponse_pkey postgres
+4828; 2606 117836 CONSTRAINT shadow MessagingScheduledAttachment MessagingScheduledAttachment_pkey postgres
+4824; 2606 117828 CONSTRAINT shadow MessagingScheduledEmail MessagingScheduledEmail_pkey postgres
+4813; 2606 117800 CONSTRAINT shadow MessagingSettings MessagingSettings_pkey postgres
+4894; 2606 118001 CONSTRAINT shadow NumberingSequence NumberingSequence_pkey postgres
+4888; 2606 117984 CONSTRAINT shadow Payment Payment_pkey postgres
+4859; 2606 117914 CONSTRAINT shadow PdfTemplate PdfTemplate_pkey postgres
+4864; 2606 117935 CONSTRAINT shadow Product Product_pkey postgres
+4876; 2606 117955 CONSTRAINT shadow QuoteLine QuoteLine_pkey postgres
+4868; 2606 117947 CONSTRAINT shadow Quote Quote_pkey postgres
+4800; 2606 117751 CONSTRAINT shadow Session Session_pkey postgres
+4852; 2606 117894 CONSTRAINT shadow SpamDetectionLog SpamDetectionLog_pkey postgres
+4855; 2606 117906 CONSTRAINT shadow SpamSenderReputation SpamSenderReputation_pkey postgres
+4798; 2606 117743 CONSTRAINT shadow User User_pkey postgres
+4808; 2606 117786 CONSTRAINT shadow WebsiteConfig WebsiteConfig_pkey postgres
+4603; 2606 100108 CONSTRAINT storage buckets_analytics buckets_analytics_pkey supabase_storage_admin
+4504; 2606 16554 CONSTRAINT storage buckets buckets_pkey supabase_storage_admin
+4763; 2606 100084 CONSTRAINT storage buckets_vectors buckets_vectors_pkey supabase_storage_admin
+4514; 2606 16595 CONSTRAINT storage migrations migrations_name_key supabase_storage_admin
+4516; 2606 16593 CONSTRAINT storage migrations migrations_pkey supabase_storage_admin
+4512; 2606 16571 CONSTRAINT storage objects objects_pkey supabase_storage_admin
+4601; 2606 17211 CONSTRAINT storage prefixes prefixes_pkey supabase_storage_admin
+4598; 2606 17172 CONSTRAINT storage s3_multipart_uploads_parts s3_multipart_uploads_parts_pkey supabase_storage_admin
+4596; 2606 17157 CONSTRAINT storage s3_multipart_uploads s3_multipart_uploads_pkey supabase_storage_admin
+4766; 2606 100094 CONSTRAINT storage vector_indexes vector_indexes_pkey supabase_storage_admin
+4499; 1259 16532 INDEX auth audit_logs_instance_id_idx supabase_auth_admin
+4473; 1259 16750 INDEX auth confirmation_token_idx supabase_auth_admin
+4935; 1259 142866 INDEX auth custom_oauth_providers_created_at_idx supabase_auth_admin
+4936; 1259 142865 INDEX auth custom_oauth_providers_enabled_idx supabase_auth_admin
+4937; 1259 142863 INDEX auth custom_oauth_providers_identifier_idx supabase_auth_admin
+4942; 1259 142864 INDEX auth custom_oauth_providers_provider_type_idx supabase_auth_admin
+4474; 1259 16752 INDEX auth email_change_token_current_idx supabase_auth_admin
+4475; 1259 16753 INDEX auth email_change_token_new_idx supabase_auth_admin
+4532; 1259 16831 INDEX auth factor_id_created_at_idx supabase_auth_admin
+4565; 1259 16939 INDEX auth flow_state_created_at_idx supabase_auth_admin
+4520; 1259 16919 INDEX auth identities_email_idx supabase_auth_admin
+5432; 0 0 COMMENT auth INDEX identities_email_idx supabase_auth_admin
+4525; 1259 16747 INDEX auth identities_user_id_idx supabase_auth_admin
+4568; 1259 16936 INDEX auth idx_auth_code supabase_auth_admin
+4759; 1259 57186 INDEX auth idx_oauth_client_states_created_at supabase_auth_admin
+4569; 1259 16937 INDEX auth idx_user_id_auth_method supabase_auth_admin
+4540; 1259 16942 INDEX auth mfa_challenge_created_at_idx supabase_auth_admin
+4537; 1259 16803 INDEX auth mfa_factors_user_friendly_name_unique supabase_auth_admin
+4538; 1259 16948 INDEX auth mfa_factors_user_id_idx supabase_auth_admin
+4578; 1259 17073 INDEX auth oauth_auth_pending_exp_idx supabase_auth_admin
+4575; 1259 17026 INDEX auth oauth_clients_deleted_at_idx supabase_auth_admin
+4585; 1259 17099 INDEX auth oauth_consents_active_client_idx supabase_auth_admin
+4586; 1259 17097 INDEX auth oauth_consents_active_user_client_idx supabase_auth_admin
+4591; 1259 17098 INDEX auth oauth_consents_user_order_idx supabase_auth_admin
+4572; 1259 16995 INDEX auth one_time_tokens_relates_to_hash_idx supabase_auth_admin
+4573; 1259 16994 INDEX auth one_time_tokens_token_hash_hash_idx supabase_auth_admin
+4574; 1259 16996 INDEX auth one_time_tokens_user_id_token_type_key supabase_auth_admin
+4476; 1259 16754 INDEX auth reauthentication_token_idx supabase_auth_admin
+4477; 1259 16751 INDEX auth recovery_token_idx supabase_auth_admin
+4486; 1259 16515 INDEX auth refresh_tokens_instance_id_idx supabase_auth_admin
+4487; 1259 16516 INDEX auth refresh_tokens_instance_id_user_id_idx supabase_auth_admin
+4488; 1259 16746 INDEX auth refresh_tokens_parent_idx supabase_auth_admin
+4491; 1259 16833 INDEX auth refresh_tokens_session_id_revoked_idx supabase_auth_admin
+4494; 1259 16938 INDEX auth refresh_tokens_updated_at_idx supabase_auth_admin
+4559; 1259 16875 INDEX auth saml_providers_sso_provider_id_idx supabase_auth_admin
+4560; 1259 16940 INDEX auth saml_relay_states_created_at_idx supabase_auth_admin
+4561; 1259 16890 INDEX auth saml_relay_states_for_email_idx supabase_auth_admin
+4564; 1259 16889 INDEX auth saml_relay_states_sso_provider_id_idx supabase_auth_admin
+4526; 1259 16941 INDEX auth sessions_not_after_idx supabase_auth_admin
+4527; 1259 17111 INDEX auth sessions_oauth_client_id_idx supabase_auth_admin
+4530; 1259 16832 INDEX auth sessions_user_id_idx supabase_auth_admin
+4551; 1259 16857 INDEX auth sso_domains_domain_idx supabase_auth_admin
+4554; 1259 16856 INDEX auth sso_domains_sso_provider_id_idx supabase_auth_admin
+4549; 1259 16842 INDEX auth sso_providers_resource_id_idx supabase_auth_admin
+4550; 1259 17004 INDEX auth sso_providers_resource_id_pattern_idx supabase_auth_admin
+4539; 1259 17001 INDEX auth unique_phone_factor_per_user supabase_auth_admin
+4531; 1259 16830 INDEX auth user_id_created_at_idx supabase_auth_admin
+4478; 1259 16910 INDEX auth users_email_partial_key supabase_auth_admin
+5433; 0 0 COMMENT auth INDEX users_email_partial_key supabase_auth_admin
+4479; 1259 16748 INDEX auth users_instance_id_email_idx supabase_auth_admin
+4480; 1259 16505 INDEX auth users_instance_id_idx supabase_auth_admin
+4481; 1259 16965 INDEX auth users_is_anonymous_idx supabase_auth_admin
+4747; 1259 29350 INDEX public AIAuditLog_conversationId_idx postgres
+4750; 1259 29349 INDEX public AIAuditLog_userId_createdAt_idx postgres
+4742; 1259 29346 INDEX public AIConversation_user_status_lastActivity_idx postgres
+4743; 1259 29347 INDEX public AIMessage_conversationId_createdAt_idx postgres
+4746; 1259 29348 INDEX public AIMessage_userId_role_createdAt_idx postgres
+4755; 1259 29354 INDEX public AIPendingToolCall_conversationId_idx postgres
+4758; 1259 29353 INDEX public AIPendingToolCall_userId_createdAt_idx postgres
+4751; 1259 29352 INDEX public AIUsageStat_periodKey_idx postgres
+4754; 1259 29351 INDEX public AIUsageStat_userId_periodKey_key postgres
+4617; 1259 28956 INDEX public BackgroundJobEvent_jobId_createdAt_idx postgres
+4614; 1259 28957 INDEX public BackgroundJob_runAt_idx postgres
+4615; 1259 28958 INDEX public BackgroundJob_status_runAt_idx postgres
+4616; 1259 28959 INDEX public BackgroundJob_type_dedupeKey_key postgres
+4792; 1259 113170 INDEX public ClientSession_clientId_idx postgres
+4795; 1259 113169 INDEX public ClientSession_tokenHash_key postgres
+4620; 1259 111165 INDEX public Client_authUserId_idx postgres
+4621; 1259 28960 INDEX public Client_companyName_trgm_idx postgres
+4622; 1259 28961 INDEX public Client_displayName_trgm_idx postgres
+4623; 1259 28962 INDEX public Client_email_trgm_idx postgres
+4624; 1259 28963 INDEX public Client_phone_trgm_idx postgres
+4627; 1259 111164 INDEX public Client_userId_authUserId_key postgres
+4628; 1259 28964 INDEX public Client_userId_displayName_idx postgres
+4629; 1259 28965 INDEX public Client_vatNumber_trgm_idx postgres
+4632; 1259 28966 INDEX public CompanySettings_userId_key postgres
+4790; 1259 111147 INDEX public ContactMessage_userId_createdAt_idx postgres
+4791; 1259 111148 INDEX public ContactMessage_websiteId_createdAt_idx postgres
+4635; 1259 28967 INDEX public EmailLog_userId_documentType_idx postgres
+4646; 1259 28968 INDEX public InvoiceAuditLog_userId_invoiceId_idx postgres
+4638; 1259 28969 INDEX public Invoice_quoteId_key postgres
+4639; 1259 28970 INDEX public Invoice_userId_clientId_issueDate_idx postgres
+4640; 1259 28971 INDEX public Invoice_userId_dueDate_idx postgres
+4641; 1259 28972 INDEX public Invoice_userId_issueDate_idx postgres
+4642; 1259 28973 INDEX public Invoice_userId_number_key postgres
+4643; 1259 28974 INDEX public Invoice_userId_status_issueDate_idx postgres
+4651; 1259 28975 INDEX public MessagingAutoReplyLog_userId_senderEmail_idx postgres
+4652; 1259 28976 INDEX public MessagingAutoReplyLog_userId_sentAt_idx postgres
+4657; 1259 28977 INDEX public MessagingEmailEvent_emailId_occurredAt_idx postgres
+4658; 1259 28978 INDEX public MessagingEmailEvent_linkRecipientId_idx postgres
+4661; 1259 28979 INDEX public MessagingEmailEvent_recipientId_idx postgres
+4665; 1259 28980 INDEX public MessagingEmailLinkRecipient_linkId_idx postgres
+4668; 1259 28981 INDEX public MessagingEmailLinkRecipient_recipientId_idx postgres
+4669; 1259 28982 INDEX public MessagingEmailLinkRecipient_token_key postgres
+4662; 1259 28983 INDEX public MessagingEmailLink_emailId_idx postgres
+4670; 1259 28984 INDEX public MessagingEmailRecipient_emailId_address_idx postgres
+4671; 1259 28985 INDEX public MessagingEmailRecipient_openToken_key postgres
+4655; 1259 28986 INDEX public MessagingEmail_userId_messageId_key postgres
+4656; 1259 28987 INDEX public MessagingEmail_userId_sentAt_idx postgres
+4678; 1259 28988 INDEX public MessagingSavedResponse_userId_slug_key postgres
+4679; 1259 28989 INDEX public MessagingSavedResponse_userId_title_idx postgres
+4682; 1259 28990 INDEX public MessagingScheduledAttachment_scheduledEmailId_idx postgres
+4685; 1259 28991 INDEX public MessagingScheduledEmail_status_sendAt_idx postgres
+4686; 1259 28992 INDEX public MessagingScheduledEmail_userId_status_sendAt_idx postgres
+4689; 1259 28993 INDEX public MessagingSettings_userId_key postgres
+4692; 1259 28994 INDEX public NumberingSequence_userId_idx postgres
+4693; 1259 28995 INDEX public NumberingSequence_userId_type_year_key postgres
+4774; 1259 100267 INDEX public OrderItem_orderId_idx postgres
+4777; 1259 100269 INDEX public OrderPayment_orderId_idx postgres
+4780; 1259 100268 INDEX public OrderPayment_userId_status_idx postgres
+4767; 1259 100264 INDEX public Order_invoiceId_key postgres
+4770; 1259 100263 INDEX public Order_quoteId_key postgres
+4771; 1259 100266 INDEX public Order_userId_orderNumber_idx postgres
+4772; 1259 100262 INDEX public Order_userId_orderNumber_key postgres
+4773; 1259 100265 INDEX public Order_userId_status_createdAt_idx postgres
+4696; 1259 28996 INDEX public Payment_userId_idx postgres
+4699; 1259 28997 INDEX public Product_category_trgm_idx postgres
+4700; 1259 28998 INDEX public Product_description_trgm_idx postgres
+4701; 1259 28999 INDEX public Product_name_trgm_idx postgres
+4704; 1259 29000 INDEX public Product_sku_trgm_idx postgres
+4705; 1259 29001 INDEX public Product_userId_name_idx postgres
+4706; 1259 100179 INDEX public Product_userId_publicSlug_key postgres
+4707; 1259 29002 INDEX public Product_userId_sku_key postgres
+4787; 1259 100272 INDEX public QuoteRequestAttachment_quoteRequestId_idx postgres
+4783; 1259 100271 INDEX public QuoteRequest_quoteId_key postgres
+4784; 1259 100270 INDEX public QuoteRequest_userId_status_createdAt_idx postgres
+4710; 1259 29003 INDEX public Quote_userId_clientId_idx postgres
+4711; 1259 29004 INDEX public Quote_userId_issueDate_id_idx postgres
+4712; 1259 29005 INDEX public Quote_userId_number_idx postgres
+4713; 1259 29006 INDEX public Quote_userId_number_key postgres
+4714; 1259 29007 INDEX public Quote_userId_reference_idx postgres
+4715; 1259 29008 INDEX public Quote_userId_status_idx postgres
+4720; 1259 29009 INDEX public Session_tokenHash_key postgres
+4723; 1259 29010 INDEX public SpamDetectionLog_userId_mailbox_idx postgres
+4726; 1259 29011 INDEX public SpamSenderReputation_userId_domain_key postgres
+4727; 1259 29012 INDEX public SpamSenderReputation_userId_idx postgres
+4728; 1259 29013 INDEX public User_email_key postgres
+4731; 1259 29014 INDEX public WebsiteConfig_customDomain_key postgres
+4732; 1259 29015 INDEX public WebsiteConfig_domainVerificationCode_key postgres
+4735; 1259 29016 INDEX public WebsiteConfig_previewToken_key postgres
+4736; 1259 29017 INDEX public WebsiteConfig_slug_key postgres
+4737; 1259 29018 INDEX public WebsiteConfig_userId_key postgres
+4929; 1259 118455 INDEX public WishlistItem_clientId_idx postgres
+4932; 1259 118457 INDEX public WishlistItem_productId_idx postgres
+4933; 1259 118454 INDEX public WishlistItem_userId_clientId_productId_key postgres
+4934; 1259 118456 INDEX public WishlistItem_userId_idx postgres
+4605; 1259 17449 INDEX realtime ix_realtime_subscription_entity supabase_admin
+4609; 1259 17450 INDEX realtime messages_inserted_at_topic_index supabase_realtime_admin
+4608; 1259 17350 INDEX realtime subscription_subscription_id_entity_filters_key supabase_admin
+4907; 1259 118318 INDEX shadow AIAuditLog_conversationId_idx postgres
+4910; 1259 118317 INDEX shadow AIAuditLog_userId_createdAt_idx postgres
+4902; 1259 118314 INDEX shadow AIConversation_user_status_lastActivity_idx postgres
+4903; 1259 118315 INDEX shadow AIMessage_conversationId_createdAt_idx postgres
+4906; 1259 118316 INDEX shadow AIMessage_userId_role_createdAt_idx postgres
+4915; 1259 118322 INDEX shadow AIPendingToolCall_conversationId_idx postgres
+4918; 1259 118321 INDEX shadow AIPendingToolCall_userId_createdAt_idx postgres
+4911; 1259 118320 INDEX shadow AIUsageStat_periodKey_idx postgres
+4914; 1259 118319 INDEX shadow AIUsageStat_userId_periodKey_key postgres
+4926; 1259 118426 INDEX shadow BackgroundJobEvent_jobId_createdAt_idx postgres
+4923; 1259 118424 INDEX shadow BackgroundJob_runAt_idx postgres
+4924; 1259 118423 INDEX shadow BackgroundJob_status_runAt_idx postgres
+4925; 1259 118425 INDEX shadow BackgroundJob_type_dedupeKey_key postgres
+4862; 1259 118041 INDEX shadow Client_userId_displayName_idx postgres
+4804; 1259 118013 INDEX shadow CompanySettings_userId_key postgres
+4899; 1259 118055 INDEX shadow EmailLog_userId_documentType_idx postgres
+4892; 1259 118052 INDEX shadow InvoiceAuditLog_userId_invoiceId_idx postgres
+4879; 1259 118047 INDEX shadow Invoice_quoteId_key postgres
+4880; 1259 118365 INDEX shadow Invoice_userId_clientId_issueDate_idx postgres
+4881; 1259 118366 INDEX shadow Invoice_userId_dueDate_idx postgres
+4882; 1259 118363 INDEX shadow Invoice_userId_issueDate_idx postgres
+4883; 1259 118050 INDEX shadow Invoice_userId_number_key postgres
+4884; 1259 118364 INDEX shadow Invoice_userId_status_issueDate_idx postgres
+4821; 1259 118022 INDEX shadow MessagingAutoReplyLog_userId_senderEmail_idx postgres
+4822; 1259 118023 INDEX shadow MessagingAutoReplyLog_userId_sentAt_idx postgres
+4846; 1259 118035 INDEX shadow MessagingEmailEvent_emailId_occurredAt_idx postgres
+4847; 1259 118037 INDEX shadow MessagingEmailEvent_linkRecipientId_idx postgres
+4850; 1259 118036 INDEX shadow MessagingEmailEvent_recipientId_idx postgres
+4841; 1259 118033 INDEX shadow MessagingEmailLinkRecipient_linkId_idx postgres
+4844; 1259 118034 INDEX shadow MessagingEmailLinkRecipient_recipientId_idx postgres
+4845; 1259 118032 INDEX shadow MessagingEmailLinkRecipient_token_key postgres
+4838; 1259 118031 INDEX shadow MessagingEmailLink_emailId_idx postgres
+4834; 1259 118030 INDEX shadow MessagingEmailRecipient_emailId_address_idx postgres
+4835; 1259 118029 INDEX shadow MessagingEmailRecipient_openToken_key postgres
+4832; 1259 118028 INDEX shadow MessagingEmail_userId_messageId_key postgres
+4833; 1259 118027 INDEX shadow MessagingEmail_userId_sentAt_idx postgres
+4817; 1259 118021 INDEX shadow MessagingSavedResponse_userId_slug_key postgres
+4818; 1259 118020 INDEX shadow MessagingSavedResponse_userId_title_idx postgres
+4829; 1259 118026 INDEX shadow MessagingScheduledAttachment_scheduledEmailId_idx postgres
+4825; 1259 118025 INDEX shadow MessagingScheduledEmail_status_sendAt_idx postgres
+4826; 1259 118024 INDEX shadow MessagingScheduledEmail_userId_status_sendAt_idx postgres
+4814; 1259 118019 INDEX shadow MessagingSettings_userId_key postgres
+4895; 1259 118053 INDEX shadow NumberingSequence_userId_idx postgres
+4896; 1259 118054 INDEX shadow NumberingSequence_userId_type_year_key postgres
+4889; 1259 118051 INDEX shadow Payment_userId_idx postgres
+4865; 1259 118042 INDEX shadow Product_userId_name_idx postgres
+4866; 1259 118043 INDEX shadow Product_userId_sku_key postgres
+4869; 1259 118045 INDEX shadow Quote_userId_clientId_idx postgres
+4870; 1259 118241 INDEX shadow Quote_userId_issueDate_id_idx postgres
+4871; 1259 118242 INDEX shadow Quote_userId_number_idx postgres
+4872; 1259 118046 INDEX shadow Quote_userId_number_key postgres
+4873; 1259 118243 INDEX shadow Quote_userId_reference_idx postgres
+4874; 1259 118044 INDEX shadow Quote_userId_status_idx postgres
+4801; 1259 118012 INDEX shadow Session_tokenHash_key postgres
+4853; 1259 118038 INDEX shadow SpamDetectionLog_userId_mailbox_idx postgres
+4856; 1259 118040 INDEX shadow SpamSenderReputation_userId_domain_key postgres
+4857; 1259 118039 INDEX shadow SpamSenderReputation_userId_idx postgres
+4796; 1259 118011 INDEX shadow User_email_key postgres
+4805; 1259 118017 INDEX shadow WebsiteConfig_customDomain_key postgres
+4806; 1259 118018 INDEX shadow WebsiteConfig_domainVerificationCode_key postgres
+4809; 1259 118016 INDEX shadow WebsiteConfig_previewToken_key postgres
+4810; 1259 118015 INDEX shadow WebsiteConfig_slug_key postgres
+4811; 1259 118014 INDEX shadow WebsiteConfig_userId_key postgres
+4502; 1259 16560 INDEX storage bname supabase_storage_admin
+4505; 1259 16582 INDEX storage bucketid_objname supabase_storage_admin
+4604; 1259 100109 INDEX storage buckets_analytics_unique_name_idx supabase_storage_admin
+4594; 1259 17183 INDEX storage idx_multipart_uploads_list supabase_storage_admin
+4506; 1259 17229 INDEX storage idx_name_bucket_level_unique supabase_storage_admin
+4507; 1259 17148 INDEX storage idx_objects_bucket_id_name supabase_storage_admin
+4508; 1259 17231 INDEX storage idx_objects_lower_name supabase_storage_admin
+4599; 1259 17232 INDEX storage idx_prefixes_lower_name supabase_storage_admin
+4509; 1259 16583 INDEX storage name_prefix_search supabase_storage_admin
+4510; 1259 17230 INDEX storage objects_bucket_id_level_idx supabase_storage_admin
+4764; 1259 100100 INDEX storage vector_indexes_name_bucket_id_idx supabase_storage_admin
+5084; 2620 17302 TRIGGER realtime subscription tr_check_filters supabase_admin
+5077; 2620 17239 TRIGGER storage buckets enforce_bucket_name_length_trigger supabase_storage_admin
+5078; 2620 17269 TRIGGER storage objects objects_delete_delete_prefix supabase_storage_admin
+5079; 2620 17225 TRIGGER storage objects objects_insert_create_prefix supabase_storage_admin
+5080; 2620 17268 TRIGGER storage objects objects_update_create_prefix supabase_storage_admin
+5082; 2620 17235 TRIGGER storage prefixes prefixes_create_hierarchy supabase_storage_admin
+5083; 2620 17270 TRIGGER storage prefixes prefixes_delete_hierarchy supabase_storage_admin
+5081; 2620 17131 TRIGGER storage objects update_objects_updated_at supabase_storage_admin
+4945; 2606 16734 FK CONSTRAINT auth identities identities_user_id_fkey supabase_auth_admin
+4950; 2606 16823 FK CONSTRAINT auth mfa_amr_claims mfa_amr_claims_session_id_fkey supabase_auth_admin
+4949; 2606 16811 FK CONSTRAINT auth mfa_challenges mfa_challenges_auth_factor_id_fkey supabase_auth_admin
+4948; 2606 16798 FK CONSTRAINT auth mfa_factors mfa_factors_user_id_fkey supabase_auth_admin
+4956; 2606 17063 FK CONSTRAINT auth oauth_authorizations oauth_authorizations_client_id_fkey supabase_auth_admin
+4957; 2606 17068 FK CONSTRAINT auth oauth_authorizations oauth_authorizations_user_id_fkey supabase_auth_admin
+4958; 2606 17092 FK CONSTRAINT auth oauth_consents oauth_consents_client_id_fkey supabase_auth_admin
+4959; 2606 17087 FK CONSTRAINT auth oauth_consents oauth_consents_user_id_fkey supabase_auth_admin
+4955; 2606 16989 FK CONSTRAINT auth one_time_tokens one_time_tokens_user_id_fkey supabase_auth_admin
+4943; 2606 16767 FK CONSTRAINT auth refresh_tokens refresh_tokens_session_id_fkey supabase_auth_admin
+4952; 2606 16870 FK CONSTRAINT auth saml_providers saml_providers_sso_provider_id_fkey supabase_auth_admin
+4953; 2606 16943 FK CONSTRAINT auth saml_relay_states saml_relay_states_flow_state_id_fkey supabase_auth_admin
+4954; 2606 16884 FK CONSTRAINT auth saml_relay_states saml_relay_states_sso_provider_id_fkey supabase_auth_admin
+4946; 2606 17106 FK CONSTRAINT auth sessions sessions_oauth_client_id_fkey supabase_auth_admin
+4947; 2606 16762 FK CONSTRAINT auth sessions sessions_user_id_fkey supabase_auth_admin
+4951; 2606 16851 FK CONSTRAINT auth sso_domains sso_domains_sso_provider_id_fkey supabase_auth_admin
+5006; 2606 29306 FK CONSTRAINT public AIAuditLog AIAuditLog_conversationId_fkey postgres
+5007; 2606 29301 FK CONSTRAINT public AIAuditLog AIAuditLog_userId_fkey postgres
+5003; 2606 29269 FK CONSTRAINT public AIConversation AIConversation_userId_fkey postgres
+5004; 2606 29282 FK CONSTRAINT public AIMessage AIMessage_conversationId_fkey postgres
+5005; 2606 29287 FK CONSTRAINT public AIMessage AIMessage_userId_fkey postgres
+5009; 2606 29341 FK CONSTRAINT public AIPendingToolCall AIPendingToolCall_conversationId_fkey postgres
+5010; 2606 29336 FK CONSTRAINT public AIPendingToolCall AIPendingToolCall_userId_fkey postgres
+5008; 2606 29323 FK CONSTRAINT public AIUsageStat AIUsageStat_userId_fkey postgres
+4964; 2606 29019 FK CONSTRAINT public BackgroundJobEvent BackgroundJobEvent_jobId_fkey postgres
+5027; 2606 113171 FK CONSTRAINT public ClientSession ClientSession_clientId_fkey postgres
+4965; 2606 29024 FK CONSTRAINT public Client Client_userId_fkey postgres
+4966; 2606 29029 FK CONSTRAINT public CompanySettings CompanySettings_invoiceTemplateId_fkey postgres
+4967; 2606 29034 FK CONSTRAINT public CompanySettings CompanySettings_quoteTemplateId_fkey postgres
+4968; 2606 29039 FK CONSTRAINT public CompanySettings CompanySettings_userId_fkey postgres
+5025; 2606 111149 FK CONSTRAINT public ContactMessage ContactMessage_userId_fkey postgres
+5026; 2606 111154 FK CONSTRAINT public ContactMessage ContactMessage_websiteId_fkey postgres
+4969; 2606 29044 FK CONSTRAINT public EmailLog EmailLog_userId_fkey postgres
+4973; 2606 29049 FK CONSTRAINT public InvoiceAuditLog InvoiceAuditLog_userId_fkey postgres
+4974; 2606 29054 FK CONSTRAINT public InvoiceLine InvoiceLine_invoiceId_fkey postgres
+4975; 2606 29059 FK CONSTRAINT public InvoiceLine InvoiceLine_productId_fkey postgres
+4970; 2606 29064 FK CONSTRAINT public Invoice Invoice_clientId_fkey postgres
+4971; 2606 29069 FK CONSTRAINT public Invoice Invoice_quoteId_fkey postgres
+4972; 2606 29074 FK CONSTRAINT public Invoice Invoice_userId_fkey postgres
+4976; 2606 29079 FK CONSTRAINT public MessagingAutoReplyLog MessagingAutoReplyLog_userId_fkey postgres
+4978; 2606 29084 FK CONSTRAINT public MessagingEmailEvent MessagingEmailEvent_emailId_fkey postgres
+4979; 2606 29089 FK CONSTRAINT public MessagingEmailEvent MessagingEmailEvent_linkId_fkey postgres
+4980; 2606 29094 FK CONSTRAINT public MessagingEmailEvent MessagingEmailEvent_linkRecipientId_fkey postgres
+4981; 2606 29099 FK CONSTRAINT public MessagingEmailEvent MessagingEmailEvent_recipientId_fkey postgres
+4983; 2606 29104 FK CONSTRAINT public MessagingEmailLinkRecipient MessagingEmailLinkRecipient_linkId_fkey postgres
+4984; 2606 29109 FK CONSTRAINT public MessagingEmailLinkRecipient MessagingEmailLinkRecipient_recipientId_fkey postgres
+4982; 2606 29114 FK CONSTRAINT public MessagingEmailLink MessagingEmailLink_emailId_fkey postgres
+4985; 2606 29119 FK CONSTRAINT public MessagingEmailRecipient MessagingEmailRecipient_emailId_fkey postgres
+4977; 2606 29124 FK CONSTRAINT public MessagingEmail MessagingEmail_userId_fkey postgres
+4986; 2606 29129 FK CONSTRAINT public MessagingInboxSyncState MessagingInboxSyncState_userId_fkey postgres
+4987; 2606 29134 FK CONSTRAINT public MessagingSavedResponse MessagingSavedResponse_userId_fkey postgres
+4988; 2606 29139 FK CONSTRAINT public MessagingScheduledAttachment MessagingScheduledAttachment_scheduledEmailId_fkey postgres
+4989; 2606 29144 FK CONSTRAINT public MessagingScheduledEmail MessagingScheduledEmail_userId_fkey postgres
+4990; 2606 29149 FK CONSTRAINT public MessagingSettings MessagingSettings_userId_fkey postgres
+4991; 2606 29154 FK CONSTRAINT public NumberingSequence NumberingSequence_userId_fkey postgres
+5016; 2606 100293 FK CONSTRAINT public OrderItem OrderItem_orderId_fkey postgres
+5017; 2606 100298 FK CONSTRAINT public OrderItem OrderItem_productId_fkey postgres
+5018; 2606 100303 FK CONSTRAINT public OrderPayment OrderPayment_orderId_fkey postgres
+5019; 2606 100308 FK CONSTRAINT public OrderPayment OrderPayment_userId_fkey postgres
+5012; 2606 100278 FK CONSTRAINT public Order Order_clientId_fkey postgres
+5013; 2606 100288 FK CONSTRAINT public Order Order_invoiceId_fkey postgres
+5014; 2606 100283 FK CONSTRAINT public Order Order_quoteId_fkey postgres
+5015; 2606 100273 FK CONSTRAINT public Order Order_userId_fkey postgres
+4992; 2606 29159 FK CONSTRAINT public Payment Payment_invoiceId_fkey postgres
+4993; 2606 29164 FK CONSTRAINT public Payment Payment_userId_fkey postgres
+4994; 2606 29169 FK CONSTRAINT public Product Product_userId_fkey postgres
+4997; 2606 29174 FK CONSTRAINT public QuoteLine QuoteLine_productId_fkey postgres
+4998; 2606 29179 FK CONSTRAINT public QuoteLine QuoteLine_quoteId_fkey postgres
+5024; 2606 100333 FK CONSTRAINT public QuoteRequestAttachment QuoteRequestAttachment_quoteRequestId_fkey postgres
+5020; 2606 100318 FK CONSTRAINT public QuoteRequest QuoteRequest_clientId_fkey postgres
+5021; 2606 100323 FK CONSTRAINT public QuoteRequest QuoteRequest_productId_fkey postgres
+5022; 2606 100328 FK CONSTRAINT public QuoteRequest QuoteRequest_quoteId_fkey postgres
+5023; 2606 100313 FK CONSTRAINT public QuoteRequest QuoteRequest_userId_fkey postgres
+4995; 2606 29184 FK CONSTRAINT public Quote Quote_clientId_fkey postgres
+4996; 2606 29189 FK CONSTRAINT public Quote Quote_userId_fkey postgres
+4999; 2606 29194 FK CONSTRAINT public Session Session_userId_fkey postgres
+5000; 2606 29199 FK CONSTRAINT public SpamDetectionLog SpamDetectionLog_userId_fkey postgres
+5001; 2606 29204 FK CONSTRAINT public SpamSenderReputation SpamSenderReputation_userId_fkey postgres
+5002; 2606 29209 FK CONSTRAINT public WebsiteConfig WebsiteConfig_userId_fkey postgres
+5075; 2606 118463 FK CONSTRAINT public WishlistItem WishlistItem_clientId_fkey postgres
+5076; 2606 118458 FK CONSTRAINT public WishlistItem WishlistItem_userId_fkey postgres
+5068; 2606 118343 FK CONSTRAINT shadow AIAuditLog AIAuditLog_conversationId_fkey postgres
+5069; 2606 118338 FK CONSTRAINT shadow AIAuditLog AIAuditLog_userId_fkey postgres
+5065; 2606 118323 FK CONSTRAINT shadow AIConversation AIConversation_userId_fkey postgres
+5066; 2606 118328 FK CONSTRAINT shadow AIMessage AIMessage_conversationId_fkey postgres
+5067; 2606 118333 FK CONSTRAINT shadow AIMessage AIMessage_userId_fkey postgres
+5071; 2606 118358 FK CONSTRAINT shadow AIPendingToolCall AIPendingToolCall_conversationId_fkey postgres
+5072; 2606 118353 FK CONSTRAINT shadow AIPendingToolCall AIPendingToolCall_userId_fkey postgres
+5070; 2606 118348 FK CONSTRAINT shadow AIUsageStat AIUsageStat_userId_fkey postgres
+5074; 2606 118432 FK CONSTRAINT shadow BackgroundJobEvent BackgroundJobEvent_jobId_fkey postgres
+5049; 2606 118161 FK CONSTRAINT shadow Client Client_userId_fkey postgres
+5029; 2606 118066 FK CONSTRAINT shadow CompanySettings CompanySettings_invoiceTemplateId_fkey postgres
+5030; 2606 118071 FK CONSTRAINT shadow CompanySettings CompanySettings_quoteTemplateId_fkey postgres
+5031; 2606 118061 FK CONSTRAINT shadow CompanySettings CompanySettings_userId_fkey postgres
+5064; 2606 118236 FK CONSTRAINT shadow EmailLog EmailLog_userId_fkey postgres
+5062; 2606 118226 FK CONSTRAINT shadow InvoiceAuditLog InvoiceAuditLog_userId_fkey postgres
+5058; 2606 118206 FK CONSTRAINT shadow InvoiceLine InvoiceLine_invoiceId_fkey postgres
+5059; 2606 118211 FK CONSTRAINT shadow InvoiceLine InvoiceLine_productId_fkey postgres
+5055; 2606 118196 FK CONSTRAINT shadow Invoice Invoice_clientId_fkey postgres
+5056; 2606 118201 FK CONSTRAINT shadow Invoice Invoice_quoteId_fkey postgres
+5057; 2606 118191 FK CONSTRAINT shadow Invoice Invoice_userId_fkey postgres
+5035; 2606 118091 FK CONSTRAINT shadow MessagingAutoReplyLog MessagingAutoReplyLog_userId_fkey postgres
+5043; 2606 118131 FK CONSTRAINT shadow MessagingEmailEvent MessagingEmailEvent_emailId_fkey postgres
+5044; 2606 118141 FK CONSTRAINT shadow MessagingEmailEvent MessagingEmailEvent_linkId_fkey postgres
+5045; 2606 118146 FK CONSTRAINT shadow MessagingEmailEvent MessagingEmailEvent_linkRecipientId_fkey postgres
+5046; 2606 118136 FK CONSTRAINT shadow MessagingEmailEvent MessagingEmailEvent_recipientId_fkey postgres
+5041; 2606 118121 FK CONSTRAINT shadow MessagingEmailLinkRecipient MessagingEmailLinkRecipient_linkId_fkey postgres
+5042; 2606 118126 FK CONSTRAINT shadow MessagingEmailLinkRecipient MessagingEmailLinkRecipient_recipientId_fkey postgres
+5040; 2606 118116 FK CONSTRAINT shadow MessagingEmailLink MessagingEmailLink_emailId_fkey postgres
+5039; 2606 118111 FK CONSTRAINT shadow MessagingEmailRecipient MessagingEmailRecipient_emailId_fkey postgres
+5038; 2606 118106 FK CONSTRAINT shadow MessagingEmail MessagingEmail_userId_fkey postgres
+5073; 2606 118427 FK CONSTRAINT shadow MessagingInboxSyncState MessagingInboxSyncState_userId_fkey postgres
+5034; 2606 118086 FK CONSTRAINT shadow MessagingSavedResponse MessagingSavedResponse_userId_fkey postgres
+5037; 2606 118101 FK CONSTRAINT shadow MessagingScheduledAttachment MessagingScheduledAttachment_scheduledEmailId_fkey postgres
+5036; 2606 118096 FK CONSTRAINT shadow MessagingScheduledEmail MessagingScheduledEmail_userId_fkey postgres
+5033; 2606 118081 FK CONSTRAINT shadow MessagingSettings MessagingSettings_userId_fkey postgres
+5063; 2606 118231 FK CONSTRAINT shadow NumberingSequence NumberingSequence_userId_fkey postgres
+5060; 2606 118216 FK CONSTRAINT shadow Payment Payment_invoiceId_fkey postgres
+5061; 2606 118221 FK CONSTRAINT shadow Payment Payment_userId_fkey postgres
+5050; 2606 118166 FK CONSTRAINT shadow Product Product_userId_fkey postgres
+5053; 2606 118186 FK CONSTRAINT shadow QuoteLine QuoteLine_productId_fkey postgres
+5054; 2606 118181 FK CONSTRAINT shadow QuoteLine QuoteLine_quoteId_fkey postgres
+5051; 2606 118176 FK CONSTRAINT shadow Quote Quote_clientId_fkey postgres
+5052; 2606 118171 FK CONSTRAINT shadow Quote Quote_userId_fkey postgres
+5028; 2606 118056 FK CONSTRAINT shadow Session Session_userId_fkey postgres
+5047; 2606 118151 FK CONSTRAINT shadow SpamDetectionLog SpamDetectionLog_userId_fkey postgres
+5048; 2606 118156 FK CONSTRAINT shadow SpamSenderReputation SpamSenderReputation_userId_fkey postgres
+5032; 2606 118076 FK CONSTRAINT shadow WebsiteConfig WebsiteConfig_userId_fkey postgres
+4944; 2606 16572 FK CONSTRAINT storage objects objects_bucketId_fkey supabase_storage_admin
+4963; 2606 17212 FK CONSTRAINT storage prefixes prefixes_bucketId_fkey supabase_storage_admin
+4960; 2606 17158 FK CONSTRAINT storage s3_multipart_uploads s3_multipart_uploads_bucket_id_fkey supabase_storage_admin
+4961; 2606 17178 FK CONSTRAINT storage s3_multipart_uploads_parts s3_multipart_uploads_parts_bucket_id_fkey supabase_storage_admin
+4962; 2606 17173 FK CONSTRAINT storage s3_multipart_uploads_parts s3_multipart_uploads_parts_upload_id_fkey supabase_storage_admin
+5011; 2606 100095 FK CONSTRAINT storage vector_indexes vector_indexes_bucket_id_fkey supabase_storage_admin
+5234; 0 16525 ROW SECURITY auth audit_log_entries supabase_auth_admin
+5248; 0 16929 ROW SECURITY auth flow_state supabase_auth_admin
+5239; 0 16727 ROW SECURITY auth identities supabase_auth_admin
+5233; 0 16518 ROW SECURITY auth instances supabase_auth_admin
+5243; 0 16816 ROW SECURITY auth mfa_amr_claims supabase_auth_admin
+5242; 0 16804 ROW SECURITY auth mfa_challenges supabase_auth_admin
+5241; 0 16791 ROW SECURITY auth mfa_factors supabase_auth_admin
+5249; 0 16979 ROW SECURITY auth one_time_tokens supabase_auth_admin
+5232; 0 16507 ROW SECURITY auth refresh_tokens supabase_auth_admin
+5246; 0 16858 ROW SECURITY auth saml_providers supabase_auth_admin
+5247; 0 16876 ROW SECURITY auth saml_relay_states supabase_auth_admin
+5235; 0 16533 ROW SECURITY auth schema_migrations supabase_auth_admin
+5240; 0 16757 ROW SECURITY auth sessions supabase_auth_admin
+5245; 0 16843 ROW SECURITY auth sso_domains supabase_auth_admin
+5244; 0 16834 ROW SECURITY auth sso_providers supabase_auth_admin
+5231; 0 16495 ROW SECURITY auth users supabase_auth_admin
+5254; 0 17434 ROW SECURITY realtime messages supabase_realtime_admin
+5236; 0 16546 ROW SECURITY storage buckets supabase_storage_admin
+5253; 0 17246 ROW SECURITY storage buckets_analytics supabase_storage_admin
+5255; 0 100075 ROW SECURITY storage buckets_vectors supabase_storage_admin
+5238; 0 16588 ROW SECURITY storage migrations supabase_storage_admin
+5237; 0 16561 ROW SECURITY storage objects supabase_storage_admin
+5252; 0 17202 ROW SECURITY storage prefixes supabase_storage_admin
+5250; 0 17149 ROW SECURITY storage s3_multipart_uploads supabase_storage_admin
+5251; 0 17163 ROW SECURITY storage s3_multipart_uploads_parts supabase_storage_admin
+5256; 0 100085 ROW SECURITY storage vector_indexes supabase_storage_admin
+5257; 6104 16426 PUBLICATION - supabase_realtime postgres

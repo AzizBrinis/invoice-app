@@ -4,7 +4,13 @@ import {
   type Mailbox,
 } from "@/server/messaging";
 
-const SUPPORTED_MAILBOXES = new Set<Mailbox>(["inbox", "sent"]);
+const SUPPORTED_MAILBOXES = new Set<Mailbox>([
+  "inbox",
+  "sent",
+  "drafts",
+  "trash",
+  "spam",
+]);
 
 type RouteParams = {
   mailbox?: string;

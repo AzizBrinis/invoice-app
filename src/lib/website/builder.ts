@@ -1,6 +1,30 @@
 import { z } from "zod";
 import { generateId } from "@/lib/id";
 import { WEBSITE_MEDIA_PLACEHOLDERS } from "@/lib/website/placeholders";
+import {
+  ABOUT_FAST_FACTS,
+  ABOUT_FAST_FACTS_COPY,
+  ABOUT_FOUNDERS,
+  ABOUT_FOUNDERS_COPY,
+  ABOUT_HERO_COPY,
+  ABOUT_HERO_IMAGES,
+  ABOUT_PROMO_COPY,
+  ABOUT_TESTIMONIAL,
+  ABOUT_TESTIMONIALS_COPY,
+  ABOUT_TESTIMONIAL_AVATARS,
+} from "@/components/website/templates/ecommerce-ciseco/data/about";
+import {
+  BLOG_POSTS,
+  CATEGORY_CARDS,
+  CATEGORY_TABS,
+  DEPARTMENTS,
+  DISCOVERY_CARDS,
+  FAVORITE_FILTERS,
+  FEATURE_ITEMS,
+  TESTIMONIALS,
+} from "@/components/website/templates/ecommerce-ciseco/data/home";
+import { HERO_BADGES } from "@/components/website/templates/ecommerce-ciseco/data/navigation";
+import { CISECO_PAGE_DEFINITIONS, type CisecoPageKey } from "@/lib/website/ciseco-pages";
 
 export const BUILDER_SECTION_TYPES = [
   "hero",
@@ -22,6 +46,8 @@ export const BUILDER_SECTION_TYPES = [
 
 export type BuilderSectionType =
   (typeof BUILDER_SECTION_TYPES)[number];
+
+export const BUILDER_SECTION_BUTTON_LIMIT = 6;
 
 export const BUILDER_ANIMATIONS = [
   "none",
@@ -95,6 +121,13 @@ const builderMediaAssetSchema = z.object({
     .default({}),
 });
 
+const builderPageSeoSchema = z.object({
+  title: z.string().max(160).nullable().optional(),
+  description: z.string().max(260).nullable().optional(),
+  keywords: z.string().max(260).nullable().optional(),
+  imageId: z.string().nullable().optional(),
+});
+
 const builderItemSchema = z.object({
   id: z.string().default(() => generateId("item")),
   title: z.string().max(160).nullable().optional(),
@@ -124,8 +157,143 @@ const builderSectionSchema = z.object({
   mediaId: z.string().nullable().optional(),
   secondaryMediaId: z.string().nullable().optional(),
   items: z.array(builderItemSchema).default([]),
-  buttons: z.array(builderButtonSchema).max(3).default([]),
+  buttons: z.array(builderButtonSchema).max(BUILDER_SECTION_BUTTON_LIMIT).default([]),
 });
+
+const builderPageSchema = z.object({
+  sections: z.array(builderSectionSchema).default([]),
+  mediaLibrary: z.array(builderMediaAssetSchema).default([]),
+  seo: builderPageSeoSchema.default({}),
+});
+
+export function sanitizeBuilderPages(
+  input: unknown,
+): Record<string, WebsiteBuilderPageConfig> {
+  const parseJsonValue = (value: unknown) => {
+    if (typeof value !== "string") return value;
+    let current: unknown = value;
+    for (let i = 0; i < 3; i += 1) {
+      if (typeof current !== "string") break;
+      try {
+        current = JSON.parse(current);
+      } catch {
+        return null;
+      }
+    }
+    return current;
+  };
+  const normalizeBoolean = (value: unknown) => {
+    if (typeof value === "boolean") return value;
+    if (typeof value === "string") {
+      const lowered = value.trim().toLowerCase();
+      if (lowered === "true") return true;
+      if (lowered === "false") return false;
+    }
+    return value;
+  };
+  const normalizeArrayValue = (value: unknown) => {
+    const parsed = parseJsonValue(value);
+    if (!Array.isArray(parsed)) return parsed;
+    return parsed.map((entry) => {
+      const normalized = parseJsonValue(entry);
+      return normalized ?? entry;
+    });
+  };
+  const normalizeSectionValue = (value: unknown) => {
+    const resolved = parseJsonValue(value);
+    if (!resolved || typeof resolved !== "object" || Array.isArray(resolved)) {
+      return resolved;
+    }
+    const record = resolved as Record<string, unknown>;
+    const normalizedButtons = normalizeArrayValue(record.buttons);
+    return {
+      ...record,
+      visible: normalizeBoolean(record.visible),
+      items: normalizeArrayValue(record.items),
+      buttons: Array.isArray(normalizedButtons)
+        ? normalizedButtons.slice(0, BUILDER_SECTION_BUTTON_LIMIT)
+        : normalizedButtons,
+    };
+  };
+  const normalizeMediaLibraryValue = (value: unknown) => {
+    const resolved = normalizeArrayValue(value);
+    if (!Array.isArray(resolved)) return resolved;
+    return resolved
+      .map((entry) => {
+        const normalized = parseJsonValue(entry);
+        const parsed = builderMediaAssetSchema.safeParse(
+          normalized ?? entry,
+        );
+        return parsed.success ? parsed.data : null;
+      })
+      .filter((entry): entry is WebsiteBuilderMediaAsset => Boolean(entry));
+  };
+  const parsedInput = parseJsonValue(input);
+  if (!parsedInput || typeof parsedInput !== "object" || Array.isArray(parsedInput)) {
+    return {};
+  }
+  const record = parsedInput as Record<string, unknown>;
+  const normalized: Record<string, WebsiteBuilderPageConfig> = {};
+  for (const [key, entry] of Object.entries(record)) {
+    const resolvedEntry = parseJsonValue(entry);
+    if (Array.isArray(resolvedEntry)) {
+      const parsed = builderPageSchema.safeParse({
+        sections: resolvedEntry.map((section) => normalizeSectionValue(section)),
+        mediaLibrary: [],
+        seo: {},
+      });
+      if (parsed.success) {
+        normalized[key] = parsed.data;
+      }
+      continue;
+    }
+    if (!resolvedEntry || typeof resolvedEntry !== "object" || Array.isArray(resolvedEntry)) {
+      continue;
+    }
+    const resolvedRecord = resolvedEntry as Record<string, unknown>;
+    const normalizedSections = normalizeArrayValue(resolvedRecord.sections);
+    const normalizedEntry = {
+      ...resolvedRecord,
+      sections: Array.isArray(normalizedSections)
+        ? normalizedSections.map((section) => normalizeSectionValue(section))
+        : normalizedSections,
+      mediaLibrary: normalizeMediaLibraryValue(resolvedRecord.mediaLibrary),
+      seo: parseJsonValue(resolvedRecord.seo),
+    };
+    const parsed = builderPageSchema.safeParse(normalizedEntry);
+    if (parsed.success) {
+      normalized[key] = parsed.data;
+      continue;
+    }
+    const fallbackSections = Array.isArray(normalizedEntry.sections)
+      ? normalizedEntry.sections
+        .map((section) => {
+          const parsedSection = builderSectionSchema.safeParse(section);
+          return parsedSection.success ? parsedSection.data : null;
+        })
+        .filter((section): section is WebsiteBuilderSection => Boolean(section))
+      : [];
+    const fallbackMedia = Array.isArray(normalizedEntry.mediaLibrary)
+      ? normalizedEntry.mediaLibrary
+        .map((asset) => {
+          const parsedAsset = builderMediaAssetSchema.safeParse(asset);
+          return parsedAsset.success ? parsedAsset.data : null;
+        })
+        .filter((asset): asset is WebsiteBuilderMediaAsset => Boolean(asset))
+      : [];
+    const fallbackSeo = builderPageSeoSchema.safeParse(normalizedEntry.seo);
+    normalized[key] = {
+      sections: fallbackSections,
+      mediaLibrary: fallbackMedia,
+      seo: fallbackSeo.success ? fallbackSeo.data : {},
+    };
+  }
+  return normalized;
+}
+
+const builderPagesSchema = z.preprocess((value) => {
+  return sanitizeBuilderPages(value);
+}, z.record(z.string(), builderPageSchema).default({}).catch({}));
 
 const builderThemeSchema = z.object({
   accent: z.string().max(7).default("#2563eb"),
@@ -150,6 +318,7 @@ export const builderConfigSchema = z.object({
   updatedAt: z.string().datetime().optional(),
   sections: z.array(builderSectionSchema).default([]),
   mediaLibrary: z.array(builderMediaAssetSchema).default([]),
+  pages: builderPagesSchema,
   theme: builderThemeSchema.default(() =>
     builderThemeSchema.parse({ accent: "#2563eb" }),
   ),
@@ -167,6 +336,8 @@ export type WebsiteBuilderStatistic = z.infer<typeof builderStatisticSchema>;
 export type WebsiteBuilderMediaAsset = z.infer<typeof builderMediaAssetSchema>;
 export type WebsiteBuilderItem = z.infer<typeof builderItemSchema>;
 export type WebsiteBuilderSection = z.infer<typeof builderSectionSchema>;
+export type WebsiteBuilderPageSeo = z.infer<typeof builderPageSeoSchema>;
+export type WebsiteBuilderPageConfig = z.infer<typeof builderPageSchema>;
 export type WebsiteBuilderTheme = z.infer<typeof builderThemeSchema>;
 export type WebsiteBuilderConfig = z.infer<typeof builderConfigSchema>;
 export type WebsiteBuilderVersionEntry = z.infer<typeof builderVersionEntrySchema>;
@@ -216,6 +387,16 @@ export const BUILDER_SECTION_LAYOUTS: Record<BuilderSectionType, string[]> = {
   pricing: ["grid", "stack"],
   faq: ["accordion", "two-columns"],
   logos: ["grid", "marquee"],
+};
+
+export const TECH_AGENCY_SECTION_LAYOUT_PRESETS: Partial<
+  Record<BuilderSectionType, string[]>
+> = {
+  logos: ["marquee", "grid"],
+  about: ["split", "stack"],
+  gallery: ["masonry", "grid"],
+  pricing: ["grid", "stack"],
+  faq: ["accordion", "two-columns"],
 };
 
 type DefaultConfigOptions = {
@@ -431,6 +612,7 @@ export function createDefaultBuilderConfig(
     version: 1,
     updatedAt: timestamp,
     mediaLibrary,
+    pages: {},
     theme: {
       accent,
       typography: "modern",
@@ -595,6 +777,985 @@ export function createDefaultBuilderConfig(
         ],
       },
     ],
+  };
+}
+
+export function applyCisecoAboutDefaults(
+  config: WebsiteBuilderConfig,
+  options?: { override?: boolean },
+): WebsiteBuilderConfig {
+  const override = options?.override ?? false;
+  const nextLibrary = [...(config.mediaLibrary ?? [])];
+
+  const heroSection: WebsiteBuilderSection = {
+    id: "ciseco-about-hero",
+    type: "hero",
+    title: ABOUT_HERO_COPY.title,
+    subtitle: null,
+    description: ABOUT_HERO_COPY.description,
+    eyebrow: null,
+    layout: "split",
+    animation: "fade",
+    visible: true,
+    mediaId: null,
+    secondaryMediaId: null,
+    items: ABOUT_HERO_IMAGES.map((_, index) => ({
+      id: `ciseco-hero-tile-${index + 1}`,
+      title: `Hero image ${index + 1}`,
+      description: null,
+      mediaId: null,
+      stats: [],
+    })),
+    buttons: [],
+  };
+
+  const teamSection: WebsiteBuilderSection = {
+    id: "ciseco-founders",
+    type: "team",
+    title: ABOUT_FOUNDERS_COPY.title,
+    subtitle: null,
+    description: ABOUT_FOUNDERS_COPY.description,
+    eyebrow: null,
+    layout: "grid",
+    animation: "fade",
+    visible: true,
+    mediaId: null,
+    secondaryMediaId: null,
+    items: ABOUT_FOUNDERS.map((founder) => ({
+      id: `ciseco-founder-item-${founder.id}`,
+      title: founder.name,
+      tag: founder.role,
+      description: null,
+      mediaId: null,
+      stats: [],
+    })),
+    buttons: [],
+  };
+
+  const factsSection: WebsiteBuilderSection = {
+    id: "ciseco-fast-facts",
+    type: "about",
+    title: ABOUT_FAST_FACTS_COPY.title,
+    subtitle: null,
+    description: ABOUT_FAST_FACTS_COPY.description,
+    eyebrow: null,
+    layout: "split",
+    animation: "fade",
+    visible: true,
+    mediaId: null,
+    secondaryMediaId: null,
+    items: ABOUT_FAST_FACTS.map((fact) => ({
+      id: `ciseco-fast-fact-${fact.id}`,
+      title: fact.value,
+      description: fact.description,
+      stats: [],
+    })),
+    buttons: [],
+  };
+
+  const testimonialsSection: WebsiteBuilderSection = {
+    id: "ciseco-testimonials",
+    type: "testimonials",
+    title: ABOUT_TESTIMONIALS_COPY.title,
+    subtitle: ABOUT_TESTIMONIALS_COPY.subtitle,
+    description: null,
+    eyebrow: null,
+    layout: "grid",
+    animation: "fade",
+    visible: true,
+    mediaId: null,
+    secondaryMediaId: null,
+    items: [
+      {
+        id: "ciseco-testimonial-primary",
+        title: ABOUT_TESTIMONIAL.name,
+        description: ABOUT_TESTIMONIAL.quote,
+        mediaId: null,
+        stats: [],
+      },
+      ...ABOUT_TESTIMONIAL_AVATARS.map((_, index) => ({
+        id: `ciseco-testimonial-orbit-item-${index + 1}`,
+        title: `Orbit ${index + 1}`,
+        mediaId: null,
+        stats: [],
+      })),
+    ],
+    buttons: [],
+  };
+
+  const promoSection: WebsiteBuilderSection = {
+    id: "ciseco-promo",
+    type: "promo",
+    title: ABOUT_PROMO_COPY.title,
+    subtitle: null,
+    description: ABOUT_PROMO_COPY.description,
+    eyebrow: null,
+    layout: "banner",
+    animation: "fade",
+    visible: true,
+    mediaId: null,
+    secondaryMediaId: null,
+    items: [],
+    buttons: [
+      {
+        id: "ciseco-promo-primary",
+        label: ABOUT_PROMO_COPY.primaryCta,
+        href: "#",
+        style: "primary",
+      },
+      {
+        id: "ciseco-promo-secondary",
+        label: ABOUT_PROMO_COPY.secondaryCta,
+        href: "#",
+        style: "secondary",
+      },
+    ],
+  };
+
+  const requiredSections = [
+    heroSection,
+    teamSection,
+    factsSection,
+    testimonialsSection,
+    promoSection,
+  ];
+  const baseSections = override ? [] : [...config.sections];
+  const existingTypes = new Set(baseSections.map((section) => section.type));
+  const nextSections = [...baseSections];
+
+  requiredSections.forEach((section) => {
+    if (override || !existingTypes.has(section.type)) {
+      nextSections.push(section);
+    }
+  });
+
+  return {
+    ...config,
+    mediaLibrary: nextLibrary,
+    sections: nextSections,
+  };
+}
+
+function createCisecoPageConfig(
+  sections: WebsiteBuilderSection[],
+): WebsiteBuilderPageConfig {
+  return {
+    sections,
+    mediaLibrary: [],
+    seo: {},
+  };
+}
+
+function createCisecoHeroSection(params: {
+  id: string;
+  title: string;
+  eyebrow?: string | null;
+  subtitle?: string | null;
+  description?: string | null;
+  layout?: string;
+  buttons?: WebsiteBuilderButton[];
+  items?: WebsiteBuilderSection["items"];
+}) {
+  return {
+    id: params.id,
+    type: "hero",
+    title: params.title,
+    subtitle: params.subtitle ?? null,
+    description: params.description ?? null,
+    eyebrow: params.eyebrow ?? null,
+    layout: params.layout ?? "home-hero",
+    animation: "fade",
+    visible: true,
+    mediaId: null,
+    secondaryMediaId: null,
+    items: params.items ?? [],
+    buttons: params.buttons ?? [],
+  } satisfies WebsiteBuilderSection;
+}
+
+function createCisecoHomePageConfig(): WebsiteBuilderPageConfig {
+  const heroBadges = HERO_BADGES.map((badge, index) => ({
+    id: `ciseco-home-hero-badge-${index + 1}`,
+    title: badge,
+    stats: [],
+  }));
+  const discoveryItems = DISCOVERY_CARDS.map((card) => ({
+    id: `ciseco-home-discovery-${card.id}`,
+    title: card.title,
+    description: card.description,
+    linkLabel: card.cta,
+    href: card.href,
+    stats: [],
+  }));
+  const featureItems = FEATURE_ITEMS.map((item) => ({
+    id: `ciseco-home-feature-${item.id}`,
+    title: item.title,
+    description: item.subtitle,
+    tag: item.icon,
+    stats: [],
+  }));
+  const categoryItems = CATEGORY_CARDS.map((card) => ({
+    id: `ciseco-home-category-${card.id}`,
+    title: card.title,
+    description: card.description,
+    tag: card.icon,
+    stats: [],
+  }));
+  const departmentItems = DEPARTMENTS.map((item) => ({
+    id: `ciseco-home-department-${item.id}`,
+    title: item.title,
+    description: item.subtitle,
+    stats: [],
+  }));
+  const blogItems = BLOG_POSTS.map((post) => ({
+    id: `ciseco-home-blog-${post.id}`,
+    title: post.title,
+    description: post.excerpt,
+    tag: post.tag,
+    badge: post.date,
+    stats: [],
+  }));
+  const testimonialItems = TESTIMONIALS.map((item) => ({
+    id: `ciseco-home-testimonial-${item.id}`,
+    title: item.name,
+    description: item.quote,
+    tag: item.role,
+    stats: [],
+  }));
+
+  const sections: WebsiteBuilderSection[] = [
+    createCisecoHeroSection({
+      id: "ciseco-home-hero",
+      eyebrow: "Handpicked trend",
+      title: "Exclusive collection for everyone",
+      subtitle:
+        "Discover fresh styles and everyday essentials curated for every mood. Lorem ipsum dolor sit amet.",
+      description: "Trusted by 32k+ shoppers worldwide",
+      layout: "home-hero",
+      items: heroBadges,
+      buttons: [
+        {
+          id: "ciseco-home-hero-primary",
+          label: "Explore now",
+          href: "#",
+          style: "primary",
+        },
+        {
+          id: "ciseco-home-hero-secondary",
+          label: "See deals",
+          href: "#",
+          style: "ghost",
+        },
+      ],
+    }),
+    {
+      id: "ciseco-home-discovery",
+      type: "services",
+      title: "Good things are waiting for you",
+      subtitle: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+      description: null,
+      eyebrow: "Discover more",
+      layout: "discovery",
+      animation: "fade",
+      visible: true,
+      mediaId: null,
+      secondaryMediaId: null,
+      items: discoveryItems,
+      buttons: [],
+    },
+    {
+      id: "ciseco-home-new-arrivals",
+      type: "products",
+      title: "Fresh drops for the week",
+      subtitle: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+      description: null,
+      eyebrow: "New arrivals",
+      layout: "new-arrivals",
+      animation: "fade",
+      visible: true,
+      mediaId: null,
+      secondaryMediaId: null,
+      items: [],
+      buttons: [
+        {
+          id: "ciseco-home-new-arrivals-cta",
+          label: "View all",
+          href: "#",
+          style: "secondary",
+        },
+      ],
+    },
+    {
+      id: "ciseco-home-features",
+      type: "services",
+      title: "Shopping essentials",
+      subtitle: "Highlights that make every purchase easy.",
+      description: null,
+      eyebrow: null,
+      layout: "features",
+      animation: "fade",
+      visible: true,
+      mediaId: null,
+      secondaryMediaId: null,
+      items: featureItems,
+      buttons: [],
+    },
+    {
+      id: "ciseco-home-promo",
+      type: "promo",
+      title: "Earn free money with Ciseco",
+      subtitle: null,
+      description:
+        "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Proin gravida, nibh vel commodo posuere, neque sapien.",
+      eyebrow: "Earn free money",
+      layout: "home-promo",
+      animation: "fade",
+      visible: true,
+      mediaId: null,
+      secondaryMediaId: null,
+      items: [],
+      buttons: [
+        {
+          id: "ciseco-home-promo-cta",
+          label: "Get started",
+          href: "#",
+          style: "primary",
+        },
+      ],
+    },
+    {
+      id: "ciseco-home-categories",
+      type: "categories",
+      title: "Explore categories",
+      subtitle: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+      description: null,
+      eyebrow: "Start exploring",
+      layout: "explore",
+      animation: "fade",
+      visible: true,
+      mediaId: null,
+      secondaryMediaId: null,
+      items: categoryItems,
+      buttons: CATEGORY_TABS.map((tab, index) => ({
+        id: `ciseco-home-category-tab-${index + 1}`,
+        label: tab,
+        href: "#",
+        style: "ghost",
+      })),
+    },
+    {
+      id: "ciseco-home-best-sellers",
+      type: "products",
+      title: "Best sellers of the month",
+      subtitle: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+      description: null,
+      eyebrow: "Best sellers",
+      layout: "best-sellers",
+      animation: "fade",
+      visible: true,
+      mediaId: null,
+      secondaryMediaId: null,
+      items: [],
+      buttons: [],
+    },
+    {
+      id: "ciseco-home-kids-promo",
+      type: "promo",
+      title: "Special offer in kids products",
+      subtitle: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+      description: null,
+      eyebrow: "Special offer",
+      layout: "kids-banner",
+      animation: "fade",
+      visible: true,
+      mediaId: null,
+      secondaryMediaId: null,
+      items: [],
+      buttons: [
+        {
+          id: "ciseco-home-kids-cta",
+          label: "Shop kids",
+          href: "#",
+          style: "primary",
+        },
+      ],
+    },
+    {
+      id: "ciseco-home-featured-products",
+      type: "products",
+      title: "Featured for your wishlist",
+      subtitle: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+      description: null,
+      eyebrow: "Featured products",
+      layout: "featured",
+      animation: "fade",
+      visible: true,
+      mediaId: null,
+      secondaryMediaId: null,
+      items: CATEGORY_TABS.map((tab, index) => ({
+        id: `ciseco-home-featured-tab-${index + 1}`,
+        title: tab,
+        stats: [],
+      })),
+      buttons: [],
+    },
+    {
+      id: "ciseco-home-favorites",
+      type: "products",
+      title: "Find your favorite products",
+      subtitle: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+      description: null,
+      eyebrow: "Find your favorite",
+      layout: "favorites",
+      animation: "fade",
+      visible: true,
+      mediaId: null,
+      secondaryMediaId: null,
+      items: FAVORITE_FILTERS.map((label, index) => ({
+        id: `ciseco-home-favorites-tab-${index + 1}`,
+        title: label,
+        stats: [],
+      })),
+      buttons: [
+        {
+          id: "ciseco-home-favorites-cta",
+          label: "Load more",
+          href: "#",
+          style: "primary",
+        },
+      ],
+    },
+    {
+      id: "ciseco-home-departments",
+      type: "gallery",
+      title: "Explore the absolute",
+      subtitle: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+      description: null,
+      eyebrow: "Shop by department",
+      layout: "departments",
+      animation: "fade",
+      visible: true,
+      mediaId: null,
+      secondaryMediaId: null,
+      items: departmentItems,
+      buttons: [],
+    },
+    {
+      id: "ciseco-home-blog",
+      type: "content",
+      title: "From the Ciseco blog",
+      subtitle: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+      description: null,
+      eyebrow: "Our latest news",
+      layout: "home-blog",
+      animation: "fade",
+      visible: true,
+      mediaId: null,
+      secondaryMediaId: null,
+      items: blogItems,
+      buttons: [],
+    },
+    {
+      id: "ciseco-home-testimonials",
+      type: "testimonials",
+      title: "People love our products",
+      subtitle: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+      description: null,
+      eyebrow: "Good news from far away",
+      layout: "home-testimonials",
+      animation: "fade",
+      visible: true,
+      mediaId: null,
+      secondaryMediaId: null,
+      items: testimonialItems,
+      buttons: [],
+    },
+  ];
+
+  return createCisecoPageConfig(sections);
+}
+
+function createCisecoAboutPageConfig(): WebsiteBuilderPageConfig {
+  const heroSection: WebsiteBuilderSection = {
+    id: "ciseco-about-hero",
+    type: "hero",
+    title: ABOUT_HERO_COPY.title,
+    subtitle: null,
+    description: ABOUT_HERO_COPY.description,
+    eyebrow: null,
+    layout: "split",
+    animation: "fade",
+    visible: true,
+    mediaId: null,
+    secondaryMediaId: null,
+    items: ABOUT_HERO_IMAGES.map((_, index) => ({
+      id: `ciseco-hero-tile-${index + 1}`,
+      title: `Hero image ${index + 1}`,
+      description: null,
+      mediaId: null,
+      stats: [],
+    })),
+    buttons: [],
+  };
+
+  const teamSection: WebsiteBuilderSection = {
+    id: "ciseco-founders",
+    type: "team",
+    title: ABOUT_FOUNDERS_COPY.title,
+    subtitle: null,
+    description: ABOUT_FOUNDERS_COPY.description,
+    eyebrow: null,
+    layout: "grid",
+    animation: "fade",
+    visible: true,
+    mediaId: null,
+    secondaryMediaId: null,
+    items: ABOUT_FOUNDERS.map((founder) => ({
+      id: `ciseco-founder-item-${founder.id}`,
+      title: founder.name,
+      tag: founder.role,
+      description: null,
+      mediaId: null,
+      stats: [],
+    })),
+    buttons: [],
+  };
+
+  const factsSection: WebsiteBuilderSection = {
+    id: "ciseco-fast-facts",
+    type: "about",
+    title: ABOUT_FAST_FACTS_COPY.title,
+    subtitle: null,
+    description: ABOUT_FAST_FACTS_COPY.description,
+    eyebrow: null,
+    layout: "split",
+    animation: "fade",
+    visible: true,
+    mediaId: null,
+    secondaryMediaId: null,
+    items: ABOUT_FAST_FACTS.map((fact) => ({
+      id: `ciseco-fast-fact-${fact.id}`,
+      title: fact.value,
+      description: fact.description,
+      stats: [],
+    })),
+    buttons: [],
+  };
+
+  const testimonialsSection: WebsiteBuilderSection = {
+    id: "ciseco-testimonials",
+    type: "testimonials",
+    title: ABOUT_TESTIMONIALS_COPY.title,
+    subtitle: ABOUT_TESTIMONIALS_COPY.subtitle,
+    description: null,
+    eyebrow: null,
+    layout: "grid",
+    animation: "fade",
+    visible: true,
+    mediaId: null,
+    secondaryMediaId: null,
+    items: [
+      {
+        id: "ciseco-testimonial-primary",
+        title: ABOUT_TESTIMONIAL.name,
+        description: ABOUT_TESTIMONIAL.quote,
+        mediaId: null,
+        stats: [],
+      },
+      ...ABOUT_TESTIMONIAL_AVATARS.map((_, index) => ({
+        id: `ciseco-testimonial-orbit-item-${index + 1}`,
+        title: `Orbit ${index + 1}`,
+        mediaId: null,
+        stats: [],
+      })),
+    ],
+    buttons: [],
+  };
+
+  const promoSection: WebsiteBuilderSection = {
+    id: "ciseco-promo",
+    type: "promo",
+    title: ABOUT_PROMO_COPY.title,
+    subtitle: null,
+    description: ABOUT_PROMO_COPY.description,
+    eyebrow: null,
+    layout: "banner",
+    animation: "fade",
+    visible: true,
+    mediaId: null,
+    secondaryMediaId: null,
+    items: [],
+    buttons: [
+      {
+        id: "ciseco-promo-primary",
+        label: ABOUT_PROMO_COPY.primaryCta,
+        href: "#",
+        style: "primary",
+      },
+      {
+        id: "ciseco-promo-secondary",
+        label: ABOUT_PROMO_COPY.secondaryCta,
+        href: "#",
+        style: "secondary",
+      },
+    ],
+  };
+
+  return createCisecoPageConfig([
+    heroSection,
+    teamSection,
+    factsSection,
+    testimonialsSection,
+    promoSection,
+  ]);
+}
+
+function createCisecoSimplePageConfig(options: {
+  id: string;
+  title: string;
+  subtitle?: string | null;
+  description?: string | null;
+}): WebsiteBuilderPageConfig {
+  return createCisecoPageConfig([
+    createCisecoHeroSection({
+      id: options.id,
+      title: options.title,
+      subtitle: options.subtitle ?? null,
+      description: options.description ?? null,
+      layout: "page-hero",
+    }),
+  ]);
+}
+
+function createCisecoProductPageConfig(): WebsiteBuilderPageConfig {
+  const gallerySection: WebsiteBuilderSection = {
+    id: "ciseco-product-gallery",
+    type: "gallery",
+    title: "Galerie",
+    subtitle: null,
+    description: null,
+    eyebrow: null,
+    layout: "product-gallery",
+    animation: "fade",
+    visible: true,
+    mediaId: null,
+    secondaryMediaId: null,
+    items: [],
+    buttons: [],
+  };
+
+  const optionsSection: WebsiteBuilderSection = {
+    id: "ciseco-product-options",
+    type: "products",
+    title: "{{product.name}}",
+    subtitle: null,
+    description: null,
+    eyebrow: null,
+    layout: "product-options",
+    animation: "fade",
+    visible: true,
+    mediaId: null,
+    secondaryMediaId: null,
+    items: [
+      {
+        id: "ciseco-product-options-accordion-description",
+        title: "Description",
+        stats: [],
+      },
+      {
+        id: "ciseco-product-options-accordion-specs",
+        title: "Details",
+        stats: [],
+      },
+      {
+        id: "ciseco-product-options-accordion-category",
+        title: "Category",
+        stats: [],
+      },
+      {
+        id: "ciseco-product-options-accordion-availability",
+        title: "Availability",
+        stats: [],
+      },
+    ],
+    buttons: [
+      {
+        id: "ciseco-product-options-size-chart",
+        label: "See sizing chart",
+        href: "#",
+        style: "ghost",
+      },
+      {
+        id: "ciseco-product-options-add-to-cart",
+        label: "Add to cart",
+        href: "#",
+        style: "primary",
+      },
+    ],
+  };
+
+  const descriptionSection: WebsiteBuilderSection = {
+    id: "ciseco-product-description",
+    type: "content",
+    title: "Product Details",
+    subtitle: null,
+    description: null,
+    eyebrow: null,
+    layout: "product-description",
+    animation: "fade",
+    visible: true,
+    mediaId: null,
+    secondaryMediaId: null,
+    items: [],
+    buttons: [],
+  };
+
+  const reviewsSection: WebsiteBuilderSection = {
+    id: "ciseco-product-reviews",
+    type: "testimonials",
+    title: "{{reviewCount}} Reviews",
+    subtitle: null,
+    description: "No reviews yet. Be the first to share your feedback.",
+    eyebrow: null,
+    layout: "product-reviews",
+    animation: "fade",
+    visible: true,
+    mediaId: null,
+    secondaryMediaId: null,
+    items: [],
+    buttons: [
+      {
+        id: "ciseco-product-reviews-cta",
+        label: "Write a review",
+        href: "#",
+        style: "primary",
+      },
+    ],
+  };
+
+  const relatedSection: WebsiteBuilderSection = {
+    id: "ciseco-product-related",
+    type: "products",
+    title: "Customers also purchased",
+    subtitle: null,
+    description: "No related products are available yet.",
+    eyebrow: null,
+    layout: "product-related",
+    animation: "fade",
+    visible: true,
+    mediaId: null,
+    secondaryMediaId: null,
+    items: [],
+    buttons: [],
+  };
+
+  const bannerSection: WebsiteBuilderSection = {
+    id: "ciseco-product-banner",
+    type: "promo",
+    title: "Special offer in kids products",
+    subtitle: null,
+    description:
+      "Fashion is a form of self-expression and autonomy at a given period and place.",
+    eyebrow: "Special offer",
+    layout: "kids-banner",
+    animation: "fade",
+    visible: true,
+    mediaId: null,
+    secondaryMediaId: null,
+    items: [],
+    buttons: [
+      {
+        id: "ciseco-product-banner-cta",
+        label: "Discover more",
+        href: "#",
+        style: "primary",
+      },
+    ],
+  };
+
+  return createCisecoPageConfig([
+    createCisecoHeroSection({
+      id: "ciseco-product-hero",
+      title: "Fiche produit",
+      subtitle: "Mettez en avant les détails clés.",
+      layout: "page-hero",
+    }),
+    gallerySection,
+    optionsSection,
+    descriptionSection,
+    reviewsSection,
+    relatedSection,
+    bannerSection,
+  ]);
+}
+
+function createCisecoPageDefaults(): Record<CisecoPageKey, WebsiteBuilderPageConfig> {
+  const basePages = Object.fromEntries(
+    CISECO_PAGE_DEFINITIONS.map((entry) => [
+      entry.key,
+      createCisecoSimplePageConfig({
+        id: `ciseco-${entry.key}-hero`,
+        title: entry.label,
+        subtitle: "Personnalisez cette page avec vos contenus.",
+      }),
+    ]),
+  ) as Record<CisecoPageKey, WebsiteBuilderPageConfig>;
+
+  basePages.home = createCisecoHomePageConfig();
+  basePages.about = createCisecoAboutPageConfig();
+  basePages.contact = createCisecoSimplePageConfig({
+    id: "ciseco-contact-hero",
+    title: "Contact",
+    subtitle: "Nous sommes disponibles pour répondre à vos questions.",
+  });
+  basePages.blog = createCisecoSimplePageConfig({
+    id: "ciseco-blog-hero",
+    title: "Journal",
+    subtitle: "Suivez nos dernières actualités et inspirations.",
+  });
+  basePages["blog-detail"] = createCisecoSimplePageConfig({
+    id: "ciseco-blog-detail-hero",
+    title: "Article",
+    subtitle: "Racontez l’histoire derrière vos collections.",
+  });
+  basePages.collections = createCisecoSimplePageConfig({
+    id: "ciseco-collections-hero",
+    title: "Collections",
+    subtitle: "Présentez vos sélections favorites.",
+  });
+  basePages.search = createCisecoSimplePageConfig({
+    id: "ciseco-search-hero",
+    title: "Recherche",
+    subtitle: "Aidez vos visiteurs à trouver le bon produit.",
+  });
+  basePages.product = createCisecoProductPageConfig();
+  basePages.cart = createCisecoSimplePageConfig({
+    id: "ciseco-cart-hero",
+    title: "Panier",
+    subtitle: "Encouragez vos clients à finaliser.",
+  });
+  basePages.checkout = createCisecoSimplePageConfig({
+    id: "ciseco-checkout-hero",
+    title: "Paiement",
+    subtitle: "Rassurez vos clients avant validation.",
+  });
+  basePages["order-success"] = createCisecoSimplePageConfig({
+    id: "ciseco-order-success-hero",
+    title: "Confirmation",
+    subtitle: "Remerciez vos clients après l’achat.",
+  });
+  basePages.login = createCisecoSimplePageConfig({
+    id: "ciseco-login-hero",
+    title: "Connexion",
+    subtitle: "Invitez vos clients à accéder à leur compte.",
+  });
+  basePages.signup = createCisecoSimplePageConfig({
+    id: "ciseco-signup-hero",
+    title: "Inscription",
+    subtitle: "Créez une expérience d’onboarding fluide.",
+  });
+  basePages["forgot-password"] = createCisecoSimplePageConfig({
+    id: "ciseco-forgot-hero",
+    title: "Mot de passe oublié",
+    subtitle: "Simplifiez la récupération de compte.",
+  });
+  basePages.account = createCisecoSimplePageConfig({
+    id: "ciseco-account-hero",
+    title: "Mon compte",
+    subtitle: "Centralisez les informations clients.",
+  });
+  basePages["account-wishlists"] = createCisecoSimplePageConfig({
+    id: "ciseco-account-wishlists-hero",
+    title: "Favoris",
+    subtitle: "Mettez en avant les produits enregistrés.",
+  });
+  basePages["account-orders-history"] = createCisecoSimplePageConfig({
+    id: "ciseco-account-orders-hero",
+    title: "Commandes",
+    subtitle: "Suivi complet des achats précédents.",
+  });
+  basePages["account-order-detail"] = createCisecoSimplePageConfig({
+    id: "ciseco-account-order-detail-hero",
+    title: "Détail commande",
+    subtitle: "Fournissez un aperçu clair du statut.",
+  });
+  basePages["account-change-password"] = createCisecoSimplePageConfig({
+    id: "ciseco-account-password-hero",
+    title: "Changer le mot de passe",
+    subtitle: "Sécurisez les accès avec un nouveau mot de passe.",
+  });
+
+  return basePages;
+}
+
+export function ensureCisecoPageConfigs(
+  config: WebsiteBuilderConfig,
+  options?: { override?: boolean },
+): WebsiteBuilderConfig {
+  const override = options?.override ?? false;
+  const hasPages = Object.keys(config.pages ?? {}).length > 0;
+  const shouldMigrate =
+    !hasPages &&
+    config.sections.some((section) => section.id.startsWith("ciseco-"));
+  const migratedPages = shouldMigrate
+    ? {
+        about: {
+          sections: config.sections,
+          mediaLibrary: config.mediaLibrary,
+          seo: {},
+        },
+      }
+    : {};
+
+  const defaults = createCisecoPageDefaults();
+  const defaultProductSections = defaults.product.sections.filter(
+    (section) => section.id !== "ciseco-product-hero",
+  );
+  const nextPages: Record<CisecoPageKey, WebsiteBuilderPageConfig> = {
+    ...defaults,
+    ...(config.pages ?? {}),
+    ...(migratedPages as Record<CisecoPageKey, WebsiteBuilderPageConfig>),
+  };
+
+  const productPage = nextPages.product;
+  if (productPage) {
+    const hasProductLayouts = productPage.sections.some((section) => {
+      if (section.layout?.startsWith("product-")) {
+        return true;
+      }
+      return section.id.startsWith("ciseco-product-") && section.id !== "ciseco-product-hero";
+    });
+    if (!hasProductLayouts && defaultProductSections.length) {
+      nextPages.product = {
+        ...productPage,
+        sections: [...productPage.sections, ...defaultProductSections],
+      };
+    }
+  }
+
+  if (!override && hasPages) {
+    return {
+      ...config,
+      pages: nextPages,
+      sections: shouldMigrate ? [] : config.sections,
+      mediaLibrary: shouldMigrate ? [] : config.mediaLibrary,
+    };
+  }
+
+  if (override) {
+    return {
+      ...config,
+      pages: nextPages,
+      sections: [],
+      mediaLibrary: [],
+    };
+  }
+
+  return {
+    ...config,
+    pages: nextPages,
+    sections: shouldMigrate ? [] : config.sections,
+    mediaLibrary: shouldMigrate ? [] : config.mediaLibrary,
   };
 }
 

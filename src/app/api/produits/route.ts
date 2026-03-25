@@ -1,4 +1,7 @@
 import { NextResponse } from "next/server";
+import { getCurrentUser } from "@/lib/auth";
+import { ensureCanAccessAppSection } from "@/lib/authorization";
+import { AuthorizationError } from "@/lib/errors";
 import { listProducts } from "@/server/products";
 
 function parseBooleanFilter(value: string | null) {
@@ -16,6 +19,14 @@ function parseBooleanFilter(value: string | null) {
 
 export async function GET(request: Request) {
   try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json(
+        { error: "Authentification requise." },
+        { status: 401 },
+      );
+    }
+    ensureCanAccessAppSection(user, "products");
     const url = new URL(request.url);
     const search = url.searchParams.get("recherche") ?? undefined;
     const categorie =
@@ -36,6 +47,9 @@ export async function GET(request: Request) {
 
     return NextResponse.json(data);
   } catch (error) {
+    if (error instanceof AuthorizationError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
     console.error("[api/produits] GET failed", error);
     return NextResponse.json(
       { error: "Unable to load products" },

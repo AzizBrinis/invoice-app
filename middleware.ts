@@ -3,6 +3,24 @@ import { NextResponse } from "next/server";
 import { getAppHostnames } from "@/lib/env";
 
 const APP_HOSTS = new Set(getAppHostnames());
+const DOMAIN_HOSTNAME_PATTERN = /^[a-z0-9.-]+$/i;
+
+function normalizeHost(value: string | null) {
+  if (!value) return null;
+  const trimmed = value.trim().toLowerCase();
+  if (!trimmed) return null;
+  try {
+    return new URL(`https://${trimmed}`).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+const APP_HOSTNAMES = new Set(
+  Array.from(APP_HOSTS)
+    .map((entry) => normalizeHost(entry))
+    .filter((entry): entry is string => Boolean(entry)),
+);
 
 function isStaticPath(pathname: string) {
   if (
@@ -19,8 +37,15 @@ function isStaticPath(pathname: string) {
 }
 
 export function middleware(request: NextRequest) {
-  const host = request.headers.get("host")?.toLowerCase();
-  if (!host || APP_HOSTS.has(host)) {
+  const host = request.headers.get("host")?.toLowerCase() ?? null;
+  const normalizedHost = normalizeHost(host);
+  const isAppHost = host
+    ? APP_HOSTS.has(host) || (normalizedHost ? APP_HOSTNAMES.has(normalizedHost) : false)
+    : true;
+  if (isAppHost) {
+    return NextResponse.next();
+  }
+  if (!normalizedHost || !DOMAIN_HOSTNAME_PATTERN.test(normalizedHost)) {
     return NextResponse.next();
   }
   const pathname = request.nextUrl.pathname;
@@ -30,8 +55,8 @@ export function middleware(request: NextRequest) {
   const url = request.nextUrl.clone();
   const suffix = pathname === "/" ? "" : pathname;
   url.pathname = `/catalogue${suffix}`;
-  url.searchParams.set("domain", host);
-  if (pathname && pathname !== "/") {
+  url.searchParams.set("domain", normalizedHost);
+  if (pathname && pathname !== "/" && !pathname.includes("..") && !pathname.includes("\\")) {
     url.searchParams.set("path", pathname);
   }
   return NextResponse.rewrite(url);

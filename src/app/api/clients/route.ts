@@ -1,5 +1,12 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { listClients, type ClientFilters } from "@/server/clients";
+import { getCurrentUser } from "@/lib/auth";
+import { ensureCanAccessAppSection } from "@/lib/authorization";
+import { AuthorizationError } from "@/lib/errors";
+import {
+  getClientTenantId,
+  listClients,
+  type ClientFilters,
+} from "@/server/clients";
 
 function parseStatusFilter(
   value: string | null,
@@ -12,6 +19,15 @@ function parseStatusFilter(
 
 export async function GET(request: NextRequest) {
   try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json(
+        { error: "Authentification requise." },
+        { status: 401 },
+      );
+    }
+    ensureCanAccessAppSection(user, "clients");
+    const tenantId = getClientTenantId(user);
     const { searchParams } = request.nextUrl;
     const search = searchParams.get("search")?.slice(0, 120) || undefined;
     const statusValue = searchParams.get("status");
@@ -24,7 +40,7 @@ export async function GET(request: NextRequest) {
       isActive,
       page,
       pageSize,
-    });
+    }, tenantId);
 
     return NextResponse.json(result, {
       headers: {
@@ -32,6 +48,9 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
+    if (error instanceof AuthorizationError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
+    }
     console.error("[api/clients] Failed to list clients", error);
     return NextResponse.json(
       { error: "Impossible de récupérer les clients." },

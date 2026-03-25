@@ -1,19 +1,22 @@
 "use client";
 
 import {
+  memo,
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
   type CSSProperties,
+  type FormEvent,
 } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { clsx } from "clsx";
 import {
   Mail,
   Paperclip,
   RefreshCw,
+  Search,
   Reply,
   ReplyAll,
   Forward,
@@ -33,13 +36,16 @@ import {
 } from "lucide-react";
 import type {
   Mailbox,
+  MailboxListItem,
   MailboxPageResult,
+  MailboxSearchResult,
   MessageDetail,
 } from "@/server/messaging";
 import {
   fetchMailboxPageAction,
   fetchMessageDetailAction,
   moveMailboxMessageAction,
+  searchMailboxMessagesAction,
   summarizeMessageWithAiAction,
   type ActionResult,
 } from "@/app/(app)/messagerie/actions";
@@ -50,6 +56,12 @@ import { useToast } from "@/components/ui/toast-provider";
 import { MailboxSkeleton } from "@/app/(app)/messagerie/_components/mailbox-skeleton";
 import { useTheme } from "@/components/theme/theme-provider";
 import {
+  isMailboxSearchQueryUsable,
+  isMailboxSearchable,
+  normalizeMailboxSearchQuery,
+} from "@/lib/messaging/mailbox-search";
+import { canApplyPathScopedNavigationUpdate } from "@/lib/path-scoped-navigation";
+import {
   useMailboxStore,
   initializeMailboxCache,
   appendMailboxMessages,
@@ -59,7 +71,6 @@ import {
   invalidateMailboxCache,
   MAILBOX_CACHE_TTL_MS,
   MAILBOX_DETAIL_TTL_MS,
-  markMailboxActive,
   beginMailboxSync,
   endMailboxSync,
   cacheMessageDetail,
@@ -74,21 +85,25 @@ type MailboxClientProps = {
   isConfigured: boolean;
   initialPage: MailboxPageResult | null;
   initialError: string | null;
+  initialSearchPage?: MailboxSearchResult | null;
+  initialSearchError?: string | null;
+  initialSearchQuery?: string;
   emptyStateMessage: string;
 };
 
+const MAILBOX_DATE_FORMATTER = new Intl.DateTimeFormat("fr-FR", {
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+});
 function formatDate(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
     return "Date inconnue";
   }
-  return new Intl.DateTimeFormat("fr-FR", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
+  return MAILBOX_DATE_FORMATTER.format(date);
 }
 
 function formatFileSize(bytes: number): string {
@@ -107,6 +122,77 @@ function formatFileSize(bytes: number): string {
 
 function formatCount(count: number, singular: string, plural: string): string {
   return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function mergeSearchMessages(
+  existing: MailboxListItem[],
+  additions: MailboxListItem[],
+) {
+  if (!existing.length) {
+    return additions;
+  }
+  if (!additions.length) {
+    return existing;
+  }
+  const seen = new Set(existing.map((item) => item.uid));
+  return [
+    ...existing,
+    ...additions.filter((item) => !seen.has(item.uid)),
+  ];
+}
+
+function areStringArraysEqual(left: string[], right: string[]) {
+  if (left.length !== right.length) {
+    return false;
+  }
+  return left.every((value, index) => value === right[index]);
+}
+
+function areTrackingSummariesEqual(
+  left: MailboxListItem["tracking"],
+  right: MailboxListItem["tracking"],
+) {
+  if (left === right) {
+    return true;
+  }
+  if (!left || !right) {
+    return left === right;
+  }
+  return (
+    left.enabled === right.enabled &&
+    left.totalOpens === right.totalOpens &&
+    left.totalClicks === right.totalClicks
+  );
+}
+
+function areMailboxItemsEqual(
+  left: MailboxListItem,
+  right: MailboxListItem,
+) {
+  return (
+    left.uid === right.uid &&
+    left.messageId === right.messageId &&
+    left.subject === right.subject &&
+    left.from === right.from &&
+    left.date === right.date &&
+    left.seen === right.seen &&
+    left.hasAttachments === right.hasAttachments &&
+    areStringArraysEqual(left.to, right.to) &&
+    areTrackingSummariesEqual(left.tracking, right.tracking)
+  );
+}
+
+function areMailboxPagesEqual(
+  left: MailboxListItem[],
+  right: MailboxListItem[],
+) {
+  if (left.length !== right.length) {
+    return false;
+  }
+  return left.every((item, index) => {
+    const other = right[index];
+    return other ? areMailboxItemsEqual(item, other) : false;
+  });
 }
 
 type MoveOption = {
@@ -312,6 +398,14 @@ const MOBILE_PANE_TABS: Array<{
   { key: "detail", label: "Lecture", icon: MailOpen },
 ];
 
+const MAILBOX_PATHNAMES: Record<Mailbox, string> = {
+  inbox: "/messagerie/recus",
+  sent: "/messagerie/envoyes",
+  drafts: "/messagerie/brouillons",
+  trash: "/messagerie/corbeille",
+  spam: "/messagerie/spam",
+};
+
 const SUBJECT_CLAMP_STYLE: CSSProperties = {
   display: "-webkit-box",
   WebkitLineClamp: 2,
@@ -341,6 +435,142 @@ function MessageDetailSkeleton() {
   );
 }
 
+type MailboxMessageRowProps = {
+  mailbox: Mailbox;
+  message: MailboxListItem;
+  isActive: boolean;
+  isLoadingSelection: boolean;
+  onSelect: (uid: number) => void;
+  onWarm: (uid: number) => void;
+};
+
+const MailboxMessageRow = memo(function MailboxMessageRow({
+  mailbox,
+  message,
+  isActive,
+  isLoadingSelection,
+  onSelect,
+  onWarm,
+}: MailboxMessageRowProps) {
+  const disableSelection = isLoadingSelection && isActive;
+  const formattedDate = formatDate(message.date);
+  const hasRecipients = message.to.length > 0;
+  const recipientsPreview = hasRecipients
+    ? message.to.slice(0, 3).join(", ")
+    : "";
+  const recipientsOverflow = hasRecipients && message.to.length > 3;
+
+  return (
+    <button
+      data-message-uid={message.uid}
+      type="button"
+      onClick={() => onSelect(message.uid)}
+      onMouseEnter={() => onWarm(message.uid)}
+      onFocus={() => onWarm(message.uid)}
+      disabled={disableSelection}
+      aria-busy={isLoadingSelection ? "true" : undefined}
+      className={clsx(
+        "w-full rounded-lg border px-3 py-3 text-left shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white disabled:cursor-not-allowed disabled:opacity-70 dark:focus-visible:ring-offset-zinc-900",
+        isActive
+          ? "border-blue-300 bg-blue-50 text-blue-800 ring-1 ring-blue-200 dark:border-blue-500/60 dark:bg-blue-500/20 dark:text-blue-100 dark:ring-blue-400/40"
+          : "border-zinc-200 bg-white text-zinc-800 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:border-blue-500/30 dark:hover:bg-blue-500/10 dark:hover:text-blue-100"
+      )}
+      aria-current={isActive ? "true" : undefined}
+    >
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-wrap items-start gap-x-2 gap-y-1">
+          <div className="min-w-0 flex-1 space-y-1">
+            <p
+              className={clsx(
+                "text-sm font-semibold leading-tight",
+                message.seen
+                  ? "text-current"
+                  : "text-blue-600 dark:text-blue-200"
+              )}
+            >
+              <span
+                className="block break-words"
+                style={SUBJECT_CLAMP_STYLE}
+              >
+                {message.subject || "(Sans objet)"}
+              </span>
+            </p>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              <span className="block truncate">
+                {message.from || "Expéditeur inconnu"}
+              </span>
+            </p>
+          </div>
+          <div className="flex flex-none flex-col items-start text-[11px] font-medium text-zinc-500 dark:text-zinc-400 sm:items-end sm:text-xs">
+            <span className="flex items-center gap-1 leading-tight tabular-nums">
+              {isLoadingSelection ? (
+                <Loader2
+                  className="h-3.5 w-3.5 animate-spin text-blue-600 dark:text-blue-200"
+                  aria-hidden="true"
+                />
+              ) : null}
+              {formattedDate}
+            </span>
+            {!message.seen ? (
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-300">
+                Nouveau
+              </span>
+            ) : null}
+          </div>
+        </div>
+        {hasRecipients ? (
+          <p className="text-xs leading-snug text-zinc-500 dark:text-zinc-400">
+            <span className="font-medium text-zinc-600 dark:text-zinc-300">
+              À :
+            </span>{" "}
+            <span className="break-words">
+              {recipientsPreview}
+              {recipientsOverflow ? "…" : ""}
+            </span>
+          </p>
+        ) : null}
+        {mailbox === "sent" ? (
+          <p className="text-xs leading-snug text-zinc-500 dark:text-zinc-400">
+            {message.tracking
+              ? message.tracking.enabled
+                ? `${formatCount(
+                    message.tracking.totalOpens,
+                    "ouverture",
+                    "ouvertures"
+                  )} · ${formatCount(
+                    message.tracking.totalClicks,
+                    "clic",
+                    "clics"
+                  )}`
+                : "Suivi désactivé lors de l'envoi"
+              : "Suivi non disponible"}
+          </p>
+        ) : null}
+        {message.hasAttachments ? (
+          <Badge
+            variant="info"
+            className="w-fit text-[11px]"
+          >
+            <span className="inline-flex items-center gap-1">
+              <Paperclip className="h-3 w-3" />
+              Pièces jointes
+            </span>
+          </Badge>
+        ) : null}
+      </div>
+    </button>
+  );
+}, (previous, next) => {
+  return (
+    previous.mailbox === next.mailbox &&
+    areMailboxItemsEqual(previous.message, next.message) &&
+    previous.isActive === next.isActive &&
+    previous.isLoadingSelection === next.isLoadingSelection &&
+    previous.onSelect === next.onSelect &&
+    previous.onWarm === next.onWarm
+  );
+});
+
 export function MailboxClient({
   mailbox,
   title,
@@ -348,18 +578,21 @@ export function MailboxClient({
   isConfigured,
   initialPage,
   initialError,
+  initialSearchPage = null,
+  initialSearchError = null,
+  initialSearchQuery = "",
   emptyStateMessage,
 }: MailboxClientProps) {
   const { addToast } = useToast();
   const { resolvedTheme } = useTheme();
   const router = useRouter();
+  const pathname = usePathname() ?? MAILBOX_PATHNAMES[mailbox];
+  const pagePathnameRef = useRef(pathname);
+  const pagePathname = pagePathnameRef.current;
   const searchParams = useSearchParams();
   const listRef = useRef<HTMLDivElement | null>(null);
   const detailPaneRef = useRef<HTMLDivElement | null>(null);
   const mailDetailBodyRef = useRef<HTMLDivElement | null>(null);
-  const messageButtonRefs = useRef<Map<number, HTMLButtonElement | null>>(
-    new Map()
-  );
   const detailRequestsRef = useRef<Map<string, Promise<DetailRequestResult>>>(
     new Map()
   );
@@ -367,10 +600,41 @@ export function MailboxClient({
     new Map()
   );
   const initialLoadAttemptedRef = useRef(false);
+  const searchRequestIdRef = useRef(0);
 
   const mailboxState = useMailboxStore((state) => state.mailboxes[mailbox]);
+  const searchEnabled = isMailboxSearchable(mailbox);
+  const normalizedInitialSearchQuery = searchEnabled
+    ? normalizeMailboxSearchQuery(initialSearchQuery)
+    : "";
+  const initialCommittedSearchQuery =
+    searchEnabled && isMailboxSearchQueryUsable(normalizedInitialSearchQuery)
+      ? normalizedInitialSearchQuery
+      : "";
+  const initialResolvedSearchPage =
+    initialSearchPage &&
+    initialSearchPage.query === initialCommittedSearchQuery
+      ? initialSearchPage
+      : null;
+  const initialResolvedSearchError = initialCommittedSearchQuery
+    ? initialSearchError
+    : null;
 
   const [listError, setListError] = useState(initialError);
+  const [searchInput, setSearchInput] = useState(
+    normalizedInitialSearchQuery
+  );
+  const [committedSearchQuery, setCommittedSearchQuery] = useState(
+    initialCommittedSearchQuery
+  );
+  const [searchResult, setSearchResult] = useState<MailboxSearchResult | null>(
+    initialResolvedSearchPage
+  );
+  const [searchError, setSearchError] = useState<string | null>(
+    initialResolvedSearchError
+  );
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchLoadingMore, setSearchLoadingMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [initialLoading, setInitialLoading] = useState(false);
@@ -411,6 +675,21 @@ export function MailboxClient({
   }, []);
 
   useEffect(() => {
+    setSearchInput(normalizedInitialSearchQuery);
+    setCommittedSearchQuery(initialCommittedSearchQuery);
+    setSearchResult(initialResolvedSearchPage);
+    setSearchError(initialResolvedSearchError);
+    setSearchLoading(false);
+    setSearchLoadingMore(false);
+    searchRequestIdRef.current += 1;
+  }, [
+    initialCommittedSearchQuery,
+    initialResolvedSearchError,
+    initialResolvedSearchPage,
+    normalizedInitialSearchQuery,
+  ]);
+
+  useEffect(() => {
     if (typeof window === "undefined") {
       return;
     }
@@ -431,9 +710,6 @@ export function MailboxClient({
     };
   }, []);
 
-  useEffect(() => {
-    markMailboxActive(mailbox);
-  }, [mailbox]);
   useEffect(() => {
     detailRequestsRef.current.clear();
     prefetchedDetailStateRef.current.clear();
@@ -458,10 +734,39 @@ export function MailboxClient({
       preferStoreState ? mailboxState.messages : initialPage?.messages ?? [],
     [initialPage, mailboxState.messages, preferStoreState]
   );
+  const hasActiveSearch =
+    isConfigured &&
+    searchEnabled &&
+    isMailboxSearchQueryUsable(committedSearchQuery);
   const hasMessages = messages.length > 0;
   const hasMoreMessages = preferStoreState
     ? mailboxState.hasMore
     : initialPage?.hasMore ?? false;
+  const initialPageNeedsReconcile = useMemo(() => {
+    if (!initialPage) {
+      return false;
+    }
+    if (!mailboxState.initialized || mailboxState.messages.length === 0) {
+      return true;
+    }
+    if (
+      mailboxState.pageSize !== initialPage.pageSize ||
+      mailboxState.totalMessages !== initialPage.totalMessages
+    ) {
+      return true;
+    }
+    const currentFirstPage = mailboxState.messages.slice(
+      0,
+      initialPage.messages.length
+    );
+    return !areMailboxPagesEqual(currentFirstPage, initialPage.messages);
+  }, [
+    initialPage,
+    mailboxState.initialized,
+    mailboxState.messages,
+    mailboxState.pageSize,
+    mailboxState.totalMessages,
+  ]);
 
   const safeActionCall = useCallback(
     async <T,>(
@@ -530,19 +835,75 @@ export function MailboxClient({
   const [pendingMessageUid, setPendingMessageUid] = useState<number | null>(
     null
   );
-  const updateUrlMessageParam = useCallback((uid: number | null) => {
-    if (typeof window === "undefined") {
+  const updateUrlMailboxParams = useCallback(
+    ({
+      message,
+      q,
+    }: {
+      message?: number | null;
+      q?: string | null;
+    }) => {
+      if (typeof window === "undefined") {
+        return;
+      }
+      const currentHref = window.location.href;
+      const url = new URL(currentHref);
+      if (typeof message !== "undefined") {
+        if (message !== null) {
+          url.searchParams.set("message", String(message));
+        } else {
+          url.searchParams.delete("message");
+        }
+      }
+      if (typeof q !== "undefined") {
+        const normalizedQuery = normalizeMailboxSearchQuery(q);
+        if (normalizedQuery.length > 0) {
+          url.searchParams.set("q", normalizedQuery);
+        } else {
+          url.searchParams.delete("q");
+        }
+      }
+      const nextPath = `${url.pathname}${url.search}${url.hash}`;
+      if (
+        !canApplyPathScopedNavigationUpdate({
+          currentHref,
+          ownedPathname: pagePathname,
+          nextHref: nextPath,
+        })
+      ) {
+        return;
+      }
+      window.history.replaceState(window.history.state, "", nextPath);
+    },
+    [pagePathname]
+  );
+  const activeUrlSearchQuery =
+    searchEnabled && isMailboxSearchQueryUsable(committedSearchQuery)
+      ? committedSearchQuery
+      : null;
+  const normalizedSearchInput = normalizeMailboxSearchQuery(searchInput);
+  const canSubmitSearch =
+    searchEnabled && isMailboxSearchQueryUsable(normalizedSearchInput);
+  const hasPendingSearchDraft =
+    normalizedSearchInput !== committedSearchQuery;
+  const updateUrlMessageParam = useCallback(
+    (uid: number | null) => {
+      updateUrlMailboxParams({
+        message: uid,
+        q: activeUrlSearchQuery,
+      });
+    },
+    [activeUrlSearchQuery, updateUrlMailboxParams]
+  );
+
+  useEffect(() => {
+    if (!searchEnabled) {
       return;
     }
-    const url = new URL(window.location.href);
-    if (uid !== null) {
-      url.searchParams.set("message", String(uid));
-    } else {
-      url.searchParams.delete("message");
-    }
-    const nextPath = `${url.pathname}${url.search}${url.hash}`;
-    window.history.replaceState(window.history.state, "", nextPath);
-  }, []);
+    updateUrlMailboxParams({
+      q: committedSearchQuery || null,
+    });
+  }, [committedSearchQuery, searchEnabled, updateUrlMailboxParams]);
 
   useEffect(() => {
     setSelectedUid(initialSelectedUid);
@@ -741,63 +1102,214 @@ export function MailboxClient({
     [mailbox, requestMessageDetail]
   );
 
-  useEffect(() => {
-    if (typeof window === "undefined" || !messages.length) {
-      return;
-    }
-    const timers = messages.slice(0, 3).map((message, index) =>
-      window.setTimeout(() => {
-        warmMessageDetail(message.uid);
-      }, index * 80)
-    );
-    return () => {
-      timers.forEach((timerId) => {
-        window.clearTimeout(timerId);
+  const loadSearchPage = useCallback(
+    async ({
+      query,
+      page,
+      append = false,
+      showToastOnError = false,
+    }: {
+      query: string;
+      page: number;
+      append?: boolean;
+      showToastOnError?: boolean;
+    }) => {
+      const normalizedQuery = normalizeMailboxSearchQuery(query);
+      if (!searchEnabled || !isMailboxSearchQueryUsable(normalizedQuery)) {
+        return null;
+      }
+
+      const requestId = ++searchRequestIdRef.current;
+      if (append) {
+        setSearchLoadingMore(true);
+      } else {
+        setSearchLoading(true);
+        setSearchError(null);
+        setSearchResult((current) =>
+          current?.query === normalizedQuery ? current : null
+        );
+      }
+
+      const result = await safeActionCall(
+        () =>
+          searchMailboxMessagesAction({
+            mailbox,
+            query: normalizedQuery,
+            page,
+            pageSize: pageSizeFromStore,
+          }),
+        {
+          silentNetworkError: true,
+        }
+      );
+
+      if (requestId !== searchRequestIdRef.current) {
+        return null;
+      }
+
+      if (append) {
+        setSearchLoadingMore(false);
+      } else {
+        setSearchLoading(false);
+      }
+
+      if (!result) {
+        const message = "Erreur réseau lors de la recherche.";
+        if (!append) {
+          setSearchError(message);
+        }
+        if (showToastOnError) {
+          addToast({
+            variant: "error",
+            title: message,
+          });
+        }
+        return null;
+      }
+
+      if (!result.success || !result.data) {
+        const message =
+          result.message ?? "Échec de la recherche dans la messagerie.";
+        if (!append) {
+          setSearchError(message);
+        }
+        if (showToastOnError) {
+          addToast({
+            variant: "error",
+            title: message,
+          });
+        }
+        return null;
+      }
+
+      const data = result.data;
+      setSearchError(null);
+      setSearchResult((current) => {
+        if (!append || !current || current.query !== normalizedQuery) {
+          return data;
+        }
+        return {
+          ...data,
+          messages: mergeSearchMessages(
+            current.messages,
+            data.messages
+          ),
+        };
       });
-    };
-  }, [messages, warmMessageDetail]);
+      if (!append) {
+        listRef.current?.scrollTo({
+          top: 0,
+          behavior: "smooth",
+        });
+      }
+      return data;
+    },
+    [
+      addToast,
+      mailbox,
+      pageSizeFromStore,
+      safeActionCall,
+      searchEnabled,
+    ]
+  );
+
+  const resetSearchState = useCallback(() => {
+    searchRequestIdRef.current += 1;
+    setCommittedSearchQuery("");
+    setSearchResult(null);
+    setSearchError(null);
+    setSearchLoading(false);
+    setSearchLoadingMore(false);
+  }, []);
+
+  const handleSearchSubmit = useCallback(
+    (event?: FormEvent<HTMLFormElement>) => {
+      event?.preventDefault();
+      if (!searchEnabled) {
+        return;
+      }
+      if (!normalizedSearchInput.length) {
+        setMobilePane("list");
+        resetSearchState();
+        return;
+      }
+      if (!canSubmitSearch) {
+        addToast({
+          variant: "warning",
+          title: "Saisissez au moins 2 caractères.",
+        });
+        return;
+      }
+      setMobilePane("list");
+      if (normalizedSearchInput === committedSearchQuery) {
+        void loadSearchPage({
+          query: normalizedSearchInput,
+          page: 1,
+          showToastOnError: true,
+        });
+        return;
+      }
+      setCommittedSearchQuery(normalizedSearchInput);
+    },
+    [
+      addToast,
+      canSubmitSearch,
+      committedSearchQuery,
+      loadSearchPage,
+      normalizedSearchInput,
+      resetSearchState,
+      searchEnabled,
+    ]
+  );
+
+  const handleClearSearch = useCallback(() => {
+    setMobilePane("list");
+    setSearchInput("");
+    resetSearchState();
+  }, [resetSearchState]);
 
   useEffect(() => {
+    if (!searchEnabled) {
+      return;
+    }
+    if (normalizedSearchInput.length > 0 || !committedSearchQuery.length) {
+      return;
+    }
+    resetSearchState();
+  }, [
+    committedSearchQuery,
+    normalizedSearchInput.length,
+    resetSearchState,
+    searchEnabled,
+  ]);
+
+  useEffect(() => {
+    if (!hasActiveSearch) {
+      return;
+    }
+    setMobilePane("list");
     if (
-      typeof window === "undefined" ||
-      typeof IntersectionObserver === "undefined"
+      initialResolvedSearchPage &&
+      initialResolvedSearchPage.query === committedSearchQuery &&
+      initialResolvedSearchPage.page === 1
     ) {
+      setSearchResult(initialResolvedSearchPage);
+      setSearchError(initialResolvedSearchError);
+      setSearchLoading(false);
+      setSearchLoadingMore(false);
       return;
     }
-    const root = listRef.current;
-    if (!root || !messageButtonRefs.current.size) {
-      return;
-    }
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (!entry.isIntersecting) {
-            return;
-          }
-          const target = entry.target as HTMLElement;
-          const uidAttr = target.getAttribute("data-message-uid");
-          if (!uidAttr) {
-            return;
-          }
-          const uid = Number.parseInt(uidAttr, 10);
-          if (!Number.isNaN(uid)) {
-            warmMessageDetail(uid);
-          }
-        });
-      },
-      {
-        root,
-        rootMargin: "160px",
-        threshold: 0.1,
-      }
-    );
-    messageButtonRefs.current.forEach((node) => {
-      if (node) {
-        observer.observe(node);
-      }
+    void loadSearchPage({
+      query: committedSearchQuery,
+      page: 1,
     });
-    return () => observer.disconnect();
-  }, [messages, warmMessageDetail]);
+  }, [
+    committedSearchQuery,
+    hasActiveSearch,
+    initialResolvedSearchError,
+    initialResolvedSearchPage,
+    loadSearchPage,
+  ]);
 
   useEffect(() => {
     if (!isConfigured) {
@@ -805,21 +1317,32 @@ export function MailboxClient({
       initialLoadAttemptedRef.current = false;
       return;
     }
-    if (mailboxState.initialized) {
+    if (hasActiveSearch) {
+      setInitialLoading(false);
       initialLoadAttemptedRef.current = false;
       return;
     }
 
-    if (initialPage) {
+    if (initialPage && initialPageNeedsReconcile) {
       initialLoadAttemptedRef.current = false;
-      initializeMailboxCache(mailbox, {
+      const payload = {
         messages: initialPage.messages,
         page: initialPage.page,
         pageSize: initialPage.pageSize,
         hasMore: initialPage.hasMore,
         totalMessages: initialPage.totalMessages,
-      });
+      };
+      if (mailboxState.initialized) {
+        replaceMailboxMessages(mailbox, payload);
+      } else {
+        initializeMailboxCache(mailbox, payload);
+      }
       setListError(initialError);
+      return;
+    }
+
+    if (mailboxState.initialized) {
+      initialLoadAttemptedRef.current = false;
       return;
     }
 
@@ -908,7 +1431,9 @@ export function MailboxClient({
     addToast,
     initialError,
     initialPage,
+    initialPageNeedsReconcile,
     isConfigured,
+    hasActiveSearch,
     mailbox,
     mailboxState.initialized,
     mailboxState.syncing,
@@ -919,6 +1444,9 @@ export function MailboxClient({
 
   useEffect(() => {
     if (!isConfigured) {
+      return;
+    }
+    if (hasActiveSearch) {
       return;
     }
     if (
@@ -974,6 +1502,7 @@ export function MailboxClient({
       cancelled = true;
     };
   }, [
+    hasActiveSearch,
     isConfigured,
     mailbox,
     mailboxState.initialized,
@@ -1170,6 +1699,19 @@ export function MailboxClient({
   );
 
   const handleLoadMore = async () => {
+    if (hasActiveSearch) {
+      if (searchLoadingMore || !searchResult?.hasMore) {
+        return;
+      }
+      const nextSearchPage = searchResult.page + 1;
+      await loadSearchPage({
+        query: committedSearchQuery,
+        page: nextSearchPage,
+        append: true,
+        showToastOnError: true,
+      });
+      return;
+    }
     if (loadingMore || !hasMoreMessages) {
       return;
     }
@@ -1211,6 +1753,22 @@ export function MailboxClient({
 
   const handleRefresh = async () => {
     setRefreshing(true);
+    if (hasActiveSearch) {
+      const refreshed = await loadSearchPage({
+        query: committedSearchQuery,
+        page: 1,
+        showToastOnError: true,
+      });
+      setRefreshing(false);
+      if (!refreshed) {
+        return;
+      }
+      addToast({
+        variant: "success",
+        title: "Résultats actualisés.",
+      });
+      return;
+    }
     const result = await safeActionCall(() =>
       fetchMailboxPageAction({
         mailbox,
@@ -1300,10 +1858,43 @@ export function MailboxClient({
     ]
   );
 
+  const displayedMessages = hasActiveSearch
+    ? searchResult?.messages ?? []
+    : messages;
+  const displayedHasMessages = displayedMessages.length > 0;
+  const displayedHasMoreMessages = hasActiveSearch
+    ? searchResult?.hasMore ?? false
+    : hasMoreMessages;
+  const displayedLoadingMore = hasActiveSearch
+    ? searchLoadingMore
+    : loadingMore;
+  const displayedListError = hasActiveSearch ? searchError : listError;
+  const searchScopeLabel =
+    mailbox === "sent" ? "les messages envoyés" : "les messages reçus";
+  const searchSummaryText = !searchEnabled
+    ? null
+    : normalizedSearchInput.length > 0 &&
+        !canSubmitSearch
+      ? "Saisissez au moins 2 caractères."
+      : hasPendingSearchDraft
+        ? "Appuyez sur Entrée ou utilisez Rechercher."
+      : hasActiveSearch && searchLoading && !searchResult
+        ? `Recherche dans ${searchScopeLabel}...`
+        : hasActiveSearch && searchResult
+          ? `${searchResult.totalMessages} résultat${
+              searchResult.totalMessages > 1 ? "s" : ""
+            } pour "${committedSearchQuery}".`
+          : "Recherchez par adresse, domaine, objet ou contenu.";
+  const displayedEmptyStateMessage =
+    hasActiveSearch && committedSearchQuery.length > 0
+      ? `Aucun message trouvé pour "${committedSearchQuery}".`
+      : emptyStateMessage;
   const showInitialSkeleton =
-    (!storeHydrated || !mailboxState.initialized) &&
-    !initialPage &&
-    (initialLoading || !hasMessages);
+    hasActiveSearch
+      ? searchLoading && !searchResult && !searchError
+      : (!storeHydrated || !mailboxState.initialized) &&
+        !initialPage &&
+        (initialLoading || !hasMessages);
 
   const handleDownloadAttachment = useCallback(
     async (attachment: MessageDetail["attachments"][number]) => {
@@ -1442,7 +2033,7 @@ export function MailboxClient({
   );
 
   return (
-    <div className="space-y-4 overflow-x-scroll min-w-0">
+    <div className="min-w-0 space-y-4 overflow-x-hidden">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
@@ -1466,6 +2057,69 @@ export function MailboxClient({
         </div>
       </div>
 
+      {searchEnabled && isConfigured ? (
+        <div className="rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 sm:p-4">
+          <form
+            onSubmit={handleSearchSubmit}
+            className="flex flex-col gap-3"
+          >
+            <div className="flex flex-col gap-1">
+              <label
+                htmlFor={`${mailbox}-search`}
+                className="text-sm font-medium text-zinc-700 dark:text-zinc-200"
+              >
+                Rechercher dans {title.toLowerCase()}
+              </label>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                {searchSummaryText}
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <div className="relative min-w-0 flex-1">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+                <input
+                  id={`${mailbox}-search`}
+                  type="search"
+                  inputMode="search"
+                  autoComplete="off"
+                  spellCheck={false}
+                  value={searchInput}
+                  onChange={(event) => {
+                    setSearchInput(event.target.value);
+                  }}
+                  placeholder="Adresse, domaine, objet, contenu..."
+                  className="block h-11 w-full rounded-xl border border-zinc-200 bg-zinc-50 pl-10 pr-4 text-sm text-zinc-900 shadow-sm transition placeholder:text-zinc-400 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-100 dark:border-zinc-700 dark:bg-zinc-950/60 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-blue-400 dark:focus:bg-zinc-900 dark:focus:ring-blue-500/40"
+                />
+              </div>
+
+              <div className="flex items-center gap-2 sm:flex-none">
+                <Button
+                  type="submit"
+                  className="w-full justify-center sm:w-auto"
+                  disabled={!canSubmitSearch && normalizedSearchInput.length > 0}
+                  loading={searchLoading}
+                >
+                  <Search className="h-4 w-4" />
+                  Rechercher
+                </Button>
+                {(searchInput.length > 0 || committedSearchQuery.length > 0) ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="w-full justify-center sm:w-auto"
+                    onClick={handleClearSearch}
+                  >
+                    <X className="h-4 w-4" />
+                    Effacer
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+          </form>
+        </div>
+      ) : null}
+
       {!isConfigured && (
         <div className="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-6 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-950/40 dark:text-zinc-400">
           Configurez vos identifiants IMAP pour afficher cette rubrique.
@@ -1473,7 +2127,7 @@ export function MailboxClient({
       )}
 
       {isConfigured && (
-        <div className="space-y-4 overflow-x-scroll min-w-0">
+        <div className="min-w-0 space-y-4 overflow-x-hidden">
           <div className="lg:hidden">
             <div
               className="flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white p-1 text-sm font-medium text-zinc-600 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200"
@@ -1515,161 +2169,47 @@ export function MailboxClient({
               aria-hidden={listPaneHidden ? true : undefined}
               className={listPaneClassName}
             >
-              {listError ? (
+              {displayedListError ? (
                 <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-500/40 dark:bg-red-500/20 dark:text-red-100">
-                  {listError}
+                  {displayedListError}
                 </div>
               ) : showInitialSkeleton ? (
                 <MailboxSkeleton rows={6} />
-              ) : !hasMessages ? (
+              ) : !displayedHasMessages ? (
                 <div className="flex flex-col items-center justify-center gap-3 py-10 text-center text-sm text-zinc-600 dark:text-zinc-400">
                   <Mail className="h-8 w-8 text-zinc-400 dark:text-zinc-600" />
-                  <p>{emptyStateMessage}</p>
+                  <p>{displayedEmptyStateMessage}</p>
                 </div>
               ) : (
                 <div className="space-y-3">
-                  <ul className="space-y-2">
-                    {messages.map((message) => {
-                      const isActive = optimisticSelectedUid === message.uid;
-                      const isCurrentSelection = selectedUid === message.uid;
-                      const isPendingSelection =
-                        pendingMessageUid === message.uid;
-                      const isLoadingSelection =
-                        detailLoading &&
-                        (isCurrentSelection || isPendingSelection);
-                      const disableSelection = isLoadingSelection && isActive;
-                      const formattedDate = formatDate(message.date);
-                      const hasRecipients = message.to.length > 0;
-                      const recipientsPreview = hasRecipients
-                        ? message.to.slice(0, 3).join(", ")
-                        : "";
-                      const recipientsOverflow =
-                        hasRecipients && message.to.length > 3;
-                      return (
-                        <li key={message.uid}>
-                          <button
-                            ref={(node) => {
-                              if (node) {
-                                messageButtonRefs.current.set(
-                                  message.uid,
-                                  node
-                                );
-                              } else {
-                                messageButtonRefs.current.delete(message.uid);
-                              }
-                            }}
-                            data-message-uid={message.uid}
-                            type="button"
-                            onClick={() => handleSelectMessage(message.uid)}
-                            onMouseEnter={() => warmMessageDetail(message.uid)}
-                            onFocus={() => warmMessageDetail(message.uid)}
-                            onTouchStart={() => warmMessageDetail(message.uid)}
-                            disabled={disableSelection}
-                            aria-busy={isLoadingSelection ? "true" : undefined}
-                            className={clsx(
-                              "w-full rounded-lg border px-3 py-3 text-left shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white disabled:cursor-not-allowed disabled:opacity-70 dark:focus-visible:ring-offset-zinc-900",
-                              isActive
-                                ? "border-blue-300 bg-blue-50 text-blue-800 ring-1 ring-blue-200 dark:border-blue-500/60 dark:bg-blue-500/20 dark:text-blue-100 dark:ring-blue-400/40"
-                                : "border-zinc-200 bg-white text-zinc-800 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:border-blue-500/30 dark:hover:bg-blue-500/10 dark:hover:text-blue-100"
-                            )}
-                            aria-current={isActive ? "true" : undefined}
-                          >
-                            <div className="flex flex-col gap-2">
-                              <div className="flex flex-wrap items-start gap-x-2 gap-y-1">
-                                <div className="min-w-0 flex-1 space-y-1">
-                                  <p
-                                    className={clsx(
-                                      "text-sm font-semibold leading-tight",
-                                      message.seen
-                                        ? "text-current"
-                                        : "text-blue-600 dark:text-blue-200"
-                                    )}
-                                  >
-                                    <span
-                                      className="block break-words"
-                                      style={SUBJECT_CLAMP_STYLE}
-                                    >
-                                      {message.subject || "(Sans objet)"}
-                                    </span>
-                                  </p>
-                                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                                    <span className="block truncate">
-                                      {message.from || "Expéditeur inconnu"}
-                                    </span>
-                                  </p>
-                                </div>
-                                <div className="flex flex-none flex-col items-start text-[11px] font-medium text-zinc-500 dark:text-zinc-400 sm:items-end sm:text-xs">
-                                  <span className="flex items-center gap-1 leading-tight tabular-nums">
-                                    {isLoadingSelection ? (
-                                      <Loader2
-                                        className="h-3.5 w-3.5 animate-spin text-blue-600 dark:text-blue-200"
-                                        aria-hidden="true"
-                                      />
-                                    ) : null}
-                                    {formattedDate}
-                                  </span>
-                                  {!message.seen ? (
-                                    <span className="text-[10px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-300">
-                                      Nouveau
-                                    </span>
-                                  ) : null}
-                                </div>
-                              </div>
-                              {hasRecipients ? (
-                                <p className="text-xs leading-snug text-zinc-500 dark:text-zinc-400">
-                                  <span className="font-medium text-zinc-600 dark:text-zinc-300">
-                                    À :
-                                  </span>{" "}
-                                  <span className="break-words">
-                                    {recipientsPreview}
-                                    {recipientsOverflow ? "…" : ""}
-                                  </span>
-                                </p>
-                              ) : null}
-                              {mailbox === "sent" ? (
-                                <p className="text-xs leading-snug text-zinc-500 dark:text-zinc-400">
-                                  {message.tracking
-                                    ? message.tracking.enabled
-                                      ? `${formatCount(
-                                          message.tracking.totalOpens,
-                                          "ouverture",
-                                          "ouvertures"
-                                        )} · ${formatCount(
-                                          message.tracking.totalClicks,
-                                          "clic",
-                                          "clics"
-                                        )}`
-                                      : "Suivi désactivé lors de l'envoi"
-                                    : "Suivi non disponible"}
-                                </p>
-                              ) : null}
-                              {message.hasAttachments ? (
-                                <Badge
-                                  variant="info"
-                                  className="w-fit text-[11px]"
-                                >
-                                  <span className="inline-flex items-center gap-1">
-                                    <Paperclip className="h-3 w-3" />
-                                    Pièces jointes
-                                  </span>
-                                </Badge>
-                              ) : null}
-                            </div>
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
+                  <div role="list" className="space-y-2">
+                    {displayedMessages.map((message) => (
+                      <div key={message.uid} role="listitem">
+                        <MailboxMessageRow
+                          mailbox={mailbox}
+                          message={message}
+                          isActive={optimisticSelectedUid === message.uid}
+                          isLoadingSelection={
+                            detailLoading &&
+                            (selectedUid === message.uid ||
+                              pendingMessageUid === message.uid)
+                          }
+                          onSelect={handleSelectMessage}
+                          onWarm={warmMessageDetail}
+                        />
+                      </div>
+                    ))}
+                  </div>
 
-                  {loadingMore ? <MailboxSkeleton rows={3} /> : null}
+                  {displayedLoadingMore ? <MailboxSkeleton rows={3} /> : null}
 
-                  {hasMoreMessages ? (
+                  {displayedHasMoreMessages ? (
                     <div className="flex justify-center">
                       <Button
                         type="button"
                         variant="ghost"
                         onClick={handleLoadMore}
-                        loading={loadingMore}
+                        loading={displayedLoadingMore}
                       >
                         Charger plus
                       </Button>

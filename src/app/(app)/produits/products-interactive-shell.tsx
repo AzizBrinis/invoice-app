@@ -15,6 +15,7 @@ import { clsx } from "clsx";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/formatters";
 import { fromCents } from "@/lib/money";
+import { canApplyPathScopedNavigationUpdate } from "@/lib/path-scoped-navigation";
 import type { CurrencyCode } from "@/lib/currency";
 import type { ProductListResult } from "@/server/products";
 import { deleteProductInlineAction } from "@/app/(app)/produits/actions";
@@ -140,7 +141,9 @@ export function ProductsInteractiveShell({
   currencyCode,
 }: ProductsInteractiveShellProps) {
   const router = useRouter();
-  const pathname = usePathname();
+  const pathname = usePathname() ?? "/produits";
+  const pagePathnameRef = useRef(pathname);
+  const pagePathname = pagePathnameRef.current;
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const [searchInput, setSearchInput] = useState(initialSearch);
   const [category, setCategory] = useState(initialCategory);
@@ -211,11 +214,31 @@ export function ProductsInteractiveShell({
       params.set("statut", normalizedFilters.status);
     }
     const next = params.toString();
-    const target = (next ? `${pathname}?${next}` : pathname) as Route;
+    const target = (next ? `${pagePathname}?${next}` : pagePathname) as Route;
+    if (typeof window === "undefined") {
+      return;
+    }
+    if (
+      !canApplyPathScopedNavigationUpdate({
+        currentHref: window.location.href,
+        ownedPathname: pagePathname,
+        nextHref: target,
+      })
+    ) {
+      return;
+    }
+    const currentUrl = new URL(window.location.href);
+    const nextUrl = new URL(target, window.location.origin);
+    if (
+      `${currentUrl.pathname}${currentUrl.search}` ===
+      `${nextUrl.pathname}${nextUrl.search}`
+    ) {
+      return;
+    }
     router.replace(target, {
       scroll: false,
     });
-  }, [normalizedFilters, pathname, router]);
+  }, [normalizedFilters, pagePathname, router]);
 
   useEffect(() => {
     if (isInitialRender.current) {

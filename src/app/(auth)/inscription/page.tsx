@@ -1,9 +1,14 @@
 import Link from "next/link";
+import type { Route } from "next";
 import { RegisterForm } from "./register-form";
-import { getCurrentUser } from "@/lib/auth";
+import {
+  getCurrentUser,
+  setCurrentSessionActiveTenant,
+} from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { Alert } from "@/components/ui/alert";
 import { FlashMessages } from "@/components/ui/flash-messages";
+import { acceptAccountInvitation } from "@/server/accounts";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -12,16 +17,39 @@ type PageProps = {
 };
 
 export default async function InscriptionPage({ searchParams }: PageProps) {
+  const resolvedParams: SearchParams = (await searchParams) ?? {};
+  const invitationParam = Array.isArray(resolvedParams?.invitation)
+    ? resolvedParams.invitation[0]
+    : resolvedParams?.invitation ?? null;
+  const invitationToken = invitationParam?.trim() || null;
   const user = await getCurrentUser();
+
   if (user) {
+    if (invitationToken) {
+      try {
+        const invitationContext = await acceptAccountInvitation({
+          rawToken: invitationToken,
+          userId: user.id,
+        });
+        await setCurrentSessionActiveTenant(invitationContext.accountId);
+      } catch (error) {
+        console.error(
+          "[InscriptionPage] Impossible d'accepter l'invitation courante",
+          error,
+        );
+      }
+    }
     redirect("/tableau-de-bord");
   }
-
-  const resolvedParams: SearchParams = (await searchParams) ?? {};
 
   const messageParam = Array.isArray(resolvedParams?.message)
     ? resolvedParams.message[0]
     : resolvedParams?.message ?? null;
+  const loginHref = invitationToken
+    ? `/connexion?${new URLSearchParams({
+        invitation: invitationToken,
+      }).toString()}`
+    : "/connexion";
 
   return (
     <div className="flex min-h-screen w-full items-center justify-center bg-gradient-to-br from-blue-50 via-white to-blue-100 px-4 py-10 transition-colors dark:from-zinc-950 dark:via-zinc-950 dark:to-blue-950 supports-[min-height:100dvh]:min-h-[100dvh] sm:px-6 sm:py-12">
@@ -44,11 +72,11 @@ export default async function InscriptionPage({ searchParams }: PageProps) {
             title={messageParam}
           />
         ) : null}
-        <RegisterForm />
+        <RegisterForm invitationToken={invitationToken} />
         <p className="mt-6 text-center text-xs text-zinc-500 dark:text-zinc-400">
           Vous avez déjà un compte ?
           <Link
-            href="/connexion"
+            href={loginHref as Route}
             className="ml-1 font-medium text-blue-600 hover:underline dark:text-blue-400"
           >
             Se connecter

@@ -8,22 +8,36 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { CatalogPage } from "@/components/website/catalog-page";
 import NextImage from "next/image";
-import type { CatalogPayload } from "@/server/website";
+import type { CatalogPayload, SignupSettingsInput } from "@/server/website";
+import {
+  CONTACT_SOCIAL_ICON_OPTIONS,
+  type ContactSocialLink,
+} from "@/lib/website/contact";
 import type {
   WebsiteBuilderConfig,
+  WebsiteBuilderPageConfig,
   WebsiteBuilderSection,
   WebsiteBuilderMediaAsset,
   WebsiteBuilderButton,
 } from "@/lib/website/builder";
 import { WEBSITE_MEDIA_PLACEHOLDERS } from "@/lib/website/placeholders";
+import { CISECO_PAGE_DEFINITIONS, type CisecoPageKey } from "@/lib/website/ciseco-pages";
 import {
   BUILDER_SECTION_TYPES,
   BUILDER_SECTION_LAYOUTS,
+  TECH_AGENCY_SECTION_LAYOUT_PRESETS,
+  BUILDER_SECTION_BUTTON_LIMIT,
   builderConfigSchema,
+  sanitizeBuilderPages,
   createSectionTemplate,
 } from "@/lib/website/builder";
 import { generateId } from "@/lib/id";
-import { persistBuilderConfigAction } from "@/app/(app)/site-web/personnalisation-avancee/actions";
+import { slugify } from "@/lib/slug";
+import {
+  persistBuilderConfigAction,
+  persistContactPageAction,
+  persistSignupSettingsAction,
+} from "@/app/(app)/site-web/personnalisation-avancee/actions";
 import type { WebsiteBuilderState } from "@/server/website";
 
 type AdvancedCustomizationClientProps = {
@@ -37,10 +51,53 @@ type AdvancedCustomizationClientProps = {
     accentColor: string;
     published: boolean;
   };
+  signupSettings: SignupSettingsInput;
   catalog: CatalogPayload;
 };
 
 type Device = "desktop" | "tablet" | "mobile";
+
+type ContactSettings = {
+  intro: string;
+  email: string;
+  phone: string;
+  address: string;
+  socialLinks: ContactSocialLink[];
+};
+
+type SignupProviderKey = keyof SignupSettingsInput["providers"];
+
+type SignupProviderSettings =
+  SignupSettingsInput["providers"][SignupProviderKey];
+
+const DEFAULT_SIGNUP_PROVIDER: SignupSettingsInput["providers"]["facebook"] = {
+  enabled: false,
+  useEnv: true,
+  clientId: null,
+  clientSecret: null,
+};
+
+const SIGNUP_PROVIDERS: Array<{
+  id: SignupProviderKey;
+  label: string;
+  description: string;
+}> = [
+  {
+    id: "google",
+    label: "Google",
+    description: "Connexion rapide avec Google.",
+  },
+  {
+    id: "facebook",
+    label: "Facebook",
+    description: "Connexion rapide avec Facebook.",
+  },
+  {
+    id: "twitter",
+    label: "Twitter",
+    description: "Connexion rapide avec Twitter (X).",
+  },
+];
 
 const animationOptions = [
   { label: "Discret", value: "none" },
@@ -106,6 +163,40 @@ const SECTION_ITEM_PLACEHOLDERS: Partial<Record<WebsiteBuilderSection["type"], r
   promo: WEBSITE_MEDIA_PLACEHOLDERS.promos,
   team: WEBSITE_MEDIA_PLACEHOLDERS.team,
   logos: WEBSITE_MEDIA_PLACEHOLDERS.logos,
+};
+
+const CISECO_SECTION_LAYOUT_PRESETS: Partial<
+  Record<WebsiteBuilderSection["type"], string[]>
+> = {
+  hero: ["home-hero", "page-hero", "split", "center", "image-right"],
+  services: ["discovery", "features", "grid", "list", "stack"],
+  products: [
+    "new-arrivals",
+    "best-sellers",
+    "featured",
+    "favorites",
+    "related",
+    "product-options",
+    "product-related",
+    "collection-grid",
+    "grid",
+    "list",
+    "carousel",
+  ],
+  promo: ["home-promo", "kids-banner", "banner", "split"],
+  categories: ["explore", "grid", "cards", "carousel"],
+  gallery: ["departments", "blog-mini", "product-gallery", "grid", "masonry"],
+  content: [
+    "home-blog",
+    "blog-featured",
+    "blog-latest",
+    "blog-body",
+    "blog-related",
+    "product-description",
+    "stack",
+    "split",
+  ],
+  testimonials: ["home-testimonials", "product-reviews", "grid", "carousel"],
 };
 
 function getSectionItemPlaceholder(
@@ -219,6 +310,76 @@ function serializeConfig(config: WebsiteBuilderConfig) {
   return JSON.stringify(clone);
 }
 
+function serializeContactSettings(settings: ContactSettings) {
+  return JSON.stringify(settings);
+}
+
+function normalizeSignupSettings(
+  input: SignupSettingsInput | null | undefined,
+): SignupSettingsInput {
+  return {
+    redirectTarget: input?.redirectTarget ?? "home",
+    providers: {
+      facebook: {
+        ...DEFAULT_SIGNUP_PROVIDER,
+        ...(input?.providers?.facebook ?? {}),
+      },
+      google: {
+        ...DEFAULT_SIGNUP_PROVIDER,
+        ...(input?.providers?.google ?? {}),
+      },
+      twitter: {
+        ...DEFAULT_SIGNUP_PROVIDER,
+        ...(input?.providers?.twitter ?? {}),
+      },
+    },
+  };
+}
+
+function serializeSignupSettings(settings: SignupSettingsInput) {
+  return JSON.stringify(settings);
+}
+
+const DEFAULT_CISECO_PAGE_KEY: CisecoPageKey = "home";
+
+function resolvePageConfig(
+  config: WebsiteBuilderConfig,
+  pageKey: CisecoPageKey,
+): WebsiteBuilderPageConfig {
+  const entry = config.pages?.[pageKey];
+  if (entry && typeof entry === "object" && "sections" in entry) {
+    return entry as WebsiteBuilderPageConfig;
+  }
+  return {
+    sections: [],
+    mediaLibrary: [],
+    seo: {},
+  };
+}
+
+function resolveCisecoPreviewPath(
+  pageKey: CisecoPageKey,
+  catalog: CatalogPayload,
+) {
+  const definition = CISECO_PAGE_DEFINITIONS.find(
+    (entry) => entry.key === pageKey,
+  );
+  if (!definition) return "/";
+  if (pageKey === "product") {
+    const firstProduct = catalog.products.all?.[0];
+    if (firstProduct) {
+      const fallbackSlug =
+        firstProduct.publicSlug?.trim() ||
+        slugify(firstProduct.sku || firstProduct.name || firstProduct.id) ||
+        firstProduct.id.slice(0, 8);
+      if (fallbackSlug) {
+        return `/produit/${fallbackSlug}`;
+      }
+    }
+  }
+  return definition.path;
+}
+
 async function optimizeImage(file: File): Promise<WebsiteBuilderMediaAsset> {
   const dataUrl = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -271,25 +432,103 @@ async function optimizeImage(file: File): Promise<WebsiteBuilderMediaAsset> {
 export function AdvancedCustomizationClient({
   builder,
   links,
+  signupSettings: initialSignupSettings,
   catalog,
 }: AdvancedCustomizationClientProps) {
-  const [config, setConfig] = useState<WebsiteBuilderConfig>(builder.config);
+  const [config, setConfig] = useState<WebsiteBuilderConfig>(() => ({
+    ...builder.config,
+    pages: sanitizeBuilderPages(builder.config.pages),
+  }));
   const [history, setHistory] = useState(builder.history);
-  const [selectedSectionId, setSelectedSectionId] = useState<string>(
-    builder.config.sections[0]?.id ?? "",
+  const [selectedSectionId, setSelectedSectionId] = useState<string>(() => {
+    const pageConfig = resolvePageConfig(builder.config, DEFAULT_CISECO_PAGE_KEY);
+    return pageConfig.sections[0]?.id ?? builder.config.sections[0]?.id ?? "";
+  });
+  const [selectedPageKey, setSelectedPageKey] = useState<CisecoPageKey>(
+    DEFAULT_CISECO_PAGE_KEY,
   );
-  const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
-  const [error, setError] = useState<string | null>(null);
+  const [builderStatus, setBuilderStatus] = useState<
+    "idle" | "saving" | "saved" | "error"
+  >("idle");
+  const [builderError, setBuilderError] = useState<string | null>(null);
+  const [contactStatus, setContactStatus] = useState<
+    "idle" | "saving" | "saved" | "error"
+  >("idle");
+  const [contactError, setContactError] = useState<string | null>(null);
+  const [contactSettings, setContactSettings] = useState<ContactSettings>(() => ({
+    intro: catalog.website.contactBlurb ?? "",
+    email: catalog.website.contact.email ?? "",
+    phone: catalog.website.contact.phone ?? "",
+    address: catalog.website.contact.address ?? "",
+    socialLinks: catalog.website.socialLinks ?? [],
+  }));
+  const [signupStatus, setSignupStatus] = useState<
+    "idle" | "saving" | "saved" | "error"
+  >("idle");
+  const [signupError, setSignupError] = useState<string | null>(null);
+  const [signupSettings, setSignupSettings] = useState<SignupSettingsInput>(() =>
+    normalizeSignupSettings(initialSignupSettings),
+  );
   const [device, setDevice] = useState<Device>("desktop");
   const serializedRef = useRef(serializeConfig(builder.config));
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const contactSerializedRef = useRef(
+    serializeContactSettings({
+      intro: catalog.website.contactBlurb ?? "",
+      email: catalog.website.contact.email ?? "",
+      phone: catalog.website.contact.phone ?? "",
+      address: catalog.website.contact.address ?? "",
+      socialLinks: catalog.website.socialLinks ?? [],
+    }),
+  );
+  const contactDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const signupSerializedRef = useRef(
+    serializeSignupSettings(normalizeSignupSettings(initialSignupSettings)),
+  );
+  const signupDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const previewRef = useRef<HTMLDivElement | null>(null);
   const [, startTransition] = useTransition();
-  const mediaAssets = config.mediaLibrary ?? [];
+  const isTechAgencyTemplate = catalog.website.templateKey === "ecommerce-tech-agency";
+  const isCisecoTemplate = catalog.website.templateKey === "ecommerce-ciseco-home";
+  const activePageConfig = isCisecoTemplate
+    ? resolvePageConfig(config, selectedPageKey)
+    : {
+        sections: config.sections,
+        mediaLibrary: config.mediaLibrary ?? [],
+        seo: {},
+      };
+  const mediaAssets = activePageConfig.mediaLibrary ?? [];
+  const previewPath = isCisecoTemplate
+    ? resolveCisecoPreviewPath(selectedPageKey, catalog)
+    : null;
+  const previewHref = isCisecoTemplate && previewPath
+    ? `${links.previewUrl}?path=${encodeURIComponent(previewPath)}`
+    : links.previewUrl;
+  const overallStatus =
+    builderStatus === "error" ||
+    contactStatus === "error" ||
+    signupStatus === "error"
+      ? "error"
+      : builderStatus === "saving" ||
+          contactStatus === "saving" ||
+          signupStatus === "saving"
+        ? "saving"
+        : "saved";
+  const combinedError = builderError ?? contactError ?? signupError;
 
-  const markDirty = () => {
-    setStatus("saving");
-    setError(null);
+  const markBuilderDirty = () => {
+    setBuilderStatus("saving");
+    setBuilderError(null);
+  };
+
+  const markContactDirty = () => {
+    setContactStatus("saving");
+    setContactError(null);
+  };
+
+  const markSignupDirty = () => {
+    setSignupStatus("saving");
+    setSignupError(null);
   };
 
   useEffect(() => {
@@ -303,14 +542,19 @@ export function AdvancedCustomizationClient({
     debounceRef.current = setTimeout(() => {
       startTransition(async () => {
         try {
-          builderConfigSchema.parse(config);
-          const result = await persistBuilderConfigAction(config);
+          const normalizedConfig = {
+            ...config,
+            pages: sanitizeBuilderPages(config.pages),
+          };
+          builderConfigSchema.parse(normalizedConfig);
+          const result = await persistBuilderConfigAction(normalizedConfig);
           serializedRef.current = serializeConfig(result.config);
+          setConfig(result.config);
           setHistory(result.history);
-          setStatus("saved");
+          setBuilderStatus("saved");
         } catch (submissionError) {
-          setStatus("error");
-          setError(
+          setBuilderStatus("error");
+          setBuilderError(
             submissionError instanceof Error
               ? submissionError.message
               : "Impossible d’enregistrer la personnalisation.",
@@ -325,12 +569,124 @@ export function AdvancedCustomizationClient({
     };
   }, [config, startTransition]);
 
+  useEffect(() => {
+    const serialized = serializeContactSettings(contactSettings);
+    if (serialized === contactSerializedRef.current) {
+      return;
+    }
+    if (contactDebounceRef.current) {
+      clearTimeout(contactDebounceRef.current);
+    }
+    contactDebounceRef.current = setTimeout(() => {
+      startTransition(async () => {
+        try {
+          const result = await persistContactPageAction({
+            intro: contactSettings.intro,
+            email: contactSettings.email,
+            phone: contactSettings.phone,
+            address: contactSettings.address,
+            socialLinks: contactSettings.socialLinks,
+          });
+          contactSerializedRef.current = serializeContactSettings(result);
+          setContactSettings(result);
+          setContactStatus("saved");
+        } catch (submissionError) {
+          setContactStatus("error");
+          setContactError(
+            submissionError instanceof Error
+              ? submissionError.message
+              : "Impossible d’enregistrer la page contact.",
+          );
+        }
+      });
+    }, 900);
+    return () => {
+      if (contactDebounceRef.current) {
+        clearTimeout(contactDebounceRef.current);
+      }
+    };
+  }, [contactSettings, startTransition]);
+
+  useEffect(() => {
+    const serialized = serializeSignupSettings(signupSettings);
+    if (serialized === signupSerializedRef.current) {
+      return;
+    }
+    if (signupDebounceRef.current) {
+      clearTimeout(signupDebounceRef.current);
+    }
+    signupDebounceRef.current = setTimeout(() => {
+      startTransition(async () => {
+        try {
+          const trimmedProviders = {
+            facebook: {
+              ...signupSettings.providers.facebook,
+              clientId: signupSettings.providers.facebook.clientId?.trim() || null,
+              clientSecret:
+                signupSettings.providers.facebook.clientSecret?.trim() || null,
+            },
+            google: {
+              ...signupSettings.providers.google,
+              clientId: signupSettings.providers.google.clientId?.trim() || null,
+              clientSecret:
+                signupSettings.providers.google.clientSecret?.trim() || null,
+            },
+            twitter: {
+              ...signupSettings.providers.twitter,
+              clientId: signupSettings.providers.twitter.clientId?.trim() || null,
+              clientSecret:
+                signupSettings.providers.twitter.clientSecret?.trim() || null,
+            },
+          } satisfies Parameters<
+            typeof persistSignupSettingsAction
+          >[0]["providers"];
+          const nextSettings = {
+            ...signupSettings,
+            providers: trimmedProviders,
+          } satisfies Parameters<typeof persistSignupSettingsAction>[0];
+          await persistSignupSettingsAction(nextSettings);
+          signupSerializedRef.current = serializeSignupSettings(nextSettings);
+          setSignupSettings(nextSettings);
+          setSignupStatus("saved");
+        } catch (submissionError) {
+          setSignupStatus("error");
+          setSignupError(
+            submissionError instanceof Error
+              ? submissionError.message
+              : "Impossible d’enregistrer la configuration d’inscription.",
+          );
+        }
+      });
+    }, 900);
+    return () => {
+      if (signupDebounceRef.current) {
+        clearTimeout(signupDebounceRef.current);
+      }
+    };
+  }, [signupSettings, startTransition]);
+
   const previewBuilderConfig = useMemo(() => {
+    if (!isCisecoTemplate) {
+      return {
+        ...config,
+        sections: config.sections.filter((section) => section.visible !== false),
+      };
+    }
+    const pageConfig = resolvePageConfig(config, selectedPageKey);
+    const filteredSections = pageConfig.sections.filter(
+      (section) => section.visible !== false,
+    );
     return {
       ...config,
-      sections: config.sections.filter((section) => section.visible !== false),
+      pages: {
+        ...config.pages,
+        [selectedPageKey]: {
+          ...pageConfig,
+          sections: filteredSections,
+        },
+      },
     };
-  }, [config]);
+  }, [config, isCisecoTemplate, selectedPageKey]);
 
   const previewPayload = useMemo(() => {
     return {
@@ -339,14 +695,29 @@ export function AdvancedCustomizationClient({
         ...catalog.website,
         accentColor: previewBuilderConfig.theme?.accent ?? catalog.website.accentColor,
         builder: previewBuilderConfig,
+        contactBlurb: contactSettings.intro || null,
+        socialLinks: contactSettings.socialLinks,
+        ecommerceSettings: {
+          ...catalog.website.ecommerceSettings,
+          signup: signupSettings,
+        },
+        contact: {
+          ...catalog.website.contact,
+          email: contactSettings.email || null,
+          phone: contactSettings.phone || null,
+          address: contactSettings.address || null,
+        },
       },
     };
-  }, [catalog, previewBuilderConfig]);
+  }, [catalog, previewBuilderConfig, contactSettings, signupSettings]);
 
   const visibleSectionIndex = useMemo(() => {
-    const ids = previewBuilderConfig.sections.map((section) => section.id);
+    const ids = (isCisecoTemplate
+      ? previewBuilderConfig.pages?.[selectedPageKey]?.sections ?? []
+      : previewBuilderConfig.sections
+    ).map((section) => section.id);
     return `|${ids.join("|")}|`;
-  }, [previewBuilderConfig.sections]);
+  }, [isCisecoTemplate, previewBuilderConfig.pages, previewBuilderConfig.sections, selectedPageKey]);
 
   useEffect(() => {
     if (!previewRef.current || !selectedSectionId) return;
@@ -365,22 +736,45 @@ export function AdvancedCustomizationClient({
     });
   }, [visibleSectionIndex, selectedSectionId]);
 
+  useEffect(() => {
+    if (!isCisecoTemplate) return;
+    const pageConfig = resolvePageConfig(config, selectedPageKey);
+    const exists = pageConfig.sections.some(
+      (section) => section.id === selectedSectionId,
+    );
+    if (!exists) {
+      setSelectedSectionId(pageConfig.sections[0]?.id ?? "");
+    }
+  }, [config, isCisecoTemplate, selectedPageKey, selectedSectionId]);
+
   const selectedSection =
-    config.sections.find((section) => section.id === selectedSectionId) ??
-    config.sections[0] ??
+    activePageConfig.sections.find((section) => section.id === selectedSectionId) ??
+    activePageConfig.sections[0] ??
     null;
   const sectionMediaFields = selectedSection
     ? SECTION_MEDIA_FIELDS[selectedSection.type] ?? []
     : [];
+  const layoutOptions = selectedSection
+    ? (isTechAgencyTemplate
+        ? TECH_AGENCY_SECTION_LAYOUT_PRESETS[selectedSection.type]
+        : isCisecoTemplate
+          ? CISECO_SECTION_LAYOUT_PRESETS[selectedSection.type]
+          : undefined) ??
+      BUILDER_SECTION_LAYOUTS[selectedSection.type] ??
+      []
+    : [];
+  const resolvedLayoutOptions =
+    selectedSection?.layout && !layoutOptions.includes(selectedSection.layout)
+      ? [...layoutOptions, selectedSection.layout]
+      : layoutOptions;
 
   function updateSection(
     sectionId: string,
     updater: (section: WebsiteBuilderSection) => Partial<WebsiteBuilderSection>,
   ) {
-    markDirty();
-    setConfig((prev) => ({
-      ...prev,
-      sections: prev.sections.map((section) =>
+    updateActivePage((page) => ({
+      ...page,
+      sections: page.sections.map((section) =>
         section.id === sectionId ? { ...section, ...updater(section) } : section,
       ),
     }));
@@ -391,10 +785,9 @@ export function AdvancedCustomizationClient({
     itemId: string,
     changes: Partial<WebsiteBuilderSection["items"][number]>,
   ) {
-    markDirty();
-    setConfig((prev) => ({
-      ...prev,
-      sections: prev.sections.map((section) =>
+    updateActivePage((page) => ({
+      ...page,
+      sections: page.sections.map((section) =>
         section.id === sectionId
           ? {
               ...section,
@@ -412,10 +805,9 @@ export function AdvancedCustomizationClient({
     buttonId: string,
     changes: Partial<WebsiteBuilderButton>,
   ) {
-    markDirty();
-    setConfig((prev) => ({
-      ...prev,
-      sections: prev.sections.map((section) =>
+    updateActivePage((page) => ({
+      ...page,
+      sections: page.sections.map((section) =>
         section.id === sectionId
           ? {
               ...section,
@@ -428,31 +820,110 @@ export function AdvancedCustomizationClient({
     }));
   }
 
+  function updateContactField<Key extends keyof ContactSettings>(
+    key: Key,
+    value: ContactSettings[Key],
+  ) {
+    markContactDirty();
+    setContactSettings((prev) => ({
+      ...prev,
+      [key]: value,
+    }));
+  }
+
+  function updateSocialLink(id: string, changes: Partial<ContactSocialLink>) {
+    markContactDirty();
+    setContactSettings((prev) => ({
+      ...prev,
+      socialLinks: prev.socialLinks.map((link) =>
+        link.id === id ? { ...link, ...changes } : link,
+      ),
+    }));
+  }
+
+  function addSocialLink() {
+    const fallback = CONTACT_SOCIAL_ICON_OPTIONS[0];
+    if (!fallback) return;
+    markContactDirty();
+    setContactSettings((prev) => ({
+      ...prev,
+      socialLinks: [
+        ...prev.socialLinks,
+        {
+          id: generateId("social"),
+          label: fallback.label,
+          href: "",
+          icon: fallback.value,
+        },
+      ],
+    }));
+  }
+
+  function removeSocialLink(id: string) {
+    markContactDirty();
+    setContactSettings((prev) => ({
+      ...prev,
+      socialLinks: prev.socialLinks.filter((link) => link.id !== id),
+    }));
+  }
+
+  function updateSignupRedirectTarget(
+    value: SignupSettingsInput["redirectTarget"],
+  ) {
+    markSignupDirty();
+    setSignupSettings((prev) => ({
+      ...prev,
+      redirectTarget: value,
+    }));
+  }
+
+  function updateSignupProvider(
+    providerId: SignupProviderKey,
+    changes: Partial<SignupProviderSettings>,
+  ) {
+    markSignupDirty();
+    setSignupSettings((prev) => ({
+      ...prev,
+      providers: {
+        ...prev.providers,
+        [providerId]: {
+          ...prev.providers[providerId],
+          ...changes,
+        },
+      },
+    }));
+  }
+
   function addSection(type: WebsiteBuilderSection["type"]) {
     const template = createSectionTemplate(type);
-    markDirty();
-    setConfig((prev) => ({
-      ...prev,
-      sections: [...prev.sections, template],
+    const layoutPreset = isTechAgencyTemplate
+      ? TECH_AGENCY_SECTION_LAYOUT_PRESETS[type]?.[0]
+      : undefined;
+    const nextTemplate = layoutPreset
+      ? { ...template, layout: layoutPreset }
+      : template;
+    updateActivePage((page) => ({
+      ...page,
+      sections: [...page.sections, nextTemplate],
     }));
-    setSelectedSectionId(template.id);
+    setSelectedSectionId(nextTemplate.id);
   }
 
   function removeSection(sectionId: string) {
-    markDirty();
-    setConfig((prev) => ({
-      ...prev,
-      sections: prev.sections.filter((section) => section.id !== sectionId),
+    updateActivePage((page) => ({
+      ...page,
+      sections: page.sections.filter((section) => section.id !== sectionId),
     }));
     if (selectedSectionId === sectionId) {
       setSelectedSectionId(
-        config.sections.filter((section) => section.id !== sectionId)[0]?.id ?? "",
+        activePageConfig.sections.filter((section) => section.id !== sectionId)[0]?.id ??
+          "",
       );
     }
   }
 
   function duplicateSection(sectionId: string) {
-    const target = config.sections.find((section) => section.id === sectionId);
+    const target = activePageConfig.sections.find((section) => section.id === sectionId);
     if (!target) return;
     const clone = {
       ...target,
@@ -461,31 +932,38 @@ export function AdvancedCustomizationClient({
       buttons:
         target.buttons?.map((button) => ({ ...button, id: generateId("btn") })) ?? [],
     };
-    markDirty();
-    setConfig((prev) => ({
-      ...prev,
-      sections: [...prev.sections, clone],
+    updateActivePage((page) => ({
+      ...page,
+      sections: [...page.sections, clone],
     }));
     setSelectedSectionId(clone.id);
   }
 
   function restoreFromSnapshot(snapshot: WebsiteBuilderConfig) {
-    markDirty();
-    setConfig(snapshot);
-    setSelectedSectionId(snapshot.sections[0]?.id ?? "");
+    markBuilderDirty();
+    const normalizedSnapshot = {
+      ...snapshot,
+      pages: sanitizeBuilderPages(snapshot.pages),
+    };
+    setConfig(normalizedSnapshot);
+    if (isCisecoTemplate) {
+      const pageConfig = resolvePageConfig(normalizedSnapshot, selectedPageKey);
+      setSelectedSectionId(pageConfig.sections[0]?.id ?? "");
+    } else {
+      setSelectedSectionId(normalizedSnapshot.sections[0]?.id ?? "");
+    }
   }
 
   function reorderSections(sourceId: string, targetId: string) {
     if (sourceId === targetId) return;
-    const next = [...config.sections];
+    const next = [...activePageConfig.sections];
     const sourceIndex = next.findIndex((section) => section.id === sourceId);
     const targetIndex = next.findIndex((section) => section.id === targetId);
     if (sourceIndex === -1 || targetIndex === -1) return;
     const [removed] = next.splice(sourceIndex, 1);
     next.splice(targetIndex, 0, removed);
-    markDirty();
-    setConfig((prev) => ({
-      ...prev,
+    updateActivePage((page) => ({
+      ...page,
       sections: next,
     }));
   }
@@ -497,15 +975,55 @@ export function AdvancedCustomizationClient({
       const processed = await optimizeImage(file);
       uploads.push(processed);
     }
-    markDirty();
-    setConfig((prev) => ({
-      ...prev,
-      mediaLibrary: [...(prev.mediaLibrary ?? []), ...uploads],
+    updateActivePage((page) => ({
+      ...page,
+      mediaLibrary: [...(page.mediaLibrary ?? []), ...uploads],
+    }));
+  }
+
+  function updateActivePage(
+    updater: (page: WebsiteBuilderPageConfig) => WebsiteBuilderPageConfig,
+  ) {
+    markBuilderDirty();
+    setConfig((prev) => {
+      if (!isCisecoTemplate) {
+        const nextPage = updater({
+          sections: prev.sections,
+          mediaLibrary: prev.mediaLibrary ?? [],
+          seo: {},
+        });
+        return {
+          ...prev,
+          sections: nextPage.sections,
+          mediaLibrary: nextPage.mediaLibrary,
+        };
+      }
+      const currentPage = resolvePageConfig(prev, selectedPageKey);
+      const nextPage = updater(currentPage);
+      return {
+        ...prev,
+        pages: {
+          ...prev.pages,
+          [selectedPageKey]: nextPage,
+        },
+      };
+    });
+  }
+
+  function updatePageSeo(
+    changes: Partial<WebsiteBuilderPageConfig["seo"]>,
+  ) {
+    updateActivePage((page) => ({
+      ...page,
+      seo: {
+        ...page.seo,
+        ...changes,
+      },
     }));
   }
 
   function updateTheme(partial: Partial<WebsiteBuilderConfig["theme"]>) {
-    markDirty();
+    markBuilderDirty();
     setConfig((prev) => ({
       ...prev,
       theme: {
@@ -516,21 +1034,21 @@ export function AdvancedCustomizationClient({
   }
 
   function updateMediaAsset(assetId: string, changes: Partial<WebsiteBuilderMediaAsset>) {
-    markDirty();
-    setConfig((prev) => ({
-      ...prev,
-      mediaLibrary: (prev.mediaLibrary ?? []).map((asset) =>
+    updateActivePage((page) => ({
+      ...page,
+      mediaLibrary: (page.mediaLibrary ?? []).map((asset) =>
         asset.id === assetId ? { ...asset, ...changes } : asset,
       ),
     }));
   }
 
   function removeMediaAsset(assetId: string) {
-    markDirty();
-    setConfig((prev) => ({
-      ...prev,
-      mediaLibrary: (prev.mediaLibrary ?? []).filter((asset) => asset.id !== assetId),
-      sections: prev.sections.map((section) => ({
+    updateActivePage((page) => ({
+      ...page,
+      mediaLibrary: (page.mediaLibrary ?? []).filter(
+        (asset) => asset.id !== assetId,
+      ),
+      sections: page.sections.map((section) => ({
         ...section,
         mediaId: section.mediaId === assetId ? null : section.mediaId,
         secondaryMediaId:
@@ -569,31 +1087,58 @@ export function AdvancedCustomizationClient({
           <span
             className={clsx(
               "inline-flex items-center gap-1 rounded-full border px-3 py-1",
-              status === "saving"
+              overallStatus === "saving"
                 ? "border-amber-300 text-amber-600"
-                : status === "error"
+                : overallStatus === "error"
                   ? "border-red-400 text-red-500"
                   : "border-emerald-300 text-emerald-600",
             )}
           >
-            {status === "saving"
+            {overallStatus === "saving"
               ? "Enregistrement…"
-              : status === "error"
+              : overallStatus === "error"
                 ? "Erreur d’enregistrement"
                 : "Sauvegardé"}
           </span>
           <Button asChild variant="secondary" className="px-3 py-1.5 text-xs">
-            <a href={links.previewUrl} target="_blank" rel="noreferrer">
+            <a href={previewHref} target="_blank" rel="noreferrer">
               Ouvrir la prévisualisation
             </a>
           </Button>
         </div>
       </div>
 
-      {error ? <Alert variant="error" title={error} /> : null}
+      {combinedError ? (
+        <Alert variant="error" title={combinedError} />
+      ) : null}
 
       <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
         <aside className="space-y-6">
+          {isCisecoTemplate ? (
+            <div className="card space-y-4 p-4">
+              <div>
+                <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                  Page
+                </h2>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Sélectionnez la page à personnaliser.
+                </p>
+              </div>
+              <select
+                className="input text-sm"
+                value={selectedPageKey}
+                onChange={(event) =>
+                  setSelectedPageKey(event.target.value as CisecoPageKey)
+                }
+              >
+                {CISECO_PAGE_DEFINITIONS.map((entry) => (
+                  <option key={entry.key} value={entry.key}>
+                    {entry.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
           <div className="card space-y-4 p-4">
             <div className="flex items-center justify-between">
               <div>
@@ -623,7 +1168,7 @@ export function AdvancedCustomizationClient({
               </select>
             </div>
             <ol className="space-y-2 text-sm">
-              {config.sections.map((section) => (
+              {activePageConfig.sections.map((section) => (
                 <li
                   key={section.id}
                   draggable
@@ -879,6 +1424,62 @@ export function AdvancedCustomizationClient({
         </aside>
 
         <div className="space-y-6">
+          {isCisecoTemplate ? (
+            <section className="card space-y-4 p-6">
+              <div>
+                <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                  SEO & métadonnées
+                </h2>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Titres, descriptions et visuels pour le partage.
+                </p>
+                {selectedPageKey === "product" ? (
+                  <p className="mt-2 text-[11px] text-zinc-500 dark:text-zinc-400">
+                    Variables disponibles: {"{{product.name}}"}, {"{{product.category}}"}, {"{{site.name}}"}.
+                  </p>
+                ) : null}
+              </div>
+              <Input
+                value={activePageConfig.seo?.title ?? ""}
+                placeholder={
+                  selectedPageKey === "product"
+                    ? "Titre SEO (template)"
+                    : "Titre SEO"
+                }
+                onChange={(event) =>
+                  updatePageSeo({ title: event.target.value })
+                }
+              />
+              <Textarea
+                value={activePageConfig.seo?.description ?? ""}
+                placeholder={
+                  selectedPageKey === "product"
+                    ? "Description SEO (template)"
+                    : "Description SEO"
+                }
+                rows={3}
+                onChange={(event) =>
+                  updatePageSeo({ description: event.target.value })
+                }
+              />
+              <Input
+                value={activePageConfig.seo?.keywords ?? ""}
+                placeholder="Mots-clés (optionnel)"
+                onChange={(event) =>
+                  updatePageSeo({ keywords: event.target.value })
+                }
+              />
+              <MediaPlaceholderPicker
+                label="Visuel de partage"
+                description="Image affichée lors du partage sur les réseaux."
+                value={activePageConfig.seo?.imageId ?? null}
+                assets={mediaAssets}
+                fallbackImage={WEBSITE_MEDIA_PLACEHOLDERS.hero}
+                onChange={(nextValue) => updatePageSeo({ imageId: nextValue })}
+                onUpload={(files) => void handleMediaUpload(files)}
+              />
+            </section>
+          ) : null}
           {selectedSection ? (
             <section className="card space-y-4 p-6">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -971,14 +1572,14 @@ export function AdvancedCustomizationClient({
                   Layout
                   <select
                     className="input mt-1"
-                    value={selectedSection.layout ?? BUILDER_SECTION_LAYOUTS[selectedSection.type]?.[0] ?? "split"}
+                    value={selectedSection.layout ?? resolvedLayoutOptions[0] ?? "split"}
                     onChange={(event) =>
                       updateSection(selectedSection.id, () => ({
                         layout: event.target.value,
                       }))
                     }
                   >
-                    {BUILDER_SECTION_LAYOUTS[selectedSection.type]?.map((layout) => (
+                    {resolvedLayoutOptions.map((layout) => (
                       <option key={layout} value={layout}>
                         {layout}
                       </option>
@@ -1077,11 +1678,21 @@ export function AdvancedCustomizationClient({
                       />
                       <Input
                         className="mt-2"
-                        placeholder="Tag / badge"
+                        placeholder="Tag / rôle / icône"
                         value={item.tag ?? ""}
                         onChange={(event) =>
                           updateItem(selectedSection.id, item.id, {
                             tag: event.target.value,
+                          })
+                        }
+                      />
+                      <Input
+                        className="mt-2"
+                        placeholder="Badge / date"
+                        value={item.badge ?? ""}
+                        onChange={(event) =>
+                          updateItem(selectedSection.id, item.id, {
+                            badge: event.target.value,
                           })
                         }
                       />
@@ -1092,6 +1703,26 @@ export function AdvancedCustomizationClient({
                         onChange={(event) =>
                           updateItem(selectedSection.id, item.id, {
                             price: event.target.value,
+                          })
+                        }
+                      />
+                      <Input
+                        className="mt-2"
+                        placeholder="Libellé du lien"
+                        value={item.linkLabel ?? ""}
+                        onChange={(event) =>
+                          updateItem(selectedSection.id, item.id, {
+                            linkLabel: event.target.value,
+                          })
+                        }
+                      />
+                      <Input
+                        className="mt-2"
+                        placeholder="Lien (URL ou slug)"
+                        value={item.href ?? ""}
+                        onChange={(event) =>
+                          updateItem(selectedSection.id, item.id, {
+                            href: event.target.value,
                           })
                         }
                       />
@@ -1139,7 +1770,7 @@ export function AdvancedCustomizationClient({
                   })}
                 </div>
               ) : null}
-              {selectedSection && ["hero", "contact"].includes(selectedSection.type) ? (
+              {selectedSection ? (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <p className="text-xs uppercase tracking-[0.3em] text-zinc-500 dark:text-zinc-400">
@@ -1148,10 +1779,16 @@ export function AdvancedCustomizationClient({
                     <button
                       type="button"
                       className="text-xs text-[var(--site-accent)] disabled:text-zinc-400 dark:disabled:text-zinc-600"
-                      disabled={(selectedSection.buttons?.length ?? 0) >= 3}
+                      disabled={
+                        (selectedSection.buttons?.length ?? 0) >=
+                        BUILDER_SECTION_BUTTON_LIMIT
+                      }
                       onClick={() =>
                         updateSection(selectedSection.id, (section) => {
-                          if ((section.buttons?.length ?? 0) >= 3) {
+                          if (
+                            (section.buttons?.length ?? 0) >=
+                            BUILDER_SECTION_BUTTON_LIMIT
+                          ) {
                             return { buttons: section.buttons };
                           }
                           return {
@@ -1235,6 +1872,237 @@ export function AdvancedCustomizationClient({
             </section>
           ) : null}
 
+          {isCisecoTemplate ? (
+            <section className="card space-y-4 p-6">
+              <div>
+                <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                  Signup
+                </h2>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Activez les fournisseurs sociaux et la redirection après inscription.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-zinc-600 dark:text-zinc-300">
+                  Redirection après inscription
+                </label>
+                <select
+                  className="input"
+                  value={signupSettings.redirectTarget}
+                  onChange={(event) =>
+                    updateSignupRedirectTarget(
+                      event.target.value as SignupSettingsInput["redirectTarget"],
+                    )
+                  }
+                >
+                  <option value="home">Accueil</option>
+                  <option value="account">Compte</option>
+                </select>
+              </div>
+              <div className="space-y-3">
+                {SIGNUP_PROVIDERS.map((provider) => {
+                  const config = signupSettings.providers[provider.id];
+                  return (
+                    <div
+                      key={provider.id}
+                      className="rounded-2xl border border-zinc-200 p-4 dark:border-zinc-800"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-medium text-zinc-800 dark:text-zinc-100">
+                            {provider.label}
+                          </p>
+                          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                            {provider.description}
+                          </p>
+                        </div>
+                        <label className="inline-flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-300">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded border-zinc-300 text-[var(--site-accent)] focus:ring-[var(--site-accent)]"
+                            checked={config.enabled}
+                            onChange={(event) =>
+                              updateSignupProvider(provider.id, {
+                                enabled: event.target.checked,
+                              })
+                            }
+                          />
+                          Activé
+                        </label>
+                      </div>
+                      <div className="mt-3 space-y-3">
+                        <label className="inline-flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded border-zinc-300 text-[var(--site-accent)] focus:ring-[var(--site-accent)]"
+                            checked={config.useEnv}
+                            onChange={(event) =>
+                              updateSignupProvider(provider.id, {
+                                useEnv: event.target.checked,
+                              })
+                            }
+                          />
+                          Utiliser les identifiants de l’environnement
+                        </label>
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <Input
+                            placeholder="Client ID"
+                            value={config.clientId ?? ""}
+                            disabled={config.useEnv}
+                            onChange={(event) =>
+                              updateSignupProvider(provider.id, {
+                                clientId: event.target.value,
+                              })
+                            }
+                          />
+                          <Input
+                            placeholder="Client secret"
+                            type="password"
+                            value={config.clientSecret ?? ""}
+                            disabled={config.useEnv}
+                            onChange={(event) =>
+                              updateSignupProvider(provider.id, {
+                                clientSecret: event.target.value,
+                              })
+                            }
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          ) : null}
+
+          {isCisecoTemplate ? (
+            <section className="card space-y-4 p-6">
+              <div>
+                <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                  Page contact
+                </h2>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Coordonnées, texte d’introduction et liens sociaux affichés sur la page Contact.
+                </p>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <Input
+                  value={contactSettings.email}
+                  placeholder="Email"
+                  onChange={(event) =>
+                    updateContactField("email", event.target.value)
+                  }
+                />
+                <Input
+                  value={contactSettings.phone}
+                  placeholder="Téléphone"
+                  onChange={(event) =>
+                    updateContactField("phone", event.target.value)
+                  }
+                />
+              </div>
+              <Input
+                value={contactSettings.address}
+                placeholder="Adresse"
+                onChange={(event) =>
+                  updateContactField("address", event.target.value)
+                }
+              />
+              <Textarea
+                value={contactSettings.intro}
+                placeholder="Texte d’introduction (optionnel)"
+                rows={4}
+                onChange={(event) =>
+                  updateContactField("intro", event.target.value)
+                }
+              />
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs uppercase tracking-[0.3em] text-zinc-500 dark:text-zinc-400">
+                    Réseaux sociaux
+                  </p>
+                  <button
+                    type="button"
+                    className="text-xs text-[var(--site-accent)] disabled:text-zinc-400 dark:disabled:text-zinc-600"
+                    disabled={
+                      contactSettings.socialLinks.length >= 6 ||
+                      CONTACT_SOCIAL_ICON_OPTIONS.length === 0
+                    }
+                    onClick={addSocialLink}
+                  >
+                    Ajouter un lien
+                  </button>
+                </div>
+                {contactSettings.socialLinks.length ? (
+                  <div className="space-y-3">
+                    {contactSettings.socialLinks.map((link) => (
+                      <div
+                        key={link.id}
+                        className="rounded-2xl border border-zinc-200 p-4 dark:border-zinc-800"
+                      >
+                        <div className="flex items-center justify-between text-xs">
+                          <p className="font-medium text-zinc-700 dark:text-zinc-200">
+                            {link.label || "Lien social"}
+                          </p>
+                          <button
+                            type="button"
+                            className="text-red-500"
+                            onClick={() => removeSocialLink(link.id)}
+                          >
+                            Supprimer
+                          </button>
+                        </div>
+                        <Input
+                          className="mt-2"
+                          placeholder="Libellé"
+                          value={link.label}
+                          onChange={(event) =>
+                            updateSocialLink(link.id, {
+                              label: event.target.value,
+                            })
+                          }
+                        />
+                        <Input
+                          className="mt-2"
+                          placeholder="https://"
+                          value={link.href}
+                          onChange={(event) =>
+                            updateSocialLink(link.id, {
+                              href: event.target.value,
+                            })
+                          }
+                        />
+                        <label className="mt-2 block text-xs text-zinc-500 dark:text-zinc-400">
+                          Icône
+                          <select
+                            className="input mt-1"
+                            value={link.icon}
+                            onChange={(event) =>
+                              updateSocialLink(link.id, {
+                                icon: event.target
+                                  .value as ContactSocialLink["icon"],
+                              })
+                            }
+                          >
+                            {CONTACT_SOCIAL_ICON_OPTIONS.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-zinc-200 p-4 text-sm text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
+                    Ajoutez vos réseaux sociaux pour les afficher sur la page Contact.
+                  </div>
+                )}
+              </div>
+            </section>
+          ) : null}
+
           <section className="card space-y-4 p-6">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
@@ -1276,7 +2144,11 @@ export function AdvancedCustomizationClient({
                   )}
                   style={{ maxHeight: "75vh" }}
                 >
-                  <CatalogPage data={previewPayload} mode="preview" path={null} />
+                  <CatalogPage
+                    data={previewPayload}
+                    mode="preview"
+                    path={isCisecoTemplate ? previewPath : null}
+                  />
                 </div>
               </div>
             </div>
