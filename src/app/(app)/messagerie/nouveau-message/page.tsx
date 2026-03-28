@@ -1,8 +1,8 @@
 import {
-  fetchMessageDetail,
   getMessagingSettingsSummary,
   type Mailbox,
 } from "@/server/messaging";
+import { readMessageDetail } from "@/server/messaging-read-mode";
 import { listSavedResponses } from "@/server/messaging-responses";
 import { ComposeClient } from "@/app/(app)/messagerie/_components/compose-client";
 import {
@@ -51,7 +51,7 @@ export default async function NouveauMessagePage({
     const uidValue = Number.parseInt(uidParam, 10);
     if (Number.isInteger(uidValue)) {
       try {
-        const detail = await fetchMessageDetail({
+        const detail = await readMessageDetail({
           mailbox: mailboxParam,
           uid: uidValue,
         });

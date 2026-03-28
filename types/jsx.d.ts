@@ -8,11 +8,10 @@ declare global {
    * runs (for example when skipping the Next.js type prebuild step).
    */
   namespace JSX {
-    interface Element extends React.ReactElement<any, any> {}
-    interface ElementClass extends React.Component<any> {}
-    interface IntrinsicElements extends React.JSX.IntrinsicElements {}
-    interface IntrinsicAttributes extends React.Attributes {}
-    interface IntrinsicClassAttributes<T>
-      extends React.ClassAttributes<T> {}
+    type Element = React.JSX.Element;
+    type ElementClass = React.JSX.ElementClass;
+    type IntrinsicElements = React.JSX.IntrinsicElements;
+    type IntrinsicAttributes = React.JSX.IntrinsicAttributes;
+    type IntrinsicClassAttributes<T> = React.JSX.IntrinsicClassAttributes<T>;
   }
 }

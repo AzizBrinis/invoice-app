@@ -9,12 +9,10 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { callSelectedModel } from "@/server/assistant/providers";
 import {
-  fetchMailboxMessages,
-  searchMailboxMessages,
-  fetchMessageDetail,
   sendEmailMessage,
   testImapConnection,
   testSmtpConnection,
+  updateMailboxMessageSeenState,
   updateMessagingConnections,
   updateMessagingAutoReplySettings,
   updateMessagingSenderIdentity,
@@ -32,6 +30,30 @@ import {
   type SentMailboxAppendResult,
   type AutoMovedSummary,
 } from "@/server/messaging";
+import {
+  readMailboxPage,
+  readMailboxSearch,
+  readMessageDetail,
+  shouldUseMailboxSnapshotRefresh,
+} from "@/server/messaging-read-mode";
+import {
+  applyMessagingLocalMoveProjection,
+  getMessagingLocalSyncPreference,
+  markMessagingMailboxLocalSyncStateDegraded,
+  setMessagingLocalSyncPreference,
+  updateMessagingLocalMessageSeenState,
+} from "@/server/messaging-local-sync";
+import {
+  queueMessagingLocalPurge,
+  runManualMailboxLocalSyncNow,
+  runMessagingLocalBootstrapNow,
+  runMessagingLocalPurgeNow,
+  runMessagingLocalReconcileNow,
+} from "@/server/messaging-jobs";
+import {
+  isMessagingLocalSyncServerEnabled,
+  recordMessagingLocalSyncActionObservation,
+} from "@/server/messaging-local-sync-ops";
 import {
   MAILBOX_SEARCHABLE_VALUES,
   normalizeMailboxSearchQuery,
@@ -96,6 +118,46 @@ const ALLOWED_LOGO_MIME_TYPES = new Map<string, string>([
 
 async function requireMessagingUser() {
   return requireAppSectionAccess("messaging");
+}
+
+function resolveMessagingUserId(
+  user: Awaited<ReturnType<typeof requireMessagingUser>>,
+): string {
+  return user.activeTenantId ?? user.tenantId ?? user.id;
+}
+
+function revalidateMessagingRoutes() {
+  revalidatePath("/messagerie/recus");
+  revalidatePath("/messagerie/envoyes");
+  revalidatePath("/messagerie/brouillons");
+  revalidatePath("/messagerie/corbeille");
+  revalidatePath("/messagerie/spam");
+  revalidatePath("/messagerie/parametres");
+}
+
+function getImmediateLocalSyncFailureMessage(
+  result: {
+    queue: {
+      details: Array<{
+        status: "success" | "failed" | "retry" | "skipped";
+        message?: string;
+      }>;
+    };
+  },
+  fallback: string,
+): string | null {
+  const detail = result.queue.details[0] ?? null;
+  if (!detail) {
+    return null;
+  }
+  if (detail.status === "success" || detail.status === "skipped") {
+    return null;
+  }
+  return mapConnectionError(detail.message ?? fallback, fallback);
+}
+
+function getMessagingLocalSyncServerDisabledMessage() {
+  return "La synchronisation locale Messagerie est temporairement désactivée côté serveur.";
 }
 
 const messagingIdentitySchema = z.object({
@@ -274,10 +336,11 @@ export async function summarizeMessageWithAiAction(
   try {
     const parsed = aiSummaryRequestSchema.parse(input);
     const user = await requireMessagingUser();
-    const detail = await fetchMessageDetail({
+    const userId = resolveMessagingUserId(user);
+    const detail = await readMessageDetail({
       mailbox: parsed.mailbox,
       uid: parsed.uid,
-      userId: user.id,
+      userId,
     });
     const normalized = normalizeDetailText(detail);
     if (!normalized.length) {
@@ -496,6 +559,16 @@ const mailboxMoveSchema = z.object({
   uid: z.number().int().min(1),
   subject: z.string().optional(),
   sender: z.string().optional(),
+});
+
+const mailboxLocalSyncSchema = z.object({
+  mailbox: z.enum(MAILBOX_VALUES),
+});
+
+const mailboxSeenStateSchema = z.object({
+  mailbox: z.enum(MAILBOX_VALUES),
+  uid: z.number().int().min(1),
+  seen: z.boolean(),
 });
 
 const savedResponseSchema = z.object({
@@ -817,19 +890,20 @@ function parseConnectionsTestInput(formData: FormData) {
 export async function updateMessagingIdentityAction(
   formData: FormData,
 ): Promise<ActionResult> {
-  let userId: string | null = null;
+  let userId = "";
   let uploadedLogoUrl: string | null = null;
   let existingLogoUrl: string | null = null;
   let nextLogoUrl: string | null = null;
   try {
     const user = await requireMessagingUser();
+    const scopedUserId = resolveMessagingUserId(user);
     const { senderName, senderLogoUrl, removeLogo } = parseIdentityInput(formData);
     const potentialFile = formData.get("senderLogoFile");
     const logoFile =
       potentialFile instanceof File && potentialFile.size > 0
         ? potentialFile
         : null;
-    const currentUserId = user.id;
+    const currentUserId = scopedUserId;
     userId = currentUserId;
     const summary = await getMessagingSettingsSummary(currentUserId);
     existingLogoUrl = summary.senderLogoUrl;
@@ -1021,6 +1095,246 @@ export async function updateEmailTrackingPreferenceAction(
   }
 }
 
+export async function updateMessagingLocalSyncPreferenceAction(
+  formData: FormData,
+): Promise<ActionResult<{ enabled: boolean }>> {
+  try {
+    const user = await requireMessagingUser();
+    const userId = resolveMessagingUserId(user);
+    const rawEnabled = formData.get("enabled");
+    const parsed = booleanSchema.safeParse(
+      typeof rawEnabled === "string" ? rawEnabled : "",
+    );
+    if (!parsed.success) {
+      return {
+        success: false,
+        message: "Valeur de synchronisation locale invalide.",
+      };
+    }
+
+    if (parsed.data) {
+      if (!isMessagingLocalSyncServerEnabled()) {
+        return {
+          success: false,
+          message: getMessagingLocalSyncServerDisabledMessage(),
+        };
+      }
+      const summary = await getMessagingSettingsSummary(userId);
+      if (!summary.imapConfigured) {
+        return {
+          success: false,
+          message:
+            "Configurez IMAP avant d'activer la synchronisation locale.",
+        };
+      }
+    }
+
+    await setMessagingLocalSyncPreference(parsed.data, userId);
+
+    let message = parsed.data
+      ? "Synchronisation locale activée. Amorçage démarré."
+      : "Synchronisation locale désactivée. Retour immédiat au mode direct.";
+
+    if (parsed.data) {
+      const bootstrapResult = await runMessagingLocalBootstrapNow({
+        userId,
+      });
+      const failureMessage = getImmediateLocalSyncFailureMessage(
+        bootstrapResult,
+        "Le démarrage de la synchronisation locale a échoué.",
+      );
+      if (failureMessage) {
+        message = `${message} Vérifiez le statut : ${failureMessage}`;
+      }
+    } else {
+      await queueMessagingLocalPurge({
+        userId,
+      });
+      message =
+        "Synchronisation locale désactivée. Le mode direct reprend immédiatement et la purge continue en arrière-plan.";
+    }
+
+    revalidateMessagingRoutes();
+
+    return {
+      success: true,
+      message,
+      data: {
+        enabled: parsed.data,
+      },
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Impossible de mettre à jour la synchronisation locale.",
+    };
+  }
+}
+
+export async function triggerMessagingLocalSyncNowAction(): Promise<
+  ActionResult<{ applied: boolean }>
+> {
+  const startedAt = Date.now();
+  let observedUserId: string | null = null;
+  try {
+    const user = await requireMessagingUser();
+    const userId = resolveMessagingUserId(user);
+    observedUserId = userId;
+    if (!isMessagingLocalSyncServerEnabled()) {
+      recordMessagingLocalSyncActionObservation({
+        userId,
+        mailbox: "inbox",
+        operation: "refresh",
+        source: "sync",
+        durationMs: Date.now() - startedAt,
+        success: true,
+      });
+      return {
+        success: true,
+        message: getMessagingLocalSyncServerDisabledMessage(),
+        data: {
+          applied: false,
+        },
+      };
+    }
+    const summary = await getMessagingSettingsSummary(userId);
+    if (!summary.imapConfigured) {
+      recordMessagingLocalSyncActionObservation({
+        userId,
+        mailbox: "inbox",
+        operation: "refresh",
+        source: "sync",
+        durationMs: Date.now() - startedAt,
+        success: false,
+      });
+      return {
+        success: false,
+        message:
+          "Configurez IMAP avant de lancer une synchronisation locale.",
+      };
+    }
+    const localSyncEnabled = await getMessagingLocalSyncPreference(userId);
+    if (!localSyncEnabled) {
+      recordMessagingLocalSyncActionObservation({
+        userId,
+        mailbox: "inbox",
+        operation: "refresh",
+        source: "sync",
+        durationMs: Date.now() - startedAt,
+        success: true,
+      });
+      return {
+        success: true,
+        data: {
+          applied: false,
+        },
+      };
+    }
+
+    const result = await runMessagingLocalReconcileNow({
+      userId,
+    });
+    const failureMessage = getImmediateLocalSyncFailureMessage(
+      result,
+      "Échec de la synchronisation locale.",
+    );
+    if (failureMessage) {
+      recordMessagingLocalSyncActionObservation({
+        userId,
+        mailbox: "inbox",
+        operation: "refresh",
+        source: "sync",
+        durationMs: Date.now() - startedAt,
+        success: false,
+      });
+      return {
+        success: false,
+        message: failureMessage,
+      };
+    }
+
+    revalidateMessagingRoutes();
+
+    recordMessagingLocalSyncActionObservation({
+      userId,
+      mailbox: "inbox",
+      operation: "refresh",
+      source: "sync",
+      durationMs: Date.now() - startedAt,
+      success: true,
+    });
+
+    return {
+      success: true,
+      message: "Synchronisation locale relancée.",
+      data: {
+        applied: true,
+      },
+    };
+  } catch (error) {
+    if (observedUserId) {
+      recordMessagingLocalSyncActionObservation({
+        userId: observedUserId,
+        mailbox: "inbox",
+        operation: "refresh",
+        source: "sync",
+        durationMs: Date.now() - startedAt,
+        success: false,
+      });
+    }
+    return {
+      success: false,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Impossible de relancer la synchronisation locale.",
+    };
+  }
+}
+
+export async function purgeMessagingLocalSyncDataAction(): Promise<
+  ActionResult<{ purged: boolean }>
+> {
+  try {
+    const user = await requireMessagingUser();
+    const userId = resolveMessagingUserId(user);
+    const result = await runMessagingLocalPurgeNow({
+      userId,
+    });
+    const failureMessage = getImmediateLocalSyncFailureMessage(
+      result,
+      "Échec de la purge des données locales.",
+    );
+    if (failureMessage) {
+      return {
+        success: false,
+        message: failureMessage,
+      };
+    }
+
+    revalidateMessagingRoutes();
+
+    return {
+      success: true,
+      message: "Données locales purgées.",
+      data: {
+        purged: true,
+      },
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Impossible de purger les données locales.",
+    };
+  }
+}
+
 export async function testImapConnectionAction(
   formData: FormData,
 ): Promise<ActionResult> {
@@ -1098,8 +1412,12 @@ export async function fetchMailboxPageAction(
   const { mailbox } = parsed.data;
 
   try {
-    await requireMessagingUser();
-    const data = await fetchMailboxMessages(parsed.data);
+    const user = await requireMessagingUser();
+    const userId = resolveMessagingUserId(user);
+    const data = await readMailboxPage({
+      ...parsed.data,
+      userId,
+    });
     return {
       success: true,
       data,
@@ -1122,6 +1440,7 @@ export async function fetchMailboxUpdatesAction(
   messages: MailboxListItem[];
   totalMessages: number | null;
   autoMoved?: AutoMovedSummary[];
+  requiresSnapshot?: boolean;
 }>> {
   const parsed = mailboxUpdatesSchema.safeParse(input);
   if (!parsed.success) {
@@ -1134,7 +1453,22 @@ export async function fetchMailboxUpdatesAction(
   const { mailbox } = parsed.data;
 
   try {
-    await requireMessagingUser();
+    const user = await requireMessagingUser();
+    const userId = resolveMessagingUserId(user);
+    const requiresSnapshot = await shouldUseMailboxSnapshotRefresh({
+      mailbox,
+      userId,
+    });
+    if (requiresSnapshot) {
+      return {
+        success: true,
+        data: {
+          messages: [],
+          totalMessages: null,
+          requiresSnapshot: true,
+        },
+      };
+    }
     const data = await fetchMailboxUpdates(parsed.data);
     return {
       success: true,
@@ -1152,6 +1486,123 @@ export async function fetchMailboxUpdatesAction(
   }
 }
 
+export async function triggerMailboxLocalSyncAction(
+  input: unknown,
+): Promise<ActionResult<{ applied: boolean; deduped?: boolean }>> {
+  const startedAt = Date.now();
+  let observedUserId: string | null = null;
+  let observedMailbox: Mailbox = "inbox";
+  try {
+    const user = await requireMessagingUser();
+    const userId = resolveMessagingUserId(user);
+    observedUserId = userId;
+    const parsed = mailboxLocalSyncSchema.parse(input);
+    observedMailbox = parsed.mailbox;
+    if (!isMessagingLocalSyncServerEnabled()) {
+      recordMessagingLocalSyncActionObservation({
+        userId,
+        mailbox: parsed.mailbox,
+        operation: "refresh",
+        source: "sync",
+        durationMs: Date.now() - startedAt,
+        success: true,
+      });
+      return {
+        success: true,
+        message: getMessagingLocalSyncServerDisabledMessage(),
+        data: {
+          applied: false,
+        },
+      };
+    }
+    const localSyncEnabled = await getMessagingLocalSyncPreference(userId);
+    if (!localSyncEnabled) {
+      recordMessagingLocalSyncActionObservation({
+        userId,
+        mailbox: parsed.mailbox,
+        operation: "refresh",
+        source: "sync",
+        durationMs: Date.now() - startedAt,
+        success: true,
+      });
+      return {
+        success: true,
+        data: {
+          applied: false,
+        },
+      };
+    }
+
+    const result = await runManualMailboxLocalSyncNow({
+      userId,
+      mailbox: parsed.mailbox,
+    });
+    const queueDetail = result.queue.details[0] ?? null;
+    if (
+      queueDetail &&
+      queueDetail.status !== "success" &&
+      queueDetail.status !== "skipped"
+    ) {
+      recordMessagingLocalSyncActionObservation({
+        userId,
+        mailbox: parsed.mailbox,
+        operation: "refresh",
+        source: "sync",
+        durationMs: Date.now() - startedAt,
+        success: false,
+      });
+      return {
+        success: false,
+        message: mapConnectionError(
+          queueDetail.message ?? "Échec de la synchronisation locale.",
+          "Échec de la synchronisation locale.",
+        ),
+      };
+    }
+
+    recordMessagingLocalSyncActionObservation({
+      userId,
+      mailbox: parsed.mailbox,
+      operation: "refresh",
+      source: "sync",
+      durationMs: Date.now() - startedAt,
+      success: true,
+    });
+
+    return {
+      success: true,
+      data: {
+        applied: true,
+        deduped: result.deduped,
+      },
+    };
+  } catch (error) {
+    if (observedUserId) {
+      recordMessagingLocalSyncActionObservation({
+        userId: observedUserId,
+        mailbox: observedMailbox,
+        operation: "refresh",
+        source: "sync",
+        durationMs: Date.now() - startedAt,
+        success: false,
+      });
+    }
+    if (error instanceof z.ZodError) {
+      return {
+        success: false,
+        message: "Champs invalides.",
+      };
+    }
+    return {
+      success: false,
+      message: mapConnectionError(
+        error,
+        "Échec de la synchronisation locale.",
+      ),
+    };
+  }
+}
+
 export async function searchMailboxMessagesAction(
   input: unknown,
 ): Promise<ActionResult<MailboxSearchResult>> {
@@ -1165,8 +1616,12 @@ export async function searchMailboxMessagesAction(
   }
 
   try {
-    await requireMessagingUser();
-    const data = await searchMailboxMessages(parsed.data);
+    const user = await requireMessagingUser();
+    const userId = resolveMessagingUserId(user);
+    const data = await readMailboxSearch({
+      ...parsed.data,
+      userId,
+    });
     return {
       success: true,
       data,
@@ -1186,9 +1641,13 @@ export async function fetchMessageDetailAction(
   input: unknown,
 ): Promise<ActionResult<MessageDetail>> {
   try {
-    await requireMessagingUser();
+    const user = await requireMessagingUser();
+    const userId = resolveMessagingUserId(user);
     const parsed = mailboxDetailSchema.parse(input);
-    const data = await fetchMessageDetail(parsed);
+    const data = await readMessageDetail({
+      ...parsed,
+      userId,
+    });
     return {
       success: true,
       data,
@@ -1222,8 +1681,22 @@ export async function moveMailboxMessageAction(
   }
 
   try {
-    await requireMessagingUser();
-    await moveMailboxMessage(parsed.data);
+    const user = await requireMessagingUser();
+    const userId = resolveMessagingUserId(user);
+    const moveResult = await moveMailboxMessage({
+      ...parsed.data,
+      userId,
+    });
+    await applyMessagingLocalMoveProjection({
+      userId,
+      mailbox: parsed.data.mailbox,
+      target: parsed.data.target,
+      uid: parsed.data.uid,
+      sourceUidValidity: moveResult.sourceUidValidity,
+      targetUid: moveResult.targetUid,
+      targetUidValidity: moveResult.targetUidValidity,
+      targetPath: moveResult.targetPath,
+    });
 
     const isManualSpam =
       parsed.data.target === "spam" && parsed.data.mailbox !== "spam";
@@ -1250,6 +1723,88 @@ export async function moveMailboxMessageAction(
       message: mapConnectionError(
         error,
         "Échec du déplacement du message.",
+      ),
+    };
+  }
+}
+
+export async function updateMailboxMessageSeenStateAction(
+  input: unknown,
+): Promise<ActionResult<{ applied: boolean; degraded?: boolean }>> {
+  try {
+    const user = await requireMessagingUser();
+    const userId = resolveMessagingUserId(user);
+    const parsed = mailboxSeenStateSchema.parse(input);
+    const localSyncEnabled = await getMessagingLocalSyncPreference(
+      userId,
+    );
+    if (!localSyncEnabled) {
+      return {
+        success: true,
+        data: {
+          applied: false,
+        },
+      };
+    }
+
+    await updateMessagingLocalMessageSeenState({
+      userId,
+      mailbox: parsed.mailbox,
+      uid: parsed.uid,
+      seen: parsed.seen,
+      syncedAt: new Date(),
+    });
+
+    try {
+      await updateMailboxMessageSeenState({
+        mailbox: parsed.mailbox,
+        uid: parsed.uid,
+        seen: parsed.seen,
+        userId,
+      });
+      return {
+        success: true,
+        data: {
+          applied: true,
+        },
+      };
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Échec de synchronisation de l'état lu/non lu.";
+      console.warn("[messagerie][seen-writeback]", {
+        mailbox: parsed.mailbox,
+        uid: parsed.uid,
+        seen: parsed.seen,
+        error,
+      });
+      await markMessagingMailboxLocalSyncStateDegraded({
+        userId,
+        mailbox: parsed.mailbox,
+        lastError: message,
+        attemptedAt: new Date(),
+      });
+      return {
+        success: true,
+        data: {
+          applied: true,
+          degraded: true,
+        },
+      };
+    }
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return {
+        success: false,
+        message: "Champs invalides.",
+      };
+    }
+    return {
+      success: false,
+      message: mapConnectionError(
+        error,
+        "Échec de mise à jour de l'état du message.",
       ),
     };
   }
@@ -1386,6 +1941,7 @@ export async function scheduleEmailAction(
 ): Promise<ActionResult<{ id: string }>> {
   try {
     const user = await requireMessagingUser();
+    const userId = resolveMessagingUserId(user);
     const scheduledAtRaw = formData.get("scheduledAt");
     if (typeof scheduledAtRaw !== "string" || scheduledAtRaw.trim().length === 0) {
       return {
@@ -1408,7 +1964,7 @@ export async function scheduleEmailAction(
     }
 
     const payload = await buildPreparedComposePayload(formData);
-    const summary = await getMessagingSettingsSummary(user.id);
+    const summary = await getMessagingSettingsSummary(userId);
     if (!summary.smtpConfigured) {
       return {
         success: false,
@@ -1417,7 +1973,7 @@ export async function scheduleEmailAction(
     }
 
     const record = await scheduleEmailDraft({
-      userId: user.id,
+      userId,
       to: payload.to,
       cc: payload.cc,
       bcc: payload.bcc,
@@ -1635,6 +2191,7 @@ export async function runAiReplyAction(
 ): Promise<ActionResult<{ plainBody: string; htmlBody?: string }>> {
   try {
     const user = await requireMessagingUser();
+    const userId = resolveMessagingUserId(user);
     const parsed = aiReplyRequestSchema.parse(input);
     const normalizedIntent = normalizeAiIntent(parsed.intent);
     const originalHtml = parsed.currentHtmlBody ?? "";
@@ -1656,10 +2213,10 @@ export async function runAiReplyAction(
         message: "Ajoutez un texte brut avant de lancer cette option.",
       };
     }
-    const detail = await fetchMessageDetail({
+    const detail = await readMessageDetail({
       mailbox: parsed.mailbox,
       uid: parsed.uid,
-      userId: user.id,
+      userId,
     });
     const header = formatDetailHeader(detail);
     const threadText = truncateContext(normalizeDetailText(detail));

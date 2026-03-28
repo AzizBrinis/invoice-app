@@ -7,7 +7,11 @@ const globalForPrisma = globalThis as unknown as {
 const isTestEnv = process.env.NODE_ENV === "test";
 const baseDatabaseUrl = process.env.DATABASE_URL?.trim();
 const testDatabaseUrl = process.env.TEST_DATABASE_URL?.trim();
-const databaseUrl = (isTestEnv ? testDatabaseUrl : baseDatabaseUrl)?.trim();
+const FALLBACK_TEST_DATABASE_URL =
+  "postgresql://stub:stub@localhost:5432/testdb";
+const databaseUrl = (
+  isTestEnv ? testDatabaseUrl ?? FALLBACK_TEST_DATABASE_URL : baseDatabaseUrl
+)?.trim();
 const DEFAULT_CONNECTION_LIMIT = "5";
 const DEFAULT_POOL_TIMEOUT_SECONDS = "10";
 

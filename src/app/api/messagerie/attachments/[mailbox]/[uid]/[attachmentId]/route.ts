@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
-import {
-  fetchMessageAttachment,
-  type Mailbox,
-} from "@/server/messaging";
+import type { Mailbox } from "@/server/messaging";
+import { readMessageAttachment } from "@/server/messaging-attachment-read-mode";
 
 const SUPPORTED_MAILBOXES = new Set<Mailbox>([
   "inbox",
@@ -70,7 +68,7 @@ export async function GET(
   const inline = url.searchParams.get("inline") === "1";
 
   try {
-    const download = await fetchMessageAttachment({
+    const download = await readMessageAttachment({
       mailbox,
       uid: parsedUid,
       attachmentId: decodedAttachmentId,

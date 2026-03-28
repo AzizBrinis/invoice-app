@@ -1686,7 +1686,7 @@ function ProofSection({
               )}
             >
               <p className="text-sm leading-relaxed text-slate-600">
-                "{proof.quote}"
+                &ldquo;{proof.quote}&rdquo;
               </p>
               <div className="text-xs uppercase tracking-[0.28em] text-slate-500">
                 <span className="text-slate-900">{proof.name}</span> - {proof.role}

@@ -168,12 +168,12 @@ beforeAll(async () => {
       "postgresql://stub:stub@localhost:5432/testdb",
     );
   }
-  const module = await import("@/server/assistant/search");
-  normalizeSearchText = module.normalizeSearchText;
-  tokenizeSearchQuery = module.tokenizeSearchQuery;
-  scoreClientCandidate = module.scoreClientCandidate;
-  scoreProductCandidate = module.scoreProductCandidate;
-  searchProductsForAssistant = module.searchProductsForAssistant;
+  const assistantSearchModule = await import("@/server/assistant/search");
+  normalizeSearchText = assistantSearchModule.normalizeSearchText;
+  tokenizeSearchQuery = assistantSearchModule.tokenizeSearchQuery;
+  scoreClientCandidate = assistantSearchModule.scoreClientCandidate;
+  scoreProductCandidate = assistantSearchModule.scoreProductCandidate;
+  searchProductsForAssistant = assistantSearchModule.searchProductsForAssistant;
 });
 
 describe("assistant search helpers", () => {

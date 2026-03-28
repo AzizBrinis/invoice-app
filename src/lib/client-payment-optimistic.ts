@@ -1,6 +1,8 @@
 import type { SerializedClientPayment } from "@/app/(app)/clients/actions";
 import type { ClientPaymentFilters } from "@/lib/client-payment-filters";
 
+export const OPTIMISTIC_CLIENT_PAYMENT_ID_PREFIX = "temp-payment-";
+
 export type PaymentCurrencyTotal = {
   currency: string;
   totalAmountCents: number;
@@ -32,6 +34,20 @@ export type PaymentsOptimisticAction = {
   payment: SerializedClientPayment;
   matchesFilters: boolean;
 };
+
+export function buildOptimisticClientPaymentId(timestamp = Date.now()) {
+  return `${OPTIMISTIC_CLIENT_PAYMENT_ID_PREFIX}${timestamp}`;
+}
+
+export function isOptimisticClientPaymentId(paymentId: string) {
+  return paymentId.startsWith(OPTIMISTIC_CLIENT_PAYMENT_ID_PREFIX);
+}
+
+export function isPersistedClientPayment(
+  payment: Pick<SerializedClientPayment, "id">,
+) {
+  return !isOptimisticClientPaymentId(payment.id);
+}
 
 function matchesPaymentSearch(
   payment: SerializedClientPayment,

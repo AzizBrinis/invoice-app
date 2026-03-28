@@ -510,7 +510,7 @@ export function scoreProductCandidate(
       return { weight: 0, priceMatched: false, strongMatch: false };
     }
     const basePrice = normalizedCandidate.priceHTCents;
-    const ttcPrice = (normalizedCandidate as any).priceTTCCents as number | undefined;
+    const ttcPrice = normalizedCandidate.priceTTCCents;
     const candidatePrice = Number.isFinite(basePrice) ? basePrice : ttcPrice ?? 0;
     const denominator = Math.max(priceCents, candidatePrice, 1);
     const ratio = Math.abs(priceCents - candidatePrice) / denominator;

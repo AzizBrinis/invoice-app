@@ -19,6 +19,8 @@ import {
 } from "@/server/website";
 import { generateMetadata } from "@/app/catalogue/[[...segments]]/page";
 
+const describeWithDb = process.env.TEST_DATABASE_URL ? describe : describe.skip;
+
 vi.mock("@/server/order-email-jobs", () => ({
   queueOrderCreatedEmailJob: vi.fn().mockResolvedValue({
     jobId: "job-order-created",
@@ -34,17 +36,23 @@ vi.mock("@/server/order-email-jobs", () => ({
   }),
 }));
 
-vi.mock("@/server/website", () => ({
-  getCatalogPayloadByDomain: vi.fn(),
-  getCatalogPayloadBySlug: vi.fn(),
-  resolveCatalogMetadata: vi.fn(),
-}));
+vi.mock("@/server/website", async () => {
+  const actual = await vi.importActual<typeof import("@/server/website")>(
+    "@/server/website",
+  );
+  return {
+    ...actual,
+    getCatalogPayloadByDomain: vi.fn(),
+    getCatalogPayloadBySlug: vi.fn(),
+    resolveCatalogMetadata: vi.fn(),
+  };
+});
 
 const getCatalogPayloadByDomainMock = vi.mocked(getCatalogPayloadByDomain);
 const getCatalogPayloadBySlugMock = vi.mocked(getCatalogPayloadBySlug);
 const resolveCatalogMetadataMock = vi.mocked(resolveCatalogMetadata);
 
-describe("quote requests", () => {
+describeWithDb("quote requests", () => {
   let user: User;
   let productId: string;
   let productName: string;

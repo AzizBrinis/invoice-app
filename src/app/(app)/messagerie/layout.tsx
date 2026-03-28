@@ -3,6 +3,7 @@ import Link from "next/link";
 import { MailPlus } from "lucide-react";
 import { requireAppSectionAccess } from "@/lib/authorization";
 import { getMessagingSettingsSummary } from "@/server/messaging";
+import { getMessagingLocalSyncOverview } from "@/server/messaging-local-sync";
 import { MailboxSyncProvider } from "@/app/(app)/messagerie/_components/mailbox-sync-provider";
 
 const composeSafeAreaPadding = "calc(env(safe-area-inset-bottom) + 1.5rem)";
@@ -16,12 +17,16 @@ export default async function MessagerieLayout({
     redirectOnFailure: true,
   });
   const tenantId = user.activeTenantId ?? user.tenantId ?? user.id;
-  const summary = await getMessagingSettingsSummary(tenantId);
+  const [summary, localSyncOverview] = await Promise.all([
+    getMessagingSettingsSummary(tenantId),
+    getMessagingLocalSyncOverview(tenantId),
+  ]);
 
   return (
     <div className="relative min-h-full overflow-x-hidden">
       <MailboxSyncProvider
         enabled={summary.imapConfigured}
+        localSyncActive={localSyncOverview.active}
         userId={tenantId}
       />
       {children}

@@ -5,6 +5,8 @@ import { createInvoice } from "@/server/invoices";
 import { nextQuoteNumber, nextInvoiceNumber } from "@/server/sequences";
 import { QuoteStatus, InvoiceStatus, User } from "@prisma/client";
 
+const describeWithDb = process.env.TEST_DATABASE_URL ? describe : describe.skip;
+
 let user: User;
 
 vi.mock("@/lib/auth", async () => {
@@ -19,53 +21,55 @@ vi.mock("@/lib/auth", async () => {
 let clientId: string;
 let productId: string;
 
-beforeAll(async () => {
-  user = await prisma.user.create({
-    data: {
-      email: `test-user-${Date.now()}@example.com`,
-      passwordHash: "hashed",
-      name: "Test User",
-    },
-  });
-  const client = await prisma.client.create({
-    data: {
-      displayName: "Client Test",
-      companyName: "SAS Test",
-      email: "client@test.fr",
-      isActive: true,
-      userId: user.id,
-    },
-  });
-  clientId = client.id;
+if (process.env.TEST_DATABASE_URL) {
+  beforeAll(async () => {
+    user = await prisma.user.create({
+      data: {
+        email: `test-user-${Date.now()}@example.com`,
+        passwordHash: "hashed",
+        name: "Test User",
+      },
+    });
+    const client = await prisma.client.create({
+      data: {
+        displayName: "Client Test",
+        companyName: "SAS Test",
+        email: "client@test.fr",
+        isActive: true,
+        userId: user.id,
+      },
+    });
+    clientId = client.id;
 
-  const product = await prisma.product.create({
-    data: {
-      sku: `SKU-TEST-${Date.now()}`,
-      publicSlug: `produit-test-${Date.now()}`,
-      name: "Produit Test",
-      priceHTCents: 10000,
-      priceTTCCents: 12000,
-      vatRate: 20,
-      unit: "unité",
-      isActive: true,
-      userId: user.id,
-    },
+    const product = await prisma.product.create({
+      data: {
+        sku: `SKU-TEST-${Date.now()}`,
+        publicSlug: `produit-test-${Date.now()}`,
+        name: "Produit Test",
+        priceHTCents: 10000,
+        priceTTCCents: 12000,
+        vatRate: 20,
+        unit: "unité",
+        isActive: true,
+        userId: user.id,
+      },
+    });
+    productId = product.id;
   });
-  productId = product.id;
-});
 
-afterAll(async () => {
-  await prisma.quote.deleteMany({ where: { clientId, userId: user.id } });
-  await prisma.invoice.deleteMany({ where: { clientId, userId: user.id } });
-  await prisma.product.delete({ where: { id: productId } });
-  await prisma.client.delete({ where: { id: clientId } });
-  await prisma.numberingSequence.deleteMany({ where: { userId: user.id } });
-  await prisma.companySettings.deleteMany({ where: { userId: user.id } });
-  await prisma.messagingSettings.deleteMany({ where: { userId: user.id } });
-  await prisma.user.delete({ where: { id: user.id } });
-});
+  afterAll(async () => {
+    await prisma.quote.deleteMany({ where: { clientId, userId: user.id } });
+    await prisma.invoice.deleteMany({ where: { clientId, userId: user.id } });
+    await prisma.product.delete({ where: { id: productId } });
+    await prisma.client.delete({ where: { id: clientId } });
+    await prisma.numberingSequence.deleteMany({ where: { userId: user.id } });
+    await prisma.companySettings.deleteMany({ where: { userId: user.id } });
+    await prisma.messagingSettings.deleteMany({ where: { userId: user.id } });
+    await prisma.user.delete({ where: { id: user.id } });
+  });
+}
 
-describe("Quotes and invoices", () => {
+describeWithDb("Quotes and invoices", () => {
   it("generates sequential numbers", async () => {
     const quoteNumber = await nextQuoteNumber(user.id);
     expect(quoteNumber).toMatch(/DEV-/);

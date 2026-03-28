@@ -46,6 +46,8 @@ model User {
   autoReplyLogs              MessagingAutoReplyLog[]
   scheduledEmails            MessagingScheduledEmail[]
   messagingInboxSyncState    MessagingInboxSyncState?
+  messagingMailboxLocalSyncStates MessagingMailboxLocalSyncState[]
+  messagingLocalMessages     MessagingLocalMessage[]
   websiteConfig              WebsiteConfig?
   contactMessages            ContactMessage[]
   aiConversations            AIConversation[]
@@ -193,6 +195,7 @@ model CompanySettings {
   defaultCurrency        String       @default("TND")
   defaultVatRate         Float        @default(0)
   paymentTerms           String?
+  clientPaymentMethods   Json?
   invoiceNumberPrefix    String       @default("FAC")
   quoteNumberPrefix      String       @default("DEV")
   resetNumberingAnnually Boolean      @default(true)
@@ -307,8 +310,116 @@ model MessagingSettings {
   vacationStartDate   DateTime?
   vacationEndDate     DateTime?
   vacationBackupEmail String?
+  localSyncEnabled    Boolean   @default(false)
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
+}
+
+enum MessagingMailboxName {
+  INBOX
+  SENT
+  DRAFTS
+  TRASH
+  SPAM
+}
+
+enum MessagingLocalSyncStatus {
+  DISABLED
+  BOOTSTRAPPING
+  READY
+  DEGRADED
+  ERROR
+}
+
+enum MessagingLocalBodyState {
+  NONE
+  TEXT_READY
+  HTML_READY
+  OVERSIZED_FALLBACK
+}
+
+model MessagingMailboxLocalSyncState {
+  id                  String                   @id @default(cuid())
+  userId              String
+  user                User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mailbox             MessagingMailboxName
+  remotePath          String?
+  uidValidity         Int?
+  lastKnownUidNext    Int?
+  lastSyncedUid       Int?
+  lastBackfilledUid   Int?
+  remoteMessageCount  Int?
+  localMessageCount   Int?
+  status              MessagingLocalSyncStatus @default(DISABLED)
+  lastSuccessfulSyncAt DateTime?
+  lastAttemptedSyncAt DateTime?
+  lastFullResyncAt    DateTime?
+  lastError           String?
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+
+  @@unique([userId, mailbox])
+  @@index([userId, status])
+}
+
+model MessagingLocalMessage {
+  id                String                   @id @default(cuid())
+  userId            String
+  user              User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mailbox           MessagingMailboxName
+  remotePath        String?
+  uidValidity       Int
+  uid               Int
+  messageId         String?
+  subject           String?
+  fromLabel         String?
+  fromAddress       String?
+  toRecipients      Json?
+  ccRecipients      Json?
+  bccRecipients     Json?
+  replyToRecipients Json?
+  internalDate      DateTime?
+  sentAt            DateTime?
+  seen              Boolean                  @default(false)
+  answered          Boolean                  @default(false)
+  flagged           Boolean                  @default(false)
+  draft             Boolean                  @default(false)
+  hasAttachments    Boolean                  @default(false)
+  previewText       String?
+  normalizedText    String?
+  sanitizedHtml     String?
+  searchText        String?
+  bodyState         MessagingLocalBodyState  @default(NONE)
+  lastSyncedAt      DateTime?
+  hydratedAt        DateTime?
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+  attachments       MessagingLocalAttachment[]
+
+  @@unique([userId, mailbox, uidValidity, uid])
+  @@index([userId, mailbox, internalDate])
+  @@index([userId, messageId])
+  @@index([userId, mailbox, seen])
+}
+
+model MessagingLocalAttachment {
+  id              String                @id @default(cuid())
+  messageRecordId String
+  messageRecord   MessagingLocalMessage @relation(fields: [messageRecordId], references: [id], onDelete: Cascade)
+  attachmentId    String
+  filename        String
+  contentType     String
+  size            Int
+  contentId       String?
+  contentLocation String?
+  inline          Boolean               @default(false)
+  cachedBlobKey   String?
+  cachedAt        DateTime?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  @@unique([messageRecordId, attachmentId])
+  @@index([messageRecordId])
 }
 
 model MessagingInboxSyncState {

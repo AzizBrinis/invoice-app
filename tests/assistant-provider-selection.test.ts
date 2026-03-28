@@ -14,8 +14,8 @@ vi.mock("@/server/assistant/providers/openai", () => ({
 const ORIGINAL_ENV = { ...process.env };
 
 async function loadCallSelectedModel() {
-  const module = await import("@/server/assistant/providers");
-  return module.callSelectedModel;
+  const providersModule = await import("@/server/assistant/providers");
+  return providersModule.callSelectedModel;
 }
 
 describe("callSelectedModel provider fallback", () => {

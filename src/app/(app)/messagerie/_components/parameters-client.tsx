@@ -10,9 +10,18 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import type { MessagingSettingsSummary } from "@/server/messaging";
+import type { MessagingLocalSyncOverview } from "@/server/messaging-local-sync";
+import type {
+  MessagingLocalSyncOperationMetrics,
+  MessagingLocalSyncMetricsSnapshot,
+  MessagingLocalSyncObservedOperation,
+} from "@/server/messaging-local-sync-ops";
 import {
+  purgeMessagingLocalSyncDataAction,
+  triggerMessagingLocalSyncNowAction,
   updateMessagingConnectionsAction,
   updateMessagingIdentityAction,
+  updateMessagingLocalSyncPreferenceAction,
   updateAutoReplySettingsAction,
   testImapConnectionAction,
   testSmtpConnectionAction,
@@ -30,10 +39,129 @@ import { VACATION_PLACEHOLDER_TOKENS } from "@/lib/messaging/auto-reply";
 
 type ParametersClientProps = {
   summary: MessagingSettingsSummary;
+  localSyncOverview: MessagingLocalSyncOverview;
+  localSyncMetrics: MessagingLocalSyncMetricsSnapshot;
   savedResponses: SavedResponse[];
 };
 
-export function ParametersClient({ summary, savedResponses }: ParametersClientProps) {
+const LOCAL_SYNC_DATE_FORMATTER = new Intl.DateTimeFormat("fr-FR", {
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
+const LOCAL_SYNC_MAILBOX_LABELS = {
+  inbox: "Boîte de réception",
+  sent: "Messages envoyés",
+  drafts: "Brouillons",
+  trash: "Corbeille",
+  spam: "Indésirables",
+} as const;
+
+const LOCAL_SYNC_OPERATION_LABELS: Record<
+  MessagingLocalSyncObservedOperation,
+  string
+> = {
+  page: "Liste",
+  search: "Recherche",
+  detail: "Ouverture",
+  attachment: "Pièces jointes",
+  refresh: "Refresh",
+};
+
+type LocalSyncOperationSummary = {
+  operation: MessagingLocalSyncObservedOperation;
+  label: string;
+  metrics: MessagingLocalSyncOperationMetrics;
+  hitRate: number | null;
+};
+
+function formatLocalSyncTimestamp(value: string | null): string {
+  if (!value) {
+    return "Aucune";
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return "Date inconnue";
+  }
+  return LOCAL_SYNC_DATE_FORMATTER.format(parsed);
+}
+
+function formatAverageDuration(totalDurationMs: number, count: number): string {
+  if (!count) {
+    return "Aucune mesure";
+  }
+  return `${Math.round(totalDurationMs / count)} ms`;
+}
+
+function getLocalSyncModeLabel(mode: MessagingLocalSyncOverview["mode"]): string {
+  switch (mode) {
+    case "local-ready":
+      return "Local prêt";
+    case "local-partial":
+      return "Local partiel";
+    case "local-bootstrapping":
+      return "Bootstrap en cours";
+    default:
+      return "IMAP direct";
+  }
+}
+
+function getLocalSyncModeVariant(
+  mode: MessagingLocalSyncOverview["mode"],
+): "info" | "success" | "warning" | "danger" | "neutral" {
+  switch (mode) {
+    case "local-ready":
+      return "success";
+    case "local-partial":
+      return "warning";
+    case "local-bootstrapping":
+      return "info";
+    default:
+      return "neutral";
+  }
+}
+
+function getLocalSyncStatusLabel(status: string): string {
+  switch (status) {
+    case "READY":
+      return "Prêt";
+    case "DEGRADED":
+      return "Dégradé";
+    case "BOOTSTRAPPING":
+      return "Bootstrap";
+    case "ERROR":
+      return "Erreur";
+    default:
+      return "Inactif";
+  }
+}
+
+function getLocalSyncStatusVariant(
+  status: string,
+): "info" | "success" | "warning" | "danger" | "neutral" {
+  switch (status) {
+    case "READY":
+      return "success";
+    case "DEGRADED":
+      return "warning";
+    case "BOOTSTRAPPING":
+      return "info";
+    case "ERROR":
+      return "danger";
+    default:
+      return "neutral";
+  }
+}
+
+export function ParametersClient({
+  summary,
+  localSyncOverview,
+  localSyncMetrics,
+  savedResponses,
+}: ParametersClientProps) {
   const identityFormRef = useRef<HTMLFormElement | null>(null);
   const connectionFormRef = useRef<HTMLFormElement | null>(null);
   const autoReplyFormRef = useRef<HTMLFormElement | null>(null);
@@ -46,7 +174,13 @@ export function ParametersClient({ summary, savedResponses }: ParametersClientPr
   const [logoRemoved, setLogoRemoved] = useState(false);
   const [logoObjectUrl, setLogoObjectUrl] = useState<string | null>(null);
   const [trackingEnabled, setTrackingEnabled] = useState(summary.trackingEnabled);
+  const [localSyncEnabled, setLocalSyncEnabled] = useState(
+    localSyncOverview.enabled,
+  );
   const [updatingTracking, setUpdatingTracking] = useState(false);
+  const [updatingLocalSync, setUpdatingLocalSync] = useState(false);
+  const [runningLocalSyncNow, setRunningLocalSyncNow] = useState(false);
+  const [purgingLocalSync, setPurgingLocalSync] = useState(false);
   const [savingIdentity, setSavingIdentity] = useState(false);
   const [savingConnections, setSavingConnections] = useState(false);
   const [savingAutoReply, setSavingAutoReply] = useState(false);
@@ -64,6 +198,10 @@ export function ParametersClient({ summary, savedResponses }: ParametersClientPr
   useEffect(() => {
     setTrackingEnabled(summary.trackingEnabled);
   }, [summary.trackingEnabled]);
+
+  useEffect(() => {
+    setLocalSyncEnabled(localSyncOverview.enabled);
+  }, [localSyncOverview.enabled]);
 
   useEffect(() => {
     setLogoObjectUrl((previous) => {
@@ -328,6 +466,176 @@ export function ParametersClient({ summary, savedResponses }: ParametersClientPr
     }
   }, [trackingEnabled, addToast, router]);
 
+  const localSyncModeBadge = useMemo(
+    () => (
+      <Badge variant={getLocalSyncModeVariant(localSyncOverview.mode)}>
+        {getLocalSyncModeLabel(localSyncOverview.mode)}
+      </Badge>
+    ),
+    [localSyncOverview.mode],
+  );
+
+  const localSyncStateSummary = useMemo(() => {
+    const hasResidualLocalState = localSyncOverview.mailboxes.some(
+      (mailbox) =>
+        mailbox.status !== "DISABLED" ||
+        (typeof mailbox.localMessageCount === "number" &&
+          mailbox.localMessageCount > 0),
+    );
+    if (!localSyncOverview.serverEnabled) {
+      return localSyncEnabled
+        ? "La préférence locale est conservée, mais le mode local est temporairement coupé côté serveur. La lecture reste en IMAP direct jusqu'à réactivation du rollout."
+        : "Le rollout serveur du mode local est temporairement suspendu. Messagerie reste en IMAP direct.";
+    }
+    if (!localSyncEnabled) {
+      return hasResidualLocalState
+        ? "Mode direct actif. Une purge du cache local peut encore être en cours."
+        : "Mode direct IMAP actif. La synchronisation locale reste optionnelle et désactivée par défaut.";
+    }
+    if (localSyncOverview.mode === "local-ready") {
+      return "Lecture locale active sur les boîtes synchronisées. IMAP reste la source de vérité.";
+    }
+    if (localSyncOverview.mode === "local-partial") {
+      return "Lecture locale déjà active sur une partie des boîtes, avec backfill et contrôles de cohérence encore en cours.";
+    }
+    return "Le bootstrap initial démarre. Les boîtes non prêtes continuent d'utiliser IMAP direct jusqu'à ce que le cache local soit lisible.";
+  }, [localSyncEnabled, localSyncOverview]);
+
+  const localSyncOperationSummaries = useMemo(
+    () =>
+      (Object.keys(LOCAL_SYNC_OPERATION_LABELS) as MessagingLocalSyncObservedOperation[])
+        .map((operation) => {
+          const metrics = localSyncMetrics.operations[operation];
+          if (!metrics) {
+            return null;
+          }
+          const totalObservedHits =
+            metrics.localHitCount + metrics.remoteHitCount;
+          const hitRate =
+            totalObservedHits > 0
+              ? Math.round((metrics.localHitCount / totalObservedHits) * 100)
+              : null;
+          return {
+            operation,
+            label: LOCAL_SYNC_OPERATION_LABELS[operation],
+            metrics,
+            hitRate,
+          };
+        })
+        .filter(
+          (entry): entry is LocalSyncOperationSummary => entry !== null,
+        ),
+    [localSyncMetrics.operations],
+  );
+
+  const totalObservedOperations = useMemo(
+    () =>
+      localSyncOperationSummaries.reduce(
+        (sum, entry) => sum + entry.metrics.count,
+        0,
+      ),
+    [localSyncOperationSummaries],
+  );
+
+  const handleLocalSyncToggle = useCallback(async () => {
+    setUpdatingLocalSync(true);
+    const nextValue = !localSyncEnabled;
+    try {
+      const formData = new FormData();
+      formData.append("enabled", nextValue ? "true" : "false");
+      const result = await updateMessagingLocalSyncPreferenceAction(formData);
+      if (result.success) {
+        setLocalSyncEnabled(nextValue);
+        addToast({
+          variant: "success",
+          title:
+            result.message ??
+            (nextValue
+              ? "Synchronisation locale activée."
+              : "Synchronisation locale désactivée."),
+        });
+        router.refresh();
+      } else {
+        addToast({
+          variant: "error",
+          title:
+            result.message ??
+            "Impossible de mettre à jour la synchronisation locale.",
+        });
+      }
+    } catch (error) {
+      console.error("Impossible de mettre à jour la synchronisation locale:", error);
+      addToast({
+        variant: "error",
+        title: "Impossible de mettre à jour la synchronisation locale.",
+      });
+    } finally {
+      setUpdatingLocalSync(false);
+    }
+  }, [addToast, localSyncEnabled, router]);
+
+  const handleLocalSyncNow = useCallback(async () => {
+    setRunningLocalSyncNow(true);
+    try {
+      const result = await triggerMessagingLocalSyncNowAction();
+      if (result.success) {
+        addToast({
+          variant: "success",
+          title:
+            result.message ??
+            (result.data?.applied
+              ? "Synchronisation locale relancée."
+              : "Activez d'abord la synchronisation locale."),
+        });
+        router.refresh();
+      } else {
+        addToast({
+          variant: "error",
+          title:
+            result.message ??
+            "Impossible de relancer la synchronisation locale.",
+        });
+      }
+    } catch (error) {
+      console.error("Impossible de relancer la synchronisation locale:", error);
+      addToast({
+        variant: "error",
+        title: "Impossible de relancer la synchronisation locale.",
+      });
+    } finally {
+      setRunningLocalSyncNow(false);
+    }
+  }, [addToast, router]);
+
+  const handleLocalSyncPurge = useCallback(async () => {
+    setPurgingLocalSync(true);
+    try {
+      const result = await purgeMessagingLocalSyncDataAction();
+      if (result.success) {
+        addToast({
+          variant: "success",
+          title: result.message ?? "Données locales purgées.",
+        });
+        router.refresh();
+      } else {
+        addToast({
+          variant: "error",
+          title:
+            result.message ??
+            "Impossible de purger les données locales.",
+        });
+      }
+    } catch (error) {
+      console.error("Impossible de purger les données locales:", error);
+      addToast({
+        variant: "error",
+        title: "Impossible de purger les données locales.",
+      });
+    } finally {
+      setPurgingLocalSync(false);
+    }
+  }, [addToast, router]);
+
   const hasStoredLogo = (summary.senderLogoUrl ?? "").length > 0;
   const hasPreview = logoPreview.length > 0;
   const canRemoveLogo =
@@ -377,6 +685,270 @@ export function ParametersClient({ summary, savedResponses }: ParametersClientPr
           Le suivi reste limité à votre locataire : chaque pixel et lien est signé par un jeton
           impossible à deviner, sans exposer d&apos;adresse ou de contenu sensible.
         </p>
+      </section>
+
+      <section className="space-y-4 rounded-lg border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-2">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+              Synchronisation locale optionnelle
+            </h3>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              IMAP reste la source de vérité distante. Ce mode ajoute un cache local optionnel
+              pour accélérer la navigation, la lecture et la recherche, sans modifier le
+              comportement par défaut pour les utilisateurs qui ne l&apos;activent pas.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {localSyncModeBadge}
+              <Badge variant={localSyncEnabled ? "success" : "neutral"}>
+                {localSyncEnabled ? "Mode local activé" : "Mode local désactivé"}
+              </Badge>
+              <Badge variant={localSyncOverview.serverEnabled ? "success" : "warning"}>
+                {localSyncOverview.serverEnabled
+                  ? "Rollout serveur actif"
+                  : "Rollout serveur suspendu"}
+              </Badge>
+              <Badge variant={summary.imapConfigured ? "success" : "warning"}>
+                {summary.imapConfigured ? "IMAP prêt" : "IMAP requis"}
+              </Badge>
+            </div>
+          </div>
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:min-w-[220px]">
+            <Button
+              type="button"
+              variant={localSyncEnabled ? "ghost" : "secondary"}
+              loading={updatingLocalSync}
+              onClick={handleLocalSyncToggle}
+              className="w-full"
+              disabled={
+                (!summary.imapConfigured || !localSyncOverview.serverEnabled) &&
+                !localSyncEnabled
+              }
+            >
+              {localSyncEnabled
+                ? "Désactiver le mode local"
+                : "Activer le mode local"}
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              loading={runningLocalSyncNow}
+              onClick={handleLocalSyncNow}
+              className="w-full"
+              disabled={!summary.imapConfigured || !localSyncOverview.active}
+            >
+              Synchroniser maintenant
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              loading={purgingLocalSync}
+              onClick={handleLocalSyncPurge}
+              className="w-full"
+            >
+              Purger les données locales
+            </Button>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-zinc-200 bg-zinc-50/70 p-4 dark:border-zinc-800 dark:bg-zinc-950/40">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-zinc-800 dark:text-zinc-100">
+                Mode actuel
+              </p>
+              <p className="text-sm text-zinc-600 dark:text-zinc-300">
+                {localSyncStateSummary}
+              </p>
+            </div>
+            <div className="space-y-1 text-sm text-zinc-600 dark:text-zinc-300 sm:text-right">
+              <p>
+                Dernière synchronisation réussie :{" "}
+                <span className="font-medium text-zinc-800 dark:text-zinc-100">
+                  {formatLocalSyncTimestamp(localSyncOverview.lastSuccessfulSyncAt)}
+                </span>
+              </p>
+              <p>
+                Couverture :{" "}
+                <span className="font-medium text-zinc-800 dark:text-zinc-100">
+                  {localSyncOverview.anyReadable
+                    ? localSyncOverview.allBackfilled
+                      ? "complète"
+                      : "partielle"
+                    : "préparation initiale"}
+                </span>
+              </p>
+            </div>
+          </div>
+          {!summary.imapConfigured ? (
+            <p className="mt-3 text-xs text-amber-600 dark:text-amber-300">
+              Configurez IMAP avant d&apos;activer ce mode. Tant qu&apos;il reste désactivé,
+              Messagerie continue d&apos;utiliser la stratégie directe actuelle.
+            </p>
+          ) : null}
+          {!localSyncOverview.serverEnabled ? (
+            <p className="mt-3 text-xs text-amber-600 dark:text-amber-300">
+              Le kill switch serveur est actif. Les lectures locales et les synchronisations
+              manuelles sont suspendues sans effacer automatiquement votre préférence ni vos
+              données existantes.
+            </p>
+          ) : null}
+        </div>
+
+        <div className="grid gap-3 lg:grid-cols-2">
+          {localSyncOverview.mailboxes.map((mailboxState) => {
+            const progressWidth =
+              typeof mailboxState.progressPercent === "number"
+                ? `${mailboxState.progressPercent}%`
+                : "0%";
+            return (
+              <div
+                key={mailboxState.mailbox}
+                className="space-y-3 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800"
+              >
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <h4 className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
+                      {LOCAL_SYNC_MAILBOX_LABELS[mailboxState.mailbox]}
+                    </h4>
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                      Dernier succès : {formatLocalSyncTimestamp(mailboxState.lastSuccessfulSyncAt)}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Badge variant={getLocalSyncStatusVariant(mailboxState.status)}>
+                      {getLocalSyncStatusLabel(mailboxState.status)}
+                    </Badge>
+                    <Badge variant={mailboxState.readable ? "success" : "neutral"}>
+                      {mailboxState.readable ? "Lisible localement" : "Fallback IMAP"}
+                    </Badge>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400">
+                    <span>
+                      {mailboxState.backfillComplete
+                        ? "Historique complet"
+                        : mailboxState.bootstrapComplete
+                          ? "Backfill en cours"
+                          : "Bootstrap initial"}
+                    </span>
+                    <span>
+                      {typeof mailboxState.progressPercent === "number"
+                        ? `${mailboxState.progressPercent}%`
+                        : "En attente"}
+                    </span>
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
+                    <div
+                      className="h-full rounded-full bg-blue-600 transition-[width] dark:bg-blue-400"
+                      style={{ width: progressWidth }}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-1 text-xs text-zinc-500 dark:text-zinc-400">
+                  <p>
+                    Local : {mailboxState.localMessageCount ?? "?"} message(s) • Distant :{" "}
+                    {mailboxState.remoteMessageCount ?? "?"}
+                  </p>
+                  <p>
+                    Dernière tentative :{" "}
+                    {formatLocalSyncTimestamp(mailboxState.lastAttemptedSyncAt)}
+                  </p>
+                  {mailboxState.lastError ? (
+                    <p className="text-amber-600 dark:text-amber-300">
+                      Dernière erreur : {mailboxState.lastError}
+                    </p>
+                  ) : (
+                    <p>
+                      {mailboxState.readable
+                        ? "Cette boîte peut déjà servir la lecture locale."
+                        : "Cette boîte continuera en IMAP direct tant que le cache local ne sera pas prêt."}
+                    </p>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="space-y-4 rounded-lg border border-zinc-200 bg-zinc-50/70 p-4 dark:border-zinc-800 dark:bg-zinc-950/40">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-zinc-800 dark:text-zinc-100">
+                Dashboard de rollout local
+              </p>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                Mesures en mémoire par instance serveur, utiles pour suivre le hit rate local,
+                les fallbacks IMAP et les temps moyens des actions critiques.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Badge variant="info">
+                Hit rate local global :{" "}
+                {typeof localSyncMetrics.localHitRatePercent === "number"
+                  ? `${localSyncMetrics.localHitRatePercent}%`
+                  : "N/A"}
+              </Badge>
+              <Badge variant="neutral">
+                {totalObservedOperations} action(s) observée(s)
+              </Badge>
+              <Badge variant="warning">
+                {localSyncMetrics.fallbackCount} fallback(s) IMAP
+              </Badge>
+            </div>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {localSyncOperationSummaries.length ? (
+              localSyncOperationSummaries.map((entry) => (
+                <div
+                  key={entry.operation}
+                  className="space-y-2 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">
+                      {entry.label}
+                    </p>
+                    <Badge
+                      variant={
+                        entry.hitRate === null
+                          ? "neutral"
+                          : entry.hitRate >= 80
+                            ? "success"
+                            : entry.hitRate >= 50
+                              ? "warning"
+                              : "danger"
+                      }
+                    >
+                      {entry.hitRate === null ? "Sans hit rate" : `${entry.hitRate}% local`}
+                    </Badge>
+                  </div>
+                  <div className="grid gap-1 text-xs text-zinc-500 dark:text-zinc-400">
+                    <p>Observées : {entry.metrics.count}</p>
+                    <p>Succès : {entry.metrics.successCount} • Erreurs : {entry.metrics.errorCount}</p>
+                    <p>Hits locaux : {entry.metrics.localHitCount} • Distant : {entry.metrics.remoteHitCount}</p>
+                    <p>Cache local : {entry.metrics.cacheHitCount}</p>
+                    <p>Durée moyenne : {formatAverageDuration(entry.metrics.totalDurationMs, entry.metrics.count)}</p>
+                    <p>
+                      Dernière durée :{" "}
+                      {typeof entry.metrics.lastDurationMs === "number"
+                        ? `${entry.metrics.lastDurationMs} ms`
+                        : "Aucune"}
+                    </p>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="rounded-lg border border-dashed border-zinc-300 p-4 text-sm text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
+                Aucune métrique d&apos;action locale n&apos;a encore été observée sur cette
+                instance.
+              </div>
+            )}
+          </div>
+        </div>
       </section>
 
       <form

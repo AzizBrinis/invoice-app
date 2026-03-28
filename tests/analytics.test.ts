@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { getDashboardMetrics } from "@/server/analytics";
 import { InvoiceStatus, type User } from "@prisma/client";
 
+const describeWithDb = process.env.TEST_DATABASE_URL ? describe : describe.skip;
+
 let user: User;
 
 vi.mock("@/lib/auth", () => ({
@@ -10,7 +12,7 @@ vi.mock("@/lib/auth", () => ({
   getCurrentUser: vi.fn(async () => user),
 }));
 
-describe("getDashboardMetrics timezone handling", () => {
+describeWithDb("getDashboardMetrics timezone handling", () => {
   const currency = "TZT";
 
   beforeAll(async () => {

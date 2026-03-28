@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const resolveTxtMock = vi.fn<(domain: string) => Promise<string[][]>>();
-const resolveCnameMock = vi.fn<(domain: string) => Promise<string[]>>();
+const { resolveTxtMock, resolveCnameMock } = vi.hoisted(() => ({
+  resolveTxtMock: vi.fn<(domain: string) => Promise<string[][]>>(),
+  resolveCnameMock: vi.fn<(domain: string) => Promise<string[]>>(),
+}));
 
 vi.mock("dns/promises", () => ({
   Resolver: class {

@@ -711,11 +711,12 @@ function quoteCard(quote: {
   number: string;
   totalTTCCents: number;
   currency: string;
-  client: { displayName: string };
+  client?: { displayName: string } | null;
 }) {
+  const clientName = quote.client?.displayName ?? quote.number;
   return buildDocumentCard({
     type: "quote",
-    title: `Devis ${quote.client.displayName}`,
+    title: `Devis ${clientName}`,
     number: quote.number,
     totalCents: quote.totalTTCCents,
     currency: quote.currency,
@@ -728,11 +729,12 @@ function invoiceCard(invoice: {
   number: string;
   totalTTCCents: number;
   currency: string;
-  client: { displayName: string };
+  client?: { displayName: string } | null;
 }) {
+  const clientName = invoice.client?.displayName ?? invoice.number;
   return buildDocumentCard({
     type: "invoice",
-    title: `Facture ${invoice.client.displayName}`,
+    title: `Facture ${clientName}`,
     number: invoice.number,
     totalCents: invoice.totalTTCCents,
     currency: invoice.currency,
@@ -1056,7 +1058,7 @@ const toolDefinitions = [
             success: true,
             summary: `Devis ${created.number} créé.`,
             data: { quoteId: created.id },
-            card: quoteCard(created as any),
+            card: quoteCard(created),
           };
         },
         input,
@@ -1118,7 +1120,7 @@ const toolDefinitions = [
             success: true,
             summary: `Devis ${updated.number} mis à jour.`,
             data: { quoteId: updated.id },
-            card: quoteCard(updated as any),
+            card: quoteCard(updated),
           };
         },
         input,
@@ -1179,7 +1181,7 @@ const toolDefinitions = [
             success: true,
             summary: `Facture ${created.number} créée.`,
             data: { invoiceId: created.id },
-            card: invoiceCard(created as any),
+            card: invoiceCard(created),
           };
         },
         input,
@@ -1241,7 +1243,7 @@ const toolDefinitions = [
             success: true,
             summary: `Facture ${updated.number} actualisée.`,
             data: { invoiceId: updated.id },
-            card: invoiceCard(updated as any),
+            card: invoiceCard(updated),
           };
         },
         input,
@@ -1268,7 +1270,7 @@ const toolDefinitions = [
             success: true,
             summary: `Facture ${invoice.number} générée depuis le devis.`,
             data: { invoiceId: invoice.id },
-            card: invoiceCard(invoice as any),
+            card: invoiceCard(invoice),
           };
         },
         input,
@@ -1357,7 +1359,7 @@ const toolDefinitions = [
               success: true,
               summary: `Devis ${duplicated.number} créé en double.`,
               data: { quoteId: duplicated.id },
-              card: quoteCard(duplicated as any),
+              card: quoteCard(duplicated),
             };
           }
           const duplicated = await duplicateInvoice(input.documentId);
@@ -1365,7 +1367,7 @@ const toolDefinitions = [
             success: true,
             summary: `Facture ${duplicated.number} dupliquée.`,
             data: { invoiceId: duplicated.id },
-            card: invoiceCard(duplicated as any),
+            card: invoiceCard(duplicated),
           };
         },
         input,

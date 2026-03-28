@@ -300,6 +300,7 @@ describeClientPayments("client payment domain", () => {
     expect(excelContent).toContain("Accompagnement mensuel");
     expect(excelContent).not.toContain("Accompagnement premium");
     expect(excelContent).toContain(receiptPayment.receiptNumber ?? "");
+    expect(excelContent).toContain('<Column ss:AutoFitWidth="0" ss:Width="');
   });
 
   it("keeps migrated services global when deleting a client that only sourced them", async () => {

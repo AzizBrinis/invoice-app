@@ -41,12 +41,15 @@ import type {
   MailboxSearchResult,
   MessageDetail,
 } from "@/server/messaging";
+import type { MessagingLocalSyncOverview } from "@/server/messaging-local-sync";
 import {
   fetchMailboxPageAction,
   fetchMessageDetailAction,
   moveMailboxMessageAction,
   searchMailboxMessagesAction,
   summarizeMessageWithAiAction,
+  triggerMailboxLocalSyncAction,
+  updateMailboxMessageSeenStateAction,
   type ActionResult,
 } from "@/app/(app)/messagerie/actions";
 import { Button, type ButtonProps } from "@/components/ui/button";
@@ -83,6 +86,7 @@ type MailboxClientProps = {
   title: string;
   description: string;
   isConfigured: boolean;
+  localSyncOverview: MessagingLocalSyncOverview;
   initialPage: MailboxPageResult | null;
   initialError: string | null;
   initialSearchPage?: MailboxSearchResult | null;
@@ -104,6 +108,51 @@ function formatDate(value: string): string {
     return "Date inconnue";
   }
   return MAILBOX_DATE_FORMATTER.format(date);
+}
+
+function getLocalSyncStatusLabel(status: string): string {
+  switch (status) {
+    case "READY":
+      return "Prêt";
+    case "DEGRADED":
+      return "Dégradé";
+    case "BOOTSTRAPPING":
+      return "Bootstrap";
+    case "ERROR":
+      return "Erreur";
+    default:
+      return "Inactif";
+  }
+}
+
+function getLocalSyncStatusVariant(
+  status: string,
+): "info" | "success" | "warning" | "danger" | "neutral" {
+  switch (status) {
+    case "READY":
+      return "success";
+    case "DEGRADED":
+      return "warning";
+    case "BOOTSTRAPPING":
+      return "info";
+    case "ERROR":
+      return "danger";
+    default:
+      return "neutral";
+  }
+}
+
+function getLocalSyncModeLabel(mode: MessagingLocalSyncOverview["mode"]): string {
+  switch (mode) {
+    case "local-ready":
+      return "Lecture locale active";
+    case "local-partial":
+      return "Lecture locale partielle";
+    case "local-bootstrapping":
+      return "Bootstrap local en cours";
+    default:
+      return "IMAP direct (défaut)";
+  }
 }
 
 function formatFileSize(bytes: number): string {
@@ -413,6 +462,46 @@ const SUBJECT_CLAMP_STYLE: CSSProperties = {
   overflow: "hidden",
 };
 
+const MAILBOX_RENDER_BATCH_SIZE = 60;
+const MAILBOX_SELECTION_VISIBILITY_BUFFER = 12;
+const MAILBOX_DETAIL_PREFETCH_BATCH_SIZE = 3;
+const MAILBOX_DETAIL_PREFETCH_DELAY_MS = 150;
+
+function collectLikelyDetailPrefetchUids(
+  messages: MailboxListItem[],
+  selectedUid: number | null,
+  maxCount: number,
+) {
+  if (!messages.length || maxCount <= 0) {
+    return [];
+  }
+
+  const candidates: number[] = [];
+  const selectedIndex =
+    selectedUid === null
+      ? -1
+      : messages.findIndex((message) => message.uid === selectedUid);
+
+  if (selectedIndex >= 0) {
+    candidates.push(messages[selectedIndex]!.uid);
+    if (messages[selectedIndex + 1]) {
+      candidates.push(messages[selectedIndex + 1]!.uid);
+    }
+    if (messages[selectedIndex - 1]) {
+      candidates.push(messages[selectedIndex - 1]!.uid);
+    }
+  }
+
+  for (const message of messages) {
+    if (candidates.length >= maxCount) {
+      break;
+    }
+    candidates.push(message.uid);
+  }
+
+  return Array.from(new Set(candidates)).slice(0, maxCount);
+}
+
 function MessageDetailSkeleton() {
   return (
     <div className="space-y-5" aria-live="polite" aria-busy="true">
@@ -576,6 +665,7 @@ export function MailboxClient({
   title,
   description,
   isConfigured,
+  localSyncOverview,
   initialPage,
   initialError,
   initialSearchPage = null,
@@ -599,8 +689,12 @@ export function MailboxClient({
   const prefetchedDetailStateRef = useRef<Map<number, "pending" | "done">>(
     new Map()
   );
+  const seenWritebackStateRef = useRef<Map<string, "pending" | "done">>(
+    new Map()
+  );
   const initialLoadAttemptedRef = useRef(false);
   const searchRequestIdRef = useRef(0);
+  const refreshRequestIdRef = useRef(0);
 
   const mailboxState = useMailboxStore((state) => state.mailboxes[mailbox]);
   const searchEnabled = isMailboxSearchable(mailbox);
@@ -666,6 +760,9 @@ export function MailboxClient({
   const [storeHydrated, setStoreHydrated] = useState(false);
   const [mobilePane, setMobilePane] = useState<MobilePane>("list");
   const [isDesktopLayout, setIsDesktopLayout] = useState(false);
+  const [visibleMessageCount, setVisibleMessageCount] = useState(
+    MAILBOX_RENDER_BATCH_SIZE
+  );
   const mobilePaneInitializedRef = useRef(false);
   const listPaneId = `${mailbox}-mailbox-list-pane`;
   const detailPaneId = `${mailbox}-mailbox-detail-pane`;
@@ -713,7 +810,12 @@ export function MailboxClient({
   useEffect(() => {
     detailRequestsRef.current.clear();
     prefetchedDetailStateRef.current.clear();
+    seenWritebackStateRef.current.clear();
   }, [mailbox]);
+
+  useEffect(() => {
+    setVisibleMessageCount(MAILBOX_RENDER_BATCH_SIZE);
+  }, [committedSearchQuery, mailbox]);
 
   useEffect(() => {
     aiSummaryRequestIdRef.current += 1;
@@ -742,6 +844,28 @@ export function MailboxClient({
   const hasMoreMessages = preferStoreState
     ? mailboxState.hasMore
     : initialPage?.hasMore ?? false;
+  const displayedMessages = useMemo(
+    () => (hasActiveSearch ? searchResult?.messages ?? [] : messages),
+    [hasActiveSearch, messages, searchResult]
+  );
+  const currentLocalSyncMailbox = useMemo(
+    () =>
+      localSyncOverview.mailboxes.find((entry) => entry.mailbox === mailbox) ??
+      null,
+    [localSyncOverview.mailboxes, mailbox]
+  );
+  const canWarmMessageDetailLocally = Boolean(
+    localSyncOverview.active &&
+      currentLocalSyncMailbox?.readable &&
+      currentLocalSyncMailbox.backfillComplete
+  );
+  const displayedHasMessages = displayedMessages.length > 0;
+  const displayedHasMoreMessages = hasActiveSearch
+    ? searchResult?.hasMore ?? false
+    : hasMoreMessages;
+  const displayedLoadingMore = hasActiveSearch
+    ? searchLoadingMore
+    : loadingMore;
   const initialPageNeedsReconcile = useMemo(() => {
     if (!initialPage) {
       return false;
@@ -960,6 +1084,49 @@ export function MailboxClient({
     Date.now() - cachedDetailEntry.fetchedAt <= MAILBOX_DETAIL_TTL_MS
       ? cachedDetailEntry.detail
       : null;
+  const selectedMessageListItem = useMemo(() => {
+    if (!selectedUid) {
+      return null;
+    }
+    return (
+      displayedMessages.find((message) => message.uid === selectedUid) ??
+      null
+    );
+  }, [displayedMessages, selectedUid]);
+  const selectedDisplayedMessageIndex = useMemo(() => {
+    if (!selectedUid) {
+      return -1;
+    }
+    return displayedMessages.findIndex((message) => message.uid === selectedUid);
+  }, [displayedMessages, selectedUid]);
+  const resolvedVisibleMessageCount = useMemo(() => {
+    const baselineCount = Math.min(
+      displayedMessages.length,
+      visibleMessageCount
+    );
+    if (selectedDisplayedMessageIndex < 0) {
+      return baselineCount;
+    }
+    return Math.min(
+      displayedMessages.length,
+      Math.max(
+        baselineCount,
+        selectedDisplayedMessageIndex + MAILBOX_SELECTION_VISIBILITY_BUFFER
+      )
+    );
+  }, [
+    displayedMessages.length,
+    selectedDisplayedMessageIndex,
+    visibleMessageCount,
+  ]);
+  const visibleMessages = useMemo(
+    () => displayedMessages.slice(0, resolvedVisibleMessageCount),
+    [displayedMessages, resolvedVisibleMessageCount]
+  );
+  const hiddenLoadedMessageCount = Math.max(
+    0,
+    displayedMessages.length - visibleMessages.length
+  );
 
   const moveOptions = useMemo(
     () => MAILBOX_MOVE_OPTIONS[mailbox] ?? [],
@@ -1018,6 +1185,102 @@ export function MailboxClient({
     [addToast, mailbox]
   );
 
+  const removeMessageFromSearchResult = useCallback((uid: number) => {
+    setSearchResult((current) => {
+      if (!current) {
+        return current;
+      }
+      const nextMessages = current.messages.filter(
+        (message) => message.uid !== uid
+      );
+      if (nextMessages.length === current.messages.length) {
+        return current;
+      }
+      return {
+        ...current,
+        messages: nextMessages,
+        totalMessages: Math.max(0, current.totalMessages - 1),
+      };
+    });
+  }, []);
+
+  const markMessageSeenOptimistically = useCallback(
+    (uid: number) => {
+      markMailboxMessageSeen(mailbox, uid);
+      setSearchResult((current) => {
+        if (!current) {
+          return current;
+        }
+        let changed = false;
+        const messages = current.messages.map((message) => {
+          if (message.uid !== uid || message.seen) {
+            return message;
+          }
+          changed = true;
+          return {
+            ...message,
+            seen: true,
+          };
+        });
+        return changed
+          ? {
+              ...current,
+              messages,
+            }
+          : current;
+      });
+      setDetail((current) =>
+        current && current.uid === uid && !current.seen
+          ? {
+              ...current,
+              seen: true,
+            }
+          : current
+      );
+      const cached = getCachedMessageDetail(mailbox, uid);
+      if (cached && !cached.seen) {
+        cacheMessageDetail(mailbox, {
+          ...cached,
+          seen: true,
+        });
+      }
+    },
+    [mailbox]
+  );
+
+  const queueSeenWriteback = useCallback(
+    (uid: number, seen: boolean) => {
+      const cacheKey = `${mailbox}:${uid}:${seen ? "seen" : "unseen"}`;
+      const currentState = seenWritebackStateRef.current.get(cacheKey);
+      if (currentState === "pending" || currentState === "done") {
+        return;
+      }
+      seenWritebackStateRef.current.set(cacheKey, "pending");
+      safeActionCall(
+        () =>
+          updateMailboxMessageSeenStateAction({
+            mailbox,
+            uid,
+            seen,
+          }),
+        {
+          silentNetworkError: true,
+        }
+      )
+        .then((result) => {
+          if (!result || !result.success) {
+            seenWritebackStateRef.current.delete(cacheKey);
+            return;
+          }
+          seenWritebackStateRef.current.set(cacheKey, "done");
+        })
+        .catch(() => {
+          seenWritebackStateRef.current.delete(cacheKey);
+        });
+    },
+    [mailbox, safeActionCall]
+  );
+
   const requestMessageDetail = useCallback(
     async (
       uid: number,
@@ -1074,12 +1337,20 @@ export function MailboxClient({
   );
 
   const warmMessageDetail = useCallback(
-    (uid: number | null) => {
+    (
+      uid: number | null,
+      options?: {
+        allowRemote?: boolean;
+      }
+    ) => {
       if (!uid) {
         return;
       }
       if (getCachedMessageDetail(mailbox, uid)) {
         prefetchedDetailStateRef.current.set(uid, "done");
+        return;
+      }
+      if (!options?.allowRemote && !canWarmMessageDetailLocally) {
         return;
       }
       const currentState = prefetchedDetailStateRef.current.get(uid);
@@ -1099,8 +1370,35 @@ export function MailboxClient({
           prefetchedDetailStateRef.current.delete(uid);
         });
     },
-    [mailbox, requestMessageDetail]
+    [canWarmMessageDetailLocally, mailbox, requestMessageDetail]
   );
+
+  useEffect(() => {
+    if (!canWarmMessageDetailLocally || visibleMessages.length === 0) {
+      return;
+    }
+    const candidateUids = collectLikelyDetailPrefetchUids(
+      visibleMessages,
+      selectedUid,
+      MAILBOX_DETAIL_PREFETCH_BATCH_SIZE
+    );
+    if (!candidateUids.length) {
+      return;
+    }
+    const timeoutId = window.setTimeout(() => {
+      candidateUids.forEach((uid) => {
+        warmMessageDetail(uid);
+      });
+    }, MAILBOX_DETAIL_PREFETCH_DELAY_MS);
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [
+    canWarmMessageDetailLocally,
+    selectedUid,
+    visibleMessages,
+    warmMessageDetail,
+  ]);
 
   const loadSearchPage = useCallback(
     async ({
@@ -1522,11 +1820,18 @@ export function MailboxClient({
       return;
     }
 
+    const shouldWriteSeen =
+      selectedMessageListItem?.seen === false ||
+      (!selectedMessageListItem && cachedDetail?.seen === false);
+
     if (cachedDetail) {
       setDetail(cachedDetail);
       setDetailError(null);
       setDetailLoading(false);
-      markMailboxMessageSeen(mailbox, selectedUid);
+      if (shouldWriteSeen) {
+        markMessageSeenOptimistically(selectedUid);
+        queueSeenWriteback(selectedUid, true);
+      }
       setPendingMessageUid((current) =>
         current === selectedUid ? null : current
       );
@@ -1546,7 +1851,10 @@ export function MailboxClient({
       if (result.success && result.detail) {
         setDetail(result.detail);
         setDetailError(null);
-        markMailboxMessageSeen(mailbox, selectedUid);
+        if (shouldWriteSeen || result.detail.seen === false) {
+          markMessageSeenOptimistically(selectedUid);
+          queueSeenWriteback(selectedUid, true);
+        }
       } else {
         const errorMessage =
           result.errorMessage ?? "Échec de chargement du message.";
@@ -1571,7 +1879,15 @@ export function MailboxClient({
     return () => {
       cancelled = true;
     };
-  }, [addToast, cachedDetail, mailbox, requestMessageDetail, selectedUid]);
+  }, [
+    addToast,
+    cachedDetail,
+    markMessageSeenOptimistically,
+    queueSeenWriteback,
+    requestMessageDetail,
+    selectedMessageListItem,
+    selectedUid,
+  ]);
 
   const handleSelectMessage = useCallback(
     (uid: number) => {
@@ -1582,7 +1898,7 @@ export function MailboxClient({
       setOptimisticSelectedUid(uid);
       setSelectedUid(uid);
       updateUrlMessageParam(uid);
-      warmMessageDetail(uid);
+      warmMessageDetail(uid, { allowRemote: true });
       setMobilePane("detail");
     },
     [
@@ -1699,6 +2015,12 @@ export function MailboxClient({
   );
 
   const handleLoadMore = async () => {
+    if (hiddenLoadedMessageCount > 0) {
+      setVisibleMessageCount((current) =>
+        Math.min(displayedMessages.length, current + MAILBOX_RENDER_BATCH_SIZE)
+      );
+      return;
+    }
     if (hasActiveSearch) {
       if (searchLoadingMore || !searchResult?.hasMore) {
         return;
@@ -1751,65 +2073,92 @@ export function MailboxClient({
     processAutoMoved(payload.autoMoved);
   };
 
-  const handleRefresh = async () => {
+  const handleRefresh = () => {
+    const requestId = ++refreshRequestIdRef.current;
     setRefreshing(true);
-    if (hasActiveSearch) {
-      const refreshed = await loadSearchPage({
-        query: committedSearchQuery,
-        page: 1,
-        showToastOnError: true,
-      });
-      setRefreshing(false);
-      if (!refreshed) {
+
+    void (async () => {
+      const localSyncResult = await safeActionCall(() =>
+        triggerMailboxLocalSyncAction({
+          mailbox,
+        })
+      );
+      if (requestId !== refreshRequestIdRef.current) {
         return;
       }
+      if (localSyncResult && !localSyncResult.success) {
+        addToast({
+          variant: "error",
+          title: localSyncResult.message,
+        });
+      }
+      if (hasActiveSearch) {
+        const refreshed = await loadSearchPage({
+          query: committedSearchQuery,
+          page: 1,
+          showToastOnError: true,
+        });
+        if (requestId !== refreshRequestIdRef.current) {
+          return;
+        }
+        setRefreshing(false);
+        if (!refreshed) {
+          return;
+        }
+        addToast({
+          variant: "success",
+          title: "Résultats actualisés.",
+        });
+        return;
+      }
+
+      const result = await safeActionCall(() =>
+        fetchMailboxPageAction({
+          mailbox,
+          page: 1,
+          pageSize: pageSizeFromStore,
+        })
+      );
+      if (requestId !== refreshRequestIdRef.current) {
+        return;
+      }
+      setRefreshing(false);
+      if (!result) {
+        return;
+      }
+      if (!result.success) {
+        addToast({
+          variant: "error",
+          title: result.message,
+        });
+        setListError(result.message);
+        return;
+      }
+      if (!result.data) {
+        addToast({
+          variant: "error",
+          title: "Réponse invalide du serveur.",
+        });
+        return;
+      }
+      const payload = result.data;
+      replaceMailboxMessages(mailbox, {
+        messages: payload.messages,
+        page: payload.page,
+        pageSize: payload.pageSize,
+        hasMore: payload.hasMore,
+        totalMessages: payload.totalMessages,
+      });
+      processAutoMoved(payload.autoMoved);
+      setListError(null);
       addToast({
         variant: "success",
-        title: "Résultats actualisés.",
+        title: "Messages actualisés.",
       });
-      return;
-    }
-    const result = await safeActionCall(() =>
-      fetchMailboxPageAction({
-        mailbox,
-        page: 1,
-        pageSize: pageSizeFromStore,
-      })
-    );
-    setRefreshing(false);
-    if (!result) return;
-    if (!result.success) {
-      addToast({
-        variant: "error",
-        title: result.message,
-      });
-      setListError(result.message);
-      return;
-    }
-    if (!result.data) {
-      addToast({
-        variant: "error",
-        title: "Réponse invalide du serveur.",
-      });
-      return;
-    }
-    const payload = result.data;
-    replaceMailboxMessages(mailbox, {
-      messages: payload.messages,
-      page: payload.page,
-      pageSize: payload.pageSize,
-      hasMore: payload.hasMore,
-      totalMessages: payload.totalMessages,
-    });
-    processAutoMoved(payload.autoMoved);
-    setListError(null);
-    addToast({
-      variant: "success",
-      title: "Messages actualisés.",
-    });
-    if (listRef.current) {
-      listRef.current.scrollTo({ top: 0, behavior: "smooth" });
-    }
+      if (listRef.current) {
+        listRef.current.scrollTo({ top: 0, behavior: "smooth" });
+      }
+    })();
   };
 
   const handleMoveMessage = useCallback(
@@ -1833,6 +2182,7 @@ export function MailboxClient({
       }
       if (result.success) {
         removeMailboxMessage(mailbox, detail.uid);
+        removeMessageFromSearchResult(detail.uid);
         invalidateMailboxCache(targetMailbox);
         setDetail(null);
         setDetailError(null);
@@ -1853,21 +2203,11 @@ export function MailboxClient({
       detail,
       handleClearSelection,
       mailbox,
+      removeMessageFromSearchResult,
       safeActionCall,
       setDetailError,
     ]
   );
-
-  const displayedMessages = hasActiveSearch
-    ? searchResult?.messages ?? []
-    : messages;
-  const displayedHasMessages = displayedMessages.length > 0;
-  const displayedHasMoreMessages = hasActiveSearch
-    ? searchResult?.hasMore ?? false
-    : hasMoreMessages;
-  const displayedLoadingMore = hasActiveSearch
-    ? searchLoadingMore
-    : loadingMore;
   const displayedListError = hasActiveSearch ? searchError : listError;
   const searchScopeLabel =
     mailbox === "sent" ? "les messages envoyés" : "les messages reçus";
@@ -1895,6 +2235,34 @@ export function MailboxClient({
       : (!storeHydrated || !mailboxState.initialized) &&
         !initialPage &&
         (initialLoading || !hasMessages);
+  const localSyncBanner = useMemo(() => {
+    if (!localSyncOverview.active || !currentLocalSyncMailbox) {
+      return null;
+    }
+
+    const progressText =
+      typeof currentLocalSyncMailbox.progressPercent === "number"
+        ? `${currentLocalSyncMailbox.progressPercent}%`
+        : "En attente";
+    const lastSuccessfulSyncText = currentLocalSyncMailbox.lastSuccessfulSyncAt
+      ? formatDate(currentLocalSyncMailbox.lastSuccessfulSyncAt)
+      : "Aucune synchronisation réussie pour le moment";
+    const detailText = currentLocalSyncMailbox.readable
+      ? currentLocalSyncMailbox.backfillComplete
+        ? "Cette boîte est lue depuis la base locale. IMAP reste la source de vérité distante."
+        : "Cette boîte est déjà lisible localement, mais le backfill complet continue en arrière-plan."
+      : currentLocalSyncMailbox.status === "ERROR"
+        ? "Cette boîte reste temporairement en IMAP direct à cause d'une erreur de synchronisation locale."
+        : "Cette boîte reste temporairement en IMAP direct pendant que le cache local se prépare.";
+
+    return {
+      detailText,
+      progressText,
+      lastSuccessfulSyncText,
+      statusLabel: getLocalSyncStatusLabel(currentLocalSyncMailbox.status),
+      statusVariant: getLocalSyncStatusVariant(currentLocalSyncMailbox.status),
+    };
+  }, [currentLocalSyncMailbox, localSyncOverview.active]);
 
   const handleDownloadAttachment = useCallback(
     async (attachment: MessageDetail["attachments"][number]) => {
@@ -2057,6 +2425,51 @@ export function MailboxClient({
         </div>
       </div>
 
+      {localSyncBanner ? (
+        <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="info">
+                  {getLocalSyncModeLabel(localSyncOverview.mode)}
+                </Badge>
+                <Badge variant={localSyncBanner.statusVariant}>
+                  {localSyncBanner.statusLabel}
+                </Badge>
+                <Badge variant="neutral">{localSyncBanner.progressText}</Badge>
+              </div>
+              <p className="text-sm text-zinc-600 dark:text-zinc-300">
+                {localSyncBanner.detailText}
+              </p>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                Dernier succès : {localSyncBanner.lastSuccessfulSyncText}. Le
+                bouton « Actualiser » relance la synchronisation locale de cette
+                boîte avant de recharger l&apos;affichage.
+              </p>
+              {currentLocalSyncMailbox?.lastError ? (
+                <p className="text-xs text-amber-600 dark:text-amber-300">
+                  Dernière erreur : {currentLocalSyncMailbox.lastError}
+                </p>
+              ) : null}
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+              <span>
+                Local :{" "}
+                {typeof currentLocalSyncMailbox?.localMessageCount === "number"
+                  ? currentLocalSyncMailbox.localMessageCount
+                  : "?"}
+              </span>
+              <span>
+                Distant :{" "}
+                {typeof currentLocalSyncMailbox?.remoteMessageCount === "number"
+                  ? currentLocalSyncMailbox.remoteMessageCount
+                  : "?"}
+              </span>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {searchEnabled && isConfigured ? (
         <div className="rounded-2xl border border-zinc-200 bg-white p-3 shadow-sm dark:border-zinc-800 dark:bg-zinc-900 sm:p-4">
           <form
@@ -2183,7 +2596,7 @@ export function MailboxClient({
               ) : (
                 <div className="space-y-3">
                   <div role="list" className="space-y-2">
-                    {displayedMessages.map((message) => (
+                    {visibleMessages.map((message) => (
                       <div key={message.uid} role="listitem">
                         <MailboxMessageRow
                           mailbox={mailbox}
@@ -2203,7 +2616,17 @@ export function MailboxClient({
 
                   {displayedLoadingMore ? <MailboxSkeleton rows={3} /> : null}
 
-                  {displayedHasMoreMessages ? (
+                  {hiddenLoadedMessageCount > 0 ? (
+                    <p className="text-center text-xs text-zinc-500 dark:text-zinc-400">
+                      {hiddenLoadedMessageCount} message
+                      {hiddenLoadedMessageCount > 1 ? "s" : ""} déjà chargé
+                      {hiddenLoadedMessageCount > 1 ? "s" : ""}, masqué
+                      {hiddenLoadedMessageCount > 1 ? "s" : ""} pour garder la
+                      liste fluide.
+                    </p>
+                  ) : null}
+
+                  {hiddenLoadedMessageCount > 0 || displayedHasMoreMessages ? (
                     <div className="flex justify-center">
                       <Button
                         type="button"
@@ -2211,7 +2634,12 @@ export function MailboxClient({
                         onClick={handleLoadMore}
                         loading={displayedLoadingMore}
                       >
-                        Charger plus
+                        {hiddenLoadedMessageCount > 0
+                          ? `Afficher ${Math.min(
+                              hiddenLoadedMessageCount,
+                              MAILBOX_RENDER_BATCH_SIZE
+                            )} de plus`
+                          : "Charger plus"}
                       </Button>
                     </div>
                   ) : null}

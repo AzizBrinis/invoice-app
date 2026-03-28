@@ -506,6 +506,7 @@ Fallback should exist at several levels:
 ## 5. Progressive action plan
 
 1. Create the feature foundation and persistence contract.
+   Status: Done on 2026-03-26. Completed the Prisma schema and migration for optional local sync, added the dedicated `src/server/messaging-local-sync.ts` helper module, and added scoped integration tests covering default-off preference behavior plus mailbox/message uniqueness per account. No existing Messagerie runtime path was changed.
    Goal: add the database and service-layer foundation without changing any user-facing runtime behavior yet.
    The agent should:
    - extend `MessagingSettings` with the minimum local-sync configuration fields, starting with `localSyncEnabled` and explicit sync status support fields only if they are needed for the UX
@@ -528,6 +529,7 @@ Fallback should exist at several levels:
    - tests cover tenant/account scoping and uniqueness constraints
 
 2. Build the mailbox synchronization engine for one mailbox end-to-end.
+   Status: Done on 2026-03-26. Added an inbox-only local sync service that reuses the existing IMAP mailbox opening and message parsing stack, persists recent inbox messages plus attachment metadata and cursor state, and includes integration coverage for bootstrap, idempotent re-sync, update-without-duplicate behavior, and partial-sync degradation without losing prior local data.
    Goal: prove the architecture with `inbox` first before generalizing to all other mailboxes.
    The agent should:
    - reuse the existing IMAP connection, mailbox discovery, mailbox opening, and message parsing logic from `src/server/messaging.ts`
@@ -556,6 +558,7 @@ Fallback should exist at several levels:
    - sync can recover from an empty local database
 
 3. Generalize the sync engine to all currently supported logical mailboxes.
+   Status: Done on 2026-03-26. Generalized the local sync engine to `inbox`, `sent`, `drafts`, `trash`, and `spam`, added explicit recent-window and slower backfill policy handling, exposed mailbox readability/status helpers and multi-mailbox sync orchestration, and added integration coverage for independent mailbox bootstrap, sent `messageId` preservation, staged backfill progression, and per-mailbox failure isolation.
    Goal: expand from `inbox` to the real production mailbox set already exposed by the UI.
    The agent should:
    - add support for `sent`, `drafts`, `trash`, and `spam`
@@ -593,6 +596,7 @@ Fallback should exist at several levels:
    - users with local sync enabled get local list/detail/search reads when mailbox data is ready
    - incomplete local data falls back safely to IMAP
    - refresh still works and does not produce inconsistent mixed-mode results
+   Status: Done on 2026-03-26. Added a dedicated read-mode layer that keeps IMAP as the default path, switches mailbox page/detail/search reads to local data only when the account opted in and the mailbox state is safe to read locally, and falls back to IMAP for incomplete coverage or missing local detail bodies. Wired the existing Messagerie initial loads, server actions, reply/forward compose detail prefetch, and background sync refresh path to this layer without changing the current UI contracts, and added focused read-mode tests plus integration coverage for local lookup/search helpers.
 
 5. Add mutation coherence: send, move, read state, refresh, and detail hydration.
    Goal: ensure the local read model stays coherent after user actions.
@@ -615,6 +619,7 @@ Fallback should exist at several levels:
    - moved messages disappear from the source view and reappear correctly later in the target view
    - opening a message in local mode does not require a full IMAP detail fetch once it has been hydrated
    - no duplicate sent or moved messages appear in local storage
+   Status: Done on 2026-03-26. Added mutation-side local projections for sent appends, mailbox moves, seen-state persistence, and degraded-state marking; extended the IMAP layer to return move metadata and support seen-flag write-back; and turned local detail fallback into fetch-once hydration that persists the body/attachment metadata before serving. Wired the mailbox client to keep active list/search state coherent after open/move, while preserving the existing default live behavior for users who did not enable local sync, and added focused tests for hydration, sent projection, move projection, and local seen/degraded state behavior.
 
 6. Connect synchronization to the real scheduling model and manual triggers.
    Goal: make the feature production-realistic within the app’s existing cron/job architecture.
@@ -635,6 +640,7 @@ Fallback should exist at several levels:
    - manual sync can refresh the active mailbox without waiting for the next cron slot
    - jobs are idempotent and safe to retry
    - disable/purge jobs do not break live IMAP fallback access
+   Status: Done on 2026-03-26. Extended `src/server/messaging-jobs.ts` with dedicated local-sync bootstrap, delta, reconcile, manual-mailbox, and purge job types; scheduled those jobs through the existing `/api/cron/messaging` cron tick only for opted-in IMAP-configured accounts while queuing purge for disabled accounts with leftover local data; added an idempotent local-data purge helper; and exposed a manual current-mailbox sync path by having the existing mailbox refresh action trigger an immediate local-sync background job before reloading the local read model. Added focused scheduler/manual-trigger tests plus DB-backed purge coverage without changing the default live IMAP behavior for users who have not enabled local sync.
 
 7. Add the settings UX, mailbox sync status UX, and safe enable/disable flow.
    Goal: expose the feature in a way that is explicit, optional, and operationally understandable to users.
@@ -658,6 +664,7 @@ Fallback should exist at several levels:
    - enabling starts sync and shows progress
    - disabling returns the user to live mode immediately
    - users can understand whether they are seeing fully synced, partially synced, or degraded local data
+   Status: Done on 2026-03-26. Added a dedicated optional local-sync settings section with enable/disable, current mode, last successful sync, per-mailbox status and bootstrap/backfill progress, manual sync, and purge controls; surfaced mailbox-level local-sync state in the main Messagerie UI so users can see when a mailbox is local-ready, still bootstrapping, partially backfilled, or falling back to live IMAP; and wired the enable/disable/manual controls through server actions that keep IMAP as the source of truth, start bootstrap immediately on enable, return to live mode immediately on disable while purge continues in background, and preserve the default live strategy for users who never opt in. Added focused overview and settings-action tests.
 
 8. Harden the feature for production rollout.
    Goal: make the implementation safe, testable, observable, and rollback-friendly.
@@ -693,6 +700,11 @@ Fallback should exist at several levels:
    - acceptable sync duration and storage growth on representative mailbox sizes
    - fallback path is verified in failure scenarios
    - all critical flows pass with local sync both on and off
+   Operational recovery paths:
+   - Mailbox rebuild: keep `MESSAGING_LOCAL_SYNC_SERVER_ENABLED=true`, purge local data for the affected account or mailbox, then trigger bootstrap again. IMAP remains untouched and reseeds the local model.
+   - Degraded sync: keep the user on live IMAP for unreadable mailboxes, inspect per-mailbox status and `lastError`, run a manual reconcile, and only purge/reseed if the degraded state persists or UIDVALIDITY changed.
+   - Purge/reseed: disabling the option returns the UI to live IMAP immediately and queues a purge in background; a manual purge can also be run directly, after which re-enabling starts a fresh bootstrap from IMAP.
+   Status: Done on 2026-03-26. Added a server-side rollout guard via `MESSAGING_LOCAL_SYNC_SERVER_ENABLED`, wired the read-mode, settings actions, and background job handlers/scheduler to respect that guard, added shared local-sync observability for sync duration, synced message counts, hydration count, fallback reasons, per-mailbox failure counters, and local-vs-remote storage indicators, and expanded focused coverage with tests for the rollout guard, observability snapshot, delta sync, reconciliation routing, UIDVALIDITY reset, disable/purge behavior, local fallback behavior, and tenant/account isolation. The default live IMAP behavior remains unchanged for users who never opt in.
 
 ## 6. Notes to preserve
 

@@ -289,7 +289,7 @@ function formatParticipantList(
     .filter((value): value is string => Boolean(value));
 }
 
-type PrefetchedRawMessage = {
+export type PrefetchedRawMessage = {
   uid: number;
   envelope: MessageEnvelopeObject | null;
   source: Buffer | Uint8Array | string;
@@ -343,7 +343,7 @@ function buildUidSequence(uids: number[]): string {
   return ranges.join(",");
 }
 
-async function fetchRawMessages(
+export async function fetchRawMessages(
   client: ImapFlow,
   uids: number[],
 ): Promise<Map<number, PrefetchedRawMessage>> {
@@ -394,6 +394,19 @@ export type AutoMovedSummary = {
 export type SentMailboxAppendResult = {
   message: MailboxListItem | null;
   totalMessages: number | null;
+  remotePath?: string | null;
+  uidValidity?: number | null;
+};
+
+export type MovedMailboxMessageResult = {
+  sourceMailbox: Mailbox;
+  targetMailbox: Mailbox;
+  sourceUid: number;
+  targetUid: number | null;
+  sourcePath: string | null;
+  targetPath: string | null;
+  sourceUidValidity: number | null;
+  targetUidValidity: number | null;
 };
 
 function createMailboxListItem(message: {
@@ -539,6 +552,16 @@ export type MessageDetailAttachment = {
   size: number;
 };
 
+export type ParsedMailboxAttachmentMetadata = {
+  id: string;
+  filename: string;
+  contentType: string;
+  size: number;
+  contentId: string | null;
+  contentLocation: string | null;
+  inline: boolean;
+};
+
 type AttachmentDescriptor = {
   id: string;
   filename: string;
@@ -672,6 +695,31 @@ export type MessageDetail = {
   bccAddresses: MessageParticipant[];
   replyToAddresses: MessageParticipant[];
   tracking: EmailTrackingDetail | null;
+};
+
+export type ParsedMailboxMessageContent = {
+  messageId: string | null;
+  subject: string;
+  from: string | null;
+  to: string[];
+  cc: string[];
+  bcc: string[];
+  replyTo: string[];
+  date: string;
+  sentAt: string | null;
+  seen: boolean;
+  answered: boolean;
+  flagged: boolean;
+  draft: boolean;
+  html: string | null;
+  text: string | null;
+  previewText: string | null;
+  attachments: ParsedMailboxAttachmentMetadata[];
+  fromAddress: MessageParticipant | null;
+  toAddresses: MessageParticipant[];
+  ccAddresses: MessageParticipant[];
+  bccAddresses: MessageParticipant[];
+  replyToAddresses: MessageParticipant[];
 };
 
 export type ComposeEmailInput = {
@@ -817,7 +865,7 @@ const MAILBOX_SPECIAL_USE: Partial<Record<Mailbox, string>> = {
 
 const mailboxNameCache = new Map<string, string>();
 
-function getMailboxCacheKey(
+export function getMailboxCacheKey(
   config: Pick<ImapConnectionConfig, "host" | "port" | "secure" | "user">,
   mailbox: Mailbox,
 ) {
@@ -1015,6 +1063,19 @@ function ensurePort(value: number, field: string): number {
     throw new Error(`Le port ${field} est invalide.`);
   }
   return value;
+}
+
+function normalizeImapCounterValue(
+  value: number | bigint | null | undefined,
+): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.trunc(value);
+  }
+  if (typeof value === "bigint") {
+    const asNumber = Number(value);
+    return Number.isFinite(asNumber) ? Math.trunc(asNumber) : null;
+  }
+  return null;
 }
 
 function toOptionalString(value: string | null | undefined): string | null {
@@ -1459,7 +1520,7 @@ function hasAttachments(
   return false;
 }
 
-async function withImapClient<T>(
+export async function withImapClient<T>(
   config: ImapConnectionConfig,
   fn: (client: ImapFlow) => Promise<T>,
 ): Promise<T> {
@@ -1487,7 +1548,7 @@ async function withImapClient<T>(
   }
 }
 
-async function openMailbox(
+export async function openMailbox(
   client: ImapFlow,
   mailbox: Mailbox,
   readOnly: boolean,
@@ -1620,6 +1681,8 @@ async function appendMessageToSentMailbox(params: {
       return {
         message: null,
         totalMessages: null,
+        remotePath: null,
+        uidValidity: null,
       };
     }
 
@@ -1723,6 +1786,8 @@ async function appendMessageToSentMailbox(params: {
       return {
         message: mailboxItem,
         totalMessages,
+        remotePath: opened.name,
+        uidValidity: normalizeImapCounterValue(opened.info.uidValidity),
       };
     } finally {
       opened.release();
@@ -3097,6 +3162,16 @@ const MAILBOX_SUMMARY_DEFAULT_LIMIT = 6;
 const MAILBOX_SUMMARY_MIN_LIMIT = 5;
 const MAILBOX_SUMMARY_MAX_LIMIT = 10;
 
+function normalizeMessageBodyText(
+  value: string | null | undefined,
+): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const normalized = value.replace(/\r\n/g, "\n").trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
 function normalizePreviewText(value: string): string {
   return value
     .replace(/\r?\n|\r/g, " ")
@@ -3112,20 +3187,160 @@ function htmlToPlainText(value: string): string {
     .replace(/<[^>]+>/g, " ");
 }
 
-function buildMessageDetailPreview(detail: MessageDetail): string | null {
-  if (typeof detail.text === "string" && detail.text.trim().length) {
-    const normalized = normalizePreviewText(detail.text);
+function buildMessageContentPreview(
+  text: string | null,
+  html: string | null,
+): string | null {
+  if (typeof text === "string" && text.trim().length) {
+    const normalized = normalizePreviewText(text);
     if (normalized.length) {
       return normalized.slice(0, EMAIL_PREVIEW_MAX_LENGTH);
     }
   }
-  if (typeof detail.html === "string" && detail.html.trim().length) {
-    const normalized = normalizePreviewText(htmlToPlainText(detail.html));
+  if (typeof html === "string" && html.trim().length) {
+    const normalized = normalizePreviewText(htmlToPlainText(html));
     if (normalized.length) {
       return normalized.slice(0, EMAIL_PREVIEW_MAX_LENGTH);
     }
   }
   return null;
+}
+
+function buildMessageDetailPreview(detail: MessageDetail): string | null {
+  return buildMessageContentPreview(detail.text, detail.html);
+}
+
+export async function parseFetchedMailboxMessage(params: {
+  mailbox: Mailbox;
+  uid: number;
+  source: Buffer | Uint8Array | string;
+  envelope: MessageEnvelopeObject;
+  internalDate?: Date | string | null;
+  flags?: Set<string> | null;
+}): Promise<ParsedMailboxMessageContent> {
+  const normalizedSource =
+    typeof params.source === "string" || Buffer.isBuffer(params.source)
+      ? params.source
+      : Buffer.from(params.source);
+  const parsed = await simpleParser(normalizedSource);
+  const parsedDate =
+    (parsed as ParsedMail & { date?: Date | string | null }).date ?? null;
+
+  const parsedFrom = parsed.from?.value ?? [];
+  const parsedTo = parsed.to?.value ?? [];
+  const parsedCc = parsed.cc?.value ?? [];
+  const parsedBcc = parsed.bcc?.value ?? [];
+  const parsedReplyTo = parsed.replyTo?.value ?? [];
+
+  const fromParticipants = mergeParticipants(
+    params.envelope.from,
+    parsedFrom,
+  );
+  const replyToParticipants = mergeParticipants(
+    params.envelope.replyTo,
+    parsedReplyTo,
+  );
+  const toParticipants = mergeParticipants(
+    params.envelope.to,
+    parsedTo,
+  );
+  const ccParticipants = mergeParticipants(
+    params.envelope.cc,
+    parsedCc,
+  );
+  const bccParticipants = mergeParticipants(
+    params.envelope.bcc,
+    parsedBcc,
+  );
+
+  const sanitizedHtml = parsed.html ? sanitizeEmailHtml(parsed.html) : null;
+  const normalizedText = normalizeMessageBodyText(parsed.text);
+
+  const formattedFrom =
+    formatParticipantLabel(fromParticipants[0]) ??
+    formatAddress(params.envelope.from?.[0] as ImapAddress | undefined);
+  const formattedTo = formatParticipantList(toParticipants);
+  const formattedCc = formatParticipantList(ccParticipants);
+  const formattedBcc = formatParticipantList(bccParticipants);
+  const formattedReplyTo = formatParticipantList(replyToParticipants);
+
+  const attachmentDescriptors = buildAttachmentDescriptors(
+    params.mailbox,
+    params.uid,
+    parsed.attachments,
+  );
+  const attachments = attachmentDescriptors.map((descriptor) => {
+    const rawAttachment = descriptor.raw as Attachment & {
+      contentId?: string | null;
+      contentDisposition?: string | null;
+      related?: boolean;
+      contentLocation?: string | null;
+    };
+    const disposition =
+      typeof rawAttachment.contentDisposition === "string"
+        ? rawAttachment.contentDisposition.trim().toLowerCase()
+        : "";
+    const contentId =
+      typeof rawAttachment.contentId === "string" &&
+      rawAttachment.contentId.trim().length > 0
+        ? rawAttachment.contentId.trim()
+        : null;
+    const contentLocation =
+      typeof rawAttachment.contentLocation === "string" &&
+      rawAttachment.contentLocation.trim().length > 0
+        ? rawAttachment.contentLocation.trim()
+        : null;
+
+    return {
+      id: descriptor.id,
+      filename: descriptor.filename,
+      contentType: descriptor.contentType,
+      size: descriptor.size,
+      contentId,
+      contentLocation,
+      inline: disposition === "inline" || rawAttachment.related === true,
+    } satisfies ParsedMailboxAttachmentMetadata;
+  });
+
+  const internalDate =
+    params.internalDate instanceof Date
+      ? params.internalDate
+      : params.internalDate
+        ? new Date(params.internalDate)
+        : new Date();
+  const sentAtSource =
+    parsedDate instanceof Date
+      ? parsedDate
+      : parsedDate
+        ? new Date(parsedDate)
+      : params.envelope.date instanceof Date
+        ? params.envelope.date
+        : null;
+
+  return {
+    messageId: params.envelope.messageId ?? null,
+    subject: params.envelope.subject ?? "(Sans objet)",
+    from: formattedFrom ?? null,
+    to: formattedTo,
+    cc: formattedCc,
+    bcc: formattedBcc,
+    replyTo: formattedReplyTo,
+    date: internalDate.toISOString(),
+    sentAt: sentAtSource?.toISOString() ?? null,
+    seen: params.flags?.has("\\Seen") ?? false,
+    answered: params.flags?.has("\\Answered") ?? false,
+    flagged: params.flags?.has("\\Flagged") ?? false,
+    draft: params.flags?.has("\\Draft") ?? false,
+    html: sanitizedHtml,
+    text: normalizedText,
+    previewText: buildMessageContentPreview(normalizedText, sanitizedHtml),
+    attachments,
+    fromAddress: fromParticipants[0] ?? null,
+    toAddresses: toParticipants,
+    ccAddresses: ccParticipants,
+    bccAddresses: bccParticipants,
+    replyToAddresses: replyToParticipants,
+  };
 }
 
 export async function fetchRecentMailboxEmails(params: {
@@ -3415,46 +3630,16 @@ export async function fetchMessageDetail(params: {
         envelope: MessageEnvelopeObject;
       };
 
-      const parsed = await simpleParser(fetched.source);
+      const parsedMessage = await parseFetchedMailboxMessage({
+        mailbox: params.mailbox,
+        uid: params.uid,
+        source: fetched.source,
+        envelope: fetched.envelope,
+        internalDate: fetched.internalDate ?? null,
+        flags: fetched.flags ?? null,
+      });
 
-      const parsedFrom = parsed.from?.value ?? [];
-      const parsedTo = parsed.to?.value ?? [];
-      const parsedCc = parsed.cc?.value ?? [];
-      const parsedBcc = parsed.bcc?.value ?? [];
-      const parsedReplyTo = parsed.replyTo?.value ?? [];
-
-      const fromParticipants = mergeParticipants(
-        fetched.envelope.from,
-        parsedFrom,
-      );
-      const replyToParticipants = mergeParticipants(
-        fetched.envelope.replyTo,
-        parsedReplyTo,
-      );
-      const toParticipants = mergeParticipants(
-        fetched.envelope.to,
-        parsedTo,
-      );
-      const ccParticipants = mergeParticipants(
-        fetched.envelope.cc,
-        parsedCc,
-      );
-      const bccParticipants = mergeParticipants(
-        fetched.envelope.bcc,
-        parsedBcc,
-      );
-
-      const sanitizedHtml = parsed.html ? sanitizeEmailHtml(parsed.html) : null;
-
-      const formattedFrom =
-        formatParticipantLabel(fromParticipants[0]) ??
-        formatAddress(fetched.envelope.from?.[0] as ImapAddress | undefined);
-      const formattedTo = formatParticipantList(toParticipants);
-      const formattedCc = formatParticipantList(ccParticipants);
-      const formattedBcc = formatParticipantList(bccParticipants);
-      const formattedReplyTo = formatParticipantList(replyToParticipants);
-
-      const envelopeMessageId = fetched.envelope.messageId ?? null;
+      const envelopeMessageId = parsedMessage.messageId;
       const trackingDetail =
         envelopeMessageId && params.mailbox === "sent"
           ? await getEmailTrackingDetail({
@@ -3463,34 +3648,21 @@ export async function fetchMessageDetail(params: {
             })
           : null;
 
-      const attachmentDescriptors = buildAttachmentDescriptors(
-        params.mailbox,
-        params.uid,
-        parsed.attachments,
-      );
-
-      const internalDate =
-        fetched.internalDate instanceof Date
-          ? fetched.internalDate
-          : fetched.internalDate
-            ? new Date(fetched.internalDate)
-            : new Date();
-
       return {
         mailbox: params.mailbox,
         uid: params.uid,
-        messageId: envelopeMessageId,
-        subject: fetched.envelope.subject ?? "(Sans objet)",
-        from: formattedFrom ?? null,
-        to: formattedTo,
-        cc: formattedCc,
-        bcc: formattedBcc,
-        replyTo: formattedReplyTo,
-        date: internalDate.toISOString(),
-        seen: fetched.flags?.has("\\Seen") ?? false,
-        html: sanitizedHtml,
-        text: parsed.text ?? parsed.textAsHtml ?? null,
-        attachments: attachmentDescriptors.map(
+        messageId: parsedMessage.messageId,
+        subject: parsedMessage.subject,
+        from: parsedMessage.from,
+        to: parsedMessage.to,
+        cc: parsedMessage.cc,
+        bcc: parsedMessage.bcc,
+        replyTo: parsedMessage.replyTo,
+        date: parsedMessage.date,
+        seen: parsedMessage.seen,
+        html: parsedMessage.html,
+        text: parsedMessage.text,
+        attachments: parsedMessage.attachments.map(
           ({ id, filename, contentType, size }) => ({
             id,
             filename,
@@ -3498,11 +3670,11 @@ export async function fetchMessageDetail(params: {
             size,
           }),
         ),
-        fromAddress: fromParticipants[0] ?? null,
-        toAddresses: toParticipants,
-        ccAddresses: ccParticipants,
-        bccAddresses: bccParticipants,
-        replyToAddresses: replyToParticipants,
+        fromAddress: parsedMessage.fromAddress,
+        toAddresses: parsedMessage.toAddresses,
+        ccAddresses: parsedMessage.ccAddresses,
+        bccAddresses: parsedMessage.bccAddresses,
+        replyToAddresses: parsedMessage.replyToAddresses,
         tracking: trackingDetail,
       };
     } finally {
@@ -3515,8 +3687,9 @@ export async function fetchMessageAttachment(params: {
   mailbox: Mailbox;
   uid: number;
   attachmentId: string;
+  userId?: string;
 }): Promise<{ filename: string; contentType: string; content: Buffer }> {
-  const userId = await resolveUserId();
+  const userId = await resolveUserId(params.userId);
   const credentials = await getMessagingCredentials(userId);
   if (!credentials.imap) {
     throw new Error(
@@ -3581,12 +3754,22 @@ export async function moveMailboxMessage(params: {
   mailbox: Mailbox;
   uid: number;
   target: Mailbox;
-}): Promise<void> {
+  userId?: string;
+}): Promise<MovedMailboxMessageResult> {
   if (params.mailbox === params.target) {
-    return;
+    return {
+      sourceMailbox: params.mailbox,
+      targetMailbox: params.target,
+      sourceUid: params.uid,
+      targetUid: params.uid,
+      sourcePath: null,
+      targetPath: null,
+      sourceUidValidity: null,
+      targetUidValidity: null,
+    };
   }
 
-  const userId = await resolveUserId();
+  const userId = await resolveUserId(params.userId);
   const credentials = await getMessagingCredentials(userId);
   if (!credentials.imap) {
     throw new Error(
@@ -3612,6 +3795,10 @@ export async function moveMailboxMessage(params: {
     });
 
     try {
+      const sourcePath = opened.name;
+      const sourceUidValidity = normalizeImapCounterValue(
+        opened.info.uidValidity,
+      );
       const moved = await client.messageMove(
         String(params.uid),
         destinationPath,
@@ -3619,6 +3806,62 @@ export async function moveMailboxMessage(params: {
       );
       if (!moved) {
         throw new Error("Déplacement du message impossible.");
+      }
+      const targetUid =
+        moved.uidMap instanceof Map
+          ? moved.uidMap.get(params.uid) ?? null
+          : null;
+      return {
+        sourceMailbox: params.mailbox,
+        targetMailbox: params.target,
+        sourceUid: params.uid,
+        targetUid,
+        sourcePath,
+        targetPath: moved.destination ?? destinationPath,
+        sourceUidValidity,
+        targetUidValidity: normalizeImapCounterValue(
+          moved.uidValidity,
+        ),
+      };
+    } finally {
+      opened.release();
+    }
+  });
+}
+
+export async function updateMailboxMessageSeenState(params: {
+  mailbox: Mailbox;
+  uid: number;
+  seen: boolean;
+  userId?: string;
+}): Promise<void> {
+  const userId = await resolveUserId(params.userId);
+  const credentials = await getMessagingCredentials(userId);
+  if (!credentials.imap) {
+    throw new Error(
+      "Le serveur IMAP n'est pas configuré. Complétez les paramètres.",
+    );
+  }
+
+  return withImapClient(credentials.imap, async (client) => {
+    const opened = await openMailbox(client, params.mailbox, false, {
+      cacheKey: getMailboxCacheKey(credentials.imap!, params.mailbox),
+    });
+
+    try {
+      const updated = params.seen
+        ? await client.messageFlagsAdd(
+            String(params.uid),
+            ["\\Seen"],
+            { uid: true },
+          )
+        : await client.messageFlagsRemove(
+            String(params.uid),
+            ["\\Seen"],
+            { uid: true },
+          );
+      if (!updated) {
+        throw new Error("Mise à jour de l'état lu/non lu impossible.");
       }
     } finally {
       opened.release();
@@ -3863,7 +4106,7 @@ export async function sendEmailMessageForUser(
   const rawMessage = await composer.compile().build();
 
   try {
-    return await appendMessageToSentMailbox({
+    const appendResult = await appendMessageToSentMailbox({
       imap: credentials.imap,
       rawMessage: Buffer.isBuffer(rawMessage)
         ? rawMessage
@@ -3872,11 +4115,38 @@ export async function sendEmailMessageForUser(
       sentAt,
       userId,
     });
+    try {
+      const {
+        projectSentMailboxAppendToLocal,
+      } = await import("@/server/messaging-local-sync");
+      await projectSentMailboxAppendToLocal({
+        userId,
+        sentAppendResult: appendResult,
+        to: params.to,
+        cc: params.cc,
+        bcc: params.bcc,
+        subject: params.subject,
+        text: params.text,
+        html: baseHtml,
+        attachments: params.attachments,
+        senderEmail: fromAddress,
+        senderName: credentials.senderName,
+        sentAt,
+      });
+    } catch (error) {
+      console.warn(
+        "Impossible de projeter localement le message envoyé:",
+        error,
+      );
+    }
+    return appendResult;
   } catch (error) {
     console.warn("Impossible d'enregistrer le message dans 'Envoyés':", error);
     return {
       message: null,
       totalMessages: null,
+      remotePath: null,
+      uidValidity: null,
     };
   }
 }

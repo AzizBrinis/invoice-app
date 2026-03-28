@@ -1,4 +1,5 @@
 import { getMessagingSettingsSummary } from "@/server/messaging";
+import { getMessagingLocalSyncOverview } from "@/server/messaging-local-sync";
 import { MailboxClient } from "@/app/(app)/messagerie/_components/mailbox-client";
 import {
   loadInitialMailboxData,
@@ -14,7 +15,10 @@ export default async function RecusPage({
 }: {
   searchParams?: Promise<SearchParams>;
 }) {
-  const summary = await getMessagingSettingsSummary();
+  const [summary, localSyncOverview] = await Promise.all([
+    getMessagingSettingsSummary(),
+    getMessagingLocalSyncOverview(),
+  ]);
   const resolvedSearchParams = (await searchParams) ?? {};
   const rawQuery =
     typeof resolvedSearchParams.q === "string"
@@ -43,6 +47,7 @@ export default async function RecusPage({
       title="Boîte de réception"
       description="Consultez les messages reçus les plus récents."
       isConfigured={summary.imapConfigured}
+      localSyncOverview={localSyncOverview}
       initialPage={initialPage}
       initialError={initialError}
       initialSearchPage={initialSearchPage}

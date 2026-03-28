@@ -28,6 +28,9 @@ vi.mock("@/server/products", () => ({
 }));
 
 describe("assistant create_product tool", () => {
+  type CreatedProduct = Awaited<ReturnType<typeof createProduct>>;
+  type CreateProductInput = Parameters<typeof createProduct>[0];
+
   const context = { userId: "user_1", conversationId: "conv_1" };
   const baseInput = {
     sku: "SRV-001",
@@ -86,7 +89,7 @@ describe("assistant create_product tool", () => {
     const tool = getToolByName("create_product");
     expect(tool).toBeTruthy();
 
-    const result = await tool!.handler(baseInput as any, context);
+    const result = await tool!.handler(baseInput, context);
 
     expect(result.success).toBe(true);
     expect(result.data).toEqual(
@@ -131,12 +134,12 @@ describe("assistant create_product tool", () => {
       createdAt: new Date("2024-04-01T00:00:00.000Z"),
       updatedAt: new Date("2024-04-01T00:00:00.000Z"),
       currency: "TND",
-    } as any);
+    } as CreatedProduct);
 
     const tool = getToolByName("create_product");
     expect(tool).toBeTruthy();
 
-    const result = await tool!.handler(baseInput as any, context);
+    const result = await tool!.handler(baseInput, context);
 
     expect(result.success).toBe(true);
     expect(result.data).toEqual(
@@ -152,7 +155,7 @@ describe("assistant create_product tool", () => {
       bestConfidence: 0.2,
       matches: [],
     });
-    createProductMock.mockImplementation(async (payload: any) => ({
+    createProductMock.mockImplementation(async (payload: CreateProductInput) => ({
       id: "prod_new",
       ...payload,
       createdAt: new Date("2024-04-01T00:00:00.000Z"),
@@ -162,7 +165,7 @@ describe("assistant create_product tool", () => {
     const tool = getToolByName("create_product");
     expect(tool).toBeTruthy();
 
-    const result = await tool!.handler(baseInput as any, context);
+    const result = await tool!.handler(baseInput, context);
 
     expect(result.success).toBe(true);
     expect(result.data).toEqual(

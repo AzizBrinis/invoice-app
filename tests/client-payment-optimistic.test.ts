@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildOptimisticClientPaymentId,
+  isOptimisticClientPaymentId,
+  isPersistedClientPayment,
   matchesPaymentFilters,
   reduceOptimisticPaymentsState,
   type PaymentsWorkspaceState,
@@ -59,6 +62,18 @@ function buildState(): PaymentsWorkspaceState {
 }
 
 describe("client payment optimistic state", () => {
+  it("marks temporary payment ids as pending until a real persisted id exists", () => {
+    const optimisticPayment = {
+      ...basePayment,
+      id: buildOptimisticClientPaymentId(123),
+    };
+
+    expect(isOptimisticClientPaymentId(optimisticPayment.id)).toBe(true);
+    expect(isPersistedClientPayment(optimisticPayment)).toBe(false);
+    expect(isOptimisticClientPaymentId(basePayment.id)).toBe(false);
+    expect(isPersistedClientPayment(basePayment)).toBe(true);
+  });
+
   it("reconciles a matching optimistic payment into totals and the first page list", () => {
     const state = buildState();
     const filters = {

@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { createInvoice, deleteInvoice, listInvoices } from "@/server/invoices";
 import { InvoiceAuditAction, InvoiceStatus, type User } from "@prisma/client";
 
+const describeWithDb = process.env.TEST_DATABASE_URL ? describe : describe.skip;
+
 let user: User;
 let clientId: string;
 let productId: string;
@@ -17,58 +19,60 @@ vi.mock("@/lib/auth", async () => {
   };
 });
 
-beforeAll(async () => {
-  user = await prisma.user.create({
-    data: {
-      email: `invoice-user-${Date.now()}@example.com`,
-      passwordHash: "hashed",
-      name: "Invoice User",
-    },
-  });
-
-  const client = await prisma.client.create({
-    data: {
-      displayName: "Client Facture",
-      companyName: "Société Facture",
-      email: "facture@test.fr",
-      isActive: true,
-      userId: user.id,
-    },
-  });
-  clientId = client.id;
-
-  const product = await prisma.product.create({
-    data: {
-      sku: `SKU-INV-${Date.now()}`,
-      publicSlug: `service-facturation-${Date.now()}`,
-      name: "Service Facturation",
-      priceHTCents: 10000,
-      priceTTCCents: 12000,
-      vatRate: 20,
-      unit: "unité",
-      isActive: true,
-      userId: user.id,
-    },
-  });
-  productId = product.id;
-});
-
-afterAll(async () => {
-  if (createdInvoiceIds.length > 0) {
-    await prisma.invoiceAuditLog.deleteMany({
-      where: { invoiceId: { in: createdInvoiceIds }, userId: user.id },
+if (process.env.TEST_DATABASE_URL) {
+  beforeAll(async () => {
+    user = await prisma.user.create({
+      data: {
+        email: `invoice-user-${Date.now()}@example.com`,
+        passwordHash: "hashed",
+        name: "Invoice User",
+      },
     });
-    await prisma.invoice.deleteMany({
-      where: { id: { in: createdInvoiceIds }, userId: user.id },
+
+    const client = await prisma.client.create({
+      data: {
+        displayName: "Client Facture",
+        companyName: "Société Facture",
+        email: "facture@test.fr",
+        isActive: true,
+        userId: user.id,
+      },
     });
-  }
-  await prisma.product.delete({ where: { id: productId } });
-  await prisma.client.delete({ where: { id: clientId } });
-  await prisma.numberingSequence.deleteMany({ where: { userId: user.id } });
-  await prisma.companySettings.deleteMany({ where: { userId: user.id } });
-  await prisma.messagingSettings.deleteMany({ where: { userId: user.id } });
-  await prisma.user.delete({ where: { id: user.id } });
-});
+    clientId = client.id;
+
+    const product = await prisma.product.create({
+      data: {
+        sku: `SKU-INV-${Date.now()}`,
+        publicSlug: `service-facturation-${Date.now()}`,
+        name: "Service Facturation",
+        priceHTCents: 10000,
+        priceTTCCents: 12000,
+        vatRate: 20,
+        unit: "unité",
+        isActive: true,
+        userId: user.id,
+      },
+    });
+    productId = product.id;
+  });
+
+  afterAll(async () => {
+    if (createdInvoiceIds.length > 0) {
+      await prisma.invoiceAuditLog.deleteMany({
+        where: { invoiceId: { in: createdInvoiceIds }, userId: user.id },
+      });
+      await prisma.invoice.deleteMany({
+        where: { id: { in: createdInvoiceIds }, userId: user.id },
+      });
+    }
+    await prisma.product.delete({ where: { id: productId } });
+    await prisma.client.delete({ where: { id: clientId } });
+    await prisma.numberingSequence.deleteMany({ where: { userId: user.id } });
+    await prisma.companySettings.deleteMany({ where: { userId: user.id } });
+    await prisma.messagingSettings.deleteMany({ where: { userId: user.id } });
+    await prisma.user.delete({ where: { id: user.id } });
+  });
+}
 
 function buildInvoiceInput(status: InvoiceStatus) {
   return {
@@ -93,7 +97,7 @@ function buildInvoiceInput(status: InvoiceStatus) {
   };
 }
 
-describe("deleteInvoice", () => {
+describeWithDb("deleteInvoice", () => {
   it("permanently deletes draft invoices and records the event", async () => {
     const invoice = await createInvoice(buildInvoiceInput(InvoiceStatus.BROUILLON));
     createdInvoiceIds.push(invoice.id);

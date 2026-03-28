@@ -1,7 +1,8 @@
 "use client";
 
-import { useActionState, useEffect } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert } from "@/components/ui/alert";
@@ -31,6 +32,9 @@ export function ClientPaymentsSettingsForm({
 }: ClientPaymentsSettingsFormProps) {
   const router = useRouter();
   const { addToast } = useToast();
+  const [paymentMethods, setPaymentMethods] = useState(() => [
+    ...settings.clientPaymentMethods,
+  ]);
   const [state, formAction] = useActionState<
     ClientPaymentSettingsActionState,
     FormData
@@ -63,11 +67,12 @@ export function ClientPaymentsSettingsForm({
     <div className="space-y-6">
       <div>
         <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
-          Paramètres des reçus
+          Paramètres des paiements
         </h1>
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
           Configurez uniquement les informations nécessaires à l&apos;affichage
-          et à la génération des reçus du compte paiements clients.
+          des paiements, à la liste des modes de règlement et à la génération
+          des reçus du compte paiements clients.
         </p>
       </div>
 
@@ -171,6 +176,76 @@ export function ClientPaymentsSettingsForm({
               defaultValue={settings.legalFooter ?? ""}
               placeholder="Merci pour votre paiement..."
             />
+          </div>
+        </section>
+
+        <section className="card space-y-4 p-4 sm:p-6">
+          <div>
+            <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+              Modes de paiement
+            </h2>
+            <p className="text-sm text-zinc-600 dark:text-zinc-400">
+              Cette liste alimente directement le menu déroulant utilisé lors de
+              l&apos;enregistrement d&apos;un paiement.
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            {paymentMethods.map((method, index) => (
+              <div
+                key={`payment-method-${index}`}
+                className="flex flex-col gap-2 sm:flex-row sm:items-center"
+              >
+                <Input
+                  name="clientPaymentMethods"
+                  value={method}
+                  onChange={(event) => {
+                    const nextValue = event.target.value;
+                    setPaymentMethods((current) =>
+                      current.map((entry, entryIndex) =>
+                        entryIndex === index ? nextValue : entry,
+                      ),
+                    );
+                  }}
+                  placeholder="Ex. Paiement mobile"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="sm:self-start"
+                  disabled={paymentMethods.length === 1}
+                  onClick={() => {
+                    setPaymentMethods((current) => {
+                      if (current.length === 1) {
+                        return current;
+                      }
+
+                      return current.filter(
+                        (_entry, entryIndex) => entryIndex !== index,
+                      );
+                    });
+                  }}
+                >
+                  Supprimer
+                </Button>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex flex-wrap gap-3">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                setPaymentMethods((current) => [...current, ""]);
+              }}
+            >
+              Ajouter un mode
+            </Button>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              Les lignes vides sont ignorées à l&apos;enregistrement. Gardez au
+              moins un mode actif.
+            </p>
           </div>
         </section>
 
@@ -318,7 +393,7 @@ export function ClientPaymentsSettingsForm({
 
         <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
           <FormSubmitButton className="w-full sm:w-auto">
-            Enregistrer les paramètres du reçu
+            Enregistrer les paramètres
           </FormSubmitButton>
         </div>
       </form>

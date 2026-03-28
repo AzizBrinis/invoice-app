@@ -1,11 +1,13 @@
 import { cache } from "react";
 import {
-  fetchMailboxMessages,
-  searchMailboxMessages,
   type Mailbox,
   type MailboxPageResult,
   type MailboxSearchResult,
 } from "@/server/messaging";
+import {
+  readMailboxPage,
+  readMailboxSearch,
+} from "@/server/messaging-read-mode";
 import {
   isMailboxSearchQueryUsable,
   isMailboxSearchable,
@@ -20,7 +22,7 @@ type LoadMailboxOptions = {
 
 const fetchInitialPage = cache(
   async (mailbox: Mailbox): Promise<MailboxPageResult> => {
-    return fetchMailboxMessages({
+    return readMailboxPage({
       mailbox,
       page: 1,
     });
@@ -88,7 +90,7 @@ export async function loadInitialMailboxSearchData({
   }
 
   try {
-    const initialSearchPage = await searchMailboxMessages({
+    const initialSearchPage = await readMailboxSearch({
       mailbox,
       query: normalizedQuery,
       page: 1,

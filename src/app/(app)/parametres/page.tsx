@@ -27,7 +27,17 @@ const POSITION_OPTIONS = [
 function renderClientPaymentsSettingsForm(
   settings: Awaited<ReturnType<typeof getSettings>>,
 ) {
-  return <ClientPaymentsSettingsForm settings={settings} />;
+  const settingsRenderKey =
+    typeof settings.updatedAt === "string"
+      ? settings.updatedAt
+      : settings.updatedAt.toISOString();
+
+  return (
+    <ClientPaymentsSettingsForm
+      key={settingsRenderKey}
+      settings={settings}
+    />
+  );
 }
 
 export default function ParametresPage() {

@@ -1,11 +1,15 @@
 import { getMessagingSettingsSummary } from "@/server/messaging";
+import { getMessagingLocalSyncOverview } from "@/server/messaging-local-sync";
 import { MailboxClient } from "@/app/(app)/messagerie/_components/mailbox-client";
 import { loadInitialMailboxData } from "@/app/(app)/messagerie/load-initial-mailbox-data";
 
 export const dynamic = "force-dynamic";
 
 export default async function BrouillonsPage() {
-  const summary = await getMessagingSettingsSummary();
+  const [summary, localSyncOverview] = await Promise.all([
+    getMessagingSettingsSummary(),
+    getMessagingLocalSyncOverview(),
+  ]);
   const { initialPage, initialError } = await loadInitialMailboxData({
     mailbox: "drafts",
     enabled: summary.imapConfigured,
@@ -18,6 +22,7 @@ export default async function BrouillonsPage() {
       title="Brouillons"
       description="Messages enregistrés avant envoi."
       isConfigured={summary.imapConfigured}
+      localSyncOverview={localSyncOverview}
       initialPage={initialPage}
       initialError={initialError}
       emptyStateMessage="Aucun brouillon trouvé."

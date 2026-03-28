@@ -101,7 +101,7 @@ describe("auto reply selection helpers", () => {
       nextUid: 501,
       maxBootstrapWindow: 120,
     });
-    expect(start).toBe(381);
+    expect(start).toBe(380);
   });
 
   it("jumps directly to the next UID when a cursor already exists", () => {

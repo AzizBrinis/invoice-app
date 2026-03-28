@@ -132,7 +132,7 @@ describe("assistant document pricing with products", () => {
       ],
     };
 
-    const result = await tool!.handler(input as any, context);
+    const result = await tool!.handler(input, context);
 
     expect(result.success).toBe(true);
     expect(mockProductFindMany).toHaveBeenCalledWith({
@@ -169,7 +169,7 @@ describe("assistant document pricing with products", () => {
       ],
     };
 
-    const result = await tool!.handler(input as any, context);
+    const result = await tool!.handler(input, context);
 
     expect(result.success).toBe(true);
     expect(createQuoteMock).toHaveBeenCalledTimes(1);

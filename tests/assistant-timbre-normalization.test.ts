@@ -1,5 +1,9 @@
 import { beforeAll, describe, expect, it } from "vitest";
 
+type NormalizedToolInput = {
+  applyTimbre?: boolean;
+};
+
 const baseQuotePayload = {
   clientId: "client_1",
   issueDate: "2024-04-01",
@@ -29,14 +33,14 @@ describe("assistant timbre handling for quotes", () => {
   it("keeps timbre enabled by default", () => {
     const normalized = normalizeToolInput("create_quote", baseQuotePayload, {
       lastUserMessage: "Cree un devis classique",
-    }) as any;
+    }) as NormalizedToolInput;
     expect(normalized.applyTimbre).toBe(true);
   });
 
   it("disables timbre when the user opts out explicitly", () => {
     const normalized = normalizeToolInput("create_quote", baseQuotePayload, {
       lastUserMessage: "Fais-moi un devis sans timbre fiscal",
-    }) as any;
+    }) as NormalizedToolInput;
     expect(normalized.applyTimbre).toBe(false);
   });
 
@@ -45,7 +49,7 @@ describe("assistant timbre handling for quotes", () => {
       "create_quote",
       { ...baseQuotePayload, applyTimbre: true },
       { lastUserMessage: "merci de ne pas appliquer le timbre" },
-    ) as any;
+    ) as NormalizedToolInput;
     expect(normalized.applyTimbre).toBe(false);
   });
 
@@ -54,7 +58,7 @@ describe("assistant timbre handling for quotes", () => {
       "create_quote",
       { ...baseQuotePayload, applyTimbre: true },
       { lastUserMessage: "ajoute une remise", timbrePreference: false },
-    ) as any;
+    ) as NormalizedToolInput;
     expect(normalized.applyTimbre).toBe(false);
   });
 });

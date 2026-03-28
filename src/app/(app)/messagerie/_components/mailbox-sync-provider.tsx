@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef } from "react";
+import type { Route } from "next";
 import { usePathname, useRouter } from "next/navigation";
 import type { Mailbox } from "@/server/messaging";
 import {
@@ -21,6 +22,7 @@ import {
   setMailboxCacheUser,
   beginMailboxSync,
   endMailboxSync,
+  isMailboxCacheStale,
 } from "@/app/(app)/messagerie/_state/mailbox-store";
 
 const MAILBOXES = MAILBOX_KEYS;
@@ -28,6 +30,24 @@ const BACKGROUND_SYNC_INTERVAL = 3 * 60 * 1000;
 const VISIBILITY_SYNC_DELAY = 2000;
 const INITIAL_SYNC_DELAY_MS = 200;
 const ALWAYS_SYNC_MAILBOXES: Mailbox[] = ["inbox"];
+const MAILBOX_PATHNAMES: Record<Mailbox, string> = {
+  inbox: "/messagerie/recus",
+  sent: "/messagerie/envoyes",
+  drafts: "/messagerie/brouillons",
+  trash: "/messagerie/corbeille",
+  spam: "/messagerie/spam",
+};
+
+function getLikelyMailboxTargets(currentMailbox: Mailbox | null) {
+  const targets: Mailbox[] = currentMailbox
+    ? currentMailbox === "inbox"
+      ? ["inbox", "sent", "drafts"]
+      : currentMailbox === "sent"
+        ? ["sent", "inbox", "drafts"]
+        : [currentMailbox, "inbox", "sent"]
+    : ["inbox", "sent", "drafts"];
+  return Array.from(new Set(targets));
+}
 
 function shouldBackgroundSync(
   mailbox: Mailbox,
@@ -51,11 +71,13 @@ function createInitialSyncStatus(): Record<Mailbox, boolean> {
 
 export type MailboxSyncProviderProps = {
   enabled: boolean;
+  localSyncActive: boolean;
   userId: string;
 };
 
 export function MailboxSyncProvider({
   enabled,
+  localSyncActive,
   userId,
 }: MailboxSyncProviderProps) {
   const syncStatusRef = useRef<Record<Mailbox, boolean>>(createInitialSyncStatus());
@@ -191,6 +213,10 @@ export function MailboxSyncProvider({
           return;
         }
         const payload = result.data;
+        if (payload.requiresSnapshot) {
+          await synchronizeSnapshot(mailbox);
+          return;
+        }
         const existingUids = new Set(cached.messages.map((item) => item.uid));
         const newMessages = payload.messages.filter(
           (item) => !existingUids.has(item.uid),
@@ -234,6 +260,31 @@ export function MailboxSyncProvider({
     },
     [addToast, currentMailbox, enabled, handleAutoMoved, router, safeActionCall, synchronizeSnapshot],
   );
+
+  useEffect(() => {
+    if (!enabled || !localSyncActive) {
+      return;
+    }
+
+    const targets = getLikelyMailboxTargets(currentMailbox);
+    const snapshot = getMailboxStoreSnapshot();
+
+    targets.forEach((mailbox) => {
+      try {
+        router.prefetch(MAILBOX_PATHNAMES[mailbox] as Route);
+      } catch {
+        // Ignore route-prefetch failures and keep local snapshot warming.
+      }
+    });
+
+    targets.forEach((mailbox) => {
+      const cached = snapshot.mailboxes[mailbox];
+      if (cached.syncing || (cached.initialized && !isMailboxCacheStale(cached))) {
+        return;
+      }
+      void synchronizeSnapshot(mailbox);
+    });
+  }, [currentMailbox, enabled, localSyncActive, router, synchronizeSnapshot]);
 
   useEffect(() => {
     if (!enabled) {

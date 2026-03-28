@@ -1,37 +1,327 @@
-import type { BackgroundJobHandlers } from "@/server/background-jobs";
+import type {
+  BackgroundJobHandlers,
+  EnqueueJobResult,
+  ProcessJobQueueResult,
+} from "@/server/background-jobs";
 import { enqueueJob, processJobQueue } from "@/server/background-jobs";
 import { prisma } from "@/lib/prisma";
 import { runScheduledEmailDispatchCycle } from "@/server/messaging-scheduled";
 import { runAutomatedReplySweepForUser } from "@/server/messaging";
 import { documentEmailJobHandlers } from "@/server/document-email-jobs";
+import {
+  MESSAGING_LOCAL_SYNC_MAILBOX_VALUES,
+  getMessagingLocalSyncPreference,
+  listMessagingMailboxLocalSyncStates,
+  purgeMessagingLocalSyncData,
+  syncMessagingMailboxToLocal,
+  syncMessagingMailboxesToLocal,
+  type MessagingLocalSyncMailbox,
+  type MessagingMailboxLocalSyncStateRecord,
+} from "@/server/messaging-local-sync";
+import { isMessagingLocalSyncServerEnabled } from "@/server/messaging-local-sync-ops";
 
 const DISPATCH_JOB_TYPE = "messaging.dispatchScheduledEmails";
 const AUTO_REPLY_JOB_TYPE = "messaging.syncInboxAutoReplies";
+export const LOCAL_SYNC_BOOTSTRAP_JOB_TYPE =
+  "messaging.localSyncBootstrap";
+export const LOCAL_SYNC_DELTA_JOB_TYPE = "messaging.localSyncDelta";
+export const LOCAL_SYNC_RECONCILE_JOB_TYPE =
+  "messaging.localSyncReconcile";
+export const LOCAL_SYNC_MANUAL_MAILBOX_JOB_TYPE =
+  "messaging.localSyncManualMailbox";
+export const LOCAL_SYNC_PURGE_JOB_TYPE = "messaging.localSyncPurge";
+
 const SCHEDULED_EMAIL_INTERVAL_MS = 60 * 1000;
 const AUTO_REPLY_INTERVAL_MS = 60 * 1000;
 const AUTO_REPLY_RETRY_BACKOFF_MS = 2 * 60 * 1000;
+const LOCAL_SYNC_BOOTSTRAP_INTERVAL_MS = 60 * 1000;
+const LOCAL_SYNC_DELTA_INTERVAL_MS = 3 * 60 * 1000;
+const LOCAL_SYNC_RECONCILE_INTERVAL_MS = 30 * 60 * 1000;
+const LOCAL_SYNC_PURGE_INTERVAL_MS = 60 * 1000;
+const LOCAL_SYNC_MANUAL_DEDUPE_WINDOW_MS = 30 * 1000;
+const LOCAL_SYNC_RETRY_BACKOFF_MS = 2 * 60 * 1000;
 
-const messagingJobHandlers: BackgroundJobHandlers = {
-  ...documentEmailJobHandlers,
-  [DISPATCH_JOB_TYPE]: async () => {
-    await runScheduledEmailDispatchCycle();
+const LOCAL_SYNC_BOOTSTRAP_PRIORITY = 180;
+const LOCAL_SYNC_DELTA_PRIORITY = 130;
+const LOCAL_SYNC_RECONCILE_PRIORITY = 120;
+const LOCAL_SYNC_MANUAL_PRIORITY = 220;
+const LOCAL_SYNC_PURGE_PRIORITY = 210;
+
+const LOCAL_SYNC_JOB_TYPES = [
+  LOCAL_SYNC_BOOTSTRAP_JOB_TYPE,
+  LOCAL_SYNC_DELTA_JOB_TYPE,
+  LOCAL_SYNC_RECONCILE_JOB_TYPE,
+  LOCAL_SYNC_MANUAL_MAILBOX_JOB_TYPE,
+  LOCAL_SYNC_PURGE_JOB_TYPE,
+] as const;
+
+type MessagingLocalSyncJobPayload = {
+  userId: string;
+  mailbox?: MessagingLocalSyncMailbox;
+  reason?: string | null;
+};
+
+type MessagingJobAutoReplyCandidate = {
+  userId: string;
+  autoReplyEnabled: boolean;
+  vacationModeEnabled: boolean;
+  vacationStartDate: Date | null;
+  vacationEndDate: Date | null;
+};
+
+type MessagingLocalSyncStateSummary = Pick<
+  MessagingMailboxLocalSyncStateRecord,
+  "userId" | "mailbox" | "status" | "lastSuccessfulSyncAt"
+>;
+
+type MessagingLocalSyncJobScheduleSummary = {
+  requested: number;
+  enqueued: number;
+  deduped: number;
+};
+
+type MessagingLocalSyncScheduleSummary = {
+  enabledUsers: number;
+  bootstrap: MessagingLocalSyncJobScheduleSummary;
+  delta: MessagingLocalSyncJobScheduleSummary;
+  reconcile: MessagingLocalSyncJobScheduleSummary;
+  purge: MessagingLocalSyncJobScheduleSummary;
+};
+
+type MessagingJobQueueResult = {
+  jobId: string;
+  deduped: boolean;
+};
+
+type RunManualMessagingLocalSyncResult = MessagingJobQueueResult & {
+  queue: ProcessJobQueueResult;
+};
+
+type MessagingJobsRuntime = {
+  enqueueJob: typeof enqueueJob;
+  processJobQueue: typeof processJobQueue;
+  runScheduledEmailDispatchCycle: typeof runScheduledEmailDispatchCycle;
+  runAutomatedReplySweepForUser: typeof runAutomatedReplySweepForUser;
+  isMessagingLocalSyncServerEnabled: typeof isMessagingLocalSyncServerEnabled;
+  getMessagingLocalSyncPreference: typeof getMessagingLocalSyncPreference;
+  listMessagingMailboxLocalSyncStates: typeof listMessagingMailboxLocalSyncStates;
+  syncMessagingMailboxToLocal: typeof syncMessagingMailboxToLocal;
+  syncMessagingMailboxesToLocal: typeof syncMessagingMailboxesToLocal;
+  purgeMessagingLocalSyncData: typeof purgeMessagingLocalSyncData;
+  findAutoReplyCandidates: () => Promise<MessagingJobAutoReplyCandidate[]>;
+  findEnabledLocalSyncUsers: () => Promise<string[]>;
+  findLocalSyncStatesForUsers: (
+    userIds: string[],
+  ) => Promise<MessagingLocalSyncStateSummary[]>;
+  findUsersWithLocalSyncData: () => Promise<string[]>;
+  findLocalSyncSettings: (
+    userIds: string[],
+  ) => Promise<Array<{ userId: string; localSyncEnabled: boolean }>>;
+};
+
+const defaultMessagingJobsRuntime: MessagingJobsRuntime = {
+  enqueueJob,
+  processJobQueue,
+  runScheduledEmailDispatchCycle,
+  runAutomatedReplySweepForUser,
+  isMessagingLocalSyncServerEnabled,
+  getMessagingLocalSyncPreference,
+  listMessagingMailboxLocalSyncStates,
+  syncMessagingMailboxToLocal,
+  syncMessagingMailboxesToLocal,
+  purgeMessagingLocalSyncData,
+  async findAutoReplyCandidates() {
+    return prisma.messagingSettings.findMany({
+      where: {
+        OR: [
+          { autoReplyEnabled: true },
+          {
+            vacationModeEnabled: true,
+            vacationStartDate: { not: null },
+            vacationEndDate: { not: null },
+          },
+        ],
+        imapHost: { not: null },
+        smtpHost: { not: null },
+      },
+      select: {
+        userId: true,
+        autoReplyEnabled: true,
+        vacationModeEnabled: true,
+        vacationStartDate: true,
+        vacationEndDate: true,
+      },
+    });
   },
-  [AUTO_REPLY_JOB_TYPE]: async ({ job, payload }) => {
-    if (!payload || typeof payload !== "object") {
-      throw new Error(`Payload manquant pour le job ${job.type}`);
+  async findEnabledLocalSyncUsers() {
+    const settings = await prisma.messagingSettings.findMany({
+      where: {
+        localSyncEnabled: true,
+        imapHost: { not: null },
+        imapPort: { not: null },
+        imapUser: { not: null },
+        imapPassword: { not: null },
+      },
+      select: {
+        userId: true,
+      },
+    });
+    return settings.map((entry) => entry.userId);
+  },
+  async findLocalSyncStatesForUsers(userIds) {
+    if (!userIds.length) {
+      return [];
     }
-    const userId = (payload as Record<string, unknown>).userId;
-    if (typeof userId !== "string" || userId.length === 0) {
-      throw new Error("Identifiant utilisateur invalide pour le balayage Messagerie.");
+    const states = await prisma.messagingMailboxLocalSyncState.findMany({
+      where: {
+        userId: {
+          in: userIds,
+        },
+      },
+      select: {
+        userId: true,
+        mailbox: true,
+        status: true,
+        lastSuccessfulSyncAt: true,
+      },
+    });
+
+    return states.map((state) => ({
+      userId: state.userId,
+      mailbox: state.mailbox.toLowerCase() as MessagingLocalSyncMailbox,
+      status: state.status,
+      lastSuccessfulSyncAt: state.lastSuccessfulSyncAt?.toISOString() ?? null,
+    }));
+  },
+  async findUsersWithLocalSyncData() {
+    const [stateUsers, messageUsers] = await Promise.all([
+      prisma.messagingMailboxLocalSyncState.findMany({
+        select: { userId: true },
+        distinct: ["userId"],
+      }),
+      prisma.messagingLocalMessage.findMany({
+        select: { userId: true },
+        distinct: ["userId"],
+      }),
+    ]);
+
+    return Array.from(
+      new Set([
+        ...stateUsers.map((entry) => entry.userId),
+        ...messageUsers.map((entry) => entry.userId),
+      ]),
+    );
+  },
+  async findLocalSyncSettings(userIds) {
+    if (!userIds.length) {
+      return [];
     }
-    const bootstrapMode = (payload as Record<string, unknown>).bootstrapMode === "process" ? "process" : "skip";
-    await runAutomatedReplySweepForUser(userId, { bootstrapMode });
+    return prisma.messagingSettings.findMany({
+      where: {
+        userId: {
+          in: userIds,
+        },
+      },
+      select: {
+        userId: true,
+        localSyncEnabled: true,
+      },
+    });
   },
 };
 
+function createMessagingJobHandlers(
+  runtime: MessagingJobsRuntime = defaultMessagingJobsRuntime,
+): BackgroundJobHandlers {
+  return {
+    ...documentEmailJobHandlers,
+    [DISPATCH_JOB_TYPE]: async () => {
+      await runtime.runScheduledEmailDispatchCycle();
+    },
+    [AUTO_REPLY_JOB_TYPE]: async ({ job, payload }) => {
+      const parsed = parseAutoReplyPayload(job.type, payload);
+      await runtime.runAutomatedReplySweepForUser(parsed.userId, {
+        bootstrapMode: parsed.bootstrapMode,
+      });
+    },
+    [LOCAL_SYNC_BOOTSTRAP_JOB_TYPE]: async ({ job, payload }) => {
+      const parsed = parseLocalSyncJobPayload(job.type, payload);
+      if (!runtime.isMessagingLocalSyncServerEnabled()) {
+        return;
+      }
+      if (!(await runtime.getMessagingLocalSyncPreference(parsed.userId))) {
+        return;
+      }
+      await runtime.syncMessagingMailboxesToLocal({
+        userId: parsed.userId,
+        includeBackfill: true,
+      });
+    },
+    [LOCAL_SYNC_DELTA_JOB_TYPE]: async ({ job, payload }) => {
+      const parsed = parseLocalSyncJobPayload(job.type, payload);
+      if (!runtime.isMessagingLocalSyncServerEnabled()) {
+        return;
+      }
+      if (!(await runtime.getMessagingLocalSyncPreference(parsed.userId))) {
+        return;
+      }
+      await runtime.syncMessagingMailboxesToLocal({
+        userId: parsed.userId,
+        includeBackfill: false,
+        continuePriorityBackfill: true,
+      });
+    },
+    [LOCAL_SYNC_RECONCILE_JOB_TYPE]: async ({ job, payload }) => {
+      const parsed = parseLocalSyncJobPayload(job.type, payload);
+      if (!runtime.isMessagingLocalSyncServerEnabled()) {
+        return;
+      }
+      if (!(await runtime.getMessagingLocalSyncPreference(parsed.userId))) {
+        return;
+      }
+      await runtime.syncMessagingMailboxesToLocal({
+        userId: parsed.userId,
+        includeBackfill: true,
+      });
+    },
+    [LOCAL_SYNC_MANUAL_MAILBOX_JOB_TYPE]: async ({ job, payload }) => {
+      const parsed = parseLocalSyncJobPayload(job.type, payload, {
+        mailboxRequired: true,
+      });
+      if (!runtime.isMessagingLocalSyncServerEnabled()) {
+        return;
+      }
+      if (!(await runtime.getMessagingLocalSyncPreference(parsed.userId))) {
+        return;
+      }
+      await runtime.syncMessagingMailboxToLocal({
+        userId: parsed.userId,
+        mailbox: parsed.mailbox,
+        includeBackfill: true,
+      });
+    },
+    [LOCAL_SYNC_PURGE_JOB_TYPE]: async ({ job, payload }) => {
+      const parsed = parseLocalSyncJobPayload(job.type, payload);
+      await runtime.purgeMessagingLocalSyncData({
+        userId: parsed.userId,
+      });
+    },
+  };
+}
+
 export async function runMessagingCronTick(now = new Date()) {
-  const scheduled = await scheduleMessagingJobs(now);
-  const queueResult = await processJobQueue({ handlers: messagingJobHandlers, maxJobs: 25 });
+  return runMessagingCronTickWithRuntime(now, defaultMessagingJobsRuntime);
+}
+
+async function runMessagingCronTickWithRuntime(
+  now: Date,
+  runtime: MessagingJobsRuntime,
+) {
+  const scheduled = await scheduleMessagingJobsWithRuntime(now, runtime);
+  const queueResult = await runtime.processJobQueue({
+    handlers: createMessagingJobHandlers(runtime),
+    maxJobs: 25,
+  });
   return {
     scheduled,
     queue: queueResult,
@@ -39,16 +329,23 @@ export async function runMessagingCronTick(now = new Date()) {
   };
 }
 
-async function scheduleMessagingJobs(now: Date) {
-  const scheduledEmails = await enqueueDispatchJob(now);
-  const autoReplies = await enqueueAutoReplyJobs(now);
-  return { scheduledEmails, autoReplies };
+async function scheduleMessagingJobsWithRuntime(
+  now: Date,
+  runtime: MessagingJobsRuntime,
+) {
+  const scheduledEmails = await enqueueDispatchJob(now, runtime);
+  const autoReplies = await enqueueAutoReplyJobs(now, runtime);
+  const localSync = await enqueueLocalSyncJobs(now, runtime);
+  return { scheduledEmails, autoReplies, localSync };
 }
 
-async function enqueueDispatchJob(now: Date) {
+async function enqueueDispatchJob(
+  now: Date,
+  runtime: MessagingJobsRuntime,
+) {
   const slotKey = computeSlotKey(now, SCHEDULED_EMAIL_INTERVAL_MS);
   const dedupeKey = `scheduled:${slotKey}`;
-  const result = await enqueueJob({
+  const result = await runtime.enqueueJob({
     type: DISPATCH_JOB_TYPE,
     dedupeKey,
     priority: 100,
@@ -61,29 +358,12 @@ async function enqueueDispatchJob(now: Date) {
   };
 }
 
-async function enqueueAutoReplyJobs(now: Date) {
+async function enqueueAutoReplyJobs(
+  now: Date,
+  runtime: MessagingJobsRuntime,
+) {
   const slotKey = computeSlotKey(now, AUTO_REPLY_INTERVAL_MS);
-  const candidates = await prisma.messagingSettings.findMany({
-    where: {
-      OR: [
-        { autoReplyEnabled: true },
-        {
-          vacationModeEnabled: true,
-          vacationStartDate: { not: null },
-          vacationEndDate: { not: null },
-        },
-      ],
-      imapHost: { not: null },
-      smtpHost: { not: null },
-    },
-    select: {
-      userId: true,
-      autoReplyEnabled: true,
-      vacationModeEnabled: true,
-      vacationStartDate: true,
-      vacationEndDate: true,
-    },
-  });
+  const candidates = await runtime.findAutoReplyCandidates();
 
   let enqueued = 0;
   let deduped = 0;
@@ -94,7 +374,7 @@ async function enqueueAutoReplyJobs(now: Date) {
     }
     const dedupeKey = `${candidate.userId}:${slotKey}`;
     const payload = { userId: candidate.userId, bootstrapMode: "skip" } as const;
-    const result = await enqueueJob({
+    const result = await runtime.enqueueJob({
       type: AUTO_REPLY_JOB_TYPE,
       payload,
       dedupeKey,
@@ -113,6 +393,398 @@ async function enqueueAutoReplyJobs(now: Date) {
     requested: candidates.length,
     enqueued,
     deduped,
+  };
+}
+
+async function enqueueLocalSyncJobs(
+  now: Date,
+  runtime: MessagingJobsRuntime,
+): Promise<MessagingLocalSyncScheduleSummary> {
+  if (!runtime.isMessagingLocalSyncServerEnabled()) {
+    return {
+      enabledUsers: 0,
+      bootstrap: createScheduleSummary(),
+      delta: createScheduleSummary(),
+      reconcile: createScheduleSummary(),
+      purge: createScheduleSummary(),
+    };
+  }
+
+  const enabledUserIds = await runtime.findEnabledLocalSyncUsers();
+  const states = await runtime.findLocalSyncStatesForUsers(enabledUserIds);
+  const statesByUser = new Map<string, MessagingLocalSyncStateSummary[]>();
+
+  for (const state of states) {
+    const userStates = statesByUser.get(state.userId);
+    if (userStates) {
+      userStates.push(state);
+    } else {
+      statesByUser.set(state.userId, [state]);
+    }
+  }
+
+  const bootstrap = createScheduleSummary();
+  const delta = createScheduleSummary();
+  const reconcile = createScheduleSummary();
+
+  for (const userId of enabledUserIds) {
+    const userStates = statesByUser.get(userId) ?? [];
+    if (shouldScheduleLocalSyncBootstrap(userStates)) {
+      bootstrap.requested += 1;
+      const result = await enqueueLocalSyncJob(runtime, {
+        type: LOCAL_SYNC_BOOTSTRAP_JOB_TYPE,
+        payload: { userId, reason: "bootstrap" },
+        dedupeKey: `${userId}:${computeSlotKey(
+          now,
+          LOCAL_SYNC_BOOTSTRAP_INTERVAL_MS,
+        )}`,
+        priority: LOCAL_SYNC_BOOTSTRAP_PRIORITY,
+        runAt: now,
+      });
+      recordScheduledJob(bootstrap, result);
+      continue;
+    }
+
+    delta.requested += 1;
+    const deltaResult = await enqueueLocalSyncJob(runtime, {
+      type: LOCAL_SYNC_DELTA_JOB_TYPE,
+      payload: { userId, reason: "delta" },
+      dedupeKey: `${userId}:${computeSlotKey(now, LOCAL_SYNC_DELTA_INTERVAL_MS)}`,
+      priority: LOCAL_SYNC_DELTA_PRIORITY,
+      runAt: now,
+    });
+    recordScheduledJob(delta, deltaResult);
+
+    reconcile.requested += 1;
+    const reconcileResult = await enqueueLocalSyncJob(runtime, {
+      type: LOCAL_SYNC_RECONCILE_JOB_TYPE,
+      payload: { userId, reason: "reconcile" },
+      dedupeKey: `${userId}:${computeSlotKey(
+        now,
+        LOCAL_SYNC_RECONCILE_INTERVAL_MS,
+      )}`,
+      priority: LOCAL_SYNC_RECONCILE_PRIORITY,
+      runAt: now,
+    });
+    recordScheduledJob(reconcile, reconcileResult);
+  }
+
+  const dataUserIds = await runtime.findUsersWithLocalSyncData();
+  const settings = await runtime.findLocalSyncSettings(dataUserIds);
+  const purgeCandidateUserIds = selectLocalSyncPurgeCandidates(
+    dataUserIds,
+    settings,
+  );
+  const purge = createScheduleSummary();
+
+  for (const userId of purgeCandidateUserIds) {
+    purge.requested += 1;
+    const result = await enqueueLocalSyncJob(runtime, {
+      type: LOCAL_SYNC_PURGE_JOB_TYPE,
+      payload: { userId, reason: "disabled-purge" },
+      dedupeKey: `${userId}:${computeSlotKey(now, LOCAL_SYNC_PURGE_INTERVAL_MS)}`,
+      priority: LOCAL_SYNC_PURGE_PRIORITY,
+      runAt: now,
+    });
+    recordScheduledJob(purge, result);
+  }
+
+  return {
+    enabledUsers: enabledUserIds.length,
+    bootstrap,
+    delta,
+    reconcile,
+    purge,
+  };
+}
+
+function createScheduleSummary(): MessagingLocalSyncJobScheduleSummary {
+  return {
+    requested: 0,
+    enqueued: 0,
+    deduped: 0,
+  };
+}
+
+function recordScheduledJob(
+  summary: MessagingLocalSyncJobScheduleSummary,
+  result: EnqueueJobResult,
+) {
+  if (result.deduped) {
+    summary.deduped += 1;
+  } else {
+    summary.enqueued += 1;
+  }
+}
+
+async function enqueueLocalSyncJob(
+  runtime: MessagingJobsRuntime,
+  options: {
+    type: string;
+    payload: MessagingLocalSyncJobPayload;
+    dedupeKey: string;
+    priority: number;
+    runAt: Date;
+  },
+) {
+  return runtime.enqueueJob({
+    type: options.type,
+    payload: options.payload,
+    dedupeKey: options.dedupeKey,
+    priority: options.priority,
+    runAt: options.runAt,
+    retryBackoffMs: LOCAL_SYNC_RETRY_BACKOFF_MS,
+  });
+}
+
+export async function runManualMailboxLocalSyncNow(options: {
+  userId: string;
+  mailbox: MessagingLocalSyncMailbox;
+  now?: Date;
+}): Promise<RunManualMessagingLocalSyncResult> {
+  return runManualMailboxLocalSyncNowWithRuntime(options, defaultMessagingJobsRuntime);
+}
+
+export async function runMessagingLocalBootstrapNow(options: {
+  userId: string;
+  now?: Date;
+}): Promise<RunManualMessagingLocalSyncResult> {
+  return runMessagingLocalJobNowWithRuntime(
+    {
+      userId: options.userId,
+      type: LOCAL_SYNC_BOOTSTRAP_JOB_TYPE,
+      reason: "settings-enable",
+      priority: LOCAL_SYNC_BOOTSTRAP_PRIORITY,
+      dedupeWindowMs: LOCAL_SYNC_MANUAL_DEDUPE_WINDOW_MS,
+      now: options.now,
+    },
+    defaultMessagingJobsRuntime,
+  );
+}
+
+export async function runMessagingLocalReconcileNow(options: {
+  userId: string;
+  now?: Date;
+}): Promise<RunManualMessagingLocalSyncResult> {
+  return runMessagingLocalJobNowWithRuntime(
+    {
+      userId: options.userId,
+      type: LOCAL_SYNC_RECONCILE_JOB_TYPE,
+      reason: "settings-manual-sync",
+      priority: LOCAL_SYNC_MANUAL_PRIORITY,
+      dedupeWindowMs: LOCAL_SYNC_MANUAL_DEDUPE_WINDOW_MS,
+      now: options.now,
+    },
+    defaultMessagingJobsRuntime,
+  );
+}
+
+export async function queueMessagingLocalPurge(options: {
+  userId: string;
+  now?: Date;
+}): Promise<MessagingJobQueueResult> {
+  return queueMessagingLocalJobWithRuntime(
+    {
+      userId: options.userId,
+      type: LOCAL_SYNC_PURGE_JOB_TYPE,
+      reason: "settings-disable",
+      priority: LOCAL_SYNC_PURGE_PRIORITY,
+      dedupeWindowMs: LOCAL_SYNC_MANUAL_DEDUPE_WINDOW_MS,
+      now: options.now,
+    },
+    defaultMessagingJobsRuntime,
+  );
+}
+
+export async function runMessagingLocalPurgeNow(options: {
+  userId: string;
+  now?: Date;
+}): Promise<RunManualMessagingLocalSyncResult> {
+  return runMessagingLocalJobNowWithRuntime(
+    {
+      userId: options.userId,
+      type: LOCAL_SYNC_PURGE_JOB_TYPE,
+      reason: "settings-manual-purge",
+      priority: LOCAL_SYNC_PURGE_PRIORITY,
+      dedupeWindowMs: LOCAL_SYNC_MANUAL_DEDUPE_WINDOW_MS,
+      now: options.now,
+    },
+    defaultMessagingJobsRuntime,
+  );
+}
+
+async function runManualMailboxLocalSyncNowWithRuntime(
+  options: {
+    userId: string;
+    mailbox: MessagingLocalSyncMailbox;
+    now?: Date;
+  },
+  runtime: MessagingJobsRuntime,
+): Promise<RunManualMessagingLocalSyncResult> {
+  return runMessagingLocalJobNowWithRuntime(
+    {
+      userId: options.userId,
+      mailbox: options.mailbox,
+      type: LOCAL_SYNC_MANUAL_MAILBOX_JOB_TYPE,
+      reason: "manual-refresh",
+      priority: LOCAL_SYNC_MANUAL_PRIORITY,
+      dedupeWindowMs: LOCAL_SYNC_MANUAL_DEDUPE_WINDOW_MS,
+      now: options.now,
+    },
+    runtime,
+  );
+}
+
+async function queueMessagingLocalJobWithRuntime(
+  options: {
+    userId: string;
+    type: typeof LOCAL_SYNC_JOB_TYPES[number];
+    reason: string;
+    priority: number;
+    dedupeWindowMs: number;
+    now?: Date;
+    mailbox?: MessagingLocalSyncMailbox;
+  },
+  runtime: MessagingJobsRuntime,
+): Promise<MessagingJobQueueResult> {
+  const now = options.now ?? new Date();
+  const dedupeParts = [
+    options.userId,
+    options.mailbox ?? "all",
+    computeSlotKey(now, options.dedupeWindowMs),
+  ];
+  const queued = await enqueueLocalSyncJob(runtime, {
+    type: options.type,
+    payload: {
+      userId: options.userId,
+      ...(options.mailbox ? { mailbox: options.mailbox } : {}),
+      reason: options.reason,
+    },
+    dedupeKey: dedupeParts.join(":"),
+    priority: options.priority,
+    runAt: now,
+  });
+
+  return {
+    jobId: queued.job.id,
+    deduped: queued.deduped,
+  };
+}
+
+async function runMessagingLocalJobNowWithRuntime(
+  options: {
+    userId: string;
+    type: typeof LOCAL_SYNC_JOB_TYPES[number];
+    reason: string;
+    priority: number;
+    dedupeWindowMs: number;
+    now?: Date;
+    mailbox?: MessagingLocalSyncMailbox;
+  },
+  runtime: MessagingJobsRuntime,
+): Promise<RunManualMessagingLocalSyncResult> {
+  const queued = await queueMessagingLocalJobWithRuntime(options, runtime);
+  const queue = await runtime.processJobQueue({
+    handlers: createMessagingJobHandlers(runtime),
+    maxJobs: 1,
+    allowedTypes: [options.type],
+  });
+
+  return {
+    jobId: queued.jobId,
+    deduped: queued.deduped,
+    queue,
+  };
+}
+
+function parseAutoReplyPayload(
+  jobType: string,
+  payload: unknown,
+): {
+  userId: string;
+  bootstrapMode: "process" | "skip";
+} {
+  if (!payload || typeof payload !== "object") {
+    throw new Error(`Payload manquant pour le job ${jobType}`);
+  }
+  const userId = (payload as Record<string, unknown>).userId;
+  if (typeof userId !== "string" || userId.length === 0) {
+    throw new Error("Identifiant utilisateur invalide pour le balayage Messagerie.");
+  }
+  const bootstrapMode =
+    (payload as Record<string, unknown>).bootstrapMode === "process"
+      ? "process"
+      : "skip";
+  return { userId, bootstrapMode };
+}
+
+function parseLocalSyncJobPayload(
+  jobType: string,
+  payload: unknown,
+  options: {
+    mailboxRequired: true;
+  },
+): {
+  userId: string;
+  mailbox: MessagingLocalSyncMailbox;
+};
+function parseLocalSyncJobPayload(
+  jobType: string,
+  payload: unknown,
+  options?: {
+    mailboxRequired?: false;
+  },
+): {
+  userId: string;
+  mailbox?: MessagingLocalSyncMailbox;
+};
+function parseLocalSyncJobPayload(
+  jobType: string,
+  payload: unknown,
+  options?: {
+    mailboxRequired?: boolean;
+  },
+): {
+  userId: string;
+  mailbox: MessagingLocalSyncMailbox;
+} | {
+  userId: string;
+  mailbox?: MessagingLocalSyncMailbox;
+} {
+  if (!payload || typeof payload !== "object") {
+    throw new Error(`Payload manquant pour le job ${jobType}`);
+  }
+
+  const record = payload as Record<string, unknown>;
+  const userId = record.userId;
+  if (typeof userId !== "string" || userId.trim().length === 0) {
+    throw new Error(
+      `Identifiant utilisateur invalide pour le job ${jobType}.`,
+    );
+  }
+
+  const mailbox = record.mailbox;
+  if (typeof mailbox === "undefined" || mailbox === null || mailbox === "") {
+    if (options?.mailboxRequired) {
+      throw new Error(`Boîte aux lettres manquante pour le job ${jobType}.`);
+    }
+    return {
+      userId,
+    };
+  }
+
+  if (
+    typeof mailbox !== "string" ||
+    !MESSAGING_LOCAL_SYNC_MAILBOX_VALUES.includes(
+      mailbox as MessagingLocalSyncMailbox,
+    )
+  ) {
+    throw new Error(`Boîte aux lettres invalide pour le job ${jobType}.`);
+  }
+
+  return {
+    userId,
+    mailbox: mailbox as MessagingLocalSyncMailbox,
   };
 }
 
@@ -144,6 +816,46 @@ function shouldScheduleAutoReply(
   return referenceDate >= start && referenceDate <= end;
 }
 
+function shouldScheduleLocalSyncBootstrap(
+  states: Array<{
+    mailbox: MessagingLocalSyncMailbox;
+    status: string;
+    lastSuccessfulSyncAt: Date | string | null;
+  }>,
+): boolean {
+  const statesByMailbox = new Map(
+    states.map((state) => [state.mailbox, state]),
+  );
+
+  return MESSAGING_LOCAL_SYNC_MAILBOX_VALUES.some((mailbox) => {
+    const state = statesByMailbox.get(mailbox);
+    if (!state) {
+      return true;
+    }
+    if (!state.lastSuccessfulSyncAt) {
+      return true;
+    }
+    return (
+      state.status === "DISABLED" ||
+      state.status === "BOOTSTRAPPING" ||
+      state.status === "ERROR"
+    );
+  });
+}
+
+function selectLocalSyncPurgeCandidates(
+  userIdsWithLocalData: string[],
+  settings: Array<{ userId: string; localSyncEnabled: boolean }>,
+): string[] {
+  const enabledUserIds = new Set(
+    settings
+      .filter((entry) => entry.localSyncEnabled)
+      .map((entry) => entry.userId),
+  );
+
+  return userIdsWithLocalData.filter((userId) => !enabledUserIds.has(userId));
+}
+
 function normalizeDate(value: Date | null): Date | null {
   if (!value) {
     return null;
@@ -160,6 +872,16 @@ function computeSlotKey(reference: Date, intervalMs: number): number {
 }
 
 export const __testables = {
+  createMessagingJobHandlers,
+  scheduleMessagingJobsWithRuntime,
+  runMessagingCronTickWithRuntime,
+  queueMessagingLocalJobWithRuntime,
+  runMessagingLocalJobNowWithRuntime,
+  runManualMailboxLocalSyncNowWithRuntime,
+  parseLocalSyncJobPayload,
   shouldScheduleAutoReply,
+  shouldScheduleLocalSyncBootstrap,
+  selectLocalSyncPurgeCandidates,
   computeSlotKey,
+  LOCAL_SYNC_JOB_TYPES,
 };

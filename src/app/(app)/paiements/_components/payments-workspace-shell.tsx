@@ -14,6 +14,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert } from "@/components/ui/alert";
 import { PaginationControls } from "@/components/ui/pagination-controls";
@@ -24,6 +25,8 @@ import {
   type ClientPaymentFilters,
 } from "@/lib/client-payment-filters";
 import {
+  buildOptimisticClientPaymentId,
+  isPersistedClientPayment,
   matchesPaymentFilters,
   reduceOptimisticPaymentsState,
   type PaymentsOptimisticAction,
@@ -56,6 +59,7 @@ type PaymentsWorkspaceShellProps = {
   currentPage: number;
   filters: ClientPaymentFilters;
   hasAnyClients: boolean;
+  paymentMethodOptions: string[];
   selectedClient: Awaited<ReturnType<typeof getClient>> | null;
   selectedClientPickerOption: ClientPickerOption | null;
   summary: Awaited<ReturnType<typeof getClientPaymentPeriodSummary>>;
@@ -133,7 +137,7 @@ function buildOptimisticPayment(
   const clientId = formData.get("clientId")?.toString() ?? "";
 
   return {
-    id: `temp-payment-${Date.now()}`,
+    id: buildOptimisticClientPaymentId(),
     amountCents: parseMinorUnitInput(formData.get("amount"), currency),
     currency,
     date: new Date(formData.get("date")?.toString() ?? new Date().toISOString()).toISOString(),
@@ -164,6 +168,18 @@ function buildOptimisticPayment(
       position: index,
     })),
   };
+}
+
+function PendingActionContent({ label }: { label: string }) {
+  return (
+    <span className="flex items-center gap-2">
+      <span
+        className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent"
+        aria-hidden="true"
+      />
+      {label}
+    </span>
+  );
 }
 
 export function PaymentsWorkspaceShell(props: PaymentsWorkspaceShellProps) {
@@ -428,12 +444,22 @@ export function PaymentsWorkspaceShell(props: PaymentsWorkspaceShellProps) {
                   <label className="label" htmlFor="payment-method">
                     Mode de paiement
                   </label>
-                  <Input
+                  <Select
                     id="payment-method"
                     name="method"
-                    placeholder="Virement, especes..."
-                    disabled={createPending}
-                  />
+                    defaultValue={props.paymentMethodOptions[0] ?? ""}
+                    disabled={createPending || props.paymentMethodOptions.length === 0}
+                    required
+                  >
+                    {props.paymentMethodOptions.map((method) => (
+                      <option key={method} value={method}>
+                        {method}
+                      </option>
+                    ))}
+                  </Select>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    Liste configurable depuis Paramètres.
+                  </p>
                 </div>
                 <div className="space-y-1">
                   <label className="label" htmlFor="payment-reference">
@@ -554,96 +580,117 @@ export function PaymentsWorkspaceShell(props: PaymentsWorkspaceShellProps) {
         />
 
         {optimisticState.paymentsPage.items.length ? (
-          optimisticState.paymentsPage.items.map((payment) => (
-            <article key={payment.id} className="card space-y-4 p-5">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                <div className="space-y-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
-                      {formatCurrency(
-                        fromCents(payment.amountCents, payment.currency),
-                        payment.currency,
+          optimisticState.paymentsPage.items.map((payment) => {
+            const isPaymentReady = isPersistedClientPayment(payment);
+            const paymentDetailHref = buildClientPaymentHref(
+              {
+                search: props.filters.search,
+                clientId: props.filters.clientId,
+                dateFromValue: props.filters.dateFromValue,
+                dateToValue: props.filters.dateToValue,
+                page: props.currentPage,
+              },
+              `/paiements/${payment.id}`,
+            ) as Route;
+
+            return (
+              <article key={payment.id} className="card space-y-4 p-5">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+                        {formatCurrency(
+                          fromCents(payment.amountCents, payment.currency),
+                          payment.currency,
+                        )}
+                      </h3>
+                      <Badge variant="neutral">{formatDate(payment.date)}</Badge>
+                      {!isPaymentReady ? (
+                        <Badge variant="info">Enregistrement...</Badge>
+                      ) : payment.receiptNumber ? (
+                        <Badge variant="success">{payment.receiptNumber}</Badge>
+                      ) : (
+                        <Badge variant="info">Recu a generer</Badge>
                       )}
-                    </h3>
-                    <Badge variant="neutral">{formatDate(payment.date)}</Badge>
-                    {payment.receiptNumber ? (
-                      <Badge variant="success">{payment.receiptNumber}</Badge>
+                    </div>
+                    <p className="text-sm text-zinc-600 dark:text-zinc-300">
+                      {payment.client.displayName}
+                      {payment.client.companyName
+                        ? ` · ${payment.client.companyName}`
+                        : ""}
+                    </p>
+                    <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                      {payment.description ?? payment.method ?? "Paiement client"}
+                    </p>
+                    {!isPaymentReady ? (
+                      <p className="text-xs text-blue-600 dark:text-blue-300">
+                        Le paiement apparait deja dans la liste. Les actions seront
+                        disponibles des que l&apos;enregistrement sera confirme.
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    {isPaymentReady ? (
+                      <Button asChild>
+                        <PrefetchLink href={paymentDetailHref}>Details</PrefetchLink>
+                      </Button>
                     ) : (
-                      <Badge variant="info">Recu a generer</Badge>
+                      <Button type="button" disabled>
+                        <PendingActionContent label="Details" />
+                      </Button>
+                    )}
+                    {props.canManageReceipts ? (
+                      isPaymentReady ? (
+                        <Button asChild variant="ghost">
+                          <Link
+                            href={`/api/clients/payments/${payment.id}/receipt` as Route}
+                            target="_blank"
+                          >
+                            Recu PDF
+                          </Link>
+                        </Button>
+                      ) : (
+                        <Button type="button" variant="ghost" disabled>
+                          <PendingActionContent label="Recu PDF" />
+                        </Button>
+                      )
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="grid gap-3 text-sm text-zinc-700 dark:text-zinc-300 md:grid-cols-2">
+                  <div className="space-y-2">
+                    {payment.reference ? <p>Reference : {payment.reference}</p> : null}
+                    {payment.method ? <p>Mode : {payment.method}</p> : null}
+                    {payment.note ? (
+                      <p className="whitespace-pre-line">Note : {payment.note}</p>
+                    ) : null}
+                    {props.canManagePayments && payment.privateNote ? (
+                      <p className="whitespace-pre-line text-zinc-500 dark:text-zinc-400">
+                        Note privee : {payment.privateNote}
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="space-y-2">
+                    <p className="label">Services lies</p>
+                    {payment.serviceLinks.length ? (
+                      <div className="flex flex-wrap gap-2">
+                        {payment.serviceLinks.map((link) => (
+                          <Badge key={link.id} variant="info">
+                            {link.titleSnapshot}
+                          </Badge>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                        Aucun service lie.
+                      </p>
                     )}
                   </div>
-                  <p className="text-sm text-zinc-600 dark:text-zinc-300">
-                    {payment.client.displayName}
-                    {payment.client.companyName ? ` · ${payment.client.companyName}` : ""}
-                  </p>
-                  <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                    {payment.description ?? payment.method ?? "Paiement client"}
-                  </p>
                 </div>
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <Button asChild>
-                    <PrefetchLink
-                      href={
-                        buildClientPaymentHref(
-                          {
-                            search: props.filters.search,
-                            clientId: props.filters.clientId,
-                            dateFromValue: props.filters.dateFromValue,
-                            dateToValue: props.filters.dateToValue,
-                            page: props.currentPage,
-                          },
-                          `/paiements/${payment.id}`,
-                        ) as Route
-                      }
-                    >
-                      Details
-                    </PrefetchLink>
-                  </Button>
-                  {props.canManageReceipts ? (
-                    <Button asChild variant="ghost">
-                      <Link
-                        href={`/api/clients/payments/${payment.id}/receipt` as Route}
-                        target="_blank"
-                      >
-                        Recu PDF
-                      </Link>
-                    </Button>
-                  ) : null}
-                </div>
-              </div>
-
-              <div className="grid gap-3 text-sm text-zinc-700 dark:text-zinc-300 md:grid-cols-2">
-                <div className="space-y-2">
-                  {payment.reference ? <p>Reference : {payment.reference}</p> : null}
-                  {payment.method ? <p>Mode : {payment.method}</p> : null}
-                  {payment.note ? (
-                    <p className="whitespace-pre-line">Note : {payment.note}</p>
-                  ) : null}
-                  {props.canManagePayments && payment.privateNote ? (
-                    <p className="whitespace-pre-line text-zinc-500 dark:text-zinc-400">
-                      Note privee : {payment.privateNote}
-                    </p>
-                  ) : null}
-                </div>
-                <div className="space-y-2">
-                  <p className="label">Services lies</p>
-                  {payment.serviceLinks.length ? (
-                    <div className="flex flex-wrap gap-2">
-                      {payment.serviceLinks.map((link) => (
-                        <Badge key={link.id} variant="info">
-                          {link.titleSnapshot}
-                        </Badge>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                      Aucun service lie.
-                    </p>
-                  )}
-                </div>
-              </div>
-            </article>
-          ))
+              </article>
+            );
+          })
         ) : (
           <Alert
             variant="warning"

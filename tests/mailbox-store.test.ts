@@ -5,6 +5,7 @@ import {
   clearMailboxCache,
   getMailboxStoreSnapshot,
   initializeMailboxCache,
+  markMailboxMessageSeen,
   replaceMailboxMessages,
   setMailboxCacheUser,
 } from "@/app/(app)/messagerie/_state/mailbox-store";
@@ -153,5 +154,26 @@ describe("mailbox store", () => {
     vi.runAllTimers();
 
     expect(setItemMock).not.toHaveBeenCalled();
+  });
+
+  it("does not rewrite mailbox state when marking an already seen message", () => {
+    initializeMailboxCache("inbox", {
+      messages: [
+        {
+          ...buildMessage(1),
+          seen: true,
+        },
+      ],
+      page: 1,
+      pageSize: 20,
+      hasMore: false,
+      totalMessages: 1,
+    });
+
+    const before = getMailboxStoreSnapshot().mailboxes.inbox;
+    markMailboxMessageSeen("inbox", 1);
+    const after = getMailboxStoreSnapshot().mailboxes.inbox;
+
+    expect(after).toBe(before);
   });
 });

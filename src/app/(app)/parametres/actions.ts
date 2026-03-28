@@ -1,11 +1,13 @@
 "use server";
 
+import { ZodError } from "zod";
 import {
   getSettings,
   revalidateSettings,
   settingsSchema,
   updateSettings,
 } from "@/server/settings";
+import { normalizeClientPaymentMethods } from "@/lib/client-payment-methods";
 import {
   DEFAULT_TAX_CONFIGURATION,
   normalizeTaxConfiguration,
@@ -153,6 +155,9 @@ async function parseSettingsForm(
     defaultCurrency,
     defaultVatRate: Number(formData.get("defaultVatRate") ?? 20),
     paymentTerms: formData.get("paymentTerms")?.toString() || null,
+    clientPaymentMethods:
+      currentSettings?.clientPaymentMethods ??
+      normalizeClientPaymentMethods(undefined),
     invoiceNumberPrefix: formData.get("invoiceNumberPrefix")?.toString() ?? "FAC",
     quoteNumberPrefix: formData.get("quoteNumberPrefix")?.toString() ?? "DEV",
     resetNumberingAnnually:
@@ -266,6 +271,10 @@ async function parseClientPaymentSettingsForm(
     defaultCurrency,
     defaultVatRate: currentSettings.defaultVatRate,
     paymentTerms: currentSettings.paymentTerms ?? null,
+    clientPaymentMethods: normalizeClientPaymentMethods(
+      formData.getAll("clientPaymentMethods"),
+      { fallbackToDefaults: false },
+    ),
     invoiceNumberPrefix: currentSettings.invoiceNumberPrefix,
     quoteNumberPrefix: currentSettings.quoteNumberPrefix,
     resetNumberingAnnually: currentSettings.resetNumberingAnnually,
@@ -305,7 +314,7 @@ export async function updateClientPaymentSettingsInlineAction(
     revalidateSettings(tenantId);
     return {
       status: "success",
-      message: "Paramètres du reçu enregistrés",
+      message: "Paramètres des paiements enregistrés",
     };
   } catch (error) {
     console.error(
@@ -315,7 +324,9 @@ export async function updateClientPaymentSettingsInlineAction(
     return {
       status: "error",
       message:
-        error instanceof Error
+        error instanceof ZodError
+          ? error.issues[0]?.message ?? "Impossible d'enregistrer ces paramètres."
+          : error instanceof Error
           ? error.message
           : "Impossible d'enregistrer ces paramètres.",
     };

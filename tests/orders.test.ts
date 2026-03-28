@@ -9,6 +9,8 @@ import {
 } from "@prisma/client";
 import { ZodError } from "zod";
 
+const describeWithDb = process.env.TEST_DATABASE_URL ? describe : describe.skip;
+
 vi.mock("@/server/order-email-jobs", () => ({
   queueOrderCreatedEmailJob: vi.fn().mockResolvedValue({
     jobId: "job-order-created",
@@ -29,71 +31,73 @@ let productId: string;
 let otherUser: User;
 let otherProductId: string;
 
-beforeAll(async () => {
-  const timestamp = Date.now();
-  user = await prisma.user.create({
-    data: {
-      email: `orders-${timestamp}@example.com`,
-      passwordHash: "hashed",
-      name: "Orders User",
-    },
+if (process.env.TEST_DATABASE_URL) {
+  beforeAll(async () => {
+    const timestamp = Date.now();
+    user = await prisma.user.create({
+      data: {
+        email: `orders-${timestamp}@example.com`,
+        passwordHash: "hashed",
+        name: "Orders User",
+      },
+    });
+
+    const product = await prisma.product.create({
+      data: {
+        userId: user.id,
+        sku: `SKU-ORDER-${timestamp}`,
+        name: "Order Product",
+        publicSlug: `order-product-${timestamp}`,
+        saleMode: ProductSaleMode.INSTANT,
+        priceHTCents: 1000,
+        priceTTCCents: 1200,
+        vatRate: 20,
+        unit: "unit",
+        isActive: true,
+      },
+    });
+
+    productId = product.id;
+
+    otherUser = await prisma.user.create({
+      data: {
+        email: `orders-tenant-${timestamp}@example.com`,
+        passwordHash: "hashed",
+        name: "Orders Tenant User",
+      },
+    });
+
+    const otherProduct = await prisma.product.create({
+      data: {
+        userId: otherUser.id,
+        sku: `SKU-ORDER-OTHER-${timestamp}`,
+        name: "Other Order Product",
+        publicSlug: `order-product-other-${timestamp}`,
+        saleMode: ProductSaleMode.INSTANT,
+        priceHTCents: 2000,
+        priceTTCCents: 2400,
+        vatRate: 20,
+        unit: "unit",
+        isActive: true,
+      },
+    });
+
+    otherProductId = otherProduct.id;
   });
 
-  const product = await prisma.product.create({
-    data: {
-      userId: user.id,
-      sku: `SKU-ORDER-${timestamp}`,
-      name: "Order Product",
-      publicSlug: `order-product-${timestamp}`,
-      saleMode: ProductSaleMode.INSTANT,
-      priceHTCents: 1000,
-      priceTTCCents: 1200,
-      vatRate: 20,
-      unit: "unit",
-      isActive: true,
-    },
+  afterAll(async () => {
+    await prisma.order.deleteMany({ where: { userId: otherUser.id } });
+    await prisma.client.deleteMany({ where: { userId: otherUser.id } });
+    await prisma.product.delete({ where: { id: otherProductId } });
+    await prisma.user.delete({ where: { id: otherUser.id } });
+    await prisma.order.deleteMany({ where: { userId: user.id } });
+    await prisma.client.deleteMany({ where: { userId: user.id } });
+    await prisma.product.delete({ where: { id: productId } });
+    await prisma.user.delete({ where: { id: user.id } });
   });
+}
 
-  productId = product.id;
-
-  otherUser = await prisma.user.create({
-    data: {
-      email: `orders-tenant-${timestamp}@example.com`,
-      passwordHash: "hashed",
-      name: "Orders Tenant User",
-    },
-  });
-
-  const otherProduct = await prisma.product.create({
-    data: {
-      userId: otherUser.id,
-      sku: `SKU-ORDER-OTHER-${timestamp}`,
-      name: "Other Order Product",
-      publicSlug: `order-product-other-${timestamp}`,
-      saleMode: ProductSaleMode.INSTANT,
-      priceHTCents: 2000,
-      priceTTCCents: 2400,
-      vatRate: 20,
-      unit: "unit",
-      isActive: true,
-    },
-  });
-
-  otherProductId = otherProduct.id;
-});
-
-afterAll(async () => {
-  await prisma.order.deleteMany({ where: { userId: otherUser.id } });
-  await prisma.client.deleteMany({ where: { userId: otherUser.id } });
-  await prisma.product.delete({ where: { id: otherProductId } });
-  await prisma.user.delete({ where: { id: otherUser.id } });
-  await prisma.order.deleteMany({ where: { userId: user.id } });
-  await prisma.client.deleteMany({ where: { userId: user.id } });
-  await prisma.product.delete({ where: { id: productId } });
-  await prisma.user.delete({ where: { id: user.id } });
-});
-
-describe("orders", () => {
+describeWithDb("orders", () => {
   it("creates an order with computed totals", async () => {
     const order = await createOrder(
       {

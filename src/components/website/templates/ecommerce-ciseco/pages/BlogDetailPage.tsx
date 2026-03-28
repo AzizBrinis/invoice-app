@@ -256,16 +256,16 @@ export function BlogDetailPage({
               distribution of letters.
             </p>
             <ol className="list-decimal space-y-2 pl-5 text-sm text-slate-600">
-              <li>We can't expect everything to look good out of the box.</li>
+              <li>We can&rsquo;t expect everything to look good out of the box.</li>
               <li>Realistically, the first reason I think this will take a while.</li>
-              <li>Here's a third reason across these terms that feels more realistic.</li>
+              <li>Here&rsquo;s a third reason across these terms that feels more realistic.</li>
             </ol>
 
             <h2 className="text-base font-semibold text-slate-900">
               Typography should be easy
             </h2>
             <p>
-              So that's another reason you'll see why the UI doesn't even come
+              So that&rsquo;s another reason you&rsquo;ll see why the UI doesn&rsquo;t even come
               close to what we set out in this story.
             </p>
             <p>
@@ -273,11 +273,11 @@ export function BlogDetailPage({
               layout, and that is okay.
             </p>
             <blockquote className="border-l-4 border-slate-200 pl-4 text-sm italic text-slate-500">
-              Typography is pretty important if you don't want your stuff to look
-              like trash. Make it good then it won't be bad.
+              Typography is pretty important if you don&rsquo;t want your stuff to look
+              like trash. Make it good then it won&rsquo;t be bad.
             </blockquote>
             <p>
-              It's good to remember that images look okay here by default.
+              It&rsquo;s good to remember that images look okay here by default.
             </p>
             <div className="space-y-3">
               <div className="relative aspect-[4/3] w-full overflow-hidden rounded-3xl bg-slate-100">
@@ -294,13 +294,13 @@ export function BlogDetailPage({
               </p>
             </div>
             <p>
-              Now I'm going to show you an example of an unordered list to make
+              Now I&rsquo;m going to show you an example of an unordered list to make
               sure that looks good too.
             </p>
             <ul className="list-disc space-y-2 pl-5 text-sm text-slate-600">
               <li>So here is the first item in this list.</li>
               <li>This is a second item to make the list look more realistic.</li>
-              <li>Finally, we'll close things out with another list item.</li>
+              <li>Finally, we&rsquo;ll close things out with another list item.</li>
             </ul>
 
             <h2 className="text-base font-semibold text-slate-900">
@@ -308,24 +308,24 @@ export function BlogDetailPage({
             </h2>
             <p>
               I think most people are going to use highlightjs or prism or
-              something if they want to style their code blocks. It's important
+              something if they want to style their code blocks. It&rsquo;s important
               that images remain default until it can be.
             </p>
             <p>
-              What we've done is probably long enough, but adding this is to make
-              sure we don't break out.
+              What we&rsquo;ve done is probably long enough, but adding this is to make
+              sure we don&rsquo;t break out.
             </p>
 
             <h2 className="text-base font-semibold text-slate-900">
               We still need to think about stacked headings though.
             </h2>
             <p>
-              Let's make sure we don't screw up with H1 elements, either.
+              Let&rsquo;s make sure we don&rsquo;t screw up with H1 elements, either.
               Actually, it looks like the best way to make content appear more
               typographic is to let it breathe a bit.
             </p>
             <p>
-              Let's also add a closing paragraph here so this can act as a decent
+              Let&rsquo;s also add a closing paragraph here so this can act as a decent
               sized block of text. We will mention the title and highlight the
               content too.
             </p>

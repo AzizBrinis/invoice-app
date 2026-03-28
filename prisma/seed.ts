@@ -9,6 +9,7 @@ import {
 } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { calculateDocumentTotals, calculateLineTotals, currencyUnitToCents } from "../src/lib/documents";
+import { DEFAULT_CLIENT_PAYMENT_METHODS } from "../src/lib/client-payment-methods";
 import { DEFAULT_TAX_CONFIGURATION } from "../src/lib/taxes";
 import { getDefaultCurrencyCode } from "../src/lib/currency";
 import { DEFAULT_SAVED_RESPONSES } from "../src/lib/messaging/default-responses";
@@ -120,6 +121,7 @@ async function seed() {
       defaultCurrency: "TND",
       defaultVatRate: 20,
       paymentTerms: "Paiement à 30 jours fin de mois en TND.",
+      clientPaymentMethods: [...DEFAULT_CLIENT_PAYMENT_METHODS],
       invoiceNumberPrefix: "FAC",
       quoteNumberPrefix: "DEV",
       resetNumberingAnnually: true,

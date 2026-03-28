@@ -24,6 +24,8 @@ import {
 } from "@prisma/client";
 import { DEFAULT_TAX_CONFIGURATION } from "@/lib/taxes";
 
+const describeWithDb = process.env.TEST_DATABASE_URL ? describe : describe.skip;
+
 type IsolationFixture = {
   user: User;
   clientId: string;
@@ -72,7 +74,7 @@ vi.mock("@/lib/auth", async () => {
   };
 });
 
-describe("tenant data isolation", () => {
+describeWithDb("tenant data isolation", () => {
   beforeAll(async () => {
     const timestamp = Date.now();
 

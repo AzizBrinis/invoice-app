@@ -5,6 +5,10 @@ import { unstable_cache } from "next/cache";
 import { requireUser } from "@/lib/auth";
 import { refreshTagForMutation } from "@/lib/cache-invalidation";
 import {
+  DEFAULT_CLIENT_PAYMENT_METHODS,
+  normalizeClientPaymentMethods,
+} from "@/lib/client-payment-methods";
+import {
   CURRENCY_CODES,
   getDefaultCurrencyCode,
 } from "@/lib/currency";
@@ -66,6 +70,9 @@ const imagePositionSchema = z.enum([
   "bottom-left",
   "bottom-right",
 ]);
+const clientPaymentMethodsSchema = z
+  .array(z.string().trim().min(1).max(80))
+  .min(1, "Ajoutez au moins un mode de paiement.");
 const isTestEnv = process.env.NODE_ENV === "test";
 const SETTINGS_CACHE_REVALIDATE_SECONDS = 60;
 
@@ -99,6 +106,7 @@ export const settingsSchema = z.object({
     .min(0, "Taux de TVA invalide")
     .max(100, "Taux de TVA invalide"),
   paymentTerms: z.string().nullable().optional(),
+  clientPaymentMethods: clientPaymentMethodsSchema,
   invoiceNumberPrefix: z.string().min(2).default("FAC"),
   quoteNumberPrefix: z.string().min(2).default("DEV"),
   resetNumberingAnnually: z.boolean().default(true),
@@ -135,15 +143,24 @@ async function fetchSettings(userId: string) {
   });
 }
 
-function normalizeSettings<T extends { taxConfiguration?: unknown }>(
+function normalizeSettings<
+  T extends {
+    clientPaymentMethods?: unknown;
+    taxConfiguration?: unknown;
+  },
+>(
   settings: T,
 ) {
   const normalizedTaxConfig = normalizeTaxConfiguration(
     (settings as { taxConfiguration?: unknown }).taxConfiguration,
   );
+  const normalizedPaymentMethods = normalizeClientPaymentMethods(
+    (settings as { clientPaymentMethods?: unknown }).clientPaymentMethods,
+  );
 
   return {
     ...settings,
+    clientPaymentMethods: normalizedPaymentMethods,
     taxConfiguration: normalizedTaxConfig,
   };
 }
@@ -171,6 +188,7 @@ async function readOrInitializeSettings(resolvedUserId: string) {
       matriculeFiscal: null,
       defaultCurrency: "TND",
       defaultVatRate: 20,
+      clientPaymentMethods: DEFAULT_CLIENT_PAYMENT_METHODS,
       invoiceNumberPrefix: "FAC",
       quoteNumberPrefix: "DEV",
       taxConfiguration: DEFAULT_TAX_CONFIGURATION,
@@ -215,22 +233,30 @@ export async function getSettings(userId?: string) {
 export async function updateSettings(input: SettingsInput, userId?: string) {
   const resolvedUserId = await resolveUserId(userId);
   const parsed = settingsSchema.parse(input);
-  const { taxConfiguration, ...rest } = parsed;
+  const { clientPaymentMethods, taxConfiguration, ...rest } = parsed;
   const normalizedTaxConfig = normalizeTaxConfiguration(taxConfiguration);
+  const normalizedPaymentMethods = normalizeClientPaymentMethods(
+    clientPaymentMethods,
+    {
+      fallbackToDefaults: false,
+    },
+  );
 
   const settings = await prisma.companySettings.upsert({
     where: { userId: resolvedUserId },
     update: {
       ...rest,
+      clientPaymentMethods: normalizedPaymentMethods,
       taxConfiguration: normalizedTaxConfig,
     },
     create: {
       userId: resolvedUserId,
       ...rest,
+      clientPaymentMethods: normalizedPaymentMethods,
       taxConfiguration: normalizedTaxConfig,
     },
     include: settingsInclude,
   });
 
-  return settings;
+  return normalizeSettings(settings);
 }

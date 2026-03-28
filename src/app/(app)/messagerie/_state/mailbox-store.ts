@@ -566,9 +566,13 @@ export function markMailboxMessageSeen(
     if (index === -1) {
       return current;
     }
+    const existingMessage = current.messages[index];
+    if (!existingMessage || existingMessage.seen) {
+      return current;
+    }
     const updatedMessages = [...current.messages];
     updatedMessages[index] = {
-      ...updatedMessages[index],
+      ...existingMessage,
       seen: true,
     };
     return {

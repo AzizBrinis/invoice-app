@@ -226,6 +226,7 @@ export default async function PaymentsPage({
           clientId: effectiveClientId,
         }}
         hasAnyClients={hasAnyClients}
+        paymentMethodOptions={settings.clientPaymentMethods}
         selectedClient={selectedClient}
         selectedClientPickerOption={selectedClientPickerOption}
         summary={summary}
