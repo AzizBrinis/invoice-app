@@ -118,6 +118,12 @@ type MessagingCronScheduleSummary = {
   localSync?: MessagingLocalSyncScheduleSummary;
 };
 
+type MessagingCronTickSummary = {
+  scope: MessagingCronScope;
+  scheduled: MessagingCronScheduleSummary;
+  timestamp: string;
+};
+
 type MessagingJobsRuntime = {
   enqueueJob: typeof enqueueJob;
   processJobQueue: typeof processJobQueue;
@@ -273,6 +279,10 @@ function createMessagingJobHandlers(
       if (!(await runtime.getMessagingLocalSyncPreference(parsed.userId))) {
         return;
       }
+      if (shouldProcessCronLocalSyncIncrementally(parsed.reason)) {
+        await runSingleCronLocalSyncMailbox(runtime, parsed.userId, "bootstrap");
+        return;
+      }
       await runtime.syncMessagingMailboxesToLocal({
         userId: parsed.userId,
         includeBackfill: true,
@@ -284,6 +294,10 @@ function createMessagingJobHandlers(
         return;
       }
       if (!(await runtime.getMessagingLocalSyncPreference(parsed.userId))) {
+        return;
+      }
+      if (shouldProcessCronLocalSyncIncrementally(parsed.reason)) {
+        await runSingleCronLocalSyncMailbox(runtime, parsed.userId, "delta");
         return;
       }
       await runtime.syncMessagingMailboxesToLocal({
@@ -298,6 +312,10 @@ function createMessagingJobHandlers(
         return;
       }
       if (!(await runtime.getMessagingLocalSyncPreference(parsed.userId))) {
+        return;
+      }
+      if (shouldProcessCronLocalSyncIncrementally(parsed.reason)) {
+        await runSingleCronLocalSyncMailbox(runtime, parsed.userId, "reconcile");
         return;
       }
       await runtime.syncMessagingMailboxesToLocal({
@@ -330,6 +348,140 @@ function createMessagingJobHandlers(
   };
 }
 
+type CronLocalSyncMode = "bootstrap" | "delta" | "reconcile";
+
+async function runSingleCronLocalSyncMailbox(
+  runtime: MessagingJobsRuntime,
+  userId: string,
+  mode: CronLocalSyncMode,
+) {
+  const mailbox = selectCronLocalSyncMailbox(
+    await runtime.listMessagingMailboxLocalSyncStates(userId),
+    mode,
+  );
+  if (!mailbox) {
+    return;
+  }
+
+  if (mode === "delta") {
+    await runtime.syncMessagingMailboxToLocal({
+      userId,
+      mailbox,
+      includeBackfill: false,
+      continuePriorityBackfill: true,
+    });
+    return;
+  }
+
+  await runtime.syncMessagingMailboxToLocal({
+    userId,
+    mailbox,
+    includeBackfill: true,
+  });
+}
+
+function shouldProcessCronLocalSyncIncrementally(
+  reason?: string | null,
+): boolean {
+  return (
+    reason === "bootstrap" ||
+    reason === "delta" ||
+    reason === "reconcile"
+  );
+}
+
+function selectCronLocalSyncMailbox(
+  states: MessagingMailboxLocalSyncStateRecord[],
+  mode: CronLocalSyncMode,
+): MessagingLocalSyncMailbox | null {
+  const statesByMailbox = new Map(
+    states.map((state) => [state.mailbox, state]),
+  );
+
+  if (mode === "bootstrap") {
+    for (const mailbox of MESSAGING_LOCAL_SYNC_MAILBOX_VALUES) {
+      const state = statesByMailbox.get(mailbox);
+      if (
+        !state ||
+        !state.lastSuccessfulSyncAt ||
+        state.status === "DISABLED" ||
+        state.status === "BOOTSTRAPPING" ||
+        state.status === "ERROR"
+      ) {
+        return mailbox;
+      }
+    }
+    return null;
+  }
+
+  const orderedMailboxes = MESSAGING_LOCAL_SYNC_MAILBOX_VALUES.map(
+    (mailbox, order) => ({
+      mailbox,
+      order,
+      state: statesByMailbox.get(mailbox),
+    }),
+  );
+
+  orderedMailboxes.sort((left, right) => {
+    if (mode === "reconcile") {
+      const leftMissingFullResync = !left.state?.lastFullResyncAt;
+      const rightMissingFullResync = !right.state?.lastFullResyncAt;
+      if (leftMissingFullResync !== rightMissingFullResync) {
+        return leftMissingFullResync ? -1 : 1;
+      }
+      const fullResyncComparison = compareOptionalIsoTimestampsAsc(
+        left.state?.lastFullResyncAt ?? null,
+        right.state?.lastFullResyncAt ?? null,
+      );
+      if (fullResyncComparison !== 0) {
+        return fullResyncComparison;
+      }
+    }
+
+    const successfulSyncComparison = compareOptionalIsoTimestampsAsc(
+      left.state?.lastSuccessfulSyncAt ?? null,
+      right.state?.lastSuccessfulSyncAt ?? null,
+    );
+    if (successfulSyncComparison !== 0) {
+      return successfulSyncComparison;
+    }
+
+    return left.order - right.order;
+  });
+
+  return orderedMailboxes[0]?.mailbox ?? null;
+}
+
+function compareOptionalIsoTimestampsAsc(
+  left: string | null,
+  right: string | null,
+): number {
+  if (!left && !right) {
+    return 0;
+  }
+  if (!left) {
+    return -1;
+  }
+  if (!right) {
+    return 1;
+  }
+
+  const leftTime = Date.parse(left);
+  const rightTime = Date.parse(right);
+
+  if (Number.isNaN(leftTime) && Number.isNaN(rightTime)) {
+    return 0;
+  }
+  if (Number.isNaN(leftTime)) {
+    return -1;
+  }
+  if (Number.isNaN(rightTime)) {
+    return 1;
+  }
+
+  return leftTime - rightTime;
+}
+
 export async function runMessagingCronTick(now = new Date()) {
   return runMessagingCronTickWithRuntime(
     now,
@@ -354,23 +506,67 @@ export async function runAllMessagingCronTick(now = new Date()) {
   );
 }
 
+export async function scheduleMessagingCronTick(
+  now = new Date(),
+  scope: MessagingCronScope = DEFAULT_MESSAGING_CRON_SCOPE,
+) {
+  return scheduleMessagingCronTickWithRuntime(
+    now,
+    defaultMessagingJobsRuntime,
+    scope,
+  );
+}
+
+export async function processMessagingCronQueue(
+  scope: MessagingCronScope = DEFAULT_MESSAGING_CRON_SCOPE,
+) {
+  return processMessagingCronQueueWithRuntime(
+    defaultMessagingJobsRuntime,
+    scope,
+  );
+}
+
 async function runMessagingCronTickWithRuntime(
   now: Date,
   runtime: MessagingJobsRuntime,
   scope: MessagingCronScope = "all",
 ) {
-  const scheduled = await scheduleMessagingJobsWithRuntime(now, runtime, scope);
-  const queueResult = await runtime.processJobQueue({
+  const scheduled = await scheduleMessagingCronTickWithRuntime(
+    now,
+    runtime,
+    scope,
+  );
+  const queueResult = await processMessagingCronQueueWithRuntime(
+    runtime,
+    scope,
+  );
+  return {
+    ...scheduled,
+    queue: queueResult,
+  };
+}
+
+async function scheduleMessagingCronTickWithRuntime(
+  now: Date,
+  runtime: MessagingJobsRuntime,
+  scope: MessagingCronScope = "all",
+): Promise<MessagingCronTickSummary> {
+  return {
+    scope,
+    scheduled: await scheduleMessagingJobsWithRuntime(now, runtime, scope),
+    timestamp: now.toISOString(),
+  };
+}
+
+async function processMessagingCronQueueWithRuntime(
+  runtime: MessagingJobsRuntime,
+  scope: MessagingCronScope = "all",
+) {
+  return runtime.processJobQueue({
     handlers: createMessagingJobHandlers(runtime),
     maxJobs: getMaxJobsForScope(scope),
     allowedTypes: getAllowedTypesForScope(scope),
   });
-  return {
-    scope,
-    scheduled,
-    queue: queueResult,
-    timestamp: now.toISOString(),
-  };
 }
 
 async function scheduleMessagingJobsWithRuntime(
@@ -780,6 +976,7 @@ function parseLocalSyncJobPayload(
 ): {
   userId: string;
   mailbox: MessagingLocalSyncMailbox;
+  reason: string | null;
 };
 function parseLocalSyncJobPayload(
   jobType: string,
@@ -790,6 +987,7 @@ function parseLocalSyncJobPayload(
 ): {
   userId: string;
   mailbox?: MessagingLocalSyncMailbox;
+  reason: string | null;
 };
 function parseLocalSyncJobPayload(
   jobType: string,
@@ -800,9 +998,11 @@ function parseLocalSyncJobPayload(
 ): {
   userId: string;
   mailbox: MessagingLocalSyncMailbox;
+  reason: string | null;
 } | {
   userId: string;
   mailbox?: MessagingLocalSyncMailbox;
+  reason: string | null;
 } {
   if (!payload || typeof payload !== "object") {
     throw new Error(`Payload manquant pour le job ${jobType}`);
@@ -810,6 +1010,10 @@ function parseLocalSyncJobPayload(
 
   const record = payload as Record<string, unknown>;
   const userId = record.userId;
+  const reason =
+    typeof record.reason === "string" && record.reason.trim().length > 0
+      ? record.reason.trim()
+      : null;
   if (typeof userId !== "string" || userId.trim().length === 0) {
     throw new Error(
       `Identifiant utilisateur invalide pour le job ${jobType}.`,
@@ -823,6 +1027,7 @@ function parseLocalSyncJobPayload(
     }
     return {
       userId,
+      reason,
     };
   }
 
@@ -838,6 +1043,7 @@ function parseLocalSyncJobPayload(
   return {
     userId,
     mailbox: mailbox as MessagingLocalSyncMailbox,
+    reason,
   };
 }
 
@@ -955,10 +1161,14 @@ export const __testables = {
   createMessagingJobHandlers,
   scheduleMessagingJobsWithRuntime,
   runMessagingCronTickWithRuntime,
+  scheduleMessagingCronTickWithRuntime,
+  processMessagingCronQueueWithRuntime,
   queueMessagingLocalJobWithRuntime,
   runMessagingLocalJobNowWithRuntime,
   runManualMailboxLocalSyncNowWithRuntime,
   parseLocalSyncJobPayload,
+  shouldProcessCronLocalSyncIncrementally,
+  selectCronLocalSyncMailbox,
   shouldScheduleAutoReply,
   shouldScheduleLocalSyncBootstrap,
   selectLocalSyncPurgeCandidates,

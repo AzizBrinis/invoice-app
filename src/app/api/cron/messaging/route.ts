@@ -1,8 +1,9 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import {
+  processMessagingCronQueue,
   runAllMessagingCronTick,
   runMessagingCronTick,
-  runMessagingLocalSyncCronTick,
+  scheduleMessagingCronTick,
   type MessagingCronScope,
 } from "@/server/messaging-jobs";
 
@@ -18,32 +19,76 @@ export async function GET(request: Request) {
     return new NextResponse("Invalid cron scope", { status: 400 });
   }
 
-  const summary =
-    scope === "local-sync"
-      ? await runMessagingLocalSyncCronTick()
-      : scope === "all"
-        ? await runAllMessagingCronTick()
-        : await runMessagingCronTick();
+  if (scope === "local-sync") {
+    const scheduled = await scheduleMessagingCronTick(new Date(), scope);
+    after(async () => {
+      try {
+        const queue = await processMessagingCronQueue(scope);
+        logCronSummary({
+          ...scheduled,
+          queue,
+        });
+      } catch (error) {
+        console.error("[cron] Messagerie local-sync deferred processing failed", {
+          scope,
+          error,
+        });
+      }
+    });
 
+    const accepted = {
+      ...scheduled,
+      processing: "deferred" as const,
+      queue: {
+        processed: 0,
+        completed: 0,
+        failed: 0,
+        retried: 0,
+        skipped: 0,
+        details: [],
+        deferred: true,
+      },
+    };
+    console.info("[cron] Messagerie local-sync scheduled", accepted);
+    return NextResponse.json(accepted, { status: 202 });
+  }
+
+  const summary =
+    scope === "all"
+      ? await runAllMessagingCronTick(new Date())
+      : await runMessagingCronTick(new Date());
+  logCronSummary(summary);
+  return NextResponse.json(summary);
+}
+
+export const POST = GET;
+
+function logCronSummary(summary: {
+  scope: MessagingCronScope;
+  queue: {
+    failed: number;
+    retried: number;
+    details: Array<{
+      status: "success" | "failed" | "retry" | "skipped";
+    }>;
+  };
+}) {
   if (summary.queue.failed > 0) {
     console.error("[cron] Messagerie queue failures", {
-      scope,
+      scope: summary.scope,
       failed: summary.queue.failed,
       details: summary.queue.details.filter((detail) => detail.status === "failed"),
     });
   } else if (summary.queue.retried > 0) {
     console.warn("[cron] Messagerie queue retries", {
-      scope,
+      scope: summary.scope,
       retried: summary.queue.retried,
       details: summary.queue.details.filter((detail) => detail.status === "retry"),
     });
   }
 
   console.info("[cron] Messagerie", summary);
-  return NextResponse.json(summary);
 }
-
-export const POST = GET;
 
 function isAuthorized(request: Request): boolean {
   const secret = process.env.CRON_SECRET_TOKEN;

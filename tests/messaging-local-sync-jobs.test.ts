@@ -89,6 +89,70 @@ describe("messaging local sync jobs", () => {
     ]);
   });
 
+  it("can schedule and process local-sync cron work in separate phases", async () => {
+    const {
+      scheduleMessagingCronTickWithRuntime,
+      processMessagingCronQueueWithRuntime,
+      LOCAL_SYNC_JOB_TYPES,
+    } = messagingJobsTestables;
+    const enqueueJob = vi.fn(async ({ type }: { type: string }) => ({
+      deduped: false,
+      job: {
+        id: `job-${type}`,
+      },
+    }));
+    const processJobQueue = vi.fn(async () => ({
+      processed: 0,
+      completed: 0,
+      failed: 0,
+      retried: 0,
+      skipped: 0,
+      details: [],
+    }));
+    const runtime = {
+      enqueueJob,
+      processJobQueue,
+      runScheduledEmailDispatchCycle: vi.fn(),
+      runAutomatedReplySweepForUser: vi.fn(),
+      isMessagingLocalSyncServerEnabled: vi.fn(() => true),
+      getMessagingLocalSyncPreference: vi.fn(async () => true),
+      listMessagingMailboxLocalSyncStates: vi.fn(async () => []),
+      syncMessagingMailboxToLocal: vi.fn(),
+      syncMessagingMailboxesToLocal: vi.fn(),
+      purgeMessagingLocalSyncData: vi.fn(),
+      findAutoReplyCandidates: vi.fn(async () => []),
+      findEnabledLocalSyncUsers: vi.fn(async () => ["enabled-user"]),
+      findLocalSyncStatesForUsers: vi.fn(async () => []),
+      findUsersWithLocalSyncData: vi.fn(async () => []),
+      findLocalSyncSettings: vi.fn(async () => []),
+    };
+
+    const scheduled = await scheduleMessagingCronTickWithRuntime(
+      new Date("2026-03-31T09:20:00.000Z"),
+      runtime as never,
+      "local-sync",
+    );
+
+    expect(scheduled).toMatchObject({
+      scope: "local-sync",
+      scheduled: {
+        localSync: {
+          enabledUsers: 1,
+        },
+      },
+    });
+    expect(processJobQueue).not.toHaveBeenCalled();
+
+    await processMessagingCronQueueWithRuntime(runtime as never, "local-sync");
+
+    expect(processJobQueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        maxJobs: 5,
+        allowedTypes: LOCAL_SYNC_JOB_TYPES,
+      }),
+    );
+  });
+
   it("does not execute local sync handlers once the user disabled the feature", async () => {
     const { createMessagingJobHandlers } = messagingJobsTestables;
     const runtime = {
@@ -120,6 +184,54 @@ describe("messaging local sync jobs", () => {
       },
     } as never);
 
+    expect(runtime.syncMessagingMailboxesToLocal).not.toHaveBeenCalled();
+  });
+
+  it("runs cron bootstrap jobs one mailbox at a time", async () => {
+    const { createMessagingJobHandlers } = messagingJobsTestables;
+    const runtime = {
+      enqueueJob: vi.fn(),
+      processJobQueue: vi.fn(),
+      runScheduledEmailDispatchCycle: vi.fn(),
+      runAutomatedReplySweepForUser: vi.fn(),
+      isMessagingLocalSyncServerEnabled: vi.fn(() => true),
+      getMessagingLocalSyncPreference: vi.fn(async () => true),
+      listMessagingMailboxLocalSyncStates: vi.fn(async () => [
+        {
+          userId: "tenant-a",
+          mailbox: "sent",
+          status: "READY",
+          lastSuccessfulSyncAt: "2026-03-31T08:55:00.000Z",
+          lastFullResyncAt: "2026-03-31T08:55:00.000Z",
+        },
+      ]),
+      syncMessagingMailboxToLocal: vi.fn(),
+      syncMessagingMailboxesToLocal: vi.fn(),
+      purgeMessagingLocalSyncData: vi.fn(),
+      findAutoReplyCandidates: vi.fn(async () => []),
+      findEnabledLocalSyncUsers: vi.fn(async () => []),
+      findLocalSyncStatesForUsers: vi.fn(async () => []),
+      findUsersWithLocalSyncData: vi.fn(async () => []),
+      findLocalSyncSettings: vi.fn(async () => []),
+    };
+    const handlers = createMessagingJobHandlers(runtime as never);
+
+    await handlers["messaging.localSyncBootstrap"]({
+      job: {
+        id: "job-local-sync-bootstrap",
+        type: "messaging.localSyncBootstrap",
+      },
+      payload: {
+        userId: "tenant-a",
+        reason: "bootstrap",
+      },
+    } as never);
+
+    expect(runtime.syncMessagingMailboxToLocal).toHaveBeenCalledWith({
+      userId: "tenant-a",
+      mailbox: "inbox",
+      includeBackfill: true,
+    });
     expect(runtime.syncMessagingMailboxesToLocal).not.toHaveBeenCalled();
   });
 
@@ -172,6 +284,136 @@ describe("messaging local sync jobs", () => {
       userId: "tenant-a",
       includeBackfill: true,
     });
+  });
+
+  it("runs cron delta jobs against the stalest mailbox only", async () => {
+    const { createMessagingJobHandlers } = messagingJobsTestables;
+    const runtime = {
+      enqueueJob: vi.fn(),
+      processJobQueue: vi.fn(),
+      runScheduledEmailDispatchCycle: vi.fn(),
+      runAutomatedReplySweepForUser: vi.fn(),
+      isMessagingLocalSyncServerEnabled: vi.fn(() => true),
+      getMessagingLocalSyncPreference: vi.fn(async () => true),
+      listMessagingMailboxLocalSyncStates: vi.fn(async () => [
+        {
+          userId: "tenant-a",
+          mailbox: "inbox",
+          status: "READY",
+          lastSuccessfulSyncAt: "2026-03-31T09:15:00.000Z",
+          lastFullResyncAt: "2026-03-31T08:00:00.000Z",
+        },
+        {
+          userId: "tenant-a",
+          mailbox: "sent",
+          status: "READY",
+          lastSuccessfulSyncAt: "2026-03-31T08:55:00.000Z",
+          lastFullResyncAt: "2026-03-31T08:30:00.000Z",
+        },
+        {
+          userId: "tenant-a",
+          mailbox: "drafts",
+          status: "READY",
+          lastSuccessfulSyncAt: "2026-03-31T09:10:00.000Z",
+          lastFullResyncAt: "2026-03-31T08:40:00.000Z",
+        },
+        {
+          userId: "tenant-a",
+          mailbox: "trash",
+          status: "READY",
+          lastSuccessfulSyncAt: "2026-03-31T09:12:00.000Z",
+          lastFullResyncAt: "2026-03-31T08:45:00.000Z",
+        },
+        {
+          userId: "tenant-a",
+          mailbox: "spam",
+          status: "READY",
+          lastSuccessfulSyncAt: "2026-03-31T09:14:00.000Z",
+          lastFullResyncAt: "2026-03-31T08:50:00.000Z",
+        },
+      ]),
+      syncMessagingMailboxToLocal: vi.fn(),
+      syncMessagingMailboxesToLocal: vi.fn(),
+      purgeMessagingLocalSyncData: vi.fn(),
+      findAutoReplyCandidates: vi.fn(async () => []),
+      findEnabledLocalSyncUsers: vi.fn(async () => []),
+      findLocalSyncStatesForUsers: vi.fn(async () => []),
+      findUsersWithLocalSyncData: vi.fn(async () => []),
+      findLocalSyncSettings: vi.fn(async () => []),
+    };
+    const handlers = createMessagingJobHandlers(runtime as never);
+
+    await handlers["messaging.localSyncDelta"]({
+      job: {
+        id: "job-local-sync-delta",
+        type: "messaging.localSyncDelta",
+      },
+      payload: {
+        userId: "tenant-a",
+        reason: "delta",
+      },
+    } as never);
+
+    expect(runtime.syncMessagingMailboxToLocal).toHaveBeenCalledWith({
+      userId: "tenant-a",
+      mailbox: "sent",
+      includeBackfill: false,
+      continuePriorityBackfill: true,
+    });
+    expect(runtime.syncMessagingMailboxesToLocal).not.toHaveBeenCalled();
+  });
+
+  it("keeps manual bootstrap and reconcile jobs as full mailbox sweeps", async () => {
+    const { createMessagingJobHandlers } = messagingJobsTestables;
+    const runtime = {
+      enqueueJob: vi.fn(),
+      processJobQueue: vi.fn(),
+      runScheduledEmailDispatchCycle: vi.fn(),
+      runAutomatedReplySweepForUser: vi.fn(),
+      isMessagingLocalSyncServerEnabled: vi.fn(() => true),
+      getMessagingLocalSyncPreference: vi.fn(async () => true),
+      listMessagingMailboxLocalSyncStates: vi.fn(async () => []),
+      syncMessagingMailboxToLocal: vi.fn(),
+      syncMessagingMailboxesToLocal: vi.fn(),
+      purgeMessagingLocalSyncData: vi.fn(),
+      findAutoReplyCandidates: vi.fn(async () => []),
+      findEnabledLocalSyncUsers: vi.fn(async () => []),
+      findLocalSyncStatesForUsers: vi.fn(async () => []),
+      findUsersWithLocalSyncData: vi.fn(async () => []),
+      findLocalSyncSettings: vi.fn(async () => []),
+    };
+    const handlers = createMessagingJobHandlers(runtime as never);
+
+    await handlers["messaging.localSyncBootstrap"]({
+      job: {
+        id: "job-local-sync-bootstrap",
+        type: "messaging.localSyncBootstrap",
+      },
+      payload: {
+        userId: "tenant-a",
+        reason: "settings-enable",
+      },
+    } as never);
+    await handlers["messaging.localSyncReconcile"]({
+      job: {
+        id: "job-local-sync-reconcile",
+        type: "messaging.localSyncReconcile",
+      },
+      payload: {
+        userId: "tenant-a",
+        reason: "settings-manual-sync",
+      },
+    } as never);
+
+    expect(runtime.syncMessagingMailboxesToLocal).toHaveBeenNthCalledWith(1, {
+      userId: "tenant-a",
+      includeBackfill: true,
+    });
+    expect(runtime.syncMessagingMailboxesToLocal).toHaveBeenNthCalledWith(2, {
+      userId: "tenant-a",
+      includeBackfill: true,
+    });
+    expect(runtime.syncMessagingMailboxToLocal).not.toHaveBeenCalled();
   });
 
   it("skips local-sync scheduling and handlers entirely when the server rollout guard is disabled", async () => {
