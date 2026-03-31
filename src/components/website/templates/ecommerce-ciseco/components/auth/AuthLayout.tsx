@@ -17,6 +17,8 @@ type AuthLayoutProps = {
   title: string;
   subtitle?: string;
   children: ReactNode;
+  builderSectionId?: string;
+  belowContent?: ReactNode;
   contentClassName?: string;
   chrome?: AuthLayoutChrome;
 };
@@ -27,6 +29,8 @@ export function AuthLayout({
   title,
   subtitle,
   children,
+  builderSectionId,
+  belowContent,
   contentClassName,
   chrome,
 }: AuthLayoutProps) {
@@ -40,7 +44,10 @@ export function AuthLayout({
           homeHref={chrome.homeHref}
         />
       ) : null}
-      <main className={clsx("bg-white", chrome ? undefined : "min-h-screen")}>
+      <main
+        data-ciseco-auth-main
+        className={clsx("bg-white", chrome ? undefined : "min-h-screen")}
+      >
         <div
           className={clsx(
             "mx-auto px-6 pb-20 pt-16 sm:px-8 sm:pt-20 lg:pt-24",
@@ -49,7 +56,10 @@ export function AuthLayout({
         >
           <div className="mx-auto flex w-full max-w-[420px] flex-col">
             <Reveal delay={40}>
-              <header className="text-center">
+              <header
+                className="text-center"
+                data-builder-section={builderSectionId}
+              >
                 <h1 className="text-2xl font-semibold text-slate-900 sm:text-3xl">
                   {title}
                 </h1>
@@ -67,6 +77,7 @@ export function AuthLayout({
             </div>
           </div>
         </div>
+        {belowContent}
       </main>
       {chrome ? <Footer theme={theme} companyName={chrome.companyName} /> : null}
     </PageShell>

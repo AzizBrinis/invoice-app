@@ -49,7 +49,13 @@ export type CategoryCard = {
   id: string;
   title: string;
   description: string;
-  icon: "women" | "men" | "kids" | "beauty" | "sport" | "home";
+  icon:
+    | "workspace"
+    | "planning"
+    | "analytics"
+    | "operations"
+    | "support"
+    | "resources";
   badge?: string | null;
 };
 

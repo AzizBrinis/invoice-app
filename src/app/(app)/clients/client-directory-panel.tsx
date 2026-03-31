@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useActionState,
   useCallback,
   useEffect,
   useMemo,
@@ -13,11 +14,16 @@ import type { Route } from "next";
 import { usePathname } from "next/navigation";
 import { clsx } from "clsx";
 import { Button } from "@/components/ui/button";
+import { FormSubmitButton } from "@/components/ui/form-submit-button";
 import { Input } from "@/components/ui/input";
 import { Alert } from "@/components/ui/alert";
 import { ExportButton } from "@/components/export-button";
 import { formatDate } from "@/lib/formatters";
-import { deleteClientInlineAction } from "@/app/(app)/clients/actions";
+import {
+  deleteClientInlineAction,
+  importClientsInlineAction,
+  type ClientImportActionState,
+} from "@/app/(app)/clients/actions";
 import { useClientsDirectory } from "@/hooks/use-clients-directory";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useMediaQuery } from "@/hooks/use-media-query";
@@ -43,6 +49,7 @@ type ClientDirectoryPanelProps = {
 const ROW_HEIGHT = 76;
 const VIRTUALIZATION_THRESHOLD = 25;
 const OVERSCAN = 8;
+const INITIAL_CLIENT_IMPORT_ACTION_STATE: ClientImportActionState = {};
 
 function getStatusBadgeClasses(isActive: boolean) {
   return clsx(
@@ -134,9 +141,18 @@ export function ClientDirectoryPanel({
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const hydrationDoneRef = useRef(false);
+  const importFormRef = useRef<HTMLFormElement | null>(null);
+  const lastHandledImportSubmissionIdRef = useRef<string | null>(null);
   const [pendingDeleteIds, setPendingDeleteIds] = useState<
     Record<string, true>
   >({});
+  const [clientImportState, importClientFormAction] = useActionState<
+    ClientImportActionState,
+    FormData
+  >(
+    importClientsInlineAction,
+    INITIAL_CLIENT_IMPORT_ACTION_STATE,
+  );
   const [, startDeleteTransition] = useTransition();
   const baseDirectoryState = useMemo(
     () => ({
@@ -181,6 +197,40 @@ export function ClientDirectoryPanel({
   useEffect(() => {
     setClientDirectoryState(baseDirectoryState);
   }, [baseDirectoryState]);
+
+  useEffect(() => {
+    if (!clientImportState.submissionId) {
+      return;
+    }
+    if (
+      lastHandledImportSubmissionIdRef.current ===
+      clientImportState.submissionId
+    ) {
+      return;
+    }
+
+    lastHandledImportSubmissionIdRef.current = clientImportState.submissionId;
+
+    if (clientImportState.message) {
+      addToast({
+        variant: clientImportState.variant ?? "success",
+        title: clientImportState.message,
+      });
+    }
+
+    if (clientImportState.status === "success") {
+      importFormRef.current?.reset();
+      clearClientCache({ refetchOnNextLoad: true });
+      void refresh(1);
+    }
+  }, [
+    addToast,
+    clientImportState.message,
+    clientImportState.status,
+    clientImportState.submissionId,
+    clientImportState.variant,
+    refresh,
+  ]);
 
   useEffect(() => {
     if (hydrationDoneRef.current || isInitialLoading) {
@@ -399,6 +449,17 @@ export function ClientDirectoryPanel({
       startDeleteTransition,
     ],
   );
+  const importSummary = clientImportState.summary;
+  const importIssueCount =
+    (importSummary?.issues.length ?? 0) + (importSummary?.remainingIssueCount ?? 0);
+  const importSummaryDescription = importSummary
+    ? [
+        `${importSummary.totalRows} ligne(s) lue(s)`,
+        `${importSummary.createdCount} cree(s)`,
+        `${importSummary.updatedCount} mise(s) a jour`,
+        `${importSummary.skippedCount} ignoree(s)`,
+      ].join(" - ")
+    : null;
 
   return (
     <div className="space-y-6">
@@ -445,6 +506,84 @@ export function ClientDirectoryPanel({
             </Button>
           </div>
         </Alert>
+      ) : null}
+
+      {canManageClients ? (
+        <form
+          ref={importFormRef}
+          action={importClientFormAction}
+          className="card flex flex-col gap-3 p-4 sm:flex-row sm:items-center"
+        >
+          <div className="flex flex-1 flex-col gap-1">
+            <label htmlFor="clients-import-file" className="label">
+              Import CSV (colonnes : nom, societe, e-mail, telephone, TVA, etc.)
+            </label>
+            <input
+              id="clients-import-file"
+              name="file"
+              type="file"
+              accept=".csv,text/csv"
+              required
+              className="input border-2 border-dashed"
+            />
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              Les lignes invalides ou ambiguës sont ignorees, et les doublons
+              detectes sont resumes apres l&apos;import.
+            </p>
+          </div>
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+            <ExportButton
+              href="/api/export/clients/sample"
+              variant="ghost"
+              className="w-full text-sm sm:w-auto"
+            >
+              Modele CSV
+            </ExportButton>
+            <FormSubmitButton
+              variant="secondary"
+              className="w-full sm:w-auto"
+              pendingLabel="Import en cours..."
+            >
+              Importer les clients
+            </FormSubmitButton>
+          </div>
+
+          {clientImportState.message ? (
+            <Alert
+              variant={clientImportState.status === "error" ? "error" : "success"}
+              title={clientImportState.message}
+              description={importSummaryDescription ?? undefined}
+            >
+              {importSummary ? (
+                <div className="text-xs opacity-80">
+                  {importSummary.duplicateCount} doublon(s) detecte(s),{" "}
+                  {importSummary.validationErrorCount} ligne(s) invalide(s).
+                </div>
+              ) : null}
+            </Alert>
+          ) : null}
+
+          {importSummary && importIssueCount > 0 ? (
+            <Alert
+              variant={clientImportState.status === "error" ? "error" : "warning"}
+              title={`${importIssueCount} point(s) a verifier`}
+            >
+              <ul className="space-y-1 pt-1 text-xs">
+                {importSummary.issues.map((issue) => (
+                  <li key={`${issue.rowNumber}-${issue.message}`}>
+                    Ligne {issue.rowNumber}: {issue.message}
+                  </li>
+                ))}
+              </ul>
+              {importSummary.remainingIssueCount > 0 ? (
+                <p className="pt-2 text-xs">
+                  +{importSummary.remainingIssueCount} autre(s) ligne(s)
+                  masquee(s) dans le resume.
+                </p>
+              ) : null}
+            </Alert>
+          ) : null}
+        </form>
       ) : null}
 
       <div className="card flex flex-col gap-4 p-4 sm:flex-row sm:items-end">

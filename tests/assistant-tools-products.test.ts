@@ -1,3 +1,4 @@
+import { Prisma, ProductSaleMode } from "@prisma/client";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { toCents } from "@/lib/money";
 import { getToolByName } from "@/server/assistant/tools";
@@ -40,6 +41,88 @@ describe("assistant create_product tool", () => {
     vatRate: 19,
     category: "Services",
   };
+  const defaultCreatedAt = new Date("2024-04-01T00:00:00.000Z");
+
+  function toJsonValue(value: unknown): Prisma.JsonValue {
+    return (value ?? null) as Prisma.JsonValue;
+  }
+
+  function buildCreateProductInput(
+    overrides: Partial<CreateProductInput> = {},
+  ): CreateProductInput {
+    const priceHTCents =
+      overrides.priceHTCents ?? toCents(baseInput.unitPrice, "TND");
+
+    return {
+      sku: overrides.sku ?? baseInput.sku,
+      name: overrides.name ?? baseInput.name,
+      publicSlug: overrides.publicSlug,
+      saleMode: overrides.saleMode ?? ProductSaleMode.INSTANT,
+      description: overrides.description ?? null,
+      descriptionHtml: overrides.descriptionHtml ?? null,
+      excerpt: overrides.excerpt ?? null,
+      metaTitle: overrides.metaTitle ?? null,
+      metaDescription: overrides.metaDescription ?? null,
+      coverImageUrl: overrides.coverImageUrl ?? null,
+      gallery: overrides.gallery ?? null,
+      quoteFormSchema: overrides.quoteFormSchema ?? null,
+      optionConfig: overrides.optionConfig ?? null,
+      variantStock: overrides.variantStock ?? null,
+      category: overrides.category ?? baseInput.category,
+      unit: overrides.unit ?? baseInput.unit,
+      stockQuantity: overrides.stockQuantity ?? null,
+      priceHTCents,
+      priceTTCCents: overrides.priceTTCCents ?? Math.round(priceHTCents * 1.19),
+      vatRate: overrides.vatRate ?? baseInput.vatRate,
+      defaultDiscountRate: overrides.defaultDiscountRate ?? null,
+      isActive: overrides.isActive ?? true,
+      isListedInCatalog: overrides.isListedInCatalog ?? true,
+      id: overrides.id,
+    };
+  }
+
+  function buildCreatedProduct(
+    input: CreateProductInput,
+    overrides: Partial<CreatedProduct> = {},
+  ): CreatedProduct {
+    return {
+      id: overrides.id ?? input.id ?? "prod_new",
+      userId: overrides.userId ?? context.userId,
+      sku: overrides.sku ?? input.sku,
+      name: overrides.name ?? input.name,
+      publicSlug:
+        overrides.publicSlug ??
+        input.publicSlug ??
+        `${input.sku.toLowerCase()}-slug`,
+      saleMode: overrides.saleMode ?? input.saleMode,
+      description: overrides.description ?? input.description ?? null,
+      descriptionHtml:
+        overrides.descriptionHtml ?? input.descriptionHtml ?? null,
+      excerpt: overrides.excerpt ?? input.excerpt ?? null,
+      metaTitle: overrides.metaTitle ?? input.metaTitle ?? null,
+      metaDescription:
+        overrides.metaDescription ?? input.metaDescription ?? null,
+      coverImageUrl: overrides.coverImageUrl ?? input.coverImageUrl ?? null,
+      gallery: toJsonValue(overrides.gallery ?? input.gallery),
+      quoteFormSchema:
+        toJsonValue(overrides.quoteFormSchema ?? input.quoteFormSchema),
+      optionConfig: toJsonValue(overrides.optionConfig ?? input.optionConfig),
+      variantStock: toJsonValue(overrides.variantStock ?? input.variantStock),
+      category: overrides.category ?? input.category ?? null,
+      unit: overrides.unit ?? input.unit,
+      stockQuantity: overrides.stockQuantity ?? input.stockQuantity ?? null,
+      priceHTCents: overrides.priceHTCents ?? input.priceHTCents,
+      priceTTCCents: overrides.priceTTCCents ?? input.priceTTCCents,
+      vatRate: overrides.vatRate ?? input.vatRate,
+      defaultDiscountRate:
+        overrides.defaultDiscountRate ?? input.defaultDiscountRate ?? null,
+      isActive: overrides.isActive ?? input.isActive,
+      isListedInCatalog:
+        overrides.isListedInCatalog ?? input.isListedInCatalog,
+      createdAt: overrides.createdAt ?? defaultCreatedAt,
+      updatedAt: overrides.updatedAt ?? defaultCreatedAt,
+    };
+  }
 
   const searchProductsMock = vi.mocked(searchProductsForAssistant);
   const createProductMock = vi.mocked(createProduct);
@@ -126,15 +209,15 @@ describe("assistant create_product tool", () => {
         },
       ],
     });
-    createProductMock.mockResolvedValue({
-      id: "prod_new",
-      ...baseInput,
+    const createPayload = buildCreateProductInput({
       priceHTCents: priceHT,
       priceTTCCents: Math.round(priceHT * 1.19),
-      createdAt: new Date("2024-04-01T00:00:00.000Z"),
-      updatedAt: new Date("2024-04-01T00:00:00.000Z"),
-      currency: "TND",
-    } as CreatedProduct);
+    });
+    createProductMock.mockResolvedValue(
+      buildCreatedProduct(createPayload, {
+        id: "prod_new",
+      }),
+    );
 
     const tool = getToolByName("create_product");
     expect(tool).toBeTruthy();
@@ -155,12 +238,11 @@ describe("assistant create_product tool", () => {
       bestConfidence: 0.2,
       matches: [],
     });
-    createProductMock.mockImplementation(async (payload: CreateProductInput) => ({
-      id: "prod_new",
-      ...payload,
-      createdAt: new Date("2024-04-01T00:00:00.000Z"),
-      updatedAt: new Date("2024-04-01T00:00:00.000Z"),
-    }));
+    createProductMock.mockImplementation(async (payload: CreateProductInput) =>
+      buildCreatedProduct(payload, {
+        id: "prod_new",
+      }),
+    );
 
     const tool = getToolByName("create_product");
     expect(tool).toBeTruthy();

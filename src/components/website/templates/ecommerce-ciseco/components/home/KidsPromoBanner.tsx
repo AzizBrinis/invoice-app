@@ -20,14 +20,15 @@ export function KidsPromoBanner({
   section,
   mediaLibrary = [],
 }: KidsPromoBannerProps) {
-  const eyebrow = section?.eyebrow ?? "Special offer";
-  const title = section?.title ?? "Special offer in kids products";
+  const eyebrow = section?.eyebrow ?? "Featured highlight";
+  const title = section?.title ?? "Highlight an announcement or offer";
   const subtitle =
-    section?.subtitle ?? "Lorem ipsum dolor sit amet, consectetur adipiscing elit.";
+    section?.subtitle ??
+    "This banner works for seasonal messages, launches, or any temporary spotlight.";
   const cta = section?.buttons?.[0];
   const media = resolveBuilderMedia(section?.mediaId, mediaLibrary);
   const image = media?.src ?? KIDS_PROMO_IMAGE;
-  const imageAlt = media?.alt ?? "Kids promotion";
+  const imageAlt = media?.alt ?? "Banner illustration";
   return (
     <Section
       theme={theme}

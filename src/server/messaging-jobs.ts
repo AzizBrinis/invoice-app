@@ -7,7 +7,10 @@ import { enqueueJob, processJobQueue } from "@/server/background-jobs";
 import { prisma } from "@/lib/prisma";
 import { runScheduledEmailDispatchCycle } from "@/server/messaging-scheduled";
 import { runAutomatedReplySweepForUser } from "@/server/messaging";
-import { documentEmailJobHandlers } from "@/server/document-email-jobs";
+import {
+  DOCUMENT_EMAIL_JOB_TYPES,
+  documentEmailJobHandlers,
+} from "@/server/document-email-jobs";
 import {
   MESSAGING_LOCAL_SYNC_MAILBOX_VALUES,
   getMessagingLocalSyncPreference,
@@ -54,6 +57,14 @@ const LOCAL_SYNC_JOB_TYPES = [
   LOCAL_SYNC_MANUAL_MAILBOX_JOB_TYPE,
   LOCAL_SYNC_PURGE_JOB_TYPE,
 ] as const;
+const EMAIL_CRON_JOB_TYPES = [
+  DISPATCH_JOB_TYPE,
+  AUTO_REPLY_JOB_TYPE,
+  ...DOCUMENT_EMAIL_JOB_TYPES,
+] as const;
+export const DEFAULT_MESSAGING_CRON_SCOPE = "email";
+
+export type MessagingCronScope = "email" | "local-sync" | "all";
 
 type MessagingLocalSyncJobPayload = {
   userId: string;
@@ -95,6 +106,16 @@ type MessagingJobQueueResult = {
 
 type RunManualMessagingLocalSyncResult = MessagingJobQueueResult & {
   queue: ProcessJobQueueResult;
+};
+
+type MessagingCronScheduleSummary = {
+  scheduledEmails?: MessagingJobQueueResult;
+  autoReplies?: {
+    requested: number;
+    enqueued: number;
+    deduped: number;
+  };
+  localSync?: MessagingLocalSyncScheduleSummary;
 };
 
 type MessagingJobsRuntime = {
@@ -310,19 +331,42 @@ function createMessagingJobHandlers(
 }
 
 export async function runMessagingCronTick(now = new Date()) {
-  return runMessagingCronTickWithRuntime(now, defaultMessagingJobsRuntime);
+  return runMessagingCronTickWithRuntime(
+    now,
+    defaultMessagingJobsRuntime,
+    DEFAULT_MESSAGING_CRON_SCOPE,
+  );
+}
+
+export async function runMessagingLocalSyncCronTick(now = new Date()) {
+  return runMessagingCronTickWithRuntime(
+    now,
+    defaultMessagingJobsRuntime,
+    "local-sync",
+  );
+}
+
+export async function runAllMessagingCronTick(now = new Date()) {
+  return runMessagingCronTickWithRuntime(
+    now,
+    defaultMessagingJobsRuntime,
+    "all",
+  );
 }
 
 async function runMessagingCronTickWithRuntime(
   now: Date,
   runtime: MessagingJobsRuntime,
+  scope: MessagingCronScope = "all",
 ) {
-  const scheduled = await scheduleMessagingJobsWithRuntime(now, runtime);
+  const scheduled = await scheduleMessagingJobsWithRuntime(now, runtime, scope);
   const queueResult = await runtime.processJobQueue({
     handlers: createMessagingJobHandlers(runtime),
-    maxJobs: 25,
+    maxJobs: getMaxJobsForScope(scope),
+    allowedTypes: getAllowedTypesForScope(scope),
   });
   return {
+    scope,
     scheduled,
     queue: queueResult,
     timestamp: now.toISOString(),
@@ -332,11 +376,20 @@ async function runMessagingCronTickWithRuntime(
 async function scheduleMessagingJobsWithRuntime(
   now: Date,
   runtime: MessagingJobsRuntime,
-) {
-  const scheduledEmails = await enqueueDispatchJob(now, runtime);
-  const autoReplies = await enqueueAutoReplyJobs(now, runtime);
-  const localSync = await enqueueLocalSyncJobs(now, runtime);
-  return { scheduledEmails, autoReplies, localSync };
+  scope: MessagingCronScope = "all",
+): Promise<MessagingCronScheduleSummary> {
+  const scheduled: MessagingCronScheduleSummary = {};
+
+  if (shouldHandleEmailAutomation(scope)) {
+    scheduled.scheduledEmails = await enqueueDispatchJob(now, runtime);
+    scheduled.autoReplies = await enqueueAutoReplyJobs(now, runtime);
+  }
+
+  if (shouldHandleLocalSync(scope)) {
+    scheduled.localSync = await enqueueLocalSyncJobs(now, runtime);
+  }
+
+  return scheduled;
 }
 
 async function enqueueDispatchJob(
@@ -871,6 +924,33 @@ function computeSlotKey(reference: Date, intervalMs: number): number {
   return Math.floor(reference.getTime() / intervalMs);
 }
 
+function shouldHandleEmailAutomation(scope: MessagingCronScope): boolean {
+  return scope === "all" || scope === "email";
+}
+
+function shouldHandleLocalSync(scope: MessagingCronScope): boolean {
+  return scope === "all" || scope === "local-sync";
+}
+
+function getAllowedTypesForScope(
+  scope: MessagingCronScope,
+): readonly string[] | undefined {
+  if (scope === "email") {
+    return EMAIL_CRON_JOB_TYPES;
+  }
+  if (scope === "local-sync") {
+    return LOCAL_SYNC_JOB_TYPES;
+  }
+  return undefined;
+}
+
+function getMaxJobsForScope(scope: MessagingCronScope): number {
+  if (scope === "local-sync") {
+    return 5;
+  }
+  return 25;
+}
+
 export const __testables = {
   createMessagingJobHandlers,
   scheduleMessagingJobsWithRuntime,
@@ -883,5 +963,9 @@ export const __testables = {
   shouldScheduleLocalSyncBootstrap,
   selectLocalSyncPurgeCandidates,
   computeSlotKey,
+  getAllowedTypesForScope,
+  shouldHandleEmailAutomation,
+  shouldHandleLocalSync,
   LOCAL_SYNC_JOB_TYPES,
+  EMAIL_CRON_JOB_TYPES,
 };

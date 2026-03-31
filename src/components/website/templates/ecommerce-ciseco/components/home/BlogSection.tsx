@@ -20,10 +20,11 @@ export function BlogSection({
   section,
   mediaLibrary = [],
 }: BlogSectionProps) {
-  const eyebrow = section?.eyebrow ?? "Our latest news";
-  const title = section?.title ?? "From the Ciseco blog";
+  const eyebrow = section?.eyebrow ?? "Latest updates";
+  const title = section?.title ?? "Stories, notes, and ideas";
   const subtitle =
-    section?.subtitle ?? "Lorem ipsum dolor sit amet, consectetur adipiscing elit.";
+    section?.subtitle ??
+    "Use this area for announcements, guides, or editorial content.";
   const posts =
     section?.items?.length
       ? section.items.map((item, index) => {

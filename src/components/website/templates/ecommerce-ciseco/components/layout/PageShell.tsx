@@ -8,6 +8,7 @@ type PageShellProps = {
 export function PageShell({ inlineStyles, children }: PageShellProps) {
   return (
     <div
+      data-ciseco-page-shell
       className="relative min-h-screen bg-[var(--ciseco-bg)] text-[var(--ciseco-ink)]"
       style={inlineStyles}
     >

@@ -11,7 +11,7 @@ import {
 export const SEND_INVOICE_EMAIL_JOB_TYPE = "billing.sendInvoiceEmail";
 export const SEND_QUOTE_EMAIL_JOB_TYPE = "billing.sendQuoteEmail";
 export const SEND_RECEIPT_EMAIL_JOB_TYPE = "billing.sendReceiptEmail";
-const DOCUMENT_EMAIL_JOB_TYPES = [
+export const DOCUMENT_EMAIL_JOB_TYPES = [
   SEND_INVOICE_EMAIL_JOB_TYPE,
   SEND_QUOTE_EMAIL_JOB_TYPE,
   SEND_RECEIPT_EMAIL_JOB_TYPE,

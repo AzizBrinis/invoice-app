@@ -100,7 +100,7 @@ export function ProductCard({
             href={href ?? "#"}
             className="text-xs font-semibold text-slate-700"
           >
-            Shop now
+            View details
           </a>
           {!isCompact && onAddToCart ? (
             <button
@@ -108,7 +108,7 @@ export function ProductCard({
               onClick={onAddToCart}
               className="rounded-full border border-black/10 bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-600 transition hover:bg-black/5"
             >
-              Add to bag
+              Add to cart
             </button>
           ) : null}
         </div>

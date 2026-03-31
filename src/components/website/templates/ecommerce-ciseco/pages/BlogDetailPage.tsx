@@ -2,7 +2,10 @@ import clsx from "clsx";
 import type { CSSProperties } from "react";
 import type { WebsiteBuilderPageConfig, WebsiteBuilderSection } from "@/lib/website/builder";
 import type { ThemeTokens } from "../types";
-import { resolveBuilderMedia, resolveBuilderSection } from "../builder-helpers";
+import {
+  resolveBuilderMedia,
+  resolveBuilderSectionBySignature,
+} from "../builder-helpers";
 import { ExtraSections } from "../components/builder/ExtraSections";
 import { Footer } from "../components/layout/Footer";
 import { Navbar } from "../components/layout/Navbar";
@@ -43,8 +46,6 @@ const ARTICLE_AUTHOR: Author = {
 
 const ARTICLE_IMAGE =
   "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1400&q=80";
-const INLINE_IMAGE =
-  "https://images.unsplash.com/photo-1501004318641-b39e6451bec6?auto=format&fit=crop&w=1200&q=80";
 
 const RELATED_POSTS: RelatedPost[] = [
   {
@@ -146,13 +147,62 @@ export function BlogDetailPage({
 }: BlogDetailPageProps) {
   const container = clsx("mx-auto px-6 sm:px-8", theme.containerClass);
   const blogHref = (slug: string) => baseLink(`/blog/${slug}`);
+  const hasBuilder = Boolean(builder);
   const sections = builder?.sections ?? [];
   const mediaLibrary = builder?.mediaLibrary ?? [];
-  const heroSection = resolveBuilderSection(sections, "hero");
-  const relatedSection = resolveBuilderSection(sections, "content", "blog-related");
-  const bodySection = resolveBuilderSection(sections, "content", "blog-body");
+  const heroSection = resolveBuilderSectionBySignature(sections, {
+    ids: "ciseco-blog-detail-hero",
+    type: "hero",
+    layouts: ["page-hero", "split"],
+  });
+  const relatedSection = resolveBuilderSectionBySignature(sections, {
+    ids: "ciseco-blog-detail-related",
+    type: "content",
+    layouts: "blog-related",
+  });
+  const bodySection = resolveBuilderSectionBySignature(sections, {
+    ids: "ciseco-blog-detail-body",
+    type: "content",
+    layouts: "blog-body",
+  });
   const heroImage = resolveBuilderMedia(heroSection?.mediaId, mediaLibrary);
   const heroSubtitle = heroSection?.subtitle ?? heroSection?.description ?? null;
+  const showHero = Boolean(heroSection) || !hasBuilder;
+  const showBody = Boolean(bodySection) || !hasBuilder;
+  const showRelated = Boolean(relatedSection) || !hasBuilder;
+  const bodyIntro =
+    bodySection?.description ??
+    (!hasBuilder
+      ? "Lorem ipsum dolor sit amet consectetur adipisicing elit. Illo vel voluptas ipsum placeat, ipsum quaerat neque doloribus eaque voluptate."
+      : null);
+  const bodyBlocks =
+    bodySection?.items?.length
+      ? bodySection.items
+      : !hasBuilder
+        ? [
+            {
+              id: "fallback-body-1",
+              title: "Typography should be easy",
+              description:
+                "So that’s another reason you’ll see why the UI doesn’t even come close to what we set out in this story.",
+              stats: [],
+            },
+            {
+              id: "fallback-body-2",
+              title: "Code should look okay by default.",
+              description:
+                "I think most people are going to use highlightjs or prism or something if they want to style their code blocks.",
+              stats: [],
+            },
+            {
+              id: "fallback-body-3",
+              title: "We still need to think about stacked headings though.",
+              description:
+                "Let’s also add a closing paragraph here so this can act as a decent sized block of text.",
+              stats: [],
+            },
+          ]
+        : [];
   const relatedPosts =
     relatedSection?.items?.length
       ? relatedSection.items.map((item, index) => {
@@ -182,169 +232,93 @@ export function BlogDetailPage({
     <PageShell inlineStyles={inlineStyles}>
       <Navbar theme={theme} companyName={companyName} homeHref={homeHref} />
       <main className="pb-16">
-        <section className={clsx(container, "pt-8 sm:pt-10 lg:pt-12")}>
-          <div
-            className="mx-auto max-w-3xl space-y-5"
-            data-builder-section={heroSection?.id}
-          >
-            <span className="inline-flex rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-600">
-              {heroSection?.eyebrow ?? "Marketing"}
-            </span>
-            <h1 className="text-2xl font-semibold text-slate-900 sm:text-3xl lg:text-4xl">
-              {heroSection?.title ?? "Graduation Dresses: A Style Guide"}
-            </h1>
-            <p className="text-sm text-slate-500 sm:text-base">
-              {heroSubtitle ??
-                "Illo sint voluptates. Error voluptates culpa eligendi. Hic vel totam vitae illo. Non aliquid explicabo necessitatibus unde. Sed consequatur dolorem quisquam commodi dolores."}
-            </p>
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <AuthorMeta author={ARTICLE_AUTHOR} />
-              <div className="flex items-center gap-3">
-                {SOCIAL_LINKS.map((item) => (
-                  <a
-                    key={item.id}
-                    href="#"
-                    aria-label={item.label}
-                    className={clsx(
-                      "flex h-9 w-9 items-center justify-center rounded-full border border-black/5 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md",
-                      item.className,
-                    )}
-                  >
-                    <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
-                      <path d={item.path} fill="currentColor" />
-                    </svg>
-                  </a>
-                ))}
+        {showHero ? (
+          <section className={clsx(container, "pt-8 sm:pt-10 lg:pt-12")}>
+            <div
+              className="mx-auto max-w-3xl space-y-5"
+              data-builder-section={heroSection?.id}
+            >
+              <span className="inline-flex rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-600">
+                {heroSection?.eyebrow ?? "Marketing"}
+              </span>
+              <h1 className="text-2xl font-semibold text-slate-900 sm:text-3xl lg:text-4xl">
+                {heroSection?.title ?? "Graduation Dresses: A Style Guide"}
+              </h1>
+              <p className="text-sm text-slate-500 sm:text-base">
+                {heroSubtitle ??
+                  "Illo sint voluptates. Error voluptates culpa eligendi. Hic vel totam vitae illo. Non aliquid explicabo necessitatibus unde. Sed consequatur dolorem quisquam commodi dolores."}
+              </p>
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <AuthorMeta author={ARTICLE_AUTHOR} />
+                <div className="flex items-center gap-3">
+                  {SOCIAL_LINKS.map((item) => (
+                    <a
+                      key={item.id}
+                      href="#"
+                      aria-label={item.label}
+                      className={clsx(
+                        "flex h-9 w-9 items-center justify-center rounded-full border border-black/5 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md",
+                        item.className,
+                      )}
+                    >
+                      <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
+                        <path d={item.path} fill="currentColor" />
+                      </svg>
+                    </a>
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
-        </section>
+          </section>
+        ) : null}
 
-        <section className={clsx(container, "mt-6 sm:mt-8")}>
-          <div className="mx-auto max-w-4xl">
-            <div className="relative aspect-[16/9] w-full overflow-hidden rounded-[32px] bg-slate-100 shadow-sm">
-              <img
-                src={heroImage?.src ?? ARTICLE_IMAGE}
-                alt={heroImage?.alt ?? "Directional signposts"}
-                className="h-full w-full object-cover"
-              />
-            </div>
-          </div>
-        </section>
-
-        <section className={clsx(container, "mt-8 sm:mt-10")}>
-          <article className="mx-auto max-w-3xl space-y-6 text-sm text-slate-600">
-            {bodySection?.description ? (
-              <p>{bodySection.description}</p>
-            ) : null}
-            {bodySection?.items?.length
-              ? bodySection.items.map((item) =>
-                  item.description ? (
-                    <p key={item.id}>{item.description}</p>
-                  ) : null,
-                )
-              : null}
-            <p>
-              Lorem ipsum dolor sit amet consectetur adipisicing elit. Illo vel
-              voluptas ipsum placeat, ipsum quaerat neque doloribus eaque
-              voluptate.
-            </p>
-            <p>
-              It is a long established fact that a reader will be distracted by
-              the readable content of a page when looking at its layout. The
-              point of using Lorem ipsum is that it has a more-or-less normal
-              distribution of letters.
-            </p>
-            <ol className="list-decimal space-y-2 pl-5 text-sm text-slate-600">
-              <li>We can&rsquo;t expect everything to look good out of the box.</li>
-              <li>Realistically, the first reason I think this will take a while.</li>
-              <li>Here&rsquo;s a third reason across these terms that feels more realistic.</li>
-            </ol>
-
-            <h2 className="text-base font-semibold text-slate-900">
-              Typography should be easy
-            </h2>
-            <p>
-              So that&rsquo;s another reason you&rsquo;ll see why the UI doesn&rsquo;t even come
-              close to what we set out in this story.
-            </p>
-            <p>
-              Sometimes, you only want the main typography in your single page
-              layout, and that is okay.
-            </p>
-            <blockquote className="border-l-4 border-slate-200 pl-4 text-sm italic text-slate-500">
-              Typography is pretty important if you don&rsquo;t want your stuff to look
-              like trash. Make it good then it won&rsquo;t be bad.
-            </blockquote>
-            <p>
-              It&rsquo;s good to remember that images look okay here by default.
-            </p>
-            <div className="space-y-3">
-              <div className="relative aspect-[4/3] w-full overflow-hidden rounded-3xl bg-slate-100">
+        {showHero ? (
+          <section className={clsx(container, "mt-6 sm:mt-8")}>
+            <div className="mx-auto max-w-4xl">
+              <div className="relative aspect-[16/9] w-full overflow-hidden rounded-[32px] bg-slate-100 shadow-sm">
                 <img
-                  src={INLINE_IMAGE}
-                  alt="Roses on a table"
+                  src={heroImage?.src ?? ARTICLE_IMAGE}
+                  alt={heroImage?.alt ?? "Directional signposts"}
                   className="h-full w-full object-cover"
-                  loading="lazy"
                 />
               </div>
-              <p className="text-xs text-slate-400">
-                Lorem ipsum dolor sit amet consectetur adipiscing elit, sed do
-                eiusmod tempor incididunt ut labore.
-              </p>
             </div>
-            <p>
-              Now I&rsquo;m going to show you an example of an unordered list to make
-              sure that looks good too.
-            </p>
-            <ul className="list-disc space-y-2 pl-5 text-sm text-slate-600">
-              <li>So here is the first item in this list.</li>
-              <li>This is a second item to make the list look more realistic.</li>
-              <li>Finally, we&rsquo;ll close things out with another list item.</li>
-            </ul>
+          </section>
+        ) : null}
 
-            <h2 className="text-base font-semibold text-slate-900">
-              Code should look okay by default.
-            </h2>
-            <p>
-              I think most people are going to use highlightjs or prism or
-              something if they want to style their code blocks. It&rsquo;s important
-              that images remain default until it can be.
-            </p>
-            <p>
-              What we&rsquo;ve done is probably long enough, but adding this is to make
-              sure we don&rsquo;t break out.
-            </p>
-
-            <h2 className="text-base font-semibold text-slate-900">
-              We still need to think about stacked headings though.
-            </h2>
-            <p>
-              Let&rsquo;s make sure we don&rsquo;t screw up with H1 elements, either.
-              Actually, it looks like the best way to make content appear more
-              typographic is to let it breathe a bit.
-            </p>
-            <p>
-              Let&rsquo;s also add a closing paragraph here so this can act as a decent
-              sized block of text. We will mention the title and highlight the
-              content too.
-            </p>
-
-            <div className="flex flex-wrap gap-2 border-t border-black/5 pt-4 text-xs text-slate-500">
-              {TAGS.map((tag) => (
-                <span
-                  key={tag}
-                  className="rounded-full border border-slate-200 px-3 py-1 font-medium text-slate-500"
-                >
-                  {tag}
-                </span>
+        {showBody ? (
+          <section
+            className={clsx(container, "mt-8 sm:mt-10")}
+            data-builder-section={bodySection?.id}
+          >
+            <article className="mx-auto max-w-3xl space-y-6 text-sm text-slate-600">
+              {bodyIntro ? <p>{bodyIntro}</p> : null}
+              {bodyBlocks.map((item) => (
+                <div key={item.id} className="space-y-3">
+                  {item.title ? (
+                    <h2 className="text-base font-semibold text-slate-900">
+                      {item.title}
+                    </h2>
+                  ) : null}
+                  {item.description ? <p>{item.description}</p> : null}
+                </div>
               ))}
-            </div>
-          </article>
-        </section>
+              <div className="flex flex-wrap gap-2 border-t border-black/5 pt-4 text-xs text-slate-500">
+                {TAGS.map((tag) => (
+                  <span
+                    key={tag}
+                    className="rounded-full border border-slate-200 px-3 py-1 font-medium text-slate-500"
+                  >
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            </article>
+          </section>
+        ) : null}
 
         <section className={clsx(container, "mt-8 sm:mt-10")}>
-          <div className="mx-auto max-w-3xl">
+          <div className="mx-auto max-w-4xl">
             <AuthorBio author={ARTICLE_AUTHOR} />
           </div>
         </section>
@@ -369,16 +343,23 @@ export function BlogDetailPage({
           </div>
         </section>
 
-        <section className={clsx(container, "mt-12 sm:mt-14")}>
-          <div className="space-y-6">
-            <h3 className="text-lg font-semibold text-slate-900">Related posts</h3>
-            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-              {relatedPosts.map((post) => (
-                <RelatedPostCard key={post.id} post={post} href={blogHref(post.slug)} />
-              ))}
+        {showRelated ? (
+          <section
+            className={clsx(container, "mt-12 sm:mt-14")}
+            data-builder-section={relatedSection?.id}
+          >
+            <div className="space-y-6">
+              <h3 className="text-lg font-semibold text-slate-900">
+                {relatedSection?.title ?? "Related posts"}
+              </h3>
+              <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+                {relatedPosts.map((post) => (
+                  <RelatedPostCard key={post.id} post={post} href={blogHref(post.slug)} />
+                ))}
+              </div>
             </div>
-          </div>
-        </section>
+          </section>
+        ) : null}
         {extraSections.length ? (
           <ExtraSections
             theme={theme}

@@ -15,9 +15,11 @@ export function ExploreCategoriesSection({
   theme,
   section,
 }: ExploreCategoriesSectionProps) {
-  const eyebrow = "Start exploring";
-  const title = "Explore categories";
-  const subtitle = "Discover all categories.";
+  const eyebrow = section?.eyebrow ?? "Start exploring";
+  const title = section?.title ?? "Browse key categories";
+  const subtitle =
+    section?.subtitle ??
+    "A neutral category grid for products, services, or content.";
   const tabs =
     section?.buttons?.length
       ? section.buttons.map((button) => button.label)
@@ -32,14 +34,14 @@ export function ExploreCategoriesSection({
             description: item.description ?? fallback?.description ?? "",
             icon:
               (item.tag as
-                | "women"
-                | "men"
-                | "kids"
-                | "beauty"
-                | "sport"
-                | "home") ??
+                | "workspace"
+                | "planning"
+                | "analytics"
+                | "operations"
+                | "support"
+                | "resources") ??
               fallback?.icon ??
-              "home",
+              "workspace",
             badge: item.badge ?? null,
           };
         })
@@ -84,7 +86,7 @@ export function ExploreCategoriesSection({
                   </div>
                 </div>
                 <div className="mt-auto flex items-center justify-between text-xs text-slate-500">
-                  <span>{card.badge ?? "120+ items"}</span>
+                  <span>{card.badge ?? "24+ entries"}</span>
                   <span className="text-[var(--site-accent)]">Explore</span>
                 </div>
                 <div

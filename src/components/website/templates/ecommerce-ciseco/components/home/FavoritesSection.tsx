@@ -59,12 +59,13 @@ export function FavoritesSection({
   const productHref = (slug: string) => baseLink(`/produit/${slug}`);
   const filteredEmptyMessage =
     activeLabel && activeLabel.toLowerCase() !== "all"
-      ? "No products match this filter yet."
+      ? "No items match this filter yet."
       : emptyMessage;
-  const eyebrow = section?.eyebrow ?? "Find your favorite";
+  const eyebrow = section?.eyebrow ?? "Browse by category";
   const title = section?.title ?? "Find your favorite products";
   const subtitle =
-    section?.subtitle ?? "Lorem ipsum dolor sit amet, consectetur adipiscing elit.";
+    section?.subtitle ??
+    "Filter neutral sample entries to preview how grouped content will appear.";
   const cta = section?.buttons?.[0];
 
   return (

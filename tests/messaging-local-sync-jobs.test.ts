@@ -312,4 +312,57 @@ describe("messaging local sync jobs", () => {
       }),
     );
   });
+
+  it("keeps email automation work out of the local-sync cron scope", async () => {
+    const { LOCAL_SYNC_JOB_TYPES, runMessagingCronTickWithRuntime } =
+      messagingJobsTestables;
+    const enqueueJob = vi.fn(async ({ type }: { type: string }) => ({
+      deduped: false,
+      job: {
+        id: `job-${type}`,
+      },
+    }));
+    const processJobQueue = vi.fn(async () => ({
+      processed: 0,
+      completed: 0,
+      failed: 0,
+      retried: 0,
+      skipped: 0,
+      details: [],
+    }));
+    const runtime = {
+      enqueueJob,
+      processJobQueue,
+      runScheduledEmailDispatchCycle: vi.fn(),
+      runAutomatedReplySweepForUser: vi.fn(),
+      isMessagingLocalSyncServerEnabled: vi.fn(() => true),
+      getMessagingLocalSyncPreference: vi.fn(async () => true),
+      listMessagingMailboxLocalSyncStates: vi.fn(),
+      syncMessagingMailboxToLocal: vi.fn(),
+      syncMessagingMailboxesToLocal: vi.fn(),
+      purgeMessagingLocalSyncData: vi.fn(),
+      findAutoReplyCandidates: vi.fn(async () => []),
+      findEnabledLocalSyncUsers: vi.fn(async () => ["enabled-user"]),
+      findLocalSyncStatesForUsers: vi.fn(async () => []),
+      findUsersWithLocalSyncData: vi.fn(async () => []),
+      findLocalSyncSettings: vi.fn(async () => []),
+    };
+
+    const result = await runMessagingCronTickWithRuntime(
+      new Date("2026-03-31T09:20:00.000Z"),
+      runtime as never,
+      "local-sync",
+    );
+
+    expect(result.scope).toBe("local-sync");
+    expect(result.scheduled.scheduledEmails).toBeUndefined();
+    expect(result.scheduled.autoReplies).toBeUndefined();
+    expect(runtime.findAutoReplyCandidates).not.toHaveBeenCalled();
+    expect(processJobQueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        maxJobs: 5,
+        allowedTypes: LOCAL_SYNC_JOB_TYPES,
+      }),
+    );
+  });
 });

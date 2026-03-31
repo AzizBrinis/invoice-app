@@ -17,6 +17,10 @@ import {
   revalidateClientList,
   updateClient,
 } from "@/server/clients";
+import {
+  importClientsFromCsv,
+  type ClientImportSummary,
+} from "@/server/client-import";
 import { revalidateQuoteFilterClients } from "@/server/quotes";
 import { isRedirectError } from "@/lib/next";
 import { requireUser } from "@/lib/auth";
@@ -48,6 +52,7 @@ import type {
 import type { ClientDirectoryItem } from "@/lib/client-directory-cache";
 
 type MutationVariant = "success" | "error";
+const MAX_CLIENT_IMPORT_FILE_BYTES = 5 * 1024 * 1024;
 
 export type ClientPaymentWorkspaceActionResult<T = undefined> = {
   status: "success" | "error";
@@ -64,6 +69,14 @@ export type ClientFormActionState = {
     client: ClientDirectoryItem;
     redirectTo: string;
   };
+};
+
+export type ClientImportActionState = {
+  submissionId?: string;
+  status?: "success" | "error";
+  variant?: MutationVariant;
+  message?: string;
+  summary?: ClientImportSummary;
 };
 
 export type SerializedPaymentServiceLink = {
@@ -372,6 +385,23 @@ function getMutationErrorMessage(
   return fallback;
 }
 
+function buildClientImportSuccessMessage(summary: ClientImportSummary) {
+  const parts = [];
+
+  if (summary.createdCount > 0) {
+    parts.push(`${summary.createdCount} cree(s)`);
+  }
+  if (summary.updatedCount > 0) {
+    parts.push(`${summary.updatedCount} mis a jour`);
+  }
+
+  if (parts.length === 0) {
+    return "Import termine";
+  }
+
+  return `Import termine: ${parts.join(", ")}`;
+}
+
 async function performCreateClient(formData: FormData) {
   const user = await requireAccountPermission(AccountPermission.CLIENTS_MANAGE);
   const data = parseClientForm(formData);
@@ -407,6 +437,49 @@ async function performDeleteClient(id: string) {
   });
   return {
     message: "Client supprimé",
+  };
+}
+
+async function performImportClients(formData: FormData) {
+  const user = await requireAccountPermission(AccountPermission.CLIENTS_MANAGE);
+  const tenantId = getClientTenantId(user);
+  const file = formData.get("file");
+
+  if (!(file instanceof File)) {
+    throw new Error("Fichier CSV manquant.");
+  }
+
+  if (file.size <= 0) {
+    throw new Error("Le fichier CSV est vide.");
+  }
+
+  if (file.size > MAX_CLIENT_IMPORT_FILE_BYTES) {
+    throw new Error("Le fichier CSV depasse la taille maximale autorisee.");
+  }
+
+  const content = await file.text();
+  const summary = await importClientsFromCsv(content, tenantId);
+
+  if (summary.createdCount + summary.updatedCount === 0) {
+    return {
+      submissionId: Date.now().toString(36),
+      status: "error" as const,
+      variant: "error" as const,
+      message: "Aucun client importable n'a ete trouve.",
+      summary,
+    };
+  }
+
+  invalidateClientRelatedCaches(user, {
+    includePaymentViews: true,
+  });
+
+  return {
+    submissionId: Date.now().toString(36),
+    status: "success" as const,
+    variant: "success" as const,
+    message: buildClientImportSuccessMessage(summary),
+    summary,
   };
 }
 
@@ -578,6 +651,29 @@ export async function deleteClientInlineAction(
       message: getMutationErrorMessage(
         error,
         "Impossible de supprimer ce client.",
+      ),
+    };
+  }
+}
+
+export async function importClientsInlineAction(
+  _previousState: ClientImportActionState,
+  formData: FormData,
+): Promise<ClientImportActionState> {
+  try {
+    return await performImportClients(formData);
+  } catch (error) {
+    if (isRedirectError(error)) {
+      throw error;
+    }
+    console.error("[importClientsInlineAction] Échec d'import CSV", error);
+    return {
+      submissionId: Date.now().toString(36),
+      status: "error",
+      variant: "error",
+      message: getMutationErrorMessage(
+        error,
+        "Import impossible. Verifiez votre fichier CSV.",
       ),
     };
   }

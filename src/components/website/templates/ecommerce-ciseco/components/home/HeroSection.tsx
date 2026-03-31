@@ -21,12 +21,14 @@ export function HeroSection({
   section,
   mediaLibrary = [],
 }: HeroSectionProps) {
-  const eyebrow = section?.eyebrow ?? "Handpicked trend";
-  const title = section?.title ?? "Exclusive collection for everyone";
+  const eyebrow = section?.eyebrow ?? "Flexible starter template";
+  const title = section?.title ?? "A neutral homepage for any business";
   const subtitle =
     section?.subtitle ??
-    "Discover fresh styles and everyday essentials curated for every mood. Lorem ipsum dolor sit amet.";
-  const note = section?.description ?? "Trusted by 32k+ shoppers worldwide";
+    "Use this clean starting point to showcase products, services, or content without being locked to a specific niche.";
+  const note =
+    section?.description ??
+    "Designed to adapt across catalogs, services, and content-led sites";
   const badges =
     section?.items?.length
       ? section.items
@@ -35,8 +37,8 @@ export function HeroSection({
       : HERO_BADGES;
   const buttons = section?.buttons ?? [];
   const heroMedia = resolveBuilderMedia(section?.mediaId, mediaLibrary);
-  const heroImage = HERO_IMAGE;
-  const heroImageAlt = heroMedia?.alt ?? "Hero portrait";
+  const heroImage = heroMedia?.src ?? HERO_IMAGE;
+  const heroImageAlt = heroMedia?.alt ?? "Hero illustration";
   return (
     <Section
       theme={theme}

@@ -20,9 +20,10 @@ export function DiscoverySection({
   mediaLibrary = [],
 }: DiscoverySectionProps) {
   const eyebrow = section?.eyebrow ?? "Discover more";
-  const title = section?.title ?? "Good things are waiting for you";
+  const title = section?.title ?? "Adaptable blocks for a clean start";
   const subtitle =
-    section?.subtitle ?? "Lorem ipsum dolor sit amet, consectetur adipiscing elit.";
+    section?.subtitle ??
+    "Neutral placeholder content keeps the layout reusable across industries.";
   const baseCards =
     section?.items?.length
       ? section.items.map((item, index) => {

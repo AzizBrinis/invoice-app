@@ -342,6 +342,294 @@ export type WebsiteBuilderTheme = z.infer<typeof builderThemeSchema>;
 export type WebsiteBuilderConfig = z.infer<typeof builderConfigSchema>;
 export type WebsiteBuilderVersionEntry = z.infer<typeof builderVersionEntrySchema>;
 
+const CURRENT_BUILDER_CONFIG_VERSION = 3;
+const CISECO_SIMPLIFIED_HOME_VERSION = 2;
+const CISECO_PAGE_SYNC_VERSION = 3;
+const CISECO_DEFAULT_HOME_VISIBLE_LAYOUTS = new Set([
+  "home-hero",
+  "best-sellers",
+  "featured",
+  "favorites",
+  "home-testimonials",
+]);
+
+const LEGACY_CISECO_HOME_SECTION_ORDER = [
+  "ciseco-home-hero",
+  "ciseco-home-discovery",
+  "ciseco-home-new-arrivals",
+  "ciseco-home-features",
+  "ciseco-home-promo",
+  "ciseco-home-categories",
+  "ciseco-home-best-sellers",
+  "ciseco-home-kids-promo",
+  "ciseco-home-featured-products",
+  "ciseco-home-favorites",
+  "ciseco-home-departments",
+  "ciseco-home-blog",
+  "ciseco-home-testimonials",
+] as const;
+
+export type CisecoPageSectionTemplate = {
+  key: string;
+  label: string;
+  description?: string;
+  section: WebsiteBuilderSection;
+  singleton: boolean;
+  includedByDefault: boolean;
+};
+
+export type CisecoPageSectionCatalog = {
+  presets: CisecoPageSectionTemplate[];
+  genericSectionTypes: BuilderSectionType[];
+};
+
+function cloneBuilderButton(button: WebsiteBuilderButton): WebsiteBuilderButton {
+  return { ...button };
+}
+
+function cloneBuilderMediaAsset(
+  asset: WebsiteBuilderMediaAsset,
+): WebsiteBuilderMediaAsset {
+  return {
+    ...asset,
+    metadata: { ...(asset.metadata ?? {}) },
+  };
+}
+
+function cloneBuilderItem(item: WebsiteBuilderItem): WebsiteBuilderItem {
+  return {
+    ...item,
+    stats: [...(item.stats ?? [])],
+  };
+}
+
+function cloneBuilderSection(
+  section: WebsiteBuilderSection,
+): WebsiteBuilderSection {
+  return {
+    ...section,
+    items: (section.items ?? []).map((item) => cloneBuilderItem(item)),
+    buttons: (section.buttons ?? []).map((button) => cloneBuilderButton(button)),
+  };
+}
+
+function cloneBuilderPageConfig(
+  page: WebsiteBuilderPageConfig,
+): WebsiteBuilderPageConfig {
+  return {
+    sections: page.sections.map((section) => cloneBuilderSection(section)),
+    mediaLibrary: page.mediaLibrary.map((asset) => cloneBuilderMediaAsset(asset)),
+    seo: { ...(page.seo ?? {}) },
+  };
+}
+
+function createCisecoSectionTemplateDefinition(
+  key: string,
+  label: string,
+  section: WebsiteBuilderSection,
+  options?: {
+    description?: string;
+    singleton?: boolean;
+    includedByDefault?: boolean;
+  },
+): CisecoPageSectionTemplate {
+  return {
+    key,
+    label,
+    description: options?.description,
+    section,
+    singleton: options?.singleton ?? true,
+    includedByDefault: options?.includedByDefault ?? true,
+  };
+}
+
+function createGenericSectionTypes(
+  exclusions: WebsiteBuilderSection["type"][] = [],
+): BuilderSectionType[] {
+  const excluded = new Set<WebsiteBuilderSection["type"]>(["hero", ...exclusions]);
+  return BUILDER_SECTION_TYPES.filter(
+    (type): type is BuilderSectionType => !excluded.has(type),
+  );
+}
+
+const LEGACY_CISECO_HOME_SECTION_SIGNATURES: Record<
+  (typeof LEGACY_CISECO_HOME_SECTION_ORDER)[number],
+  Pick<
+    WebsiteBuilderSection,
+    "layout" | "title" | "subtitle" | "description" | "eyebrow"
+  >
+> = {
+  "ciseco-home-hero": {
+    layout: "home-hero",
+    title: "Exclusive collection for everyone",
+    subtitle:
+      "Discover fresh styles and everyday essentials curated for every mood. Lorem ipsum dolor sit amet.",
+    description: "Trusted by 32k+ shoppers worldwide",
+    eyebrow: "Handpicked trend",
+  },
+  "ciseco-home-discovery": {
+    layout: "discovery",
+    title: "Good things are waiting for you",
+    subtitle: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+    description: null,
+    eyebrow: "Discover more",
+  },
+  "ciseco-home-new-arrivals": {
+    layout: "new-arrivals",
+    title: "Fresh drops for the week",
+    subtitle: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+    description: null,
+    eyebrow: "New arrivals",
+  },
+  "ciseco-home-features": {
+    layout: "features",
+    title: "Shopping essentials",
+    subtitle: "Highlights that make every purchase easy.",
+    description: null,
+    eyebrow: null,
+  },
+  "ciseco-home-promo": {
+    layout: "home-promo",
+    title: "Earn free money with Ciseco",
+    subtitle: null,
+    description:
+      "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Proin gravida, nibh vel commodo posuere, neque sapien.",
+    eyebrow: "Earn free money",
+  },
+  "ciseco-home-categories": {
+    layout: "explore",
+    title: "Explore categories",
+    subtitle: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+    description: null,
+    eyebrow: "Start exploring",
+  },
+  "ciseco-home-best-sellers": {
+    layout: "best-sellers",
+    title: "Best sellers of the month",
+    subtitle: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+    description: null,
+    eyebrow: "Best sellers",
+  },
+  "ciseco-home-kids-promo": {
+    layout: "kids-banner",
+    title: "Special offer in kids products",
+    subtitle: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+    description: null,
+    eyebrow: "Special offer",
+  },
+  "ciseco-home-featured-products": {
+    layout: "featured",
+    title: "Featured for your wishlist",
+    subtitle: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+    description: null,
+    eyebrow: "Featured products",
+  },
+  "ciseco-home-favorites": {
+    layout: "favorites",
+    title: "Find your favorite products",
+    subtitle: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+    description: null,
+    eyebrow: "Find your favorite",
+  },
+  "ciseco-home-departments": {
+    layout: "departments",
+    title: "Explore the absolute",
+    subtitle: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+    description: null,
+    eyebrow: "Shop by department",
+  },
+  "ciseco-home-blog": {
+    layout: "home-blog",
+    title: "From the Ciseco blog",
+    subtitle: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+    description: null,
+    eyebrow: "Our latest news",
+  },
+  "ciseco-home-testimonials": {
+    layout: "home-testimonials",
+    title: "People love our products",
+    subtitle: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+    description: null,
+    eyebrow: "Good news from far away",
+  },
+};
+
+function isLegacyCisecoHomeSection(
+  section: WebsiteBuilderSection,
+): section is WebsiteBuilderSection & {
+  id: (typeof LEGACY_CISECO_HOME_SECTION_ORDER)[number];
+} {
+  if (!(section.id in LEGACY_CISECO_HOME_SECTION_SIGNATURES)) {
+    return false;
+  }
+  const expected =
+    LEGACY_CISECO_HOME_SECTION_SIGNATURES[
+      section.id as keyof typeof LEGACY_CISECO_HOME_SECTION_SIGNATURES
+    ];
+  return (
+    section.layout === expected.layout &&
+    (section.title ?? null) === expected.title &&
+    (section.subtitle ?? null) === expected.subtitle &&
+    (section.description ?? null) === expected.description &&
+    (section.eyebrow ?? null) === expected.eyebrow &&
+    section.visible !== false
+  );
+}
+
+function isLegacyCisecoHomeDefaultPage(
+  page: WebsiteBuilderPageConfig,
+): boolean {
+  const { sections } = page;
+  if (!sections.length) {
+    return false;
+  }
+  if (!sections.every((section) => isLegacyCisecoHomeSection(section))) {
+    return false;
+  }
+  const sectionIds = sections.map((section) => section.id);
+  const expectedOrder = LEGACY_CISECO_HOME_SECTION_ORDER.filter((id) =>
+    sectionIds.includes(id),
+  );
+  if (sectionIds.length !== expectedOrder.length) {
+    return false;
+  }
+  if (!sectionIds.every((id, index) => id === expectedOrder[index])) {
+    return false;
+  }
+  return sections.some(
+    (section) => !CISECO_DEFAULT_HOME_VISIBLE_LAYOUTS.has(section.layout),
+  );
+}
+
+function migrateLegacyCisecoHomePage(
+  config: WebsiteBuilderConfig,
+  defaults: Record<CisecoPageKey, WebsiteBuilderPageConfig>,
+): WebsiteBuilderConfig {
+  if (config.version >= CISECO_SIMPLIFIED_HOME_VERSION) {
+    return config;
+  }
+  const homePage = config.pages.home;
+  const defaultHomePage = defaults.home;
+  if (!homePage || !defaultHomePage) {
+    return config;
+  }
+  if (!isLegacyCisecoHomeDefaultPage(homePage)) {
+    return config;
+  }
+  return {
+    ...config,
+    version: CISECO_SIMPLIFIED_HOME_VERSION,
+    pages: {
+      ...config.pages,
+      home: builderPageSchema.parse({
+        ...defaultHomePage,
+        mediaLibrary: homePage.mediaLibrary,
+        seo: homePage.seo,
+      }),
+    },
+  };
+}
+
 export const builderVersionHistorySchema = z
   .array(builderVersionEntrySchema)
   .default([]);
@@ -609,7 +897,7 @@ export function createDefaultBuilderConfig(
   ];
 
   return {
-    version: 1,
+    version: CURRENT_BUILDER_CONFIG_VERSION,
     updatedAt: timestamp,
     mediaLibrary,
     pages: {},
@@ -1026,23 +1314,24 @@ function createCisecoHomePageConfig(): WebsiteBuilderPageConfig {
   const sections: WebsiteBuilderSection[] = [
     createCisecoHeroSection({
       id: "ciseco-home-hero",
-      eyebrow: "Handpicked trend",
-      title: "Exclusive collection for everyone",
+      eyebrow: "Flexible starter template",
+      title: "A neutral homepage for any business",
       subtitle:
-        "Discover fresh styles and everyday essentials curated for every mood. Lorem ipsum dolor sit amet.",
-      description: "Trusted by 32k+ shoppers worldwide",
+        "Use this clean starting point to showcase products, services, or content without being locked to a specific niche.",
+      description:
+        "Designed to adapt across catalogs, services, and content-led sites",
       layout: "home-hero",
       items: heroBadges,
       buttons: [
         {
           id: "ciseco-home-hero-primary",
-          label: "Explore now",
+          label: "Get started",
           href: "#",
           style: "primary",
         },
         {
           id: "ciseco-home-hero-secondary",
-          label: "See deals",
+          label: "See sections",
           href: "#",
           style: "ghost",
         },
@@ -1051,8 +1340,8 @@ function createCisecoHomePageConfig(): WebsiteBuilderPageConfig {
     {
       id: "ciseco-home-discovery",
       type: "services",
-      title: "Good things are waiting for you",
-      subtitle: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+      title: "Adaptable blocks for a clean start",
+      subtitle: "Neutral placeholder content keeps the layout reusable across industries.",
       description: null,
       eyebrow: "Discover more",
       layout: "discovery",
@@ -1066,10 +1355,11 @@ function createCisecoHomePageConfig(): WebsiteBuilderPageConfig {
     {
       id: "ciseco-home-new-arrivals",
       type: "products",
-      title: "Fresh drops for the week",
-      subtitle: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+      title: "Fresh placeholder cards",
+      subtitle:
+        "A clean set of reusable sample items ready to be replaced with real catalog content.",
       description: null,
-      eyebrow: "New arrivals",
+      eyebrow: "Latest additions",
       layout: "new-arrivals",
       animation: "fade",
       visible: true,
@@ -1088,8 +1378,8 @@ function createCisecoHomePageConfig(): WebsiteBuilderPageConfig {
     {
       id: "ciseco-home-features",
       type: "services",
-      title: "Shopping essentials",
-      subtitle: "Highlights that make every purchase easy.",
+      title: "Helpful building blocks",
+      subtitle: "Highlights that keep the default experience clean and flexible.",
       description: null,
       eyebrow: null,
       layout: "features",
@@ -1103,11 +1393,11 @@ function createCisecoHomePageConfig(): WebsiteBuilderPageConfig {
     {
       id: "ciseco-home-promo",
       type: "promo",
-      title: "Earn free money with Ciseco",
+      title: "Built for a wide range of use cases",
       subtitle: null,
       description:
-        "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Proin gravida, nibh vel commodo posuere, neque sapien.",
-      eyebrow: "Earn free money",
+        "Use this banner to highlight a feature, offer, announcement, or supporting message with neutral placeholder content.",
+      eyebrow: "Flexible callout",
       layout: "home-promo",
       animation: "fade",
       visible: true,
@@ -1126,8 +1416,8 @@ function createCisecoHomePageConfig(): WebsiteBuilderPageConfig {
     {
       id: "ciseco-home-categories",
       type: "categories",
-      title: "Explore categories",
-      subtitle: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+      title: "Browse key categories",
+      subtitle: "A neutral category grid for products, services, or content.",
       description: null,
       eyebrow: "Start exploring",
       layout: "explore",
@@ -1146,10 +1436,11 @@ function createCisecoHomePageConfig(): WebsiteBuilderPageConfig {
     {
       id: "ciseco-home-best-sellers",
       type: "products",
-      title: "Best sellers of the month",
-      subtitle: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+      title: "Best sellers",
+      subtitle:
+        "Use this section for high-visibility items, featured offers, or important listings.",
       description: null,
-      eyebrow: "Best sellers",
+      eyebrow: "Top picks",
       layout: "best-sellers",
       animation: "fade",
       visible: true,
@@ -1161,10 +1452,11 @@ function createCisecoHomePageConfig(): WebsiteBuilderPageConfig {
     {
       id: "ciseco-home-kids-promo",
       type: "promo",
-      title: "Special offer in kids products",
-      subtitle: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+      title: "Highlight an announcement or offer",
+      subtitle:
+        "This banner works for seasonal messages, launches, or any temporary spotlight.",
       description: null,
-      eyebrow: "Special offer",
+      eyebrow: "Featured highlight",
       layout: "kids-banner",
       animation: "fade",
       visible: true,
@@ -1174,7 +1466,7 @@ function createCisecoHomePageConfig(): WebsiteBuilderPageConfig {
       buttons: [
         {
           id: "ciseco-home-kids-cta",
-          label: "Shop kids",
+          label: "Learn more",
           href: "#",
           style: "primary",
         },
@@ -1183,10 +1475,10 @@ function createCisecoHomePageConfig(): WebsiteBuilderPageConfig {
     {
       id: "ciseco-home-featured-products",
       type: "products",
-      title: "Featured for your wishlist",
-      subtitle: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+      title: "Shopping essentials",
+      subtitle: "Use this area to surface important items, launches, or offers.",
       description: null,
-      eyebrow: "Featured products",
+      eyebrow: "Featured",
       layout: "featured",
       animation: "fade",
       visible: true,
@@ -1203,9 +1495,10 @@ function createCisecoHomePageConfig(): WebsiteBuilderPageConfig {
       id: "ciseco-home-favorites",
       type: "products",
       title: "Find your favorite products",
-      subtitle: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+      subtitle:
+        "Filter neutral sample entries to preview how grouped content will appear.",
       description: null,
-      eyebrow: "Find your favorite",
+      eyebrow: "Browse by category",
       layout: "favorites",
       animation: "fade",
       visible: true,
@@ -1228,10 +1521,10 @@ function createCisecoHomePageConfig(): WebsiteBuilderPageConfig {
     {
       id: "ciseco-home-departments",
       type: "gallery",
-      title: "Explore the absolute",
-      subtitle: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+      title: "Explore example groupings",
+      subtitle: "Organize content into flexible groups that work for any business.",
       description: null,
-      eyebrow: "Shop by department",
+      eyebrow: "Browse sections",
       layout: "departments",
       animation: "fade",
       visible: true,
@@ -1243,10 +1536,10 @@ function createCisecoHomePageConfig(): WebsiteBuilderPageConfig {
     {
       id: "ciseco-home-blog",
       type: "content",
-      title: "From the Ciseco blog",
-      subtitle: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+      title: "Stories, notes, and ideas",
+      subtitle: "Use this area for announcements, guides, or editorial content.",
       description: null,
-      eyebrow: "Our latest news",
+      eyebrow: "Latest updates",
       layout: "home-blog",
       animation: "fade",
       visible: true,
@@ -1259,9 +1552,9 @@ function createCisecoHomePageConfig(): WebsiteBuilderPageConfig {
       id: "ciseco-home-testimonials",
       type: "testimonials",
       title: "People love our products",
-      subtitle: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+      subtitle: "Neutral testimonials make it easy to preview social proof placement.",
       description: null,
-      eyebrow: "Good news from far away",
+      eyebrow: "What people are saying",
       layout: "home-testimonials",
       animation: "fade",
       visible: true,
@@ -1272,7 +1565,12 @@ function createCisecoHomePageConfig(): WebsiteBuilderPageConfig {
     },
   ];
 
-  return createCisecoPageConfig(sections);
+  return createCisecoPageConfig(
+    sections.map((section) => ({
+      ...section,
+      visible: CISECO_DEFAULT_HOME_VISIBLE_LAYOUTS.has(section.layout),
+    })),
+  );
 }
 
 function createCisecoAboutPageConfig(): WebsiteBuilderPageConfig {
@@ -1424,6 +1722,345 @@ function createCisecoSimplePageConfig(options: {
       description: options.description ?? null,
       layout: "page-hero",
     }),
+  ]);
+}
+
+function createCisecoContactPromoSection(): WebsiteBuilderSection {
+  return {
+    id: "ciseco-contact-promo",
+    type: "promo",
+    title: "Need help choosing the right collection?",
+    subtitle: "Answer a few questions and we will guide you to the best fit.",
+    description:
+      "Use this block for reassurance, a campaign, or a support CTA near the contact form.",
+    eyebrow: "Support spotlight",
+    layout: "banner",
+    animation: "fade",
+    visible: true,
+    mediaId: null,
+    secondaryMediaId: null,
+    items: [],
+    buttons: [
+      {
+        id: "ciseco-contact-promo-primary",
+        label: "Browse collections",
+        href: "/collections",
+        style: "primary",
+      },
+    ],
+  };
+}
+
+function createCisecoBlogAdsSection(): WebsiteBuilderSection {
+  return {
+    id: "ciseco-blog-ads",
+    type: "content",
+    title: null,
+    subtitle: null,
+    description: null,
+    eyebrow: "A.D.S",
+    layout: "blog-ads",
+    animation: "fade",
+    visible: true,
+    mediaId: null,
+    secondaryMediaId: null,
+    items: [],
+    buttons: [],
+  };
+}
+
+function createCisecoBlogPromoSection(): WebsiteBuilderSection {
+  return {
+    id: "ciseco-blog-promo",
+    type: "promo",
+    title: "Special offer in kids products",
+    subtitle: null,
+    description:
+      "Fashion is a form of self-expression and autonomy at a particular period and place.",
+    eyebrow: "Special offer",
+    layout: "blog-promo",
+    animation: "fade",
+    visible: true,
+    mediaId: null,
+    secondaryMediaId: null,
+    items: [],
+    buttons: [
+      {
+        id: "ciseco-blog-promo-primary",
+        label: "Discover more",
+        href: "#",
+        style: "primary",
+      },
+    ],
+  };
+}
+
+function createCisecoBlogPageConfig(): WebsiteBuilderPageConfig {
+  return createCisecoPageConfig([
+    createCisecoHeroSection({
+      id: "ciseco-blog-hero",
+      title: "Journal",
+      subtitle: "Suivez nos dernières actualités et inspirations.",
+      layout: "page-hero",
+    }),
+    {
+      id: "ciseco-blog-featured",
+      type: "content",
+      title: "Featured story",
+      subtitle: "Lead with the editorial piece you want everyone to discover first.",
+      description: null,
+      eyebrow: "Editor’s pick",
+      layout: "blog-featured",
+      animation: "fade",
+      visible: true,
+      mediaId: null,
+      secondaryMediaId: null,
+      items: [
+        {
+          id: "ciseco-blog-featured-item-1",
+          title: "Graduation Dresses: A Style Guide",
+          description:
+            "Illo sint voluptates. Error voluptates culpa eligendi. Hic vel totam vitae illo. Non aliquid explicabo necessitatibus unde.",
+          tag: "Scott Wolkowski",
+          badge: "Mar 18, 2020",
+          href: "graduation-dresses-style-guide",
+          stats: [],
+        },
+      ],
+      buttons: [],
+    },
+    {
+      id: "ciseco-blog-mini",
+      type: "gallery",
+      title: "Supporting stories",
+      subtitle: "Shorter articles that sit next to the featured post.",
+      description: null,
+      eyebrow: null,
+      layout: "blog-mini",
+      animation: "fade",
+      visible: true,
+      mediaId: null,
+      secondaryMediaId: null,
+      items: [
+        {
+          id: "ciseco-blog-mini-item-1",
+          title: "How To Wear Your Eid Pieces All Year Long",
+          description:
+            "Illo sint voluptates. Error voluptates culpa eligendi. Hic vel totam vitae illo. Non aliquid explicabo necessitatibus...",
+          tag: "Erica Alexander",
+          badge: "Mar 16, 2020",
+          href: "eid-pieces-all-year",
+          stats: [],
+        },
+        {
+          id: "ciseco-blog-mini-item-2",
+          title: "The Must-Have Hijabi Friendly Fabrics For 2024",
+          description:
+            "Illo sint voluptates. Error voluptates culpa eligendi. Hic vel totam vitae illo. Non aliquid explicabo necessitatibus...",
+          tag: "Willie Edwards",
+          badge: "Mar 18, 2020",
+          href: "hijabi-friendly-fabrics-2024",
+          stats: [],
+        },
+        {
+          id: "ciseco-blog-mini-item-3",
+          title: "The Hijabi Friendly Fabrics For 2025",
+          description:
+            "Illo sint voluptates. Error voluptates culpa eligendi. Hic vel totam vitae illo. Non aliquid explicabo necessitatibus...",
+          tag: "Alex Klein",
+          badge: "Mar 18, 2020",
+          href: "hijabi-friendly-fabrics-2025",
+          stats: [],
+        },
+      ],
+      buttons: [],
+    },
+    createCisecoBlogAdsSection(),
+    {
+      id: "ciseco-blog-latest",
+      type: "content",
+      title: "Latest articles",
+      subtitle: "Control the cards shown in the article grid.",
+      description: null,
+      eyebrow: null,
+      layout: "blog-latest",
+      animation: "fade",
+      visible: true,
+      mediaId: null,
+      secondaryMediaId: null,
+      items: [
+        {
+          id: "ciseco-blog-latest-item-1",
+          title: "Graduation Dresses: A Style Guide",
+          description:
+            "Illo sint voluptates. Error voluptates culpa eligendi. Hic vel totam vitae illo. Non aliquid explicabo necessitatibus...",
+          tag: "Scott Wolkowski",
+          badge: "Mar 18, 2020",
+          href: "graduation-dresses-style-guide",
+          stats: [],
+        },
+        {
+          id: "ciseco-blog-latest-item-2",
+          title: "How to Wear Your Eid Pieces All Year Long",
+          description:
+            "Illo sint voluptates. Error voluptates culpa eligendi. Hic vel totam vitae illo. Non aliquid explicabo necessitatibus...",
+          tag: "Erica Alexander",
+          badge: "Mar 16, 2020",
+          href: "eid-pieces-all-year",
+          stats: [],
+        },
+        {
+          id: "ciseco-blog-latest-item-3",
+          title: "The Must-Have Hijabi Friendly Fabrics for 2024",
+          description:
+            "Illo sint voluptates. Error voluptates culpa eligendi. Hic vel totam vitae illo. Non aliquid explicabo necessitatibus...",
+          tag: "Willie Edwards",
+          badge: "Mar 18, 2020",
+          href: "hijabi-friendly-fabrics-2024",
+          stats: [],
+        },
+        {
+          id: "ciseco-blog-latest-item-4",
+          title: "The Hijabi Friendly Fabrics for 2025",
+          description:
+            "Illo sint voluptates. Error voluptates culpa eligendi. Hic vel totam vitae illo. Non aliquid explicabo necessitatibus...",
+          tag: "Alex Klein",
+          badge: "Mar 18, 2020",
+          href: "hijabi-friendly-fabrics-2025",
+          stats: [],
+        },
+        {
+          id: "ciseco-blog-latest-item-5",
+          title: "Boost your conversion rate",
+          description:
+            "Illo sint voluptates. Error voluptates culpa eligendi. Hic vel totam vitae illo. Non aliquid explicabo necessitatibus...",
+          tag: "Edon Brich",
+          badge: "Mar 18, 2020",
+          href: "boost-conversion-rate",
+          stats: [],
+        },
+        {
+          id: "ciseco-blog-latest-item-6",
+          title: "Graduation Dresses: A Style Guide",
+          description:
+            "Illo sint voluptates. Error voluptates culpa eligendi. Hic vel totam vitae illo. Non aliquid explicabo necessitatibus...",
+          tag: "Scott Wolkowski",
+          badge: "Mar 18, 2020",
+          href: "graduation-dresses-style-guide-2",
+          stats: [],
+        },
+      ],
+      buttons: [],
+    },
+    createCisecoBlogPromoSection(),
+  ]);
+}
+
+function createCisecoBlogDetailPageConfig(): WebsiteBuilderPageConfig {
+  return createCisecoPageConfig([
+    createCisecoHeroSection({
+      id: "ciseco-blog-detail-hero",
+      title: "Graduation Dresses: A Style Guide",
+      subtitle:
+        "Illo sint voluptates. Error voluptates culpa eligendi. Hic vel totam vitae illo. Non aliquid explicabo necessitatibus unde. Sed consequatur dolorem quisquam commodi dolores.",
+      description: null,
+      eyebrow: "Marketing",
+      layout: "page-hero",
+    }),
+    {
+      id: "ciseco-blog-detail-body",
+      type: "content",
+      title: "Article body",
+      subtitle: null,
+      description:
+        "Lorem ipsum dolor sit amet consectetur adipisicing elit. Illo vel voluptas ipsum placeat, ipsum quaerat neque doloribus eaque voluptate.",
+      eyebrow: null,
+      layout: "blog-body",
+      animation: "fade",
+      visible: true,
+      mediaId: null,
+      secondaryMediaId: null,
+      items: [
+        {
+          id: "ciseco-blog-detail-body-item-1",
+          title: "Typography should be easy",
+          description:
+            "So that’s another reason you’ll see why the UI doesn’t even come close to what we set out in this story.",
+          stats: [],
+        },
+        {
+          id: "ciseco-blog-detail-body-item-2",
+          title: "Code should look okay by default",
+          description:
+            "I think most people are going to use highlightjs or prism or something if they want to style their code blocks.",
+          stats: [],
+        },
+        {
+          id: "ciseco-blog-detail-body-item-3",
+          title: "We still need to think about stacked headings though",
+          description:
+            "Let’s also add a closing paragraph here so this can act as a decent sized block of text.",
+          stats: [],
+        },
+      ],
+      buttons: [],
+    },
+    {
+      id: "ciseco-blog-detail-related",
+      type: "content",
+      title: "Related posts",
+      subtitle: "Choose the stories highlighted below the article.",
+      description: null,
+      eyebrow: null,
+      layout: "blog-related",
+      animation: "fade",
+      visible: true,
+      mediaId: null,
+      secondaryMediaId: null,
+      items: [
+        {
+          id: "ciseco-blog-detail-related-item-1",
+          title: "Graduation Dresses: A Style Guide",
+          description:
+            "Illo sint voluptates. Error voluptates culpa eligendi. Hic vel totam vitae illo.",
+          tag: "Scott Wolkowski",
+          badge: "Mar 18, 2020",
+          href: "graduation-dresses-style-guide",
+          stats: [],
+        },
+        {
+          id: "ciseco-blog-detail-related-item-2",
+          title: "How to Wear Your Eid Pieces All Year Long",
+          description:
+            "Illo sint voluptates. Error voluptates culpa eligendi. Hic vel totam vitae illo.",
+          tag: "Erica Alexander",
+          badge: "Mar 16, 2020",
+          href: "eid-pieces-all-year",
+          stats: [],
+        },
+        {
+          id: "ciseco-blog-detail-related-item-3",
+          title: "The Must-Have Hijabi Friendly Fabrics for 2024",
+          description:
+            "Illo sint voluptates. Error voluptates culpa eligendi. Hic vel totam vitae illo.",
+          tag: "Willie Edwards",
+          badge: "Mar 16, 2020",
+          href: "hijabi-friendly-fabrics-2024",
+          stats: [],
+        },
+        {
+          id: "ciseco-blog-detail-related-item-4",
+          title: "The Hijabi Friendly Fabrics for 2025",
+          description:
+            "Illo sint voluptates. Error voluptates culpa eligendi. Hic vel totam vitae illo.",
+          tag: "Alex Klein",
+          badge: "Mar 16, 2020",
+          href: "hijabi-friendly-fabrics-2025",
+          stats: [],
+        },
+      ],
+      buttons: [],
+    },
   ]);
 }
 
@@ -1608,16 +2245,8 @@ function createCisecoPageDefaults(): Record<CisecoPageKey, WebsiteBuilderPageCon
     title: "Contact",
     subtitle: "Nous sommes disponibles pour répondre à vos questions.",
   });
-  basePages.blog = createCisecoSimplePageConfig({
-    id: "ciseco-blog-hero",
-    title: "Journal",
-    subtitle: "Suivez nos dernières actualités et inspirations.",
-  });
-  basePages["blog-detail"] = createCisecoSimplePageConfig({
-    id: "ciseco-blog-detail-hero",
-    title: "Article",
-    subtitle: "Racontez l’histoire derrière vos collections.",
-  });
+  basePages.blog = createCisecoBlogPageConfig();
+  basePages["blog-detail"] = createCisecoBlogDetailPageConfig();
   basePages.collections = createCisecoSimplePageConfig({
     id: "ciseco-collections-hero",
     title: "Collections",
@@ -1688,6 +2317,258 @@ function createCisecoPageDefaults(): Record<CisecoPageKey, WebsiteBuilderPageCon
   return basePages;
 }
 
+const CISECO_SECTION_TEMPLATE_META: Record<
+  string,
+  { label: string; description?: string }
+> = {
+  "ciseco-home-hero": { label: "Hero" },
+  "ciseco-home-discovery": { label: "Discovery" },
+  "ciseco-home-new-arrivals": { label: "New arrivals" },
+  "ciseco-home-features": { label: "Shopping essentials" },
+  "ciseco-home-promo": { label: "Promo banner" },
+  "ciseco-home-categories": { label: "Explore categories" },
+  "ciseco-home-best-sellers": { label: "Best sellers" },
+  "ciseco-home-kids-promo": { label: "Kids promo banner" },
+  "ciseco-home-featured-products": { label: "Shopping essentials" },
+  "ciseco-home-favorites": { label: "Find your favorite products" },
+  "ciseco-home-departments": { label: "Departments" },
+  "ciseco-home-blog": { label: "Blog" },
+  "ciseco-home-testimonials": { label: "People love our products" },
+  "ciseco-about-hero": { label: "Hero" },
+  "ciseco-founders": { label: "Founders" },
+  "ciseco-fast-facts": { label: "Fast facts" },
+  "ciseco-testimonials": { label: "Testimonials" },
+  "ciseco-promo": { label: "Promo banner" },
+  "ciseco-contact-hero": { label: "Hero" },
+  "ciseco-contact-promo": { label: "Support promo" },
+  "ciseco-blog-hero": { label: "Hero" },
+  "ciseco-blog-featured": { label: "Featured story" },
+  "ciseco-blog-mini": { label: "Supporting stories" },
+  "ciseco-blog-ads": { label: "Ads banner" },
+  "ciseco-blog-latest": { label: "Latest articles" },
+  "ciseco-blog-promo": { label: "Promo banner" },
+  "ciseco-blog-detail-hero": { label: "Hero" },
+  "ciseco-blog-detail-body": { label: "Article body" },
+  "ciseco-blog-detail-related": { label: "Related posts" },
+  "ciseco-product-hero": { label: "Hero" },
+  "ciseco-product-gallery": { label: "Product gallery" },
+  "ciseco-product-options": { label: "Product options" },
+  "ciseco-product-description": { label: "Description" },
+  "ciseco-product-reviews": { label: "Reviews" },
+  "ciseco-product-related": { label: "Related products" },
+  "ciseco-product-banner": { label: "Promo banner" },
+};
+
+function buildCisecoOptionalPageSections(): Partial<
+  Record<CisecoPageKey, WebsiteBuilderSection[]>
+> {
+  return {
+    contact: [createCisecoContactPromoSection()],
+  };
+}
+
+function getCisecoSectionTemplateMeta(section: WebsiteBuilderSection) {
+  return (
+    CISECO_SECTION_TEMPLATE_META[section.id] ?? {
+      label: section.title?.trim() || section.layout || section.type,
+    }
+  );
+}
+
+function isMatchingCisecoTemplateSection(
+  section: WebsiteBuilderSection,
+  templateSection: WebsiteBuilderSection,
+) {
+  return (
+    section.id === templateSection.id ||
+    (section.type === templateSection.type &&
+      section.layout === templateSection.layout)
+  );
+}
+
+let cisecoPageSectionCatalogCache: Record<
+  CisecoPageKey,
+  CisecoPageSectionCatalog
+> | null = null;
+
+function buildCisecoPageSectionCatalogs(): Record<
+  CisecoPageKey,
+  CisecoPageSectionCatalog
+> {
+  const defaults = createCisecoPageDefaults();
+  const optionalSections = buildCisecoOptionalPageSections();
+
+  return Object.fromEntries(
+    CISECO_PAGE_DEFINITIONS.map((entry) => {
+      const defaultSections = defaults[entry.key]?.sections ?? [];
+      const optional = optionalSections[entry.key] ?? [];
+      const presets = [...defaultSections, ...optional].map((section) => {
+        const meta = getCisecoSectionTemplateMeta(section);
+        return createCisecoSectionTemplateDefinition(
+          section.id,
+          meta.label,
+          section,
+          {
+            description: meta.description,
+            singleton: true,
+            includedByDefault: defaultSections.some(
+              (defaultSection) => defaultSection.id === section.id,
+            ),
+          },
+        );
+      });
+      return [
+        entry.key,
+        {
+          presets,
+          genericSectionTypes: createGenericSectionTypes(),
+        } satisfies CisecoPageSectionCatalog,
+      ];
+    }),
+  ) as Record<CisecoPageKey, CisecoPageSectionCatalog>;
+}
+
+export function getCisecoPageSectionCatalog(
+  pageKey: CisecoPageKey,
+): CisecoPageSectionCatalog {
+  if (!cisecoPageSectionCatalogCache) {
+    cisecoPageSectionCatalogCache = buildCisecoPageSectionCatalogs();
+  }
+  const catalog = cisecoPageSectionCatalogCache[pageKey];
+  return {
+    presets: catalog.presets.map((preset) => ({
+      ...preset,
+      section: cloneBuilderSection(preset.section),
+    })),
+    genericSectionTypes: [...catalog.genericSectionTypes],
+  };
+}
+
+export function resolveCisecoSectionTemplate(
+  pageKey: CisecoPageKey,
+  section: WebsiteBuilderSection,
+): CisecoPageSectionTemplate | null {
+  const catalog = getCisecoPageSectionCatalog(pageKey);
+  return catalog.presets.find((preset) => section.id === preset.section.id) ?? null;
+}
+
+export function createCisecoSectionFromTemplate(
+  pageKey: CisecoPageKey,
+  templateKey: string,
+): WebsiteBuilderSection | null {
+  const catalog = getCisecoPageSectionCatalog(pageKey);
+  const preset = catalog.presets.find((entry) => entry.key === templateKey);
+  return preset ? cloneBuilderSection(preset.section) : null;
+}
+
+function mergeMissingCisecoDefaultSections(
+  page: WebsiteBuilderPageConfig,
+  defaultPage: WebsiteBuilderPageConfig,
+): WebsiteBuilderPageConfig {
+  const matchedSectionIds = new Set<string>();
+  let changed = false;
+
+  const mergedDefaults = defaultPage.sections.map((defaultSection) => {
+    const existing = page.sections.find((section) =>
+      isMatchingCisecoTemplateSection(section, defaultSection),
+    );
+    if (existing) {
+      matchedSectionIds.add(existing.id);
+      return existing;
+    }
+    changed = true;
+    return cloneBuilderSection(defaultSection);
+  });
+
+  if (!changed) {
+    return page;
+  }
+
+  const extras = page.sections.filter((section) => !matchedSectionIds.has(section.id));
+  return {
+    ...page,
+    sections: [...mergedDefaults, ...extras],
+  };
+}
+
+function migrateLegacyCisecoPageSync(
+  config: WebsiteBuilderConfig,
+  defaults: Record<CisecoPageKey, WebsiteBuilderPageConfig>,
+): WebsiteBuilderConfig {
+  if (config.version >= CISECO_PAGE_SYNC_VERSION) {
+    return config;
+  }
+
+  const nextPages = { ...config.pages };
+  let changed = false;
+
+  for (const pageKey of ["blog", "blog-detail"] satisfies CisecoPageKey[]) {
+    const page = nextPages[pageKey];
+    const defaultPage = defaults[pageKey];
+    if (!page || !defaultPage) {
+      continue;
+    }
+    const mergedPage = mergeMissingCisecoDefaultSections(page, defaultPage);
+    if (mergedPage !== page) {
+      nextPages[pageKey] = mergedPage;
+      changed = true;
+    }
+  }
+
+  if (!changed) {
+    return config;
+  }
+
+  return {
+    ...config,
+    version: CISECO_PAGE_SYNC_VERSION,
+    pages: nextPages,
+  };
+}
+
+export function resolveCisecoBuilderPageConfig(
+  builder: WebsiteBuilderConfig | null | undefined,
+  pageKey: string,
+): WebsiteBuilderPageConfig | null {
+  if (!builder) return null;
+
+  const normalized = ensureCisecoPageConfigs(builder);
+  const pages = normalized.pages ?? {};
+
+  if (pages[pageKey]) {
+    return pages[pageKey] ?? null;
+  }
+
+  const matchingDefinition = CISECO_PAGE_DEFINITIONS.find(
+    (entry) => entry.key === pageKey,
+  );
+  if (matchingDefinition) {
+    const defaults = createCisecoPageDefaults();
+    return cloneBuilderPageConfig(defaults[matchingDefinition.key]);
+  }
+
+  const fallbackPage = pages.home ?? Object.values(pages)[0];
+  if (fallbackPage) {
+    return fallbackPage;
+  }
+
+  return {
+    sections: normalized.sections ?? [],
+    mediaLibrary: normalized.mediaLibrary ?? [],
+    seo: {},
+  };
+}
+
+export function normalizeBuilderConfigForTemplate(
+  config: WebsiteBuilderConfig,
+  templateKey: string | null | undefined,
+): WebsiteBuilderConfig {
+  if (templateKey === "ecommerce-ciseco-home") {
+    return ensureCisecoPageConfigs(config);
+  }
+  return config;
+}
+
 export function ensureCisecoPageConfigs(
   config: WebsiteBuilderConfig,
   options?: { override?: boolean },
@@ -1716,8 +2597,20 @@ export function ensureCisecoPageConfigs(
     ...(config.pages ?? {}),
     ...(migratedPages as Record<CisecoPageKey, WebsiteBuilderPageConfig>),
   };
+  const normalizedConfig = migrateLegacyCisecoHomePage(
+    {
+      ...config,
+      pages: nextPages,
+    },
+    defaults,
+  );
+  const syncedConfig = migrateLegacyCisecoPageSync(normalizedConfig, defaults);
+  const resolvedPages = syncedConfig.pages as Record<
+    CisecoPageKey,
+    WebsiteBuilderPageConfig
+  >;
 
-  const productPage = nextPages.product;
+  const productPage = resolvedPages.product;
   if (productPage) {
     const hasProductLayouts = productPage.sections.some((section) => {
       if (section.layout?.startsWith("product-")) {
@@ -1726,7 +2619,7 @@ export function ensureCisecoPageConfigs(
       return section.id.startsWith("ciseco-product-") && section.id !== "ciseco-product-hero";
     });
     if (!hasProductLayouts && defaultProductSections.length) {
-      nextPages.product = {
+      resolvedPages.product = {
         ...productPage,
         sections: [...productPage.sections, ...defaultProductSections],
       };
@@ -1735,8 +2628,8 @@ export function ensureCisecoPageConfigs(
 
   if (!override && hasPages) {
     return {
-      ...config,
-      pages: nextPages,
+      ...syncedConfig,
+      pages: resolvedPages,
       sections: shouldMigrate ? [] : config.sections,
       mediaLibrary: shouldMigrate ? [] : config.mediaLibrary,
     };
@@ -1744,16 +2637,16 @@ export function ensureCisecoPageConfigs(
 
   if (override) {
     return {
-      ...config,
-      pages: nextPages,
+      ...syncedConfig,
+      pages: resolvedPages,
       sections: [],
       mediaLibrary: [],
     };
   }
 
   return {
-    ...config,
-    pages: nextPages,
+    ...syncedConfig,
+    pages: resolvedPages,
     sections: shouldMigrate ? [] : config.sections,
     mediaLibrary: shouldMigrate ? [] : config.mediaLibrary,
   };

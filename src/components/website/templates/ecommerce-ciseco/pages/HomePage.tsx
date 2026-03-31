@@ -24,7 +24,7 @@ type HomePageProps = {
 // Smoke test checklist:
 // - Home renders tenant products with TND prices.
 // - Product card click opens the detail route.
-// - Add to bag stores items in the cart.
+// - Add to cart stores items in the cart.
 // - Category tabs filter products and show empty states.
 export function HomePage({
   theme,
@@ -79,34 +79,15 @@ export function HomePage({
     },
     [fallbackProducts],
   );
-  const shouldUseTemplateFallback = useCallback(
-    (source: ReturnType<typeof buildHomeProducts>) =>
-      source.length === 0 ||
-      !source.some((product) =>
-        /(women|men|kids|beauty|sport|home|accessories|collection|femme|homme|maison|beaute)/i.test(
-          product.category,
-        ),
-      ),
-    [],
-  );
   const homeProducts = useMemo(
     () => {
       const mapped = buildHomeProducts({
         products: productSource,
         showPrices,
       });
-      return normalizeProductCount(
-        shouldUseTemplateFallback(mapped) ? fallbackProducts : mapped,
-        12,
-      );
+      return normalizeProductCount(mapped.length ? mapped : fallbackProducts, 12);
     },
-    [
-      fallbackProducts,
-      normalizeProductCount,
-      productSource,
-      shouldUseTemplateFallback,
-      showPrices,
-    ],
+    [fallbackProducts, normalizeProductCount, productSource, showPrices],
   );
   const featuredProducts = useMemo(
     () => {
@@ -114,18 +95,9 @@ export function HomePage({
         products: featuredSource,
         showPrices,
       });
-      return normalizeProductCount(
-        shouldUseTemplateFallback(mapped) ? fallbackProducts : mapped,
-        8,
-      );
+      return normalizeProductCount(mapped.length ? mapped : fallbackProducts, 8);
     },
-    [
-      fallbackProducts,
-      featuredSource,
-      normalizeProductCount,
-      shouldUseTemplateFallback,
-      showPrices,
-    ],
+    [fallbackProducts, featuredSource, normalizeProductCount, showPrices],
   );
   return (
     <PageShell inlineStyles={inlineStyles}>

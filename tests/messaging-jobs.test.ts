@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { __testables as messagingJobsTestables } from "@/server/messaging-jobs";
 import { __testables as messagingTestables } from "@/server/messaging";
 import type { MailboxListItem } from "@/server/messaging";
@@ -57,6 +57,57 @@ describe("messaging job scheduler", () => {
     const c = computeSlotKey(new Date("2025-05-01T10:01:01Z"), 60_000);
     expect(a).toBe(b);
     expect(c).not.toBe(a);
+  });
+
+  it("keeps local-sync work out of the email automation cron scope", async () => {
+    const { EMAIL_CRON_JOB_TYPES, runMessagingCronTickWithRuntime } =
+      messagingJobsTestables;
+    const processJobQueue = vi.fn(async () => ({
+      processed: 0,
+      completed: 0,
+      failed: 0,
+      retried: 0,
+      skipped: 0,
+      details: [],
+    }));
+    const runtime = {
+      enqueueJob: vi.fn(async ({ type }: { type: string }) => ({
+        deduped: false,
+        job: {
+          id: `job-${type}`,
+        },
+      })),
+      processJobQueue,
+      runScheduledEmailDispatchCycle: vi.fn(),
+      runAutomatedReplySweepForUser: vi.fn(),
+      isMessagingLocalSyncServerEnabled: vi.fn(() => true),
+      getMessagingLocalSyncPreference: vi.fn(async () => true),
+      listMessagingMailboxLocalSyncStates: vi.fn(),
+      syncMessagingMailboxToLocal: vi.fn(),
+      syncMessagingMailboxesToLocal: vi.fn(),
+      purgeMessagingLocalSyncData: vi.fn(),
+      findAutoReplyCandidates: vi.fn(async () => []),
+      findEnabledLocalSyncUsers: vi.fn(async () => ["tenant-a"]),
+      findLocalSyncStatesForUsers: vi.fn(async () => []),
+      findUsersWithLocalSyncData: vi.fn(async () => []),
+      findLocalSyncSettings: vi.fn(async () => []),
+    };
+
+    const result = await runMessagingCronTickWithRuntime(
+      new Date("2026-03-31T09:20:00.000Z"),
+      runtime as never,
+      "email",
+    );
+
+    expect(result.scope).toBe("email");
+    expect(result.scheduled.localSync).toBeUndefined();
+    expect(runtime.findEnabledLocalSyncUsers).not.toHaveBeenCalled();
+    expect(processJobQueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        maxJobs: 25,
+        allowedTypes: EMAIL_CRON_JOB_TYPES,
+      }),
+    );
   });
 });
 

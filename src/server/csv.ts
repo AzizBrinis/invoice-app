@@ -19,6 +19,20 @@ function formatCsvValue(value: string | number | null | undefined) {
   return `"${sanitized}"`;
 }
 
+function buildCsvString<T extends CsvRow>(
+  headers: CsvHeader<T>[],
+  rows: T[],
+) {
+  const headerRow = headers.map((header) => header.label).join(";");
+  const body = rows.map((row) =>
+    headers
+      .map(({ key }) => formatCsvValue(row[key]))
+      .join(";"),
+  );
+
+  return [headerRow, ...body].join("\n");
+}
+
 function streamCsv<T extends CsvRow>(
   headers: CsvHeader<T>[],
   getRowIterator: () => AsyncGenerator<T, void, void>,
@@ -132,6 +146,33 @@ async function* clientRows(userId: string) {
 export async function exportClientsCsv() {
   const { id: userId } = await requireUser();
   return streamCsv<ClientCsvRow>(clientHeaders, () => clientRows(userId));
+}
+
+export function exportClientImportSampleCsv() {
+  return buildCsvString<ClientCsvRow>(clientHeaders.slice(0, 8), [
+    {
+      name: "Sophie Ben Salah",
+      company: "Atlas Conseil",
+      email: "sophie@atlas.tn",
+      phone: "+216 22 333 444",
+      vat: "TN1234567A",
+      address: "12 rue du Lac, Tunis",
+      active: "Actif",
+      notes: "Import exemple",
+      updatedAt: "",
+    },
+    {
+      name: "Maison Noura",
+      company: "",
+      email: "contact@maisonnoura.tn",
+      phone: "+216 71 555 777",
+      vat: "",
+      address: "Sousse",
+      active: "Inactif",
+      notes: "Client saisonnier",
+      updatedAt: "",
+    },
+  ]);
 }
 
 type ProductCsvRow = {

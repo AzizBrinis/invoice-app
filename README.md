@@ -19,6 +19,13 @@
 Consultez `DEPLOY.md` pour les instructions de mise en production sur Vercel.
 Le build déclenché par Vercel (`npm run vercel-build`) s’appuie sur `scripts/run-vercel-build.cjs`, qui exécute `prisma generate`, tente `prisma migrate deploy` puis `next build`, en sautant automatiquement l’étape migration si la base est momentanément injoignable (voir le détail dans `DEPLOY.md`).
 
+### Import CSV clients
+
+- La section **Clients** propose un import CSV avec un modèle téléchargeable directement depuis l’interface.
+- Colonnes reconnues : `Nom`, `Société`, `E-mail`, `Téléphone`, `TVA`, `Adresse`, `Statut`, `Notes`.
+- L’import reste scoped au compte actif. Les lignes sont créées, mises à jour ou ignorées selon les doublons détectés (priorité à l’e-mail, puis à la TVA, puis aux correspondances exactes nom + société / téléphone).
+- Les champs vides n’écrasent pas les données existantes lors d’une mise à jour, et un résumé signale les lignes ignorées ou invalides.
+
 ### Base PostgreSQL locale via Docker
 
 Si vous n’avez pas accès au cluster Supabase (ou que le réseau est bloqué), vous pouvez utiliser la pile Docker fournie (`docker-compose.dev.yml`) pour lancer PostgreSQL + Mailpit en local :

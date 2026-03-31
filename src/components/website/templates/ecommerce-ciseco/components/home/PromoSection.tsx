@@ -20,15 +20,15 @@ export function PromoSection({
   section,
   mediaLibrary = [],
 }: PromoSectionProps) {
-  const eyebrow = section?.eyebrow ?? "Earn free money";
-  const title = section?.title ?? "Earn free money with Ciseco";
+  const eyebrow = section?.eyebrow ?? "Flexible callout";
+  const title = section?.title ?? "Built for a wide range of use cases";
   const description =
     section?.description ??
-    "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Proin gravida, nibh vel commodo posuere, neque sapien.";
+    "Use this banner to highlight a feature, offer, announcement, or supporting message with neutral placeholder content.";
   const cta = section?.buttons?.[0];
   const promoMedia = resolveBuilderMedia(section?.mediaId, mediaLibrary);
   const promoImage = promoMedia?.src ?? PROMO_IMAGE;
-  const promoAlt = promoMedia?.alt ?? "Promo illustration";
+  const promoAlt = promoMedia?.alt ?? "Promotional illustration";
   return (
     <Section
       theme={theme}

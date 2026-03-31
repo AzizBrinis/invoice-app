@@ -69,7 +69,7 @@ export function EcommerceCisecoHomeTemplate({
     "--ciseco-ink": "#0f172a",
     fontFamily: 'var(--font-geist-sans), "Sora", "DM Sans", sans-serif',
   };
-  const companyName = data.website.contact?.companyName || "Ciseco";
+  const companyName = data.website.contact?.companyName || "Your Brand";
   const page = resolvePage(path);
   const pageBuilder = resolveCisecoPageConfig(data.website.builder, page.page);
   const baseLink = (target: string) =>

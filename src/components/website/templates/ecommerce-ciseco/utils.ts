@@ -595,7 +595,7 @@ export function buildHomeProducts(options: {
 }): HomeProduct[] {
   if (!options.products.length) return [];
   return options.products.map((product, index) => {
-    const category = product.category?.trim() || "Collection";
+    const category = product.category?.trim() || "General";
     const rating = Math.max(4.3, 4.9 - index * 0.06);
     const unitPriceHTCents =
       product.saleMode === "INSTANT" ? product.priceHTCents : null;
@@ -622,7 +622,7 @@ export function buildHomeProducts(options: {
       rating: Number(rating.toFixed(1)),
       image: resolveProductImage(product, index),
       colors: SWATCH_PALETTES[index % SWATCH_PALETTES.length],
-      badge: index < 2 ? "New" : index === 2 ? "Hot" : undefined,
+      badge: index < 2 ? "New" : index === 2 ? "Featured" : undefined,
       slug: resolveProductSlug(product),
       saleMode: product.saleMode,
       unitAmountCents,

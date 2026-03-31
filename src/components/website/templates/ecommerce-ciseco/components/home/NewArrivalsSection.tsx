@@ -28,9 +28,11 @@ export function NewArrivalsSection({
 }: NewArrivalsSectionProps) {
   const items = products.length ? products.slice(0, 4) : [];
   const productHref = (slug: string) => baseLink(`/produit/${slug}`);
-  const eyebrow = "New Arrivals";
-  const title = "REY backpacks & bags";
-  const subtitle = "Perfectly made to carry your everyday essentials.";
+  const eyebrow = section?.eyebrow ?? "Latest additions";
+  const title = section?.title ?? "Fresh placeholder cards";
+  const subtitle =
+    section?.subtitle ??
+    "A clean set of reusable sample items ready to be replaced with real catalog content.";
   const cta = section?.buttons?.[0];
   return (
     <Section

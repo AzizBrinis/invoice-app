@@ -2,7 +2,10 @@ import clsx from "clsx";
 import type { CSSProperties } from "react";
 import type { WebsiteBuilderPageConfig, WebsiteBuilderSection } from "@/lib/website/builder";
 import type { ThemeTokens } from "../types";
-import { resolveBuilderMedia, resolveBuilderSection } from "../builder-helpers";
+import {
+  resolveBuilderMedia,
+  resolveBuilderSectionBySignature,
+} from "../builder-helpers";
 import { ExtraSections } from "../components/builder/ExtraSections";
 import { Reveal } from "../components/shared/Reveal";
 import { Footer } from "../components/layout/Footer";
@@ -204,12 +207,39 @@ export function BlogPage({
     Number.isFinite(parsedPage) && parsedPage > 0
       ? Math.min(parsedPage, totalPages)
       : 1;
+  const hasBuilder = Boolean(builder);
   const sections = builder?.sections ?? [];
   const mediaLibrary = builder?.mediaLibrary ?? [];
-  const heroSection = resolveBuilderSection(sections, "hero");
-  const featuredSection = resolveBuilderSection(sections, "content", "blog-featured");
-  const miniSection = resolveBuilderSection(sections, "gallery", "blog-mini");
-  const latestSection = resolveBuilderSection(sections, "content", "blog-latest");
+  const heroSection = resolveBuilderSectionBySignature(sections, {
+    ids: "ciseco-blog-hero",
+    type: "hero",
+    layouts: ["page-hero", "split"],
+  });
+  const featuredSection = resolveBuilderSectionBySignature(sections, {
+    ids: "ciseco-blog-featured",
+    type: "content",
+    layouts: "blog-featured",
+  });
+  const miniSection = resolveBuilderSectionBySignature(sections, {
+    ids: "ciseco-blog-mini",
+    type: "gallery",
+    layouts: "blog-mini",
+  });
+  const adsSection = resolveBuilderSectionBySignature(sections, {
+    ids: "ciseco-blog-ads",
+    type: "content",
+    layouts: "blog-ads",
+  });
+  const latestSection = resolveBuilderSectionBySignature(sections, {
+    ids: "ciseco-blog-latest",
+    type: "content",
+    layouts: "blog-latest",
+  });
+  const promoSection = resolveBuilderSectionBySignature(sections, {
+    ids: "ciseco-blog-promo",
+    type: "promo",
+    layouts: "blog-promo",
+  });
 
   const resolveArticle = (
     item: WebsiteBuilderPageConfig["sections"][number]["items"][number] | undefined,
@@ -251,9 +281,24 @@ export function BlogPage({
         resolveArticle(item, LATEST_ARTICLES[index] ?? FEATURED_POST, BLOG_AUTHORS.scott),
       )
     : LATEST_ARTICLES;
+  const showHero = Boolean(heroSection) || !hasBuilder;
+  const showFeatured = Boolean(featuredSection) || !hasBuilder;
+  const showMini = Boolean(miniSection) || !hasBuilder;
+  const showAds = Boolean(adsSection) || !hasBuilder;
+  const showLatest = Boolean(latestSection) || !hasBuilder;
+  const showPromo = Boolean(promoSection) || !hasBuilder;
   const heroSubtitle = heroSection?.subtitle ?? heroSection?.description ?? null;
+  const latestTitle = latestSection?.title ?? "Latest articles";
+  const promoImage = resolveBuilderMedia(promoSection?.mediaId, mediaLibrary);
+  const promoButtons =
+    promoSection?.buttons?.length
+      ? promoSection.buttons.map((button) => ({
+          label: button.label ?? "CTA",
+          href: button.href ?? "#",
+        }))
+      : null;
   const consumedIds = new Set(
-    [heroSection, featuredSection, miniSection, latestSection]
+    [heroSection, featuredSection, miniSection, adsSection, latestSection, promoSection]
       .filter((section): section is WebsiteBuilderSection => Boolean(section))
       .map((section) => section.id),
   );
@@ -267,92 +312,141 @@ export function BlogPage({
       <Navbar theme={theme} companyName={companyName} homeHref={homeHref} />
       <main className="pb-16">
         <section className={clsx(container, "pt-8 sm:pt-10 lg:pt-12")}>
-          {heroSection ? (
+          {showHero ? (
             <div
               className="mb-10 space-y-2"
-              data-builder-section={heroSection.id}
+              data-builder-section={heroSection?.id}
             >
-              {heroSection.eyebrow ? (
+              {heroSection?.eyebrow ? (
                 <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-600">
                   {heroSection.eyebrow}
                 </p>
               ) : null}
               <h1 className="text-3xl font-semibold text-slate-900 sm:text-4xl">
-                {heroSection.title ?? "Journal"}
+                {heroSection?.title ?? "Journal"}
               </h1>
               {heroSubtitle ? (
                 <p className="text-sm text-slate-600">{heroSubtitle}</p>
               ) : null}
             </div>
           ) : null}
-          <div className="grid gap-8 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
-            <Reveal delay={50}>
-              <FeaturedPost
-                post={featuredPost}
-                href={blogHref(featuredPost.slug)}
-              />
-            </Reveal>
-            <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_160px]">
-              <div className="space-y-6">
-                {miniPosts.map((post, index) => (
-                  <Reveal key={post.id} delay={100 + index * 80}>
-                    <MiniPost post={post} href={blogHref(post.slug)} />
-                  </Reveal>
-                ))}
-              </div>
-              <div className="hidden gap-4 lg:flex lg:flex-col">
-                {miniPosts.map((post) => (
-                  <a
-                    key={`${post.id}-image`}
-                    href={blogHref(post.slug)}
-                    className="group relative block aspect-[4/3] w-full overflow-hidden rounded-3xl bg-slate-100 shadow-sm transition hover:-translate-y-1 hover:shadow-lg"
-                  >
-                    <img
-                      src={post.image}
-                      alt={post.title}
-                      className="h-full w-full object-cover transition duration-500 ease-out group-hover:scale-[1.04]"
-                      loading="lazy"
+          {showFeatured || showMini ? (
+            <div
+              className={clsx(
+                "grid gap-8",
+                showFeatured && showMini
+                  ? "lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]"
+                  : "lg:grid-cols-1",
+              )}
+            >
+              {showFeatured ? (
+                <div data-builder-section={featuredSection?.id}>
+                  <Reveal delay={50}>
+                    <FeaturedPost
+                      post={featuredPost}
+                      href={blogHref(featuredPost.slug)}
                     />
-                  </a>
-                ))}
-              </div>
+                  </Reveal>
+                </div>
+              ) : null}
+              {showMini ? (
+                <div
+                  data-builder-section={miniSection?.id}
+                  className={clsx(
+                    "grid gap-6",
+                    showFeatured
+                      ? "lg:grid-cols-[minmax(0,1fr)_160px]"
+                      : "sm:grid-cols-2 xl:grid-cols-3",
+                  )}
+                >
+                  <div className="space-y-6">
+                    {miniPosts.map((post, index) => (
+                      <Reveal key={post.id} delay={100 + index * 80}>
+                        <MiniPost post={post} href={blogHref(post.slug)} />
+                      </Reveal>
+                    ))}
+                  </div>
+                  {showFeatured ? (
+                    <div className="hidden gap-4 lg:flex lg:flex-col">
+                      {miniPosts.map((post) => (
+                        <a
+                          key={`${post.id}-image`}
+                          href={blogHref(post.slug)}
+                          className="group relative block aspect-[4/3] w-full overflow-hidden rounded-3xl bg-slate-100 shadow-sm transition hover:-translate-y-1 hover:shadow-lg"
+                        >
+                          <img
+                            src={post.image}
+                            alt={post.title}
+                            className="h-full w-full object-cover transition duration-500 ease-out group-hover:scale-[1.04]"
+                            loading="lazy"
+                          />
+                        </a>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
-          </div>
+          ) : null}
         </section>
 
-        <section className={clsx(container, "mt-10 sm:mt-12")}>
-          <Reveal delay={120}>
-            <AdsBanner />
-          </Reveal>
-        </section>
-
-        <section className={clsx(container, "mt-12 sm:mt-14")}>
-          <div className="flex items-center gap-2">
-            <h2 className="text-lg font-semibold text-slate-900 sm:text-xl">
-              Latest articles
-            </h2>
-            <PinIcon className="h-4 w-4 text-rose-500" />
-          </div>
-          <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {latestPosts.map((post, index) => (
-              <Reveal key={post.id} delay={80 + index * 60}>
-                <ArticleCard post={post} href={blogHref(post.slug)} />
+        {showAds ? (
+          <section className={clsx(container, "mt-10 sm:mt-12")}>
+            <div data-builder-section={adsSection?.id}>
+              <Reveal delay={120}>
+                <AdsBanner
+                  eyebrow={adsSection?.eyebrow ?? "A.D.S"}
+                  title={adsSection?.title ?? null}
+                  description={adsSection?.description ?? adsSection?.subtitle ?? null}
+                />
               </Reveal>
-            ))}
-          </div>
+            </div>
+          </section>
+        ) : null}
 
-          <PaginationBar
-            pages={PAGINATION_PAGES}
-            currentPage={currentPage}
-            hrefForPage={pageHref}
-          />
-        </section>
+        {showLatest ? (
+          <section
+            className={clsx(container, "mt-12 sm:mt-14")}
+            data-builder-section={latestSection?.id}
+          >
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-semibold text-slate-900 sm:text-xl">
+                {latestTitle}
+              </h2>
+              <PinIcon className="h-4 w-4 text-rose-500" />
+            </div>
+            <div className="mt-6 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              {latestPosts.map((post, index) => (
+                <Reveal key={post.id} delay={80 + index * 60}>
+                  <ArticleCard post={post} href={blogHref(post.slug)} />
+                </Reveal>
+              ))}
+            </div>
 
-        <section className={clsx(container, "mt-12 sm:mt-14")}>
-          <Reveal delay={120}>
-            <PromoBanner companyName={companyName} />
-          </Reveal>
-        </section>
+            <PaginationBar
+              pages={PAGINATION_PAGES}
+              currentPage={currentPage}
+              hrefForPage={pageHref}
+            />
+          </section>
+        ) : null}
+
+        {showPromo ? (
+          <section className={clsx(container, "mt-12 sm:mt-14")}>
+            <div data-builder-section={promoSection?.id}>
+              <Reveal delay={120}>
+                <PromoBanner
+                  companyName={companyName}
+                  title={promoSection?.title ?? null}
+                  description={promoSection?.description ?? promoSection?.subtitle ?? null}
+                  buttonLabel={promoButtons?.[0]?.label ?? null}
+                  buttonHref={promoButtons?.[0]?.href ?? null}
+                  image={promoImage?.src ?? null}
+                />
+              </Reveal>
+            </div>
+          </section>
+        ) : null}
         {extraSections.length ? (
           <ExtraSections
             theme={theme}
@@ -475,15 +569,35 @@ function AuthorRow({ author, compact }: AuthorRowProps) {
   );
 }
 
-function AdsBanner() {
+type AdsBannerProps = {
+  eyebrow?: string | null;
+  title?: string | null;
+  description?: string | null;
+};
+
+function AdsBanner({ eyebrow, title, description }: AdsBannerProps) {
   return (
     <div className="relative overflow-hidden rounded-[28px] bg-[#f7c9c9] px-6 py-12 text-center sm:py-14">
       <span className="text-sm font-semibold uppercase tracking-[0.55em] text-white/90">
-        A.D.S
+        {eyebrow || "A.D.S"}
       </span>
       <span className="pointer-events-none absolute left-8 top-6 hidden h-5 w-20 rounded-full border border-white/40 sm:block" />
       <span className="pointer-events-none absolute right-10 top-8 hidden h-3 w-12 rounded-full border border-white/40 sm:block" />
       <span className="pointer-events-none absolute bottom-6 left-12 hidden h-3 w-12 rounded-full border border-white/40 sm:block" />
+      {title || description ? (
+        <div className="mt-4 space-y-2">
+          {title ? (
+            <h3 className="text-xl font-semibold text-slate-900 sm:text-2xl">
+              {title}
+            </h3>
+          ) : null}
+          {description ? (
+            <p className="mx-auto max-w-xl text-sm text-slate-700/80">
+              {description}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -546,9 +660,21 @@ function PaginationBar({ pages, currentPage, hrefForPage }: PaginationBarProps) 
 
 type PromoBannerProps = {
   companyName: string;
+  title?: string | null;
+  description?: string | null;
+  buttonLabel?: string | null;
+  buttonHref?: string | null;
+  image?: string | null;
 };
 
-function PromoBanner({ companyName }: PromoBannerProps) {
+function PromoBanner({
+  companyName,
+  title,
+  description,
+  buttonLabel,
+  buttonHref,
+  image,
+}: PromoBannerProps) {
   return (
     <div className="relative overflow-hidden rounded-[32px] bg-[#fff6d6] px-6 py-10 sm:px-10 sm:py-12">
       <span className="pointer-events-none absolute left-10 top-6 h-2 w-2 rounded-full bg-rose-400" />
@@ -557,7 +683,7 @@ function PromoBanner({ companyName }: PromoBannerProps) {
       <div className="grid items-center gap-8 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
         <div className="relative mx-auto w-full max-w-[280px] sm:max-w-none">
           <img
-            src={BLOG_IMAGES.kids}
+            src={image ?? BLOG_IMAGES.kids}
             alt="Kid with skateboard"
             className="h-full w-full object-contain"
             loading="lazy"
@@ -569,19 +695,23 @@ function PromoBanner({ companyName }: PromoBannerProps) {
             <span className="text-[var(--site-accent)]">.</span>
           </div>
           <h3 className="text-xl font-semibold text-slate-900 sm:text-2xl">
-            Special offer
-            <br />
-            in kids products
+            {title ?? (
+              <>
+                Special offer
+                <br />
+                in kids products
+              </>
+            )}
           </h3>
           <p className="text-sm text-slate-500">
-            Fashion is a form of self-expression and autonomy at a particular
-            period and place.
+            {description ??
+              "Fashion is a form of self-expression and autonomy at a particular period and place."}
           </p>
           <a
-            href="#"
+            href={buttonHref ?? "#"}
             className="inline-flex items-center rounded-full bg-slate-900 px-5 py-2 text-xs font-semibold text-white shadow-sm"
           >
-            Discover more
+            {buttonLabel ?? "Discover more"}
           </a>
         </div>
       </div>

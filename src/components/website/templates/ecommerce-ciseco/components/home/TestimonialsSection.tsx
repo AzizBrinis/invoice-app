@@ -19,10 +19,11 @@ export function TestimonialsSection({
   section,
   mediaLibrary = [],
 }: TestimonialsSectionProps) {
-  const eyebrow = section?.eyebrow ?? "Good news from far away";
+  const eyebrow = section?.eyebrow ?? "What people are saying";
   const title = section?.title ?? "People love our products";
   const subtitle =
-    section?.subtitle ?? "Lorem ipsum dolor sit amet, consectetur adipiscing elit.";
+    section?.subtitle ??
+    "Neutral testimonials make it easy to preview social proof placement.";
   const testimonials =
     section?.items?.length
       ? section.items.map((item, index) => {

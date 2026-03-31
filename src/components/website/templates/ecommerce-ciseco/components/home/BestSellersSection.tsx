@@ -30,10 +30,11 @@ export function BestSellersSection({
       ? products.slice(4, 8)
       : products.slice(0, 4);
   const productHref = (slug: string) => baseLink(`/produit/${slug}`);
-  const eyebrow = section?.eyebrow ?? "Best sellers";
-  const title = section?.title ?? "Best sellers of the month";
+  const eyebrow = section?.eyebrow ?? "Top picks";
+  const title = section?.title ?? "Best sellers";
   const subtitle =
-    section?.subtitle ?? "Lorem ipsum dolor sit amet, consectetur adipiscing elit.";
+    section?.subtitle ??
+    "Use this section for high-visibility items, featured offers, or important listings.";
   return (
     <Section
       theme={theme}

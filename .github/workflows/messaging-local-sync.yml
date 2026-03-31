@@ -1,16 +1,20 @@
-name: Messaging Email Automation
+name: Messaging Local Sync
 
 on:
   schedule:
     - cron: '*/5 * * * *'
   workflow_dispatch:
 
+concurrency:
+  group: messaging-local-sync
+  cancel-in-progress: false
+
 jobs:
   ping-cron-endpoint:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 20
     steps:
-      - name: Call messaging email cron endpoint
+      - name: Call messaging local-sync cron endpoint
         env:
           CRON_ENDPOINT: ${{ secrets.CRON_ENDPOINT }}
           CRON_SECRET_TOKEN: ${{ secrets.CRON_SECRET_TOKEN }}
@@ -33,9 +37,9 @@ jobs:
           case "$CRON_ENDPOINT" in
             *\?*) separator="&" ;;
           esac
-          request_url="${CRON_ENDPOINT}${separator}scope=email"
+          request_url="${CRON_ENDPOINT}${separator}scope=local-sync"
 
-          echo "Triggering messaging email automation at ${display_endpoint}"
+          echo "Triggering messaging local sync at ${display_endpoint}"
 
           response_file="$(mktemp)"
           http_status=""
@@ -62,10 +66,10 @@ jobs:
             queue_failed="$(jq -r '.queue.failed // 0' "$response_file" 2>/dev/null || echo 0)"
             queue_retried="$(jq -r '.queue.retried // 0' "$response_file" 2>/dev/null || echo 0)"
             if [ "$queue_retried" -gt 0 ]; then
-              echo "Messaging email cron reported ${queue_retried} retried job(s)." >&2
+              echo "Messaging local sync reported ${queue_retried} retried job(s)." >&2
             fi
             if [ "$queue_failed" -gt 0 ]; then
-              echo "Messaging email cron reported ${queue_failed} failed job(s)." >&2
+              echo "Messaging local sync reported ${queue_failed} failed job(s)." >&2
               exit 1
             fi
           else

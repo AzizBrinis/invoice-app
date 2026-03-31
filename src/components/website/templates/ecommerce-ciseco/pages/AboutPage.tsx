@@ -1,7 +1,6 @@
 import clsx from "clsx";
 import type { CSSProperties } from "react";
 import type {
-  WebsiteBuilderMediaAsset,
   WebsiteBuilderSection,
   WebsiteBuilderPageConfig,
 } from "@/lib/website/builder";
@@ -10,7 +9,7 @@ import type { ThemeTokens } from "../types";
 import {
   buildImageList,
   resolveBuilderMedia,
-  resolveBuilderSection,
+  resolveBuilderSectionBySignature,
 } from "../builder-helpers";
 import { AboutHero } from "../components/about/AboutHero";
 import { FastFacts } from "../components/about/FastFacts";
@@ -53,11 +52,31 @@ export function AboutPage({
   const hasBuilder = Boolean(builder);
   const sections = builder?.sections ?? [];
   const mediaLibrary = builder?.mediaLibrary ?? [];
-  const heroSection = resolveBuilderSection(sections, "hero");
-  const teamSection = resolveBuilderSection(sections, "team");
-  const aboutSection = resolveBuilderSection(sections, "about");
-  const testimonialsSection = resolveBuilderSection(sections, "testimonials");
-  const promoSection = resolveBuilderSection(sections, "promo");
+  const heroSection = resolveBuilderSectionBySignature(sections, {
+    ids: "ciseco-about-hero",
+    type: "hero",
+    layouts: ["split", "page-hero"],
+  });
+  const teamSection = resolveBuilderSectionBySignature(sections, {
+    ids: "ciseco-founders",
+    type: "team",
+    layouts: ["grid", "list"],
+  });
+  const aboutSection = resolveBuilderSectionBySignature(sections, {
+    ids: "ciseco-fast-facts",
+    type: "about",
+    layouts: ["split", "stack"],
+  });
+  const testimonialsSection = resolveBuilderSectionBySignature(sections, {
+    ids: "ciseco-testimonials",
+    type: "testimonials",
+    layouts: ["grid", "carousel"],
+  });
+  const promoSection = resolveBuilderSectionBySignature(sections, {
+    ids: "ciseco-promo",
+    type: "promo",
+    layouts: ["banner", "split"],
+  });
   const showHero = heroSection ? heroSection.visible !== false : !hasBuilder;
   const showTeam = teamSection ? teamSection.visible !== false : !hasBuilder;
   const showAbout = aboutSection ? aboutSection.visible !== false : !hasBuilder;

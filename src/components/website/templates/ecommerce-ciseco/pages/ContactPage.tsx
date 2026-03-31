@@ -9,7 +9,10 @@ import {
   type ContactSocialLink,
 } from "@/lib/website/contact";
 import type { ThemeTokens } from "../types";
-import { resolveBuilderMedia, resolveBuilderSection } from "../builder-helpers";
+import {
+  resolveBuilderMedia,
+  resolveBuilderSectionBySignature,
+} from "../builder-helpers";
 import { PromoBlock } from "../components/about/PromoBlock";
 import { ExtraSections } from "../components/builder/ExtraSections";
 import { Footer } from "../components/layout/Footer";
@@ -76,8 +79,16 @@ export function ContactPage({
   const sections = builder?.sections ?? [];
   const mediaLibrary = builder?.mediaLibrary ?? [];
   const hasBuilder = Boolean(builder);
-  const heroSection = resolveBuilderSection(sections, "hero");
-  const promoSection = resolveBuilderSection(sections, "promo");
+  const heroSection = resolveBuilderSectionBySignature(sections, {
+    ids: "ciseco-contact-hero",
+    type: "hero",
+    layouts: ["page-hero", "split"],
+  });
+  const promoSection = resolveBuilderSectionBySignature(sections, {
+    ids: "ciseco-contact-promo",
+    type: "promo",
+    layouts: "banner",
+  });
   const showHero = heroSection ? heroSection.visible !== false : !hasBuilder;
   const showPromo = promoSection ? promoSection.visible !== false : !hasBuilder;
   const title = heroSection?.title ?? "Contact";

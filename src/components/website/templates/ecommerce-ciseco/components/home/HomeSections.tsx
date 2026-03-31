@@ -57,9 +57,9 @@ export function HomeSections({
   }, [status]);
 
   const emptyMessage =
-    "No products are available yet. Please check back soon.";
+    "No items are available yet. Please check back soon.";
   const errorMessage =
-    "We could not load products right now. Please refresh the page.";
+    "We could not load the catalog right now. Please refresh the page.";
   const featured = featuredProducts.length ? featuredProducts : products;
 
   const renderSection = (section: WebsiteBuilderSection) => {
@@ -294,19 +294,6 @@ export function HomeSections({
     return (
       <>
         <HeroSection theme={theme} />
-        <DiscoverySection theme={theme} />
-        <NewArrivalsSection
-          theme={theme}
-          products={products}
-          status={status}
-          baseLink={baseLink}
-          onAddToCart={handleAddToCart}
-          emptyMessage={emptyMessage}
-          errorMessage={errorMessage}
-        />
-        <FeatureRow theme={theme} />
-        <PromoSection theme={theme} />
-        <ExploreCategoriesSection theme={theme} />
         <BestSellersSection
           theme={theme}
           products={products}
@@ -316,7 +303,6 @@ export function HomeSections({
           emptyMessage={emptyMessage}
           errorMessage={errorMessage}
         />
-        <KidsPromoBanner theme={theme} />
         <FeaturedProductsSection
           theme={theme}
           products={featured}
@@ -335,66 +321,16 @@ export function HomeSections({
           emptyMessage={emptyMessage}
           errorMessage={errorMessage}
         />
-        <DepartmentsSection theme={theme} />
-        <BlogSection theme={theme} />
         <TestimonialsSection theme={theme} />
       </>
     );
   }
 
-  const canonicalOrder: Array<{ layout: string; type: WebsiteBuilderSection["type"] }> = [
-    { layout: "home-hero", type: "hero" },
-    { layout: "discovery", type: "services" },
-    { layout: "new-arrivals", type: "products" },
-    { layout: "features", type: "services" },
-    { layout: "home-promo", type: "promo" },
-    { layout: "explore", type: "categories" },
-    { layout: "best-sellers", type: "products" },
-    { layout: "kids-banner", type: "promo" },
-    { layout: "featured", type: "products" },
-    { layout: "favorites", type: "products" },
-    { layout: "departments", type: "gallery" },
-    { layout: "home-blog", type: "content" },
-    { layout: "home-testimonials", type: "testimonials" },
-  ];
-
-  const sectionsByLayout = new Map<string, WebsiteBuilderSection>();
-  sections.forEach((entry) => {
-    if (!sectionsByLayout.has(entry.layout)) {
-      sectionsByLayout.set(entry.layout, entry);
-    }
-  });
-
-  const canonicalSections = canonicalOrder.map(({ layout, type }) => {
-    const existing = sectionsByLayout.get(layout);
-    if (existing) {
-      return existing;
-    }
-    return {
-      id: `ciseco-fallback-${layout}`,
-      type,
-      title: null,
-      subtitle: null,
-      description: null,
-      eyebrow: null,
-      layout,
-      animation: "fade",
-      visible: true,
-      mediaId: null,
-      secondaryMediaId: null,
-      items: [],
-      buttons: [],
-    } satisfies WebsiteBuilderSection;
-  });
-
-  const extraVisibleSections = sections.filter(
-    (entry) => !canonicalOrder.some((target) => target.layout === entry.layout) && entry.visible !== false,
-  );
+  const visibleSections = sections.filter((section) => section.visible !== false);
 
   return (
     <>
-      {canonicalSections.map((section) => renderSection(section))}
-      {extraVisibleSections.map((section) => renderSection(section))}
+      {visibleSections.map((section) => renderSection(section))}
     </>
   );
 }

@@ -26,9 +26,11 @@ export function FeaturedProductsSection({
   const productHref = (slug: string) => baseLink(`/produit/${slug}`);
   const heroCards = products.slice(0, 3);
   const stripCards = products.slice(0, 9);
-  const eyebrow = "Choose by experts";
-  const title = "Featured in this week";
-  const subtitle = "Find the standout picks selected by our team.";
+  const eyebrow = section?.eyebrow ?? "Featured";
+  const title = section?.title ?? "Shopping essentials";
+  const subtitle =
+    section?.subtitle ??
+    "Use this area to surface important items, launches, or offers.";
 
   return (
     <Section

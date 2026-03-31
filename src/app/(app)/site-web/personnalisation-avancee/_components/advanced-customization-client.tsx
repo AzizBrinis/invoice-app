@@ -28,8 +28,13 @@ import {
   TECH_AGENCY_SECTION_LAYOUT_PRESETS,
   BUILDER_SECTION_BUTTON_LIMIT,
   builderConfigSchema,
+  createCisecoSectionFromTemplate,
   sanitizeBuilderPages,
   createSectionTemplate,
+  getCisecoPageSectionCatalog,
+  normalizeBuilderConfigForTemplate,
+  resolveCisecoBuilderPageConfig,
+  resolveCisecoSectionTemplate,
 } from "@/lib/website/builder";
 import { generateId } from "@/lib/id";
 import { slugify } from "@/lib/slug";
@@ -163,40 +168,6 @@ const SECTION_ITEM_PLACEHOLDERS: Partial<Record<WebsiteBuilderSection["type"], r
   promo: WEBSITE_MEDIA_PLACEHOLDERS.promos,
   team: WEBSITE_MEDIA_PLACEHOLDERS.team,
   logos: WEBSITE_MEDIA_PLACEHOLDERS.logos,
-};
-
-const CISECO_SECTION_LAYOUT_PRESETS: Partial<
-  Record<WebsiteBuilderSection["type"], string[]>
-> = {
-  hero: ["home-hero", "page-hero", "split", "center", "image-right"],
-  services: ["discovery", "features", "grid", "list", "stack"],
-  products: [
-    "new-arrivals",
-    "best-sellers",
-    "featured",
-    "favorites",
-    "related",
-    "product-options",
-    "product-related",
-    "collection-grid",
-    "grid",
-    "list",
-    "carousel",
-  ],
-  promo: ["home-promo", "kids-banner", "banner", "split"],
-  categories: ["explore", "grid", "cards", "carousel"],
-  gallery: ["departments", "blog-mini", "product-gallery", "grid", "masonry"],
-  content: [
-    "home-blog",
-    "blog-featured",
-    "blog-latest",
-    "blog-body",
-    "blog-related",
-    "product-description",
-    "stack",
-    "split",
-  ],
-  testimonials: ["home-testimonials", "product-reviews", "grid", "carousel"],
 };
 
 function getSectionItemPlaceholder(
@@ -342,19 +313,21 @@ function serializeSignupSettings(settings: SignupSettingsInput) {
 
 const DEFAULT_CISECO_PAGE_KEY: CisecoPageKey = "home";
 
-function resolvePageConfig(
+type AddSectionOption = {
+  value: string;
+  label: string;
+  group: "preset" | "generic";
+};
+
+function normalizeEditorBuilderConfig(
   config: WebsiteBuilderConfig,
-  pageKey: CisecoPageKey,
-): WebsiteBuilderPageConfig {
-  const entry = config.pages?.[pageKey];
-  if (entry && typeof entry === "object" && "sections" in entry) {
-    return entry as WebsiteBuilderPageConfig;
-  }
-  return {
-    sections: [],
-    mediaLibrary: [],
-    seo: {},
-  };
+  templateKey: string | null | undefined,
+): WebsiteBuilderConfig {
+  const parsed = builderConfigSchema.parse({
+    ...config,
+    pages: sanitizeBuilderPages(config.pages),
+  });
+  return normalizeBuilderConfigForTemplate(parsed, templateKey);
 }
 
 function resolveCisecoPreviewPath(
@@ -435,14 +408,18 @@ export function AdvancedCustomizationClient({
   signupSettings: initialSignupSettings,
   catalog,
 }: AdvancedCustomizationClientProps) {
-  const [config, setConfig] = useState<WebsiteBuilderConfig>(() => ({
-    ...builder.config,
-    pages: sanitizeBuilderPages(builder.config.pages),
-  }));
+  const initialConfig = normalizeEditorBuilderConfig(
+    builder.config,
+    catalog.website.templateKey,
+  );
+  const [config, setConfig] = useState<WebsiteBuilderConfig>(() => initialConfig);
   const [history, setHistory] = useState(builder.history);
   const [selectedSectionId, setSelectedSectionId] = useState<string>(() => {
-    const pageConfig = resolvePageConfig(builder.config, DEFAULT_CISECO_PAGE_KEY);
-    return pageConfig.sections[0]?.id ?? builder.config.sections[0]?.id ?? "";
+    const pageConfig = resolveCisecoBuilderPageConfig(
+      initialConfig,
+      DEFAULT_CISECO_PAGE_KEY,
+    );
+    return pageConfig?.sections[0]?.id ?? initialConfig.sections[0]?.id ?? "";
   });
   const [selectedPageKey, setSelectedPageKey] = useState<CisecoPageKey>(
     DEFAULT_CISECO_PAGE_KEY,
@@ -470,8 +447,9 @@ export function AdvancedCustomizationClient({
     normalizeSignupSettings(initialSignupSettings),
   );
   const [device, setDevice] = useState<Device>("desktop");
-  const serializedRef = useRef(serializeConfig(builder.config));
+  const serializedRef = useRef(serializeConfig(initialConfig));
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const builderSaveRequestRef = useRef(0);
   const contactSerializedRef = useRef(
     serializeContactSettings({
       intro: catalog.website.contactBlurb ?? "",
@@ -482,16 +460,25 @@ export function AdvancedCustomizationClient({
     }),
   );
   const contactDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const contactSaveRequestRef = useRef(0);
   const signupSerializedRef = useRef(
     serializeSignupSettings(normalizeSignupSettings(initialSignupSettings)),
   );
   const signupDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const signupSaveRequestRef = useRef(0);
   const previewRef = useRef<HTMLDivElement | null>(null);
   const [, startTransition] = useTransition();
   const isTechAgencyTemplate = catalog.website.templateKey === "ecommerce-tech-agency";
   const isCisecoTemplate = catalog.website.templateKey === "ecommerce-ciseco-home";
+  const cisecoCatalog = isCisecoTemplate
+    ? getCisecoPageSectionCatalog(selectedPageKey)
+    : null;
   const activePageConfig = isCisecoTemplate
-    ? resolvePageConfig(config, selectedPageKey)
+    ? resolveCisecoBuilderPageConfig(config, selectedPageKey) ?? {
+        sections: [],
+        mediaLibrary: [],
+        seo: {},
+      }
     : {
         sections: config.sections,
         mediaLibrary: config.mediaLibrary ?? [],
@@ -540,19 +527,26 @@ export function AdvancedCustomizationClient({
       clearTimeout(debounceRef.current);
     }
     debounceRef.current = setTimeout(() => {
+      const requestId = builderSaveRequestRef.current + 1;
+      builderSaveRequestRef.current = requestId;
       startTransition(async () => {
         try {
-          const normalizedConfig = {
-            ...config,
-            pages: sanitizeBuilderPages(config.pages),
-          };
-          builderConfigSchema.parse(normalizedConfig);
+          const normalizedConfig = normalizeEditorBuilderConfig(
+            config,
+            catalog.website.templateKey,
+          );
           const result = await persistBuilderConfigAction(normalizedConfig);
+          if (requestId !== builderSaveRequestRef.current) {
+            return;
+          }
           serializedRef.current = serializeConfig(result.config);
           setConfig(result.config);
           setHistory(result.history);
           setBuilderStatus("saved");
         } catch (submissionError) {
+          if (requestId !== builderSaveRequestRef.current) {
+            return;
+          }
           setBuilderStatus("error");
           setBuilderError(
             submissionError instanceof Error
@@ -567,7 +561,7 @@ export function AdvancedCustomizationClient({
         clearTimeout(debounceRef.current);
       }
     };
-  }, [config, startTransition]);
+  }, [catalog.website.templateKey, config, startTransition]);
 
   useEffect(() => {
     const serialized = serializeContactSettings(contactSettings);
@@ -578,6 +572,8 @@ export function AdvancedCustomizationClient({
       clearTimeout(contactDebounceRef.current);
     }
     contactDebounceRef.current = setTimeout(() => {
+      const requestId = contactSaveRequestRef.current + 1;
+      contactSaveRequestRef.current = requestId;
       startTransition(async () => {
         try {
           const result = await persistContactPageAction({
@@ -587,10 +583,16 @@ export function AdvancedCustomizationClient({
             address: contactSettings.address,
             socialLinks: contactSettings.socialLinks,
           });
+          if (requestId !== contactSaveRequestRef.current) {
+            return;
+          }
           contactSerializedRef.current = serializeContactSettings(result);
           setContactSettings(result);
           setContactStatus("saved");
         } catch (submissionError) {
+          if (requestId !== contactSaveRequestRef.current) {
+            return;
+          }
           setContactStatus("error");
           setContactError(
             submissionError instanceof Error
@@ -616,6 +618,8 @@ export function AdvancedCustomizationClient({
       clearTimeout(signupDebounceRef.current);
     }
     signupDebounceRef.current = setTimeout(() => {
+      const requestId = signupSaveRequestRef.current + 1;
+      signupSaveRequestRef.current = requestId;
       startTransition(async () => {
         try {
           const trimmedProviders = {
@@ -645,10 +649,16 @@ export function AdvancedCustomizationClient({
             providers: trimmedProviders,
           } satisfies Parameters<typeof persistSignupSettingsAction>[0];
           await persistSignupSettingsAction(nextSettings);
+          if (requestId !== signupSaveRequestRef.current) {
+            return;
+          }
           signupSerializedRef.current = serializeSignupSettings(nextSettings);
           setSignupSettings(nextSettings);
           setSignupStatus("saved");
         } catch (submissionError) {
+          if (requestId !== signupSaveRequestRef.current) {
+            return;
+          }
           setSignupStatus("error");
           setSignupError(
             submissionError instanceof Error
@@ -672,7 +682,11 @@ export function AdvancedCustomizationClient({
         sections: config.sections.filter((section) => section.visible !== false),
       };
     }
-    const pageConfig = resolvePageConfig(config, selectedPageKey);
+    const pageConfig = resolveCisecoBuilderPageConfig(config, selectedPageKey) ?? {
+      sections: [],
+      mediaLibrary: [],
+      seo: {},
+    };
     const filteredSections = pageConfig.sections.filter(
       (section) => section.visible !== false,
     );
@@ -738,7 +752,11 @@ export function AdvancedCustomizationClient({
 
   useEffect(() => {
     if (!isCisecoTemplate) return;
-    const pageConfig = resolvePageConfig(config, selectedPageKey);
+    const pageConfig = resolveCisecoBuilderPageConfig(config, selectedPageKey) ?? {
+      sections: [],
+      mediaLibrary: [],
+      seo: {},
+    };
     const exists = pageConfig.sections.some(
       (section) => section.id === selectedSectionId,
     );
@@ -751,15 +769,19 @@ export function AdvancedCustomizationClient({
     activePageConfig.sections.find((section) => section.id === selectedSectionId) ??
     activePageConfig.sections[0] ??
     null;
+  const selectedSectionTemplate =
+    isCisecoTemplate && selectedSection
+      ? resolveCisecoSectionTemplate(selectedPageKey, selectedSection)
+      : null;
   const sectionMediaFields = selectedSection
     ? SECTION_MEDIA_FIELDS[selectedSection.type] ?? []
     : [];
   const layoutOptions = selectedSection
-    ? (isTechAgencyTemplate
+    ? selectedSectionTemplate?.singleton
+      ? [selectedSectionTemplate.section.layout]
+      : (isTechAgencyTemplate
         ? TECH_AGENCY_SECTION_LAYOUT_PRESETS[selectedSection.type]
-        : isCisecoTemplate
-          ? CISECO_SECTION_LAYOUT_PRESETS[selectedSection.type]
-          : undefined) ??
+        : undefined) ??
       BUILDER_SECTION_LAYOUTS[selectedSection.type] ??
       []
     : [];
@@ -767,6 +789,64 @@ export function AdvancedCustomizationClient({
     selectedSection?.layout && !layoutOptions.includes(selectedSection.layout)
       ? [...layoutOptions, selectedSection.layout]
       : layoutOptions;
+  const addSectionOptions: AddSectionOption[] =
+    isCisecoTemplate && cisecoCatalog
+      ? (() => {
+          const existingPresetSections = new Map<string, WebsiteBuilderSection>();
+          activePageConfig.sections.forEach((section) => {
+            const template = resolveCisecoSectionTemplate(selectedPageKey, section);
+            if (template && !existingPresetSections.has(template.key)) {
+              existingPresetSections.set(template.key, section);
+            }
+          });
+          const presetOptions = cisecoCatalog.presets
+            .flatMap((preset) => {
+              const existing = existingPresetSections.get(preset.key);
+              if (!existing) {
+                return [
+                  {
+                    value: `preset:${preset.key}`,
+                    label: preset.label,
+                    group: "preset" as const,
+                  },
+                ];
+              }
+              if (existing.visible === false) {
+                return [
+                  {
+                    value: `reveal:${existing.id}`,
+                    label: `Afficher ${preset.label}`,
+                    group: "preset" as const,
+                  },
+                ];
+              }
+              return [];
+            });
+          const genericOptions = cisecoCatalog.genericSectionTypes.map((type) => ({
+            value: `generic:${type}`,
+            label: friendlySectionLabels[type] ?? type,
+            group: "generic" as const,
+          }));
+          return [...presetOptions, ...genericOptions];
+        })()
+      : BUILDER_SECTION_TYPES.map((type) => ({
+          value: `generic:${type}`,
+          label: friendlySectionLabels[type] ?? type,
+          group: "generic" as const,
+        }));
+
+  function resolveSectionLabel(section: WebsiteBuilderSection) {
+    if (section.title?.trim()) {
+      return section.title;
+    }
+    if (isCisecoTemplate) {
+      const template = resolveCisecoSectionTemplate(selectedPageKey, section);
+      if (template) {
+        return template.label;
+      }
+    }
+    return friendlySectionLabels[section.type] ?? "Section";
+  }
 
   function updateSection(
     sectionId: string,
@@ -894,14 +974,30 @@ export function AdvancedCustomizationClient({
     }));
   }
 
-  function addSection(type: WebsiteBuilderSection["type"]) {
-    const template = createSectionTemplate(type);
-    const layoutPreset = isTechAgencyTemplate
-      ? TECH_AGENCY_SECTION_LAYOUT_PRESETS[type]?.[0]
-      : undefined;
-    const nextTemplate = layoutPreset
-      ? { ...template, layout: layoutPreset }
-      : template;
+  function addSection(optionValue: string) {
+    const [mode, rawValue] = optionValue.split(":", 2);
+    if (!rawValue) return;
+    if (mode === "reveal") {
+      updateSection(rawValue, () => ({
+        visible: true,
+      }));
+      setSelectedSectionId(rawValue);
+      return;
+    }
+    const nextTemplate =
+      mode === "preset" && isCisecoTemplate
+        ? createCisecoSectionFromTemplate(selectedPageKey, rawValue)
+        : (() => {
+            const type = rawValue as WebsiteBuilderSection["type"];
+            const template = createSectionTemplate(type);
+            const layoutPreset = isTechAgencyTemplate
+              ? TECH_AGENCY_SECTION_LAYOUT_PRESETS[type]?.[0]
+              : undefined;
+            return layoutPreset
+              ? { ...template, layout: layoutPreset }
+              : template;
+          })();
+    if (!nextTemplate) return;
     updateActivePage((page) => ({
       ...page,
       sections: [...page.sections, nextTemplate],
@@ -925,6 +1021,12 @@ export function AdvancedCustomizationClient({
   function duplicateSection(sectionId: string) {
     const target = activePageConfig.sections.find((section) => section.id === sectionId);
     if (!target) return;
+    if (
+      isCisecoTemplate &&
+      resolveCisecoSectionTemplate(selectedPageKey, target)?.singleton
+    ) {
+      return;
+    }
     const clone = {
       ...target,
       id: generateId(target.type),
@@ -941,14 +1043,17 @@ export function AdvancedCustomizationClient({
 
   function restoreFromSnapshot(snapshot: WebsiteBuilderConfig) {
     markBuilderDirty();
-    const normalizedSnapshot = {
-      ...snapshot,
-      pages: sanitizeBuilderPages(snapshot.pages),
-    };
+    const normalizedSnapshot = normalizeEditorBuilderConfig(
+      snapshot,
+      catalog.website.templateKey,
+    );
     setConfig(normalizedSnapshot);
     if (isCisecoTemplate) {
-      const pageConfig = resolvePageConfig(normalizedSnapshot, selectedPageKey);
-      setSelectedSectionId(pageConfig.sections[0]?.id ?? "");
+      const pageConfig = resolveCisecoBuilderPageConfig(
+        normalizedSnapshot,
+        selectedPageKey,
+      );
+      setSelectedSectionId(pageConfig?.sections[0]?.id ?? "");
     } else {
       setSelectedSectionId(normalizedSnapshot.sections[0]?.id ?? "");
     }
@@ -998,7 +1103,11 @@ export function AdvancedCustomizationClient({
           mediaLibrary: nextPage.mediaLibrary,
         };
       }
-      const currentPage = resolvePageConfig(prev, selectedPageKey);
+      const currentPage = resolveCisecoBuilderPageConfig(prev, selectedPageKey) ?? {
+        sections: [],
+        mediaLibrary: [],
+        seo: {},
+      };
       const nextPage = updater(currentPage);
       return {
         ...prev,
@@ -1112,8 +1221,8 @@ export function AdvancedCustomizationClient({
         <Alert variant="error" title={combinedError} />
       ) : null}
 
-      <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
-        <aside className="space-y-6">
+      <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)] lg:items-start">
+        <aside className="space-y-6 lg:self-start">
           {isCisecoTemplate ? (
             <div className="card space-y-4 p-4">
               <div>
@@ -1152,23 +1261,51 @@ export function AdvancedCustomizationClient({
               <select
                 className="input text-xs"
                 onChange={(event) => {
-                  const type = event.target.value as WebsiteBuilderSection["type"];
-                  if (!type) return;
-                  addSection(type);
+                  const value = event.target.value;
+                  if (!value) return;
+                  addSection(value);
                   event.currentTarget.value = "";
                 }}
                 defaultValue=""
               >
                 <option value="">Ajouter…</option>
-                {BUILDER_SECTION_TYPES.map((type) => (
-                  <option key={type} value={type}>
-                    {friendlySectionLabels[type] ?? type}
-                  </option>
-                ))}
+                {addSectionOptions.some((option) => option.group === "preset") ? (
+                  <optgroup label="Sections du template">
+                    {addSectionOptions
+                      .filter((option) => option.group === "preset")
+                      .map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                  </optgroup>
+                ) : null}
+                {addSectionOptions.some((option) => option.group === "generic") ? (
+                  <optgroup label="Sections génériques">
+                    {addSectionOptions
+                      .filter((option) => option.group === "generic")
+                      .map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                  </optgroup>
+                ) : null}
               </select>
             </div>
             <ol className="space-y-2 text-sm">
-              {activePageConfig.sections.map((section) => (
+              {activePageConfig.sections.length === 0 ? (
+                <li className="rounded-xl border border-dashed border-zinc-200 px-3 py-4 text-xs text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
+                  Aucune section pour cette page. Utilisez le menu “Ajouter…” pour en créer une.
+                </li>
+              ) : null}
+              {activePageConfig.sections.map((section) => {
+                const template = isCisecoTemplate
+                  ? resolveCisecoSectionTemplate(selectedPageKey, section)
+                  : null;
+                const canDuplicate = !template?.singleton;
+                const isVisible = section.visible !== false;
+                return (
                 <li
                   key={section.id}
                   draggable
@@ -1184,6 +1321,7 @@ export function AdvancedCustomizationClient({
                   }}
                   className={clsx(
                     "flex cursor-pointer items-center justify-between rounded-xl border px-3 py-2 transition dark:border-zinc-800",
+                    !isVisible && "opacity-70",
                     selectedSectionId === section.id
                       ? "border-[var(--site-accent)] bg-[var(--site-accent)]/10"
                       : "border-zinc-200 dark:border-zinc-800",
@@ -1192,16 +1330,18 @@ export function AdvancedCustomizationClient({
                 >
                   <div>
                     <p className="font-medium text-zinc-900 dark:text-zinc-100">
-                      {section.title ?? friendlySectionLabels[section.type] ?? "Section"}
+                      {resolveSectionLabel(section)}
                     </p>
                     <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                      {friendlySectionLabels[section.type] ?? section.type}
+                      {template?.label ?? friendlySectionLabels[section.type] ?? section.type}
+                      {!isVisible ? " • Masquée" : ""}
                     </p>
                   </div>
                   <div className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
                     <button
                       type="button"
-                      className="rounded border px-2 py-1"
+                      className="rounded border px-2 py-1 disabled:cursor-not-allowed disabled:opacity-50"
+                      disabled={!canDuplicate}
                       onClick={(event) => {
                         event.stopPropagation();
                         duplicateSection(section.id);
@@ -1221,7 +1361,8 @@ export function AdvancedCustomizationClient({
                     </button>
                   </div>
                 </li>
-              ))}
+              );
+              })}
             </ol>
           </div>
 
@@ -1423,7 +1564,7 @@ export function AdvancedCustomizationClient({
           </div>
         </aside>
 
-        <div className="space-y-6">
+        <div className="space-y-6 lg:self-start">
           {isCisecoTemplate ? (
             <section className="card space-y-4 p-6">
               <div>
@@ -1485,10 +1626,12 @@ export function AdvancedCustomizationClient({
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="text-xs uppercase tracking-[0.3em] text-zinc-500 dark:text-zinc-400">
-                    {friendlySectionLabels[selectedSection.type] ?? selectedSection.type}
+                    {selectedSectionTemplate?.label ??
+                      friendlySectionLabels[selectedSection.type] ??
+                      selectedSection.type}
                   </p>
                   <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
-                    {selectedSection.title ?? "Section sans titre"}
+                    {selectedSection.title ?? resolveSectionLabel(selectedSection)}
                   </h2>
                 </div>
                 <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-300">
@@ -1573,6 +1716,7 @@ export function AdvancedCustomizationClient({
                   <select
                     className="input mt-1"
                     value={selectedSection.layout ?? resolvedLayoutOptions[0] ?? "split"}
+                    disabled={Boolean(selectedSectionTemplate?.singleton)}
                     onChange={(event) =>
                       updateSection(selectedSection.id, () => ({
                         layout: event.target.value,
@@ -2176,6 +2320,12 @@ export function AdvancedCustomizationClient({
         }
         .builder-preview-viewport main {
           padding-top: 0 !important;
+        }
+        .builder-preview-viewport [data-ciseco-page-shell] {
+          min-height: auto !important;
+        }
+        .builder-preview-viewport [data-ciseco-auth-main] {
+          min-height: auto !important;
         }
       `}</style>
     </div>

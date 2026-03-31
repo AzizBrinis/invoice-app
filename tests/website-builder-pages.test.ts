@@ -1,10 +1,29 @@
-import { describe, expect, it } from "vitest";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { WebsiteDomainStatus, WebsiteThemeMode } from "@prisma/client";
+import { describe, expect, it, vi } from "vitest";
+import { CatalogPage } from "@/components/website/catalog-page";
+import { BlogPage } from "@/components/website/templates/ecommerce-ciseco/pages/BlogPage";
+import { type CatalogPayload } from "@/server/website";
 import {
   builderConfigSchema,
+  createCisecoSectionFromTemplate,
   createDefaultBuilderConfig,
+  createSectionTemplate,
   ensureCisecoPageConfigs,
+  getCisecoPageSectionCatalog,
+  resolveCisecoBuilderPageConfig,
+  resolveCisecoSectionTemplate,
   sanitizeBuilderPages,
 } from "@/lib/website/builder";
+
+const TEST_THEME = {
+  accent: "#22c55e",
+  containerClass: "max-w-[1240px]",
+  sectionSpacing: "py-7 sm:py-9 lg:py-11",
+  corner: "rounded-[30px]",
+  buttonShape: "rounded-full",
+} as const;
 
 function createCisecoConfig() {
   return ensureCisecoPageConfigs(
@@ -13,6 +32,262 @@ function createCisecoConfig() {
     }),
     { override: true },
   );
+}
+
+function createCisecoCatalogPayload(
+  config: ReturnType<typeof createCisecoConfig>,
+): CatalogPayload {
+  return {
+    website: {
+      id: "website-demo",
+      slug: "demo",
+      templateKey: "ecommerce-ciseco-home",
+      heroEyebrow: null,
+      heroTitle: "Demo",
+      heroSubtitle: null,
+      heroPrimaryCtaLabel: "CTA",
+      heroSecondaryCtaLabel: null,
+      heroSecondaryCtaUrl: null,
+      aboutTitle: null,
+      aboutBody: null,
+      contactBlurb: "Intro",
+      accentColor: "#22c55e",
+      theme: WebsiteThemeMode.LIGHT,
+      showPrices: true,
+      ecommerceSettings: {
+        payments: {
+          methods: {
+            card: false,
+            bankTransfer: false,
+            cashOnDelivery: false,
+          },
+          bankTransfer: {
+            instructions: "",
+          },
+        },
+        checkout: {
+          requirePhone: false,
+          allowNotes: true,
+          termsUrl: "",
+        },
+        featuredProductIds: [],
+        signup: {
+          redirectTarget: "home",
+          providers: {
+            facebook: {
+              enabled: false,
+              useEnv: true,
+              clientId: null,
+              clientSecret: null,
+            },
+            google: {
+              enabled: false,
+              useEnv: true,
+              clientId: null,
+              clientSecret: null,
+            },
+            twitter: {
+              enabled: false,
+              useEnv: true,
+              clientId: null,
+              clientSecret: null,
+            },
+          },
+        },
+      },
+      leadThanksMessage: null,
+      spamProtectionEnabled: false,
+      published: false,
+      domainStatus: WebsiteDomainStatus.PENDING,
+      customDomain: null,
+      currencyCode: "TND",
+      socialLinks: [],
+      contact: {
+        companyName: "Demo",
+        email: "demo@example.com",
+        phone: null,
+        address: null,
+        logoUrl: null,
+        logoData: null,
+      },
+      metadata: {
+        title: "Demo",
+        description: "Demo description",
+        canonicalUrl: "https://example.com",
+        socialImageUrl: null,
+        keywords: null,
+      },
+      builder: config,
+    },
+    products: {
+      featured: [],
+      all: [],
+    },
+  };
+}
+
+function createLegacyHomeSection(input: {
+  id: string;
+  type: "hero" | "services" | "products" | "categories" | "promo" | "gallery" | "content" | "testimonials";
+  layout: string;
+  title: string;
+  subtitle: string | null;
+  description?: string | null;
+  eyebrow: string | null;
+}) {
+  return {
+    id: input.id,
+    type: input.type,
+    title: input.title,
+    subtitle: input.subtitle,
+    description: input.description ?? null,
+    eyebrow: input.eyebrow,
+    layout: input.layout,
+    animation: "fade" as const,
+    visible: true,
+    mediaId: null,
+    secondaryMediaId: null,
+    items: [],
+    buttons: [],
+  };
+}
+
+function createLegacyCisecoConfig() {
+  const config = createDefaultBuilderConfig({
+    heroTitle: "Demo",
+  });
+
+  return {
+    ...config,
+    version: 1,
+    pages: {
+      ...config.pages,
+      home: {
+        sections: [
+          createLegacyHomeSection({
+            id: "ciseco-home-hero",
+            type: "hero",
+            layout: "home-hero",
+            title: "Exclusive collection for everyone",
+            subtitle:
+              "Discover fresh styles and everyday essentials curated for every mood. Lorem ipsum dolor sit amet.",
+            description: "Trusted by 32k+ shoppers worldwide",
+            eyebrow: "Handpicked trend",
+          }),
+          createLegacyHomeSection({
+            id: "ciseco-home-new-arrivals",
+            type: "products",
+            layout: "new-arrivals",
+            title: "Fresh drops for the week",
+            subtitle: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+            eyebrow: "New arrivals",
+          }),
+          createLegacyHomeSection({
+            id: "ciseco-home-features",
+            type: "services",
+            layout: "features",
+            title: "Shopping essentials",
+            subtitle: "Highlights that make every purchase easy.",
+            eyebrow: null,
+          }),
+          createLegacyHomeSection({
+            id: "ciseco-home-categories",
+            type: "categories",
+            layout: "explore",
+            title: "Explore categories",
+            subtitle: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+            eyebrow: "Start exploring",
+          }),
+          createLegacyHomeSection({
+            id: "ciseco-home-best-sellers",
+            type: "products",
+            layout: "best-sellers",
+            title: "Best sellers of the month",
+            subtitle: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+            eyebrow: "Best sellers",
+          }),
+          createLegacyHomeSection({
+            id: "ciseco-home-kids-promo",
+            type: "promo",
+            layout: "kids-banner",
+            title: "Special offer in kids products",
+            subtitle: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+            eyebrow: "Special offer",
+          }),
+          createLegacyHomeSection({
+            id: "ciseco-home-featured-products",
+            type: "products",
+            layout: "featured",
+            title: "Featured for your wishlist",
+            subtitle: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+            eyebrow: "Featured products",
+          }),
+          createLegacyHomeSection({
+            id: "ciseco-home-favorites",
+            type: "products",
+            layout: "favorites",
+            title: "Find your favorite products",
+            subtitle: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+            eyebrow: "Find your favorite",
+          }),
+          createLegacyHomeSection({
+            id: "ciseco-home-departments",
+            type: "gallery",
+            layout: "departments",
+            title: "Explore the absolute",
+            subtitle: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+            eyebrow: "Shop by department",
+          }),
+          createLegacyHomeSection({
+            id: "ciseco-home-blog",
+            type: "content",
+            layout: "home-blog",
+            title: "From the Ciseco blog",
+            subtitle: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+            eyebrow: "Our latest news",
+          }),
+          createLegacyHomeSection({
+            id: "ciseco-home-testimonials",
+            type: "testimonials",
+            layout: "home-testimonials",
+            title: "People love our products",
+            subtitle: "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+            eyebrow: "Good news from far away",
+          }),
+        ],
+        mediaLibrary: [],
+        seo: {},
+      },
+    },
+  };
+}
+
+function createLegacyHeroOnlyPage(
+  id: string,
+  title: string,
+  subtitle: string,
+) {
+  return {
+    sections: [
+      {
+        id,
+        type: "hero" as const,
+        title,
+        subtitle,
+        description: null,
+        eyebrow: null,
+        layout: "page-hero",
+        animation: "fade" as const,
+        visible: true,
+        mediaId: null,
+        secondaryMediaId: null,
+        items: [],
+        buttons: [],
+      },
+    ],
+    mediaLibrary: [],
+    seo: {},
+  };
 }
 
 function normalizeForSave(config: ReturnType<typeof createCisecoConfig>) {
@@ -37,6 +312,83 @@ describe("website builder page persistence", () => {
         "ciseco-product-banner",
       ]),
     );
+  });
+
+  it("syncs the ciseco blog and article defaults with the template section set", () => {
+    const config = createCisecoConfig();
+
+    expect(config.pages.blog?.sections.map((section) => section.id)).toEqual([
+      "ciseco-blog-hero",
+      "ciseco-blog-featured",
+      "ciseco-blog-mini",
+      "ciseco-blog-ads",
+      "ciseco-blog-latest",
+      "ciseco-blog-promo",
+    ]);
+    expect(config.pages["blog-detail"]?.sections.map((section) => section.id)).toEqual([
+      "ciseco-blog-detail-hero",
+      "ciseco-blog-detail-body",
+      "ciseco-blog-detail-related",
+    ]);
+  });
+
+  it("limits the ciseco home defaults to the core visible sections", () => {
+    const config = createCisecoConfig();
+    const homeSections = config.pages.home?.sections ?? [];
+    const visibleHomeIds = homeSections
+      .filter((section) => section.visible !== false)
+      .map((section) => section.id);
+    const hiddenHomeIds = homeSections
+      .filter((section) => section.visible === false)
+      .map((section) => section.id);
+
+    expect(visibleHomeIds).toEqual([
+      "ciseco-home-hero",
+      "ciseco-home-best-sellers",
+      "ciseco-home-featured-products",
+      "ciseco-home-favorites",
+      "ciseco-home-testimonials",
+    ]);
+
+    expect(hiddenHomeIds).toEqual(
+      expect.arrayContaining([
+        "ciseco-home-discovery",
+        "ciseco-home-new-arrivals",
+        "ciseco-home-features",
+        "ciseco-home-promo",
+        "ciseco-home-categories",
+        "ciseco-home-kids-promo",
+        "ciseco-home-departments",
+        "ciseco-home-blog",
+      ]),
+    );
+  });
+
+  it("migrates legacy ciseco home defaults to the simplified visible set", () => {
+    const config = ensureCisecoPageConfigs(createLegacyCisecoConfig());
+    const homeSections = config.pages.home?.sections ?? [];
+    const visibleHomeIds = homeSections
+      .filter((section) => section.visible !== false)
+      .map((section) => section.id);
+
+    expect(config.version).toBe(2);
+    expect(visibleHomeIds).toEqual([
+      "ciseco-home-hero",
+      "ciseco-home-best-sellers",
+      "ciseco-home-featured-products",
+      "ciseco-home-favorites",
+      "ciseco-home-testimonials",
+    ]);
+    expect(homeSections.map((section) => section.id)).toEqual(
+      expect.arrayContaining([
+        "ciseco-home-discovery",
+        "ciseco-home-promo",
+        "ciseco-home-blog",
+      ]),
+    );
+    expect(
+      homeSections.find((section) => section.id === "ciseco-home-featured-products")?.title,
+    ).toBe("Shopping essentials");
   });
 
   it("preserves hidden home sections after normalization", () => {
@@ -122,5 +474,193 @@ describe("website builder page persistence", () => {
     expect(resolvedIds).toContain("ciseco-product-reviews");
     expect(resolvedIds).toContain("ciseco-product-related");
     expect(resolvedIds).toContain("ciseco-product-banner");
+  });
+
+  it("migrates legacy hero-only blog pages to the synced template defaults", () => {
+    const config = ensureCisecoPageConfigs({
+      ...createDefaultBuilderConfig({
+        heroTitle: "Demo",
+      }),
+      version: 2,
+      pages: {
+        blog: createLegacyHeroOnlyPage(
+          "ciseco-blog-hero",
+          "Journal",
+          "Suivez nos dernières actualités et inspirations.",
+        ),
+        "blog-detail": createLegacyHeroOnlyPage(
+          "ciseco-blog-detail-hero",
+          "Article",
+          "Racontez l’histoire derrière vos collections.",
+        ),
+      },
+    });
+
+    expect(config.version).toBe(3);
+    expect(config.pages.blog?.sections.map((section) => section.id)).toEqual([
+      "ciseco-blog-hero",
+      "ciseco-blog-featured",
+      "ciseco-blog-mini",
+      "ciseco-blog-ads",
+      "ciseco-blog-latest",
+      "ciseco-blog-promo",
+    ]);
+    expect(config.pages["blog-detail"]?.sections.map((section) => section.id)).toEqual([
+      "ciseco-blog-detail-hero",
+      "ciseco-blog-detail-body",
+      "ciseco-blog-detail-related",
+    ]);
+  });
+
+  it("exposes optional Ciseco sections through the shared page catalog", () => {
+    const contactCatalog = getCisecoPageSectionCatalog("contact");
+    const contactPromoPreset = contactCatalog.presets.find(
+      (preset) => preset.key === "ciseco-contact-promo",
+    );
+
+    expect(contactCatalog.presets.map((preset) => preset.key)).toEqual(
+      expect.arrayContaining([
+        "ciseco-contact-hero",
+        "ciseco-contact-promo",
+      ]),
+    );
+    expect(contactPromoPreset?.includedByDefault).toBe(false);
+    expect(
+      createCisecoSectionFromTemplate("contact", "ciseco-contact-promo")?.id,
+    ).toBe("ciseco-contact-promo");
+  });
+
+  it("does not classify generic sections as built-in Ciseco presets", () => {
+    expect(
+      resolveCisecoSectionTemplate("contact", {
+        id: "generic-contact-banner",
+        type: "promo",
+        title: "Support banner",
+        subtitle: "Generic banner content",
+        description: null,
+        eyebrow: null,
+        layout: "banner",
+        animation: "fade",
+        visible: true,
+        mediaId: null,
+        secondaryMediaId: null,
+        items: [],
+        buttons: [],
+      }),
+    ).toBeNull();
+  });
+
+  it("falls back to the requested page defaults instead of home when a page config is missing", () => {
+    const config = createCisecoConfig();
+    const pagesWithoutContact = { ...config.pages };
+    delete pagesWithoutContact.contact;
+    const brokenConfig = {
+      ...config,
+      pages: pagesWithoutContact,
+    };
+
+    const resolvedContact = resolveCisecoBuilderPageConfig(
+      brokenConfig,
+      "contact",
+    );
+
+    expect(resolvedContact?.sections[0]?.id).toBe("ciseco-contact-hero");
+    expect(resolvedContact?.sections[0]?.id).not.toBe("ciseco-home-hero");
+  });
+
+  it("renders an added optional contact preset through the catalog page pipeline", () => {
+    const config = createCisecoConfig();
+    const promo = createCisecoSectionFromTemplate(
+      "contact",
+      "ciseco-contact-promo",
+    );
+
+    expect(promo).toBeTruthy();
+
+    config.pages.contact.sections.push(promo!);
+
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const html = (() => {
+      try {
+        return renderToStaticMarkup(
+          createElement(CatalogPage, {
+            data: createCisecoCatalogPayload(config),
+            mode: "preview",
+            path: "/contact",
+          }),
+        );
+      } finally {
+        consoleErrorSpy.mockRestore();
+      }
+    })();
+
+    expect(html).toContain("Need help choosing the right collection?");
+    expect(html).toContain("Browse collections");
+  });
+
+  it("renders an added generic extra section on contact pages", () => {
+    const config = createCisecoConfig();
+    const extraSection = {
+      ...createSectionTemplate("content"),
+      id: "contact-extra-content",
+      title: "Extra content block",
+      subtitle: "Visible after the contact form",
+    };
+
+    config.pages.contact.sections.push(extraSection);
+
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const html = (() => {
+      try {
+        return renderToStaticMarkup(
+          createElement(CatalogPage, {
+            data: createCisecoCatalogPayload(config),
+            mode: "preview",
+            path: "/contact",
+          }),
+        );
+      } finally {
+        consoleErrorSpy.mockRestore();
+      }
+    })();
+
+    expect(html).toContain("Extra content block");
+    expect(html).toContain("Visible after the contact form");
+  });
+
+  it("does not render removed blog sections when a builder config is present", () => {
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const html = (() => {
+      try {
+        return renderToStaticMarkup(
+          createElement(BlogPage, {
+            theme: TEST_THEME,
+            inlineStyles: {},
+            companyName: "Demo",
+            homeHref: "/",
+            baseLink: (target: string) => target,
+            path: "/blog",
+            builder: createLegacyHeroOnlyPage(
+              "ciseco-blog-hero",
+              "Journal",
+              "Only the hero should remain",
+            ),
+          }),
+        );
+      } finally {
+        consoleErrorSpy.mockRestore();
+      }
+    })();
+
+    expect(html).toContain("Only the hero should remain");
+    expect(html).not.toContain("Latest articles");
+    expect(html).not.toContain("Special offer");
+    expect(html).not.toContain("A.D.S");
   });
 });

@@ -104,41 +104,32 @@ export function FeatureIcon({ name }: FeatureIconProps) {
 
 export function CategoryIcon({ name }: CategoryIconProps) {
   switch (name) {
-    case "women":
+    case "workspace":
       return (
         <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
           <path
-            d="M12 4a4 4 0 1 1-4 4 4 4 0 0 1 4-4z"
-            fill="currentColor"
-            opacity="0.2"
-          />
-          <path
-            d="M12 4a4 4 0 1 1-4 4 4 4 0 0 1 4-4z"
+            d="M4 5h7v6H4V5zm9 0h7v6h-7V5zM4 13h7v6H4v-6zm9 0h7v6h-7v-6z"
             stroke="currentColor"
             strokeWidth="1.5"
             fill="none"
-          />
-          <path
-            d="M12 12v6m0 0h-3m3 0h3"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
           />
         </svg>
       );
-    case "men":
+    case "planning":
       return (
         <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
-          <circle
-            cx="10"
-            cy="14"
-            r="4"
+          <rect
+            x="4"
+            y="5"
+            width="16"
+            height="15"
+            rx="2"
             stroke="currentColor"
             strokeWidth="1.5"
             fill="none"
           />
           <path
-            d="M14 10l6-6m0 0h-4m4 0v4"
+            d="M8 3v4M16 3v4M7.5 11.5l2 2 5-5"
             stroke="currentColor"
             strokeWidth="1.5"
             strokeLinecap="round"
@@ -146,70 +137,59 @@ export function CategoryIcon({ name }: CategoryIconProps) {
           />
         </svg>
       );
-    case "kids":
+    case "analytics":
       return (
         <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
           <path
-            d="M7 10h10l-2 9H9l-2-9z"
+            d="M5 19V9m7 10V5m7 14v-7"
             stroke="currentColor"
             strokeWidth="1.5"
-            fill="none"
-          />
-          <path
-            d="M9 10l3-4 3 4"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            fill="none"
+            strokeLinecap="round"
           />
         </svg>
       );
-    case "beauty":
+    case "operations":
       return (
         <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
           <path
-            d="M8 6h8l-1 12H9L8 6z"
+            d="M4 7h16M4 12h10M4 17h16"
             stroke="currentColor"
             strokeWidth="1.5"
             fill="none"
+            strokeLinecap="round"
           />
           <path
-            d="M10 6V4h4v2"
+            d="M15 7h2m-7 5h2m3 5h2"
             stroke="currentColor"
             strokeWidth="1.5"
+            strokeLinecap="round"
           />
         </svg>
       );
-    case "sport":
+    case "support":
       return (
         <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
-          <circle
-            cx="12"
-            cy="12"
-            r="8"
+          <path
+            d="M12 4a6 6 0 0 0-6 6v4a3 3 0 0 0 3 3h1v-6H7"
             stroke="currentColor"
             strokeWidth="1.5"
             fill="none"
           />
           <path
-            d="M4 12h16M12 4v16"
+            d="M12 4a6 6 0 0 1 6 6v4a3 3 0 0 1-3 3h-1v-6h3"
             stroke="currentColor"
-            strokeWidth="1.2"
+            strokeWidth="1.5"
             fill="none"
           />
+          <circle cx="12" cy="18" r="1" fill="currentColor" />
         </svg>
       );
-    case "home":
+    case "resources":
     default:
       return (
         <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
           <path
-            d="M4 10l8-6 8 6v8H4v-8z"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            fill="none"
-          />
-          <path
-            d="M9 18v-5h6v5"
+            d="M4 7.5A2.5 2.5 0 0 1 6.5 5H10l1.2 1.5H17.5A2.5 2.5 0 0 1 20 9v7.5a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5v-9z"
             stroke="currentColor"
             strokeWidth="1.5"
             fill="none"

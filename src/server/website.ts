@@ -32,12 +32,12 @@ import {
 import { DEFAULT_PRIMARY_CTA_LABEL } from "@/lib/website/defaults";
 import { slugify } from "@/lib/slug";
 import {
-  ensureCisecoPageConfigs,
   applyThemeFallbacks,
   builderConfigSchema,
   builderVersionHistorySchema,
   createDefaultBuilderConfig,
   createSectionTemplate,
+  normalizeBuilderConfigForTemplate,
   sanitizeBuilderPages,
   type BuilderSectionType,
   type WebsiteBuilderConfig,
@@ -1530,8 +1530,12 @@ export async function saveWebsiteBuilderConfig(
     ...input,
     pages: sanitizeBuilderPages(input.pages),
   });
+  const templateNormalized = normalizeBuilderConfigForTemplate(
+    parsed,
+    website.templateKey,
+  );
   const accent = parsed.theme?.accent ?? website.accentColor ?? "#2563eb";
-  const normalizedNext = applyThemeFallbacks(parsed, accent);
+  const normalizedNext = applyThemeFallbacks(templateNormalized, accent);
   const previousConfig = resolveBuilderConfigFromWebsite(website);
   const previousSerialized = JSON.stringify(previousConfig);
   const nextSerialized = JSON.stringify(normalizedNext);
@@ -1823,11 +1827,11 @@ function resolveBuilderConfigFromWebsite(
       buildDefaultBuilderOptions(website),
     );
   const withTemplateDefaults = ensureTemplateSections(base, website);
-  const withCisecoPages =
-    website.templateKey === "ecommerce-ciseco-home"
-      ? ensureCisecoPageConfigs(withTemplateDefaults)
-      : withTemplateDefaults;
-  return applyThemeFallbacks(withCisecoPages, website.accentColor);
+  const normalizedForTemplate = normalizeBuilderConfigForTemplate(
+    withTemplateDefaults,
+    website.templateKey,
+  );
+  return applyThemeFallbacks(normalizedForTemplate, website.accentColor);
 }
 
 function resolveBuilderHistoryFromWebsite(

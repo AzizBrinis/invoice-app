@@ -22,8 +22,8 @@ export function Footer({ theme, companyName }: FooterProps) {
             <span className="text-[var(--site-accent)]">.</span>
           </div>
           <p className="max-w-[260px] text-sm text-slate-600">
-            Lorem ipsum dolor sit amet, consectetur adipiscing elit. Nulla
-            facilisi. Curabitur volutpat.
+            A clean and adaptable starting point for catalog, service, or
+            content-driven websites.
           </p>
           <div className="flex items-center gap-3">
             <a

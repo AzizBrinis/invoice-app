@@ -10,6 +10,7 @@ import { AuthField } from "../components/auth/AuthField";
 import { AuthFooterText } from "../components/auth/AuthFooterText";
 import { AuthLayout } from "../components/auth/AuthLayout";
 import { AuthPrimaryButton } from "../components/auth/AuthPrimaryButton";
+import { ExtraSections } from "../components/builder/ExtraSections";
 import {
   AuthSocialButtons,
   type SocialProvider,
@@ -162,9 +163,15 @@ export function LoginPage({
         : "border-emerald-200 bg-emerald-50 text-emerald-700";
 
   const showDivider = socialProviders.length > 0;
-  const heroSection = resolveBuilderSection(builder?.sections ?? [], "hero");
+  const sections = builder?.sections ?? [];
+  const mediaLibrary = builder?.mediaLibrary ?? [];
+  const heroSection = resolveBuilderSection(sections, "hero");
   const heroSubtitle =
     heroSection?.subtitle ?? heroSection?.description ?? undefined;
+  const extraSections = sections.filter(
+    (section) =>
+      section.visible !== false && section.id !== heroSection?.id,
+  );
 
   return (
     <AuthLayout
@@ -172,6 +179,16 @@ export function LoginPage({
       inlineStyles={inlineStyles}
       title={heroSection?.title ?? "Login"}
       subtitle={heroSubtitle}
+      builderSectionId={heroSection?.id}
+      belowContent={
+        extraSections.length ? (
+          <ExtraSections
+            theme={theme}
+            sections={extraSections}
+            mediaLibrary={mediaLibrary}
+          />
+        ) : null
+      }
       chrome={{ companyName, homeHref }}
     >
       {socialProviders.length > 0 ? (

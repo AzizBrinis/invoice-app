@@ -1,5 +1,5 @@
 import {
-  ensureCisecoPageConfigs,
+  resolveCisecoBuilderPageConfig,
   type WebsiteBuilderConfig,
   type WebsiteBuilderMediaAsset,
   type WebsiteBuilderPageConfig,
@@ -10,30 +10,7 @@ export function resolveCisecoPageConfig(
   builder: WebsiteBuilderConfig | null | undefined,
   pageKey: string,
 ): WebsiteBuilderPageConfig | null {
-  if (!builder) return null;
-
-  // Normalize legacy configs that only stored sections (no per-page state).
-  const normalized = ensureCisecoPageConfigs(builder);
-  const pages = normalized.pages ?? {};
-
-  if (pages[pageKey]) {
-    return pages[pageKey] ?? null;
-  }
-
-  // Fallback to home or the first available page so the template never drops back
-  // to hardcoded defaults when the requested key is missing.
-  const fallbackPage = pages.home ?? Object.values(pages)[0];
-  if (fallbackPage) {
-    return fallbackPage;
-  }
-
-  // Last resort: return a minimal config built from the legacy fields so that
-  // the UI remains usable even if pages could not be resolved.
-  return {
-    sections: normalized.sections ?? [],
-    mediaLibrary: normalized.mediaLibrary ?? [],
-    seo: {},
-  };
+  return resolveCisecoBuilderPageConfig(builder, pageKey);
 }
 
 export function resolveBuilderMedia(
@@ -63,6 +40,51 @@ export function resolveBuilderSection(
         layouts.some((entry) => entry === section.layout),
     ) ?? null
   );
+}
+
+export function resolveBuilderSectionBySignature(
+  sections: WebsiteBuilderSection[],
+  matcher: {
+    ids?: string | string[];
+    type?: WebsiteBuilderSection["type"];
+    layouts?: string | string[];
+  },
+) {
+  const visibleSections = sections.filter(
+    (section) => section.visible !== false,
+  );
+  const ids = matcher.ids
+    ? Array.isArray(matcher.ids)
+      ? matcher.ids
+      : [matcher.ids]
+    : [];
+  for (const id of ids) {
+    const byId = visibleSections.find((section) => section.id === id);
+    if (byId) {
+      return byId;
+    }
+  }
+  const layouts = matcher.layouts
+    ? Array.isArray(matcher.layouts)
+      ? matcher.layouts
+      : [matcher.layouts]
+    : [];
+  if (matcher.type && layouts.length) {
+    const byLayout = visibleSections.find(
+      (section) =>
+        section.type === matcher.type &&
+        layouts.some((layout) => layout === section.layout),
+    );
+    if (byLayout) {
+      return byLayout;
+    }
+  }
+  if (matcher.type) {
+    return (
+      visibleSections.find((section) => section.type === matcher.type) ?? null
+    );
+  }
+  return null;
 }
 
 export function resolveVisibleSections(sections: WebsiteBuilderSection[]) {

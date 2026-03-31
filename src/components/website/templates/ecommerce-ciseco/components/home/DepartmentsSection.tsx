@@ -19,10 +19,11 @@ export function DepartmentsSection({
   section,
   mediaLibrary = [],
 }: DepartmentsSectionProps) {
-  const eyebrow = section?.eyebrow ?? "Shop by department";
-  const title = section?.title ?? "Explore the absolute";
+  const eyebrow = section?.eyebrow ?? "Browse sections";
+  const title = section?.title ?? "Explore example groupings";
   const subtitle =
-    section?.subtitle ?? "Lorem ipsum dolor sit amet, consectetur adipiscing elit.";
+    section?.subtitle ??
+    "Organize content into flexible groups that work for any business.";
   const items =
     section?.items?.length
       ? section.items.map((item, index) => {
