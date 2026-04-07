@@ -15,6 +15,10 @@ import { LeadCaptureForm } from "@/components/website/lead-form";
 import { QuoteRequestForm } from "@/components/website/quote-request-form";
 import { formatCurrency } from "@/lib/formatters";
 import { fromCents } from "@/lib/money";
+import {
+  computeAdjustedUnitPriceTTCCents,
+  resolveProductDiscount,
+} from "@/lib/product-pricing";
 import { slugify } from "@/lib/slug";
 import { DEFAULT_PRIMARY_CTA_LABEL } from "@/lib/website/defaults";
 import { WEBSITE_MEDIA_PLACEHOLDERS } from "@/lib/website/placeholders";
@@ -688,15 +692,18 @@ function buildServiceCards(options: {
       product.excerpt ??
       product.description ??
       COPY.misc.serviceExcerpt;
-    const unitAmountCents =
-      product.saleMode === "INSTANT" ? product.priceTTCCents : null;
     const unitPriceHTCents =
       product.saleMode === "INSTANT" ? product.priceHTCents : null;
     const vatRate = product.saleMode === "INSTANT" ? product.vatRate : null;
-    const discountRate =
-      product.saleMode === "INSTANT"
-        ? product.defaultDiscountRate ?? null
-        : null;
+    const discount = resolveProductDiscount(product);
+    const unitAmountCents = computeAdjustedUnitPriceTTCCents({
+      saleMode: product.saleMode,
+      priceTTCCents: product.priceTTCCents ?? null,
+      priceHTCents: unitPriceHTCents,
+      vatRate,
+      discountRate: discount.discountRate,
+      discountAmountCents: discount.discountAmountCents,
+    });
     const category = product.category?.trim() ?? null;
     const categorySlug = category ? slugify(category) || null : null;
     return {
@@ -710,13 +717,14 @@ function buildServiceCards(options: {
       price: resolvePriceLabel({
         saleMode: product.saleMode,
         showPrices: options.showPrices,
-        amountCents: product.priceTTCCents,
+        amountCents: unitAmountCents ?? undefined,
         currencyCode: options.currencyCode,
       }),
       unitAmountCents,
       unitPriceHTCents,
       vatRate,
-      discountRate,
+      discountRate: discount.discountRate,
+      discountAmountCents: discount.discountAmountCents,
       currencyCode: options.currencyCode,
       slug: resolveProductSlug(product),
       image: gallery[0],
@@ -2295,7 +2303,7 @@ function ProductPage({
   theme,
   card,
   baseLink,
-  currencyCode,
+  currencyCode: _currencyCode,
   mode,
   path,
   slug,
@@ -2318,6 +2326,7 @@ function ProductPage({
   upsellSection?: WebsiteBuilderSection | null;
   upsellCards: CatalogCard[];
 }) {
+  void _currencyCode;
   const { addItem } = useCart();
   if (!card) {
     return (

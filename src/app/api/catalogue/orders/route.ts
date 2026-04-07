@@ -6,6 +6,21 @@ import { generateId } from "@/lib/id";
 import { prisma } from "@/lib/prisma";
 import { calculateLineTotals } from "@/lib/documents";
 import { createConfirmationToken } from "@/lib/confirmation-token";
+import {
+  getClientFromSessionToken,
+  getClientSessionTokenFromCookie,
+} from "@/lib/client-auth";
+import {
+  calculateSelectedOptionAdjustmentCents,
+  formatSelectedOptionsSummary,
+  type ProductOptionSelection,
+} from "@/lib/product-options";
+import {
+  computeAdjustedUnitPriceHTCents,
+  resolveProductDiscount,
+  resolveLineDiscountInput,
+} from "@/lib/product-pricing";
+import { createCisecoRequestTranslator } from "@/lib/website/ciseco-request-locale";
 import { createOrder } from "@/server/orders";
 import { getSettings } from "@/server/settings";
 import {
@@ -39,13 +54,29 @@ const quantitySchema = z.preprocess(
 const orderItemSchema = z.object({
   productId: z.string().min(1),
   quantity: quantitySchema,
+  selectedOptions: z
+    .array(
+      z.object({
+        kind: z.enum(["color", "size", "custom"]).nullable().optional(),
+        groupId: z.string().max(120).nullable().optional(),
+        valueId: z.string().max(120).nullable().optional(),
+        name: z.string().min(1).max(80),
+        value: z.string().min(1).max(120),
+        priceAdjustmentCents: z.number().int().nullable().optional(),
+      }),
+    )
+    .max(12)
+    .nullable()
+    .optional(),
 });
 
 const orderCustomerSchema = z.object({
-  name: z.string().min(2, "Nom requis"),
-  email: z.string().email("E-mail invalide"),
+  name: z.string().min(2, "Name is required."),
+  email: z.string().email("Invalid email address."),
   phone: z.string().max(40).nullable().optional(),
+  type: z.enum(["individual", "company"]).default("individual"),
   company: z.string().max(120).nullable().optional(),
+  vatNumber: z.string().max(80).nullable().optional(),
   address: z.string().max(240).nullable().optional(),
 });
 
@@ -66,7 +97,20 @@ function normalizeOptional(value: string | null | undefined) {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+async function resolveAuthenticatedClientId(websiteUserId: string) {
+  const token = await getClientSessionTokenFromCookie();
+  if (!token) {
+    return null;
+  }
+  const client = await getClientFromSessionToken(token);
+  if (!client || !client.isActive || client.userId !== websiteUserId) {
+    return null;
+  }
+  return client.id;
+}
+
 export async function POST(request: NextRequest) {
+  const { t } = createCisecoRequestTranslator(request);
   try {
     const payload = orderPayloadSchema.parse(await request.json());
     const host = request.headers.get("host")?.toLowerCase() ?? "";
@@ -77,7 +121,7 @@ export async function POST(request: NextRequest) {
     const domain = isAppHost ? null : normalizedHost;
     const slug = isAppHost ? normalizeCatalogSlugInput(payload.slug) : null;
     if (payload.path && !normalizeCatalogPathInput(payload.path)) {
-      throw new Error("Chemin invalide.");
+      throw new Error("Invalid path.");
     }
     const website = await resolveCatalogWebsite({
       slug,
@@ -85,22 +129,36 @@ export async function POST(request: NextRequest) {
       preview: payload.mode === "preview",
     });
     if (!website) {
-      throw new Error("Site introuvable.");
+      throw new Error("Site unavailable.");
     }
     if (!website.showPrices) {
       throw new Error(
-        "Les tarifs sont masqués pour ce site. Contactez-nous pour finaliser la commande.",
+        "Pricing is hidden for this shop. Please contact us.",
       );
     }
     const ecommerceSettings = resolveEcommerceSettingsFromWebsite(website);
     const checkoutSettings = ecommerceSettings.checkout ?? {};
     const normalizedPhone = normalizeOptional(payload.customer.phone);
+    const normalizedCompany = normalizeOptional(payload.customer.company);
+    const normalizedVatNumber = normalizeOptional(payload.customer.vatNumber);
+    const normalizedAddress = normalizeOptional(payload.customer.address);
     if (checkoutSettings.requirePhone && !normalizedPhone) {
-      throw new Error("Téléphone requis pour finaliser la commande.");
+      throw new Error("Phone number is required to place this order.");
+    }
+    if (!normalizedAddress) {
+      throw new Error("Address is required to place this order.");
+    }
+    if (payload.customer.type === "company") {
+      if (!normalizedCompany) {
+        throw new Error("Company name is required.");
+      }
+      if (!normalizedVatNumber) {
+        throw new Error("Tax registration number is required.");
+      }
     }
     const termsUrl = checkoutSettings.termsUrl?.trim() ?? "";
     if (termsUrl && !payload.termsAccepted) {
-      throw new Error("Veuillez accepter les conditions générales.");
+      throw new Error("Please accept the terms and conditions.");
     }
     const paymentMethods = ecommerceSettings.payments?.methods ?? {};
     const enabledMethods = [
@@ -114,18 +172,13 @@ export async function POST(request: NextRequest) {
         : null;
     if (enabledMethods.length > 0) {
       if (!resolvedPaymentMethod) {
-        throw new Error("Veuillez sélectionner un mode de paiement.");
+        throw new Error("Payment method is required.");
       }
     }
 
-    const quantities = new Map<string, number>();
-    payload.items.forEach((item) => {
-      quantities.set(
-        item.productId,
-        (quantities.get(item.productId) ?? 0) + item.quantity,
-      );
-    });
-    const productIds = Array.from(quantities.keys());
+    const productIds = Array.from(
+      new Set(payload.items.map((item) => item.productId)),
+    );
     const products = await prisma.product.findMany({
       where: {
         id: { in: productIds },
@@ -141,31 +194,60 @@ export async function POST(request: NextRequest) {
         priceTTCCents: true,
         vatRate: true,
         defaultDiscountRate: true,
+        defaultDiscountAmountCents: true,
         saleMode: true,
+        optionConfig: true,
       },
     });
 
     if (products.length !== productIds.length) {
-      throw new Error("Produit introuvable.");
+      throw new Error("Product not found.");
     }
 
     const productMap = new Map(products.map((product) => [product.id, product]));
-    const orderItems = productIds.map((productId, index) => {
-      const product = productMap.get(productId);
+    const orderItems = payload.items.map((item, index) => {
+      const product = productMap.get(item.productId);
       if (!product) {
-        throw new Error("Produit introuvable.");
+        throw new Error("Product not found.");
       }
       if (product.saleMode !== "INSTANT") {
-        throw new Error("Ce produit ne peut pas être acheté en ligne.");
+        throw new Error("This product cannot be purchased online.");
       }
+      const optionSelections = (item.selectedOptions ??
+        []) as ProductOptionSelection[];
+      const trustedSelections = optionSelections.map((selection) => ({
+        kind: selection.kind,
+        groupId: selection.groupId,
+        valueId: selection.valueId,
+        name: selection.name,
+        value: selection.value,
+      }));
+      const selectedOptionsSummary = formatSelectedOptionsSummary(trustedSelections);
+      const optionAdjustmentCents = calculateSelectedOptionAdjustmentCents(
+        product.optionConfig,
+        trustedSelections,
+      );
+      const discount = resolveProductDiscount(product);
+      const lineDiscount = resolveLineDiscountInput({
+        quantity: item.quantity,
+        discountRate: discount.discountRate,
+        discountAmountCents: discount.discountAmountCents,
+      });
       return {
         productId: product.id,
-        description: product.name,
-        quantity: quantities.get(productId) ?? 1,
+        description: selectedOptionsSummary
+          ? `${product.name} (${selectedOptionsSummary})`
+          : product.name,
+        quantity: item.quantity,
         unit: product.unit,
-        unitPriceHTCents: product.priceHTCents,
+        unitPriceHTCents:
+          computeAdjustedUnitPriceHTCents(
+            product.priceHTCents,
+            optionAdjustmentCents,
+          ) ?? product.priceHTCents,
         vatRate: product.vatRate,
-        discountRate: product.defaultDiscountRate ?? null,
+        discountRate: lineDiscount.discountRate,
+        discountAmountCents: lineDiscount.discountAmountCents,
         position: index,
       };
     });
@@ -176,7 +258,7 @@ export async function POST(request: NextRequest) {
         unitPriceHTCents: line.unitPriceHTCents,
         vatRate: line.vatRate,
         discountRate: line.discountRate ?? null,
-        discountAmountCents: null,
+        discountAmountCents: line.discountAmountCents ?? null,
       }),
     );
 
@@ -199,7 +281,9 @@ export async function POST(request: NextRequest) {
       productId: line.productId,
       title: line.description,
       quantity: line.quantity,
-      unitAmountCents: productMap.get(line.productId)?.priceTTCCents ?? null,
+      unitAmountCents: computedLines[index]?.totalTTCCents
+        ? Math.round(computedLines[index].totalTTCCents / line.quantity)
+        : null,
       lineTotalCents: computedLines[index]?.totalTTCCents ?? null,
     }));
 
@@ -210,12 +294,15 @@ export async function POST(request: NextRequest) {
     );
     const orderInput = {
       currency: currencyCode,
+      clientId: await resolveAuthenticatedClientId(website.userId),
       customer: {
         name: payload.customer.name.trim(),
         email: payload.customer.email.trim(),
         phone: normalizedPhone,
-        company: normalizeOptional(payload.customer.company),
-        address: normalizeOptional(payload.customer.address),
+        type: payload.customer.type,
+        company: normalizedCompany,
+        vatNumber: normalizedVatNumber,
+        address: normalizedAddress,
       },
       notes: normalizeOptional(payload.notes),
       items: orderItems,
@@ -225,7 +312,7 @@ export async function POST(request: NextRequest) {
     if (payload.mode === "preview") {
       return NextResponse.json({
         status: "preview-only",
-        message: "Mode prévisualisation : aucune commande enregistrée.",
+        message: t("Preview mode: no order recorded."),
         order: {
           id: null,
           orderNumber: generateId("cmd-preview"),
@@ -253,9 +340,11 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("[catalogue/orders] create failed", error);
     const message =
-      error instanceof Error
-        ? error.message
-        : "Impossible de créer la commande.";
+      error instanceof z.ZodError
+        ? t(error.issues[0]?.message ?? "Invalid form data.")
+        : error instanceof Error
+          ? t(error.message)
+          : t("Unable to create your order right now.");
     return NextResponse.json(
       { error: message },
       {

@@ -16,6 +16,12 @@ import {
   type SocialProvider,
 } from "../components/auth/AuthSocialButtons";
 import type { SignupSettingsInput } from "@/server/website";
+import {
+  useAccountProfile,
+  type ClientProfile,
+} from "../hooks/useAccountProfile";
+import { useCisecoI18n } from "../i18n";
+import { useCisecoNavigation } from "../navigation";
 
 type LoginPageProps = {
   theme: ThemeTokens;
@@ -36,6 +42,7 @@ type LoginResponse = {
   status: "authenticated" | "preview-only";
   message?: string;
   redirectTo?: string;
+  profile?: ClientProfile | null;
 };
 
 function resolveLoginRedirectPath(target: SignupSettingsInput["redirectTarget"]) {
@@ -43,15 +50,6 @@ function resolveLoginRedirectPath(target: SignupSettingsInput["redirectTarget"])
 }
 
 const PROVIDER_ORDER: SocialProvider[] = ["google", "facebook", "twitter"];
-
-function resolveRedirectUrl(baseLink: (target: string) => string, target: string) {
-  if (typeof window === "undefined") {
-    return baseLink(target);
-  }
-  return window.location.pathname.startsWith("/catalogue/")
-    ? baseLink(target)
-    : target;
-}
 
 export function LoginPage({
   theme,
@@ -65,6 +63,11 @@ export function LoginPage({
   signupSettings,
   builder,
 }: LoginPageProps) {
+  const { t } = useCisecoI18n();
+  const { navigate } = useCisecoNavigation();
+  const { applyAuthenticatedProfile } = useAccountProfile({
+    redirectOnUnauthorized: false,
+  });
   const [status, setStatus] = useState<LoginStatus>("idle");
   const [message, setMessage] = useState<string | null>(null);
   const socialProviders = useMemo(() => {
@@ -87,7 +90,7 @@ export function LoginPage({
 
     if (!email || !password) {
       setStatus("error");
-      setMessage("Please enter an email and password.");
+      setMessage(t("Please enter an email and password."));
       return;
     }
 
@@ -116,24 +119,26 @@ export function LoginPage({
         throw new Error(
           "error" in result && result.error
             ? result.error
-            : "Unable to sign in.",
+            : t("Unable to sign in."),
         );
       }
 
       setStatus("success");
-      setMessage(result.message ?? "Login successful.");
+      setMessage(t(result.message ?? "Login successful."));
 
       if (result.status !== "preview-only") {
+        if (result.profile) {
+          applyAuthenticatedProfile(result.profile);
+        }
         const redirectTo = result.redirectTo ?? redirectPath;
-        const redirectUrl = resolveRedirectUrl(baseLink, redirectTo);
         setTimeout(() => {
-          window.location.assign(redirectUrl);
+          navigate(baseLink(redirectTo));
         }, 600);
       }
     } catch (error) {
       setStatus("error");
       setMessage(
-        error instanceof Error ? error.message : "Unable to sign in.",
+        error instanceof Error ? t(error.message) : t("Unable to sign in."),
       );
     }
   };
@@ -145,13 +150,13 @@ export function LoginPage({
     }
     if (mode === "preview") {
       setStatus("success");
-      setMessage("Preview mode: no login recorded.");
+      setMessage(t("Preview mode: no login recorded."));
       return;
     }
 
     setStatus("error");
     setMessage(
-      "Social sign-in is not available yet. Please use email and password.",
+      t("Social sign-in is not available yet. Please use email and password."),
     );
   };
 
@@ -177,7 +182,7 @@ export function LoginPage({
     <AuthLayout
       theme={theme}
       inlineStyles={inlineStyles}
-      title={heroSection?.title ?? "Login"}
+      title={t(heroSection?.title ?? "Login")}
       subtitle={heroSubtitle}
       builderSectionId={heroSection?.id}
       belowContent={
@@ -204,9 +209,9 @@ export function LoginPage({
           <AuthField
             id="login-email"
             name="email"
-            label="Email"
+            label={t("Email")}
             type="email"
-            placeholder="example@example.com"
+            placeholder={t("example@example.com")}
             required
             autoComplete="email"
             disabled={status === "loading"}
@@ -214,9 +219,9 @@ export function LoginPage({
           <AuthField
             id="login-password"
             name="password"
-            label="Password"
+            label={t("Password")}
             type="password"
-            actionLabel="Forgot password?"
+            actionLabel={t("Forgot password?")}
             actionHref={baseLink("/forgot-password")}
             required
             autoComplete="current-password"
@@ -224,11 +229,11 @@ export function LoginPage({
           />
         </div>
         <AuthPrimaryButton
-          label="Continue"
+          label={t("Continue")}
           type="submit"
           isLoading={status === "loading"}
           disabled={status === "loading"}
-          loadingLabel="Signing in..."
+          loadingLabel={t("Signing in...")}
         />
         {message ? (
           <p
@@ -239,12 +244,12 @@ export function LoginPage({
         ) : null}
       </form>
       <AuthFooterText>
-        New user?{" "}
+        {t("New user?")}{" "}
         <a
           href={baseLink("/signup")}
           className="font-semibold text-sky-600 transition-colors hover:text-sky-700"
         >
-          Create an account
+          {t("Create an account")}
         </a>
       </AuthFooterText>
     </AuthLayout>

@@ -1,6 +1,6 @@
 import clsx from "clsx";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, FormEvent } from "react";
 import type { CatalogWebsiteSummary } from "@/server/website";
 import { useCart } from "@/components/website/cart/cart-context";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,9 @@ import { ExtraSections } from "../components/builder/ExtraSections";
 import { Footer } from "../components/layout/Footer";
 import { Navbar } from "../components/layout/Navbar";
 import { PageShell } from "../components/layout/PageShell";
+import { useAccountProfile } from "../hooks/useAccountProfile";
+import { useCisecoI18n } from "../i18n";
+import { useCisecoNavigation } from "../navigation";
 
 type CheckoutPageProps = {
   theme: ThemeTokens;
@@ -50,22 +53,33 @@ type OrderApiResponse = {
 type CheckoutStatus = "idle" | "loading" | "error";
 
 const SUCCESS_PATH = "/order-success";
-const PLACEHOLDER_PAYMENT_OPTIONS: CheckoutPaymentOption[] = [
-  { id: "card", label: "Debit / Credit Card", isPlaceholder: true },
-  { id: "bank_transfer", label: "Internet banking", isPlaceholder: true },
-  { id: "cash_on_delivery", label: "Google / Apple Wallet", isPlaceholder: true },
-];
 
 const resolveDefaultPaymentMethod = (
   options: CheckoutPaymentOption[],
-): CheckoutPaymentMethod | "" => {
-  const bankTransfer = options.find((option) => option.id === "bank_transfer");
-  return bankTransfer?.id ?? options[0]?.id ?? "";
-};
+): CheckoutPaymentMethod | "" => options[0]?.id ?? "";
 
 const normalizeOptional = (value: string) => {
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
+};
+
+const isValidEmail = (value: string) => /\S+@\S+\.\S+/.test(value.trim());
+
+const splitName = (fullName: string) => {
+  const parts = fullName
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!parts.length) {
+    return { firstName: "", lastName: "" };
+  }
+  if (parts.length === 1) {
+    return { firstName: parts[0], lastName: "" };
+  }
+  return {
+    firstName: parts[0] ?? "",
+    lastName: parts.slice(1).join(" "),
+  };
 };
 
 const buildAddressLine = (values: CheckoutFormValues) => {
@@ -85,8 +99,6 @@ const buildAddressLine = (values: CheckoutFormValues) => {
   return parts.length ? parts.join(", ") : null;
 };
 
-const isValidEmail = (value: string) => /\S+@\S+\.\S+/.test(value.trim());
-
 const buildSuccessHref = (
   baseLink: (path: string) => string,
   params: URLSearchParams,
@@ -103,14 +115,15 @@ const buildSuccessHref = (
 };
 
 function CheckoutLoadingState() {
+  const { t } = useCisecoI18n();
   return (
-    <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.45fr)]">
-      <div className="rounded-3xl border border-dashed border-black/10 bg-white/70 px-6 py-10 text-sm text-slate-500">
-        Loading checkout...
+    <div className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_360px] xl:gap-10 2xl:grid-cols-[minmax(0,1fr)_380px]">
+      <div className="min-w-0 rounded-3xl border border-dashed border-black/10 bg-white/70 px-6 py-10 text-sm text-slate-500">
+        {t("Loading checkout...")}
       </div>
-      <div className="pt-8 lg:border-l lg:border-black/5 lg:pl-10 lg:pt-2">
+      <div className="min-w-0 pt-2 xl:border-l xl:border-black/5 xl:pl-10">
         <div className="rounded-3xl border border-dashed border-black/10 bg-white/70 px-6 py-10 text-sm text-slate-500">
-          Preparing summary...
+          {t("Preparing summary...")}
         </div>
       </div>
     </div>
@@ -126,12 +139,13 @@ function CheckoutEmptyState({
   homeHref: string;
   cartHref: string;
 }) {
+  const { t, localizeHref } = useCisecoI18n();
   return (
     <div className="flex flex-col items-start gap-3 py-10 text-sm text-slate-600">
       <p className="text-base font-semibold text-slate-900">
-        Your cart is empty
+        {t("Your cart is empty")}
       </p>
-      <p>Browse the shop to add items before checkout.</p>
+      <p>{t("Browse the shop to add items before checkout.")}</p>
       <div className="flex flex-wrap gap-3">
         <Button
           asChild
@@ -140,7 +154,7 @@ function CheckoutEmptyState({
             "bg-slate-900 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 focus-visible:ring-2 focus-visible:ring-slate-900/30",
           )}
         >
-          <a href={homeHref || "/"}>Back to shop</a>
+          <a href={localizeHref(homeHref || "/")}>{t("Back to shop")}</a>
         </Button>
         <Button
           asChild
@@ -149,7 +163,7 @@ function CheckoutEmptyState({
             "border border-black/10 bg-white px-4 py-3 text-sm font-semibold text-slate-600 shadow-sm hover:bg-slate-50",
           )}
         >
-          <a href={cartHref}>View cart</a>
+          <a href={localizeHref(cartHref)}>{t("View cart")}</a>
         </Button>
       </div>
     </div>
@@ -179,41 +193,41 @@ function CheckoutContent({
   showPrices,
   ecommerceSettings,
 }: CheckoutContentProps) {
+  const { t } = useCisecoI18n();
+  const { navigate } = useCisecoNavigation();
+  const { items, hasMissingPrices, isHydrated } = useCart();
   const {
-    items,
-    hasMissingPrices,
-    clearCart,
-    isHydrated,
-  } = useCart();
+    profile,
+    authStatus,
+    loginHref,
+  } = useAccountProfile({
+    redirectOnUnauthorized: false,
+  });
   const [status, setStatus] = useState<CheckoutStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<CheckoutFieldErrors>({});
+
+  const paymentMethods = ecommerceSettings?.payments?.methods;
   const configuredPaymentOptions = useMemo(() => {
-    const methods = ecommerceSettings?.payments?.methods ?? {};
+    const methods = paymentMethods ?? {};
     return [
-      methods.card ? { id: "card" as const, label: "Debit / Credit Card" } : null,
-      methods.bankTransfer
-        ? { id: "bank_transfer" as const, label: "Internet banking" }
-        : null,
       methods.cashOnDelivery
-        ? { id: "cash_on_delivery" as const, label: "Google / Apple Wallet" }
+        ? { id: "cash_on_delivery" as const, label: "Paiement à la livraison" }
         : null,
-    ].filter(
-      (option): option is CheckoutPaymentOption => Boolean(option),
-    );
-  }, [
-    ecommerceSettings?.payments?.methods?.bankTransfer,
-    ecommerceSettings?.payments?.methods?.card,
-    ecommerceSettings?.payments?.methods?.cashOnDelivery,
-  ]);
-  const paymentOptions =
-    configuredPaymentOptions.length > 0
-      ? configuredPaymentOptions
-      : PLACEHOLDER_PAYMENT_OPTIONS;
+      methods.bankTransfer
+        ? { id: "bank_transfer" as const, label: "Virement bancaire" }
+        : null,
+      methods.card
+        ? { id: "card" as const, label: "Carte bancaire" }
+        : null,
+    ].filter((option): option is CheckoutPaymentOption => Boolean(option));
+  }, [paymentMethods]);
+
   const defaultPaymentMethod = useMemo(
-    () => resolveDefaultPaymentMethod(paymentOptions),
-    [paymentOptions],
+    () => resolveDefaultPaymentMethod(configuredPaymentOptions),
+    [configuredPaymentOptions],
   );
+
   const [values, setValues] = useState<CheckoutFormValues>(() => ({
     phone: "",
     email: "",
@@ -222,35 +236,95 @@ function CheckoutContent({
     address: "",
     apartment: "",
     city: "",
-    country: "United States",
+    country: "Tunisie",
     state: "",
     postalCode: "",
-    addressType: "home",
+    customerType: "individual",
+    companyName: "",
+    vatNumber: "",
+    notes: "",
     paymentMethod: defaultPaymentMethod,
-    marketingOptIn: true,
     termsAccepted: false,
   }));
 
   useEffect(() => {
-    if (!paymentOptions.length) return;
-    if (paymentOptions.some((option) => option.id === values.paymentMethod)) {
+    if (!configuredPaymentOptions.length) {
+      if (!values.paymentMethod) {
+        return;
+      }
+      setValues((current) => ({
+        ...current,
+        paymentMethod: "",
+      }));
+      return;
+    }
+    if (
+      configuredPaymentOptions.some(
+        (option) => option.id === values.paymentMethod,
+      )
+    ) {
       return;
     }
     setValues((current) => ({
       ...current,
       paymentMethod: defaultPaymentMethod,
     }));
-  }, [defaultPaymentMethod, paymentOptions, values.paymentMethod]);
+  }, [configuredPaymentOptions, defaultPaymentMethod, values.paymentMethod]);
+
+  useEffect(() => {
+    if (authStatus !== "authenticated") {
+      return;
+    }
+    setValues((current) => {
+      const name = splitName(profile.name);
+      const shouldUseCompany =
+        current.customerType === "company" ||
+        Boolean(profile.companyName?.trim()) ||
+        Boolean(profile.vatNumber?.trim());
+
+      return {
+        ...current,
+        phone: current.phone || profile.phone,
+        email: current.email || profile.email,
+        firstName: current.firstName || name.firstName,
+        lastName: current.lastName || name.lastName,
+        address: current.address || profile.address,
+        customerType: shouldUseCompany ? "company" : current.customerType,
+        companyName: current.companyName || profile.companyName,
+        vatNumber: current.vatNumber || profile.vatNumber,
+      };
+    });
+  }, [
+    authStatus,
+    profile.address,
+    profile.companyName,
+    profile.email,
+    profile.name,
+    profile.phone,
+    profile.vatNumber,
+  ]);
 
   const handleValueChange = useCallback(
     (field: keyof CheckoutFormValues, value: string | boolean) => {
-      setValues((current) => ({ ...current, [field]: value }));
+      setValues((current) => {
+        if (field === "customerType" && value === "individual") {
+          return {
+            ...current,
+            customerType: "individual",
+            companyName: "",
+            vatNumber: "",
+          };
+        }
+        return { ...current, [field]: value };
+      });
       setFieldErrors((current) => {
         const errorKey =
           field === "termsAccepted"
             ? "terms"
             : (field as keyof CheckoutFieldErrors);
-        if (!(errorKey in current)) return current;
+        if (!(errorKey in current)) {
+          return current;
+        }
         const next = { ...current };
         delete next[errorKey];
         return next;
@@ -261,17 +335,24 @@ function CheckoutContent({
 
   const checkoutSettings = ecommerceSettings?.checkout ?? {};
   const requirePhone = checkoutSettings.requirePhone ?? false;
+  const allowNotes = checkoutSettings.allowNotes ?? true;
   const normalizedTermsUrl = checkoutSettings.termsUrl?.trim() ?? "";
+  const termsPath =
+    normalizedTermsUrl && !normalizedTermsUrl.startsWith("http")
+      ? normalizedTermsUrl.startsWith("/")
+        ? normalizedTermsUrl
+        : `/${normalizedTermsUrl}`
+      : null;
   const termsHref = normalizedTermsUrl
     ? normalizedTermsUrl.startsWith("http")
       ? normalizedTermsUrl
-      : baseLink(
-          normalizedTermsUrl.startsWith("/")
-            ? normalizedTermsUrl
-            : `/${normalizedTermsUrl}`,
-        )
+      : baseLink(termsPath ?? normalizedTermsUrl)
     : "";
   const isExternalTerms = termsHref.startsWith("http");
+  const termsPreviewApiHref =
+    termsPath && !isExternalTerms
+      ? `/api/catalogue/cms?slug=${encodeURIComponent(slug)}&mode=${mode}&path=${encodeURIComponent(termsPath)}`
+      : null;
   const bankTransferInstructions =
     ecommerceSettings?.payments?.bankTransfer?.instructions?.trim() ?? "";
   const isPaymentRequired = configuredPaymentOptions.length > 0;
@@ -293,68 +374,102 @@ function CheckoutContent({
     );
   }
 
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (isSubmitDisabled) return;
+
     setStatus("loading");
     setError(null);
     setFieldErrors({});
 
     if (pricingHidden) {
       setStatus("error");
-      setError("Pricing is hidden for this shop. Please contact us.");
+      setError(t("Pricing is hidden for this shop. Please contact us."));
       return;
     }
 
     if (hasMissingPrices) {
       setStatus("error");
-      setError("Some items could not be priced. Remove them to continue.");
+      setError(t("Some items could not be priced. Remove them to continue."));
       return;
     }
 
-    const fullName = [values.firstName, values.lastName]
-      .map((value) => value.trim())
-      .filter(Boolean)
-      .join(" ");
+    const trimmedFirstName = values.firstName.trim();
+    const trimmedLastName = values.lastName.trim();
     const trimmedEmail = values.email.trim();
     const trimmedPhone = values.phone.trim();
+    const trimmedAddress = values.address.trim();
+    const trimmedCity = values.city.trim();
+    const trimmedState = values.state.trim();
+    const trimmedPostalCode = values.postalCode.trim();
+    const trimmedCompanyName = values.companyName.trim();
+    const trimmedVatNumber = values.vatNumber.trim();
     const nextErrors: CheckoutFieldErrors = {};
-    if (fullName.length < 2) {
-      nextErrors.firstName = "First name is required.";
-      nextErrors.lastName = "Last name is required.";
+
+    if (!trimmedFirstName) {
+      nextErrors.firstName = "Le prénom est obligatoire.";
+    }
+    if (!trimmedLastName) {
+      nextErrors.lastName = "Le nom est obligatoire.";
     }
     if (!trimmedEmail) {
-      nextErrors.email = "Email is required.";
+      nextErrors.email = t("Email is required.");
     } else if (!isValidEmail(trimmedEmail)) {
-      nextErrors.email = "Enter a valid email address.";
+      nextErrors.email = t("Enter a valid email address.");
     }
     if (requirePhone && !trimmedPhone) {
-      nextErrors.phone = "Phone number is required.";
+      nextErrors.phone = t("Phone number is required.");
+    }
+    if (!trimmedAddress) {
+      nextErrors.address = "L'adresse est obligatoire.";
+    }
+    if (!trimmedCity) {
+      nextErrors.city = "La ville est obligatoire.";
+    }
+    if (!trimmedState) {
+      nextErrors.state =
+        values.country === "Tunisie"
+          ? "Le gouvernorat est obligatoire."
+          : "La région est obligatoire.";
+    }
+    if (trimmedPostalCode && values.country === "Tunisie" && !/^\d{4}$/.test(trimmedPostalCode)) {
+      nextErrors.postalCode = "Le code postal tunisien doit contenir 4 chiffres.";
+    }
+    if (values.customerType === "company") {
+      if (!trimmedCompanyName) {
+        nextErrors.companyName = "Le nom de société est obligatoire.";
+      }
+      if (!trimmedVatNumber) {
+        nextErrors.vatNumber = "Le matricule fiscal est obligatoire.";
+      }
     }
     if (isPaymentRequired) {
       if (!values.paymentMethod) {
-        nextErrors.paymentMethod = "Select a payment method.";
+        nextErrors.paymentMethod = t("Select a payment method.");
       } else if (
         !configuredPaymentOptions.some(
           (option) => option.id === values.paymentMethod,
         )
       ) {
-        nextErrors.paymentMethod = "Select a valid payment method.";
+        nextErrors.paymentMethod = t("Select a valid payment method.");
       }
     }
     if (normalizedTermsUrl && !values.termsAccepted) {
-      nextErrors.terms = "Please accept the terms.";
+      nextErrors.terms = t("Please accept the terms.");
     }
+
     if (Object.keys(nextErrors).length > 0) {
       setStatus("error");
       setFieldErrors(nextErrors);
-      setError("Please check the highlighted fields.");
+      setError(t("Please check the highlighted fields."));
       return;
     }
 
+    const fullName = [trimmedFirstName, trimmedLastName].join(" ").trim();
     const normalizedPaymentMethod =
       isPaymentRequired && values.paymentMethod ? values.paymentMethod : null;
     const address = buildAddressLine(values);
+
     try {
       const response = await fetch("/api/catalogue/orders", {
         method: "POST",
@@ -363,17 +478,26 @@ function CheckoutContent({
         },
         body: JSON.stringify({
           items: items.map((item) => ({
-            productId: item.id,
+            productId: item.product.id,
             quantity: item.quantity,
+            selectedOptions: item.product.selectedOptions ?? null,
           })),
           customer: {
             name: fullName,
             email: trimmedEmail,
             phone: normalizeOptional(trimmedPhone),
-            company: null,
+            type: values.customerType,
+            company:
+              values.customerType === "company"
+                ? normalizeOptional(trimmedCompanyName)
+                : null,
+            vatNumber:
+              values.customerType === "company"
+                ? normalizeOptional(trimmedVatNumber)
+                : null,
             address,
           },
-          notes: null,
+          notes: allowNotes ? normalizeOptional(values.notes) : null,
           paymentMethod: normalizedPaymentMethod,
           termsAccepted: normalizedTermsUrl ? values.termsAccepted : undefined,
           slug,
@@ -381,16 +505,18 @@ function CheckoutContent({
           path: resolvedPath,
         }),
       });
+
       let result: OrderApiResponse | null = null;
       try {
         result = (await response.json()) as OrderApiResponse;
       } catch (parseError) {
         console.error("[checkout] response parse failed", parseError);
       }
+
       if (!response.ok || result?.error) {
         throw new Error(
           result?.error ??
-            `We could not create your order (status ${response.status}).`,
+            t(`We could not create your order (status ${response.status}).`),
         );
       }
 
@@ -411,10 +537,11 @@ function CheckoutContent({
         baseLink,
         confirmationParams,
       );
+
       let checkoutUrl: string | null = null;
       if (normalizedPaymentMethod === "card" && mode !== "preview") {
         if (!orderId) {
-          throw new Error("Unable to launch payment. Please try again.");
+          throw new Error(t("Unable to launch payment. Please try again."));
         }
         const origin = window.location.origin;
         const successUrl = new URL(confirmationTarget, origin).toString();
@@ -437,6 +564,7 @@ function CheckoutContent({
             }),
           },
         );
+
         let checkoutResult: { checkoutUrl?: string | null; error?: string } | null =
           null;
         try {
@@ -447,34 +575,40 @@ function CheckoutContent({
         } catch (parseError) {
           console.error("[checkout] payment response parse failed", parseError);
         }
+
         if (!checkoutResponse.ok || checkoutResult?.error) {
           throw new Error(
             checkoutResult?.error ??
-              `Payment could not start (status ${checkoutResponse.status}).`,
+              t(`Payment could not start (status ${checkoutResponse.status}).`),
           );
         }
         checkoutUrl = checkoutResult?.checkoutUrl ?? null;
       }
 
-      clearCart();
-      window.location.assign(checkoutUrl ?? confirmationTarget);
+      if (checkoutUrl) {
+        window.location.assign(checkoutUrl);
+      } else {
+        navigate(confirmationTarget);
+      }
     } catch (submissionError) {
       console.error("[checkout] order creation failed", submissionError);
       setStatus("error");
       setError(
         submissionError instanceof Error
-          ? submissionError.message
-          : "Unable to submit your order right now.",
+          ? t(submissionError.message)
+          : t("Unable to submit your order right now."),
       );
+    } finally {
+      setStatus("idle");
     }
   }
 
   return (
     <form
-      className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.45fr)]"
+      className="grid gap-8 xl:grid-cols-[minmax(0,1fr)_360px] xl:gap-10 2xl:grid-cols-[minmax(0,1fr)_380px]"
       onSubmit={handleSubmit}
     >
-      <div className="space-y-4">
+      <div className="min-w-0 space-y-4">
         {error ? (
           <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs text-rose-700">
             {error}
@@ -485,32 +619,34 @@ function CheckoutContent({
           values={values}
           fieldErrors={fieldErrors}
           onValueChange={handleValueChange}
-          paymentOptions={paymentOptions}
+          paymentOptions={configuredPaymentOptions}
           bankTransferInstructions={bankTransferInstructions}
           isSubmitting={isLoading}
           isSubmitDisabled={isSubmitDisabled}
           requirePhone={requirePhone}
           showTerms={Boolean(normalizedTermsUrl)}
           termsHref={termsHref}
+          termsPreviewApiHref={termsPreviewApiHref}
           isExternalTerms={isExternalTerms}
+          showOrderNotes={allowNotes}
+          loginHref={loginHref}
+          isAuthenticated={authStatus === "authenticated"}
         />
       </div>
-      <div className="lg:border-l lg:border-black/5 lg:pl-10 lg:pt-1">
-        <OrderSummary
-          theme={theme}
-          isSubmitting={isLoading}
-          isSubmitDisabled={isSubmitDisabled}
-          showPrices={showPrices}
-        />
+      <div className="min-w-0 pt-2 xl:border-l xl:border-black/5 xl:pl-10">
+        <div className="xl:sticky xl:top-24">
+          <OrderSummary
+            theme={theme}
+            isSubmitting={isLoading}
+            isSubmitDisabled={isSubmitDisabled}
+            showPrices={showPrices}
+          />
+        </div>
       </div>
     </form>
   );
 }
 
-// Smoke test checklist:
-// - Add items to cart and verify checkout lists real products with TND totals.
-// - Submit checkout with required fields; order is created and redirects to success.
-// - Trigger validation errors and confirm loading/disabled states behave correctly.
 export function CheckoutPage({
   theme,
   inlineStyles,
@@ -524,6 +660,7 @@ export function CheckoutPage({
   ecommerceSettings,
   builder,
 }: CheckoutPageProps) {
+  const { t } = useCisecoI18n();
   const cartHref = baseLink("/cart");
   const { isHydrated } = useCart();
   const sections = builder?.sections ?? [];
@@ -553,11 +690,16 @@ export function CheckoutPage({
         >
           <div className="space-y-3">
             <h1 className="text-2xl font-semibold text-slate-900 sm:text-3xl">
-              {heroSection?.title ?? "Checkout"}
+              {t(heroSection?.title ?? "Checkout")}
             </h1>
             {heroSubtitle ? (
-              <p className="text-sm text-slate-600">{heroSubtitle}</p>
-            ) : null}
+              <p className="text-sm text-slate-600">{t(heroSubtitle)}</p>
+            ) : (
+              <p className="text-sm text-slate-600">
+                Finalisez votre commande avec vos vraies coordonnées de
+                livraison et le mode de paiement adapté à la Tunisie.
+              </p>
+            )}
             <Breadcrumb
               items={[
                 { label: "Home", href: homeHref },
@@ -592,7 +734,7 @@ export function CheckoutPage({
           />
         ) : null}
       </main>
-      <Footer theme={theme} companyName={companyName} />
+      <Footer theme={theme} companyName={companyName} homeHref={homeHref} />
     </PageShell>
   );
 }

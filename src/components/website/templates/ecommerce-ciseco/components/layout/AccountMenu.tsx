@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { usePathname } from "next/navigation";
 import clsx from "clsx";
 import { useAccountProfile } from "../../hooks/useAccountProfile";
+import { useCisecoI18n } from "../../i18n";
+import { useCisecoLocation, useCisecoNavigation } from "../../navigation";
 
 const FOCUSABLE_SELECTORS =
   'a[href]:not([tabindex="-1"]), button:not([disabled]):not([tabindex="-1"]), textarea:not([disabled]):not([tabindex="-1"]), input:not([disabled]):not([tabindex="-1"]), select:not([disabled]):not([tabindex="-1"]), [tabindex]:not([tabindex="-1"])';
@@ -43,7 +44,9 @@ function useIsMobile() {
 }
 
 export function AccountMenu() {
-  const pathname = usePathname();
+  const { t, localizeHref } = useCisecoI18n();
+  const { pathname } = useCisecoLocation();
+  const { navigate } = useCisecoNavigation();
   const basePath = useMemo(() => resolveBasePath(pathname), [pathname]);
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
@@ -54,19 +57,17 @@ export function AccountMenu() {
   const menuRef = useRef<HTMLDivElement>(null);
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
 
-  const { profile, status, loginHref } = useAccountProfile({
+  const { profile, authStatus, clearProfile, loginHref } = useAccountProfile({
     redirectOnUnauthorized: false,
   });
 
   const displayName = profile.name?.trim() || DEFAULT_NAME;
   const location = profile.address?.trim() || DEFAULT_LOCATION;
-  const isAuthenticated = status === "ready";
+  const isAuthenticated = authStatus === "authenticated";
   const signupHref = basePath ? `${basePath}/signup` : "/signup";
   const helpHref = `${basePath}/contact`;
 
   useEffect(() => {
-    // Allowed: we need to delay portal rendering until after hydration completes.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMounted(true);
   }, []);
 
@@ -150,6 +151,7 @@ export function AccountMenu() {
 
     previouslyFocusedRef.current =
       (document.activeElement as HTMLElement | null) ?? null;
+    const triggerElement = triggerRef.current;
 
     const docEl = document.documentElement;
     const body = document.body;
@@ -180,7 +182,7 @@ export function AccountMenu() {
       docEl.style.overflow = previousOverflow;
       docEl.style.paddingRight = previousPaddingRight;
       body.style.touchAction = previousTouchAction;
-      triggerRef.current?.focus();
+      triggerElement?.focus();
       previouslyFocusedRef.current = null;
     };
   }, [open, isMobile]);
@@ -191,36 +193,37 @@ export function AccountMenu() {
   const menuItemsPrimary: MenuItem[] = isAuthenticated
     ? [
         {
-          label: "My Account",
-          href: `${basePath}/account`,
+          label: t("My Account"),
+          href: localizeHref(`${basePath}/account`),
           icon: UserIcon,
         },
         {
-          label: "My Orders",
-          href: `${basePath}/account/orders-history`,
+          label: t("My Orders"),
+          href: localizeHref(`${basePath}/account/orders-history`),
           icon: OrdersIcon,
         },
         {
-          label: "Wishlist",
-          href: `${basePath}/account/wishlists`,
+          label: t("Wishlist"),
+          href: localizeHref(`${basePath}/account/wishlists`),
           icon: HeartIcon,
         },
       ]
     : [
         {
-          label: "Sign in",
-          href: loginHref,
+          label: t("Sign in"),
+          href: localizeHref(loginHref),
           icon: LoginIcon,
         },
         {
-          label: "Sign up",
-          href: signupHref,
+          label: t("Sign up"),
+          href: localizeHref(signupHref),
           icon: UserPlusIcon,
         },
       ];
 
   const handleLogout = async () => {
     try {
+      clearProfile();
       const response = await fetch("/api/catalogue/logout", {
         method: "POST",
       });
@@ -231,29 +234,27 @@ export function AccountMenu() {
       console.warn("[AccountMenu] Logout failed.", error);
     } finally {
       closeMenu();
-      if (typeof window !== "undefined") {
-        window.location.assign(loginHref);
-      }
+      navigate(localizeHref(loginHref));
     }
   };
 
   const menuItemsSecondary: MenuItem[] = isAuthenticated
     ? [
         {
-          label: "Help",
-          href: helpHref,
+          label: t("Help"),
+          href: localizeHref(helpHref),
           icon: HelpIcon,
         },
         {
-          label: "Log out",
+          label: t("Log out"),
           onClick: handleLogout,
           icon: LogoutIcon,
         },
       ]
     : [
         {
-          label: "Help",
-          href: helpHref,
+          label: t("Help"),
+          href: localizeHref(helpHref),
           icon: HelpIcon,
         },
       ];
@@ -263,7 +264,7 @@ export function AccountMenu() {
       ref={menuRef}
       id="account-menu"
       role="menu"
-      aria-label="Account menu"
+      aria-label={t("Account menu")}
       tabIndex={-1}
       className={clsx(
         "w-[min(22rem,calc(100vw-2.5rem))] rounded-[24px] border border-slate-100 bg-white shadow-[0_24px_60px_rgba(15,23,42,0.18)] sm:w-[280px]",
@@ -316,7 +317,7 @@ export function AccountMenu() {
         aria-expanded={open}
         aria-controls="account-menu"
         aria-haspopup="menu"
-        aria-label="Account"
+        aria-label={t("Account")}
         className="flex h-10 w-10 items-center justify-center rounded-full border border-black/10 bg-white text-slate-700 transition hover:border-black/20 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-200"
       >
         <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">

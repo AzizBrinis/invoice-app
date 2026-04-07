@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getAppHostnames } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
+import { createCisecoRequestTranslator } from "@/lib/website/ciseco-request-locale";
 import {
   getClientFromSessionToken,
   getClientSessionTokenFromCookie,
@@ -42,19 +43,22 @@ function resolveDomainAndSlug(request: NextRequest) {
   return { slug, domain };
 }
 
-async function requireClientAndWebsite(request: NextRequest) {
+async function requireClientAndWebsite(
+  request: NextRequest,
+  t: (text: string) => string,
+) {
   const token = await getClientSessionTokenFromCookie();
   if (!token) {
-    return { error: "Please sign in.", status: 401 };
+    return { error: t("Please sign in."), status: 401 };
   }
 
   const client = await getClientFromSessionToken(token);
   if (!client) {
     await signOutClient();
-    return { error: "Please sign in.", status: 401 };
+    return { error: t("Please sign in."), status: 401 };
   }
   if (!client.isActive) {
-    return { error: "Account inactive.", status: 403 };
+    return { error: t("Account inactive."), status: 403 };
   }
 
   const { slug, domain } = resolveDomainAndSlug(request);
@@ -64,10 +68,10 @@ async function requireClientAndWebsite(request: NextRequest) {
     preview: false,
   });
   if (!website) {
-    return { error: "Site unavailable.", status: 404 };
+    return { error: t("Site unavailable."), status: 404 };
   }
   if (client.userId !== website.userId) {
-    return { error: "Access denied.", status: 403 };
+    return { error: t("Access denied."), status: 403 };
   }
 
   return { client, website };
@@ -85,7 +89,8 @@ function resolvePasswordValidationMessage(input: unknown) {
 }
 
 export async function POST(request: NextRequest) {
-  const resolved = await requireClientAndWebsite(request);
+  const { t } = createCisecoRequestTranslator(request);
+  const resolved = await requireClientAndWebsite(request, t);
   if ("error" in resolved) {
     return NextResponse.json(
       { message: resolved.error },
@@ -98,14 +103,14 @@ export async function POST(request: NextRequest) {
 
     if (payload.newPassword !== payload.confirmPassword) {
       return NextResponse.json(
-        { message: "New password and confirmation do not match." },
+        { message: t("New password and confirmation do not match.") },
         { status: 400 },
       );
     }
 
     if (!resolved.client.passwordHash) {
       return NextResponse.json(
-        { message: "Password cannot be updated for this account." },
+        { message: t("Password cannot be updated for this account.") },
         { status: 400 },
       );
     }
@@ -116,7 +121,7 @@ export async function POST(request: NextRequest) {
     );
     if (!isValid) {
       return NextResponse.json(
-        { message: "Current password is incorrect." },
+        { message: t("Current password is incorrect.") },
         { status: 400 },
       );
     }
@@ -127,14 +132,16 @@ export async function POST(request: NextRequest) {
       data: { passwordHash: newHash },
     });
 
-    return NextResponse.json({ message: "Password updated successfully." });
+    return NextResponse.json({
+      message: t("Password updated successfully."),
+    });
   } catch (error) {
     const message =
       error instanceof z.ZodError
-        ? resolvePasswordValidationMessage({ currentPassword: true })
+        ? t(resolvePasswordValidationMessage({ currentPassword: true }))
         : error instanceof Error
-          ? error.message
-          : "Unable to update password.";
+          ? t(error.message)
+          : t("Unable to update password.");
     return NextResponse.json({ message }, { status: 400 });
   }
 }

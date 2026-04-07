@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/formatters";
 import { fromCents } from "@/lib/money";
 import type { ThemeTokens } from "../../types";
+import { useCisecoI18n } from "../../i18n";
 
 type OrderSummaryProps = {
   theme: ThemeTokens;
@@ -16,6 +17,7 @@ type OrderSummaryProps = {
 const CURRENCY_CODE = "TND";
 
 export function OrderSummary({ theme, checkoutHref }: OrderSummaryProps) {
+  const { t, localizeHref } = useCisecoI18n();
   const { items, isHydrated } = useCart();
   const { subtotalCents, hasMissingAmounts } = useMemo(() => {
     if (!items.length) {
@@ -56,33 +58,33 @@ export function OrderSummary({ theme, checkoutHref }: OrderSummaryProps) {
   const totalLabel = isHydrated ? formatCents(totalCents) : "--";
   const warningMessage =
     isHydrated && hasMissingAmounts
-      ? "Some items could not be priced. Remove them to continue."
+      ? t("Some items could not be priced. Remove them to continue.")
       : null;
 
   return (
     <aside className="space-y-5">
-      <h2 className="text-lg font-semibold text-slate-900">Order Summary</h2>
+      <h2 className="text-lg font-semibold text-slate-900">{t("Order Summary")}</h2>
       <div className="divide-y divide-black/5 text-sm text-slate-600">
         <div className="flex items-center justify-between py-2">
-          <span>Subtotal</span>
+          <span>{t("Subtotal")}</span>
           <span className="font-semibold text-slate-900">
             {subtotalLabel}
           </span>
         </div>
         <div className="flex items-center justify-between py-2">
-          <span>Shipping estimate</span>
+          <span>{t("Shipping estimate")}</span>
           <span className="font-semibold text-slate-900">
             {shippingLabel}
           </span>
         </div>
         <div className="flex items-center justify-between py-2">
-          <span>Tax estimate</span>
+          <span>{t("Tax estimate")}</span>
           <span className="font-semibold text-slate-900">
             {taxLabel}
           </span>
         </div>
         <div className="flex items-center justify-between py-3 font-semibold text-slate-900">
-          <span>Order total</span>
+          <span>{t("Order total")}</span>
           <span>{totalLabel}</span>
         </div>
       </div>
@@ -100,7 +102,7 @@ export function OrderSummary({ theme, checkoutHref }: OrderSummaryProps) {
           )}
           disabled
         >
-          Checkout
+          {t("Checkout")}
         </Button>
       ) : (
         <Button
@@ -110,7 +112,7 @@ export function OrderSummary({ theme, checkoutHref }: OrderSummaryProps) {
             "w-full bg-slate-900 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 focus-visible:ring-2 focus-visible:ring-slate-900/30",
           )}
         >
-          <a href={checkoutHref}>Checkout</a>
+          <a href={localizeHref(checkoutHref)}>{t("Checkout")}</a>
         </Button>
       )}
       <p className="flex flex-wrap items-center justify-center gap-1 text-center text-xs text-slate-500">
@@ -132,22 +134,22 @@ export function OrderSummary({ theme, checkoutHref }: OrderSummaryProps) {
             />
             <circle cx="12" cy="7" r="1" fill="currentColor" />
           </svg>
-          Learn more
+          {t("Learn more")}
         </span>
         <a
           href="#"
           className="font-semibold text-slate-700 underline decoration-slate-300 underline-offset-2"
         >
-          Taxes
+          {t("Taxes")}
         </a>
-        <span>and</span>
+        <span>{t("and")}</span>
         <a
           href="#"
           className="font-semibold text-slate-700 underline decoration-slate-300 underline-offset-2"
         >
-          Shipping
+          {t("Shipping")}
         </a>
-        <span>information</span>
+        <span>{t("information")}</span>
       </p>
     </aside>
   );

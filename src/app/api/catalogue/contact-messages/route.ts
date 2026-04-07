@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { getAppHostnames } from "@/lib/env";
+import { createCisecoRequestTranslator } from "@/lib/website/ciseco-request-locale";
 import { recordContactMessage } from "@/server/contact-messages";
 
 const APP_HOSTS = new Set(getAppHostnames());
@@ -16,6 +17,7 @@ function formDataToObject(formData: FormData) {
 }
 
 export async function POST(request: NextRequest) {
+  const { t } = createCisecoRequestTranslator(request);
   try {
     const contentType = request.headers.get("content-type") ?? "";
     let payload: Record<string, unknown>;
@@ -64,14 +66,14 @@ export async function POST(request: NextRequest) {
       status: record.status,
       message:
         record.status === "preview-only"
-          ? "Preview mode: no data is saved."
-          : "Thanks! Your message has been sent.",
+          ? t("Preview mode: no data is saved.")
+          : t("Thanks! Your message has been sent."),
     });
   } catch (error) {
     const message =
       error instanceof Error
-        ? error.message
-        : "Unable to send your message.";
+        ? t(error.message)
+        : t("Unable to send your message.");
     return NextResponse.json(
       { error: message },
       {

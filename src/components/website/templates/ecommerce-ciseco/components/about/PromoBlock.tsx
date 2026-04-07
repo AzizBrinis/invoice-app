@@ -1,11 +1,14 @@
 import clsx from "clsx";
 import type { ThemeTokens } from "../../types";
 import { ABOUT_PROMO_COPY, ABOUT_PROMO_ILLUSTRATION } from "../../data/about";
+import { useCisecoI18n } from "../../i18n";
+import { resolveCisecoNavigationHref } from "../../utils";
 import { Section } from "../layout/Section";
 
 type PromoBlockProps = {
   theme: ThemeTokens;
   companyName: string;
+  homeHref: string;
   title?: string | null;
   description?: string | null;
   buttons?: Array<{ label: string; href?: string | null }> | null;
@@ -16,12 +19,14 @@ type PromoBlockProps = {
 export function PromoBlock({
   theme,
   companyName,
+  homeHref,
   title,
   description,
   buttons,
   image,
   sectionId,
 }: PromoBlockProps) {
+  const { t, localizeHref } = useCisecoI18n();
   const resolvedTitle =
     title ?? ABOUT_PROMO_COPY.title.replaceAll("Ciseco", companyName);
   const resolvedDescription =
@@ -47,16 +52,22 @@ export function PromoBlock({
             <span className="text-[var(--site-accent)]">.</span>
           </div>
           <h2 className="text-3xl font-semibold text-slate-900 sm:text-4xl">
-            {resolvedTitle}
+            {t(resolvedTitle)}
           </h2>
           <p className="text-sm text-slate-500">
-            {resolvedDescription}
+            {t(resolvedDescription)}
           </p>
           <div className="flex flex-wrap items-center gap-3">
             {resolvedButtons.slice(0, 2).map((button, index) => (
               <a
                 key={`${button.label}-${index}`}
-                href={button.href ?? "#"}
+                href={localizeHref(
+                  resolveCisecoNavigationHref({
+                    href: button.href,
+                    homeHref,
+                    fallbackPath: index === 0 ? "/collections" : "/contact",
+                  }),
+                )}
                 className={clsx(
                   theme.buttonShape,
                   index === 0
@@ -64,7 +75,7 @@ export function PromoBlock({
                     : "border border-black/10 bg-white px-5 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50",
                 )}
               >
-                {button.label}
+                {t(button.label)}
               </a>
             ))}
           </div>
@@ -73,7 +84,7 @@ export function PromoBlock({
           <div className="w-full max-w-md">
             <img
               src={resolvedImage.src}
-              alt={resolvedImage.alt}
+              alt={t(resolvedImage.alt)}
               className="w-full"
               loading="lazy"
             />

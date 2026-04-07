@@ -3,12 +3,15 @@ import { Prisma, ProductSaleMode } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { sanitizeProductHtml } from "@/lib/product-html";
+import { normalizeProductFaqItems } from "@/lib/product-seo";
+import { slugify } from "@/lib/slug";
 import { z } from "zod";
 
 const productSlugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const relativeOrAbsoluteUrl = /^(?:https?:\/\/|\/|data:image\/)/i;
 const MAX_COVER_URL_LENGTH = 400;
 const MAX_COVER_DATA_URL_LENGTH = 1_000_000;
+const SHORT_DESCRIPTION_HTML_MAX_LENGTH = 600;
 
 const productSlugSchema = z
   .string()
@@ -30,6 +33,7 @@ const productOptionValueSchema = z.object({
   enabled: z.boolean().optional(),
   swatch: z.string().max(32).nullable().optional(),
   position: z.number().int().optional(),
+  priceAdjustmentCents: z.number().int().nullable().optional(),
 });
 
 const productOptionGroupSchema = z.object({
@@ -56,6 +60,16 @@ const productVariantStockSchema = z
   )
   .optional();
 
+const productFaqItemSchema = z.object({
+  question: z.string().min(3, "Question trop courte.").max(180),
+  answer: z.string().min(8, "Réponse trop courte.").max(1200),
+});
+
+const productFaqItemsSchema = z
+  .array(productFaqItemSchema)
+  .max(8, "Ajoutez au maximum 8 questions fréquentes.")
+  .optional();
+
 export const productSchema = z.object({
   id: z.string().optional(),
   sku: z.string().min(1, "SKU requis"),
@@ -64,6 +78,14 @@ export const productSchema = z.object({
   saleMode: z.nativeEnum(ProductSaleMode).default(ProductSaleMode.INSTANT),
   description: z.string().nullable().optional(),
   descriptionHtml: z.string().max(20000).nullable().optional(),
+  shortDescriptionHtml: z
+    .string()
+    .max(
+      SHORT_DESCRIPTION_HTML_MAX_LENGTH,
+      `La description courte doit contenir au maximum ${SHORT_DESCRIPTION_HTML_MAX_LENGTH} caractères.`,
+    )
+    .nullable()
+    .optional(),
   excerpt: z.string().max(280).nullable().optional(),
   metaTitle: z.string().max(160).nullable().optional(),
   metaDescription: z.string().max(260).nullable().optional(),
@@ -102,6 +124,7 @@ export const productSchema = z.object({
     )
     .nullable()
     .optional(),
+  faqItems: productFaqItemsSchema.nullable().optional(),
   quoteFormSchema: jsonObjectOrArraySchema.nullable().optional(),
   optionConfig: productOptionConfigSchema.nullable().optional(),
   variantStock: productVariantStockSchema.nullable().optional(),
@@ -112,8 +135,25 @@ export const productSchema = z.object({
   priceTTCCents: z.number().int().nonnegative(),
   vatRate: z.number().min(0).max(100),
   defaultDiscountRate: z.number().min(0).max(100).nullable().optional(),
+  defaultDiscountAmountCents: z.number().int().nonnegative().nullable().optional(),
   isActive: z.boolean().default(true),
   isListedInCatalog: z.boolean().default(true),
+}).superRefine((value, ctx) => {
+  if (
+    value.defaultDiscountRate != null &&
+    value.defaultDiscountAmountCents != null
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["defaultDiscountRate"],
+      message: "Choisissez soit une remise en %, soit une remise fixe.",
+    });
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["defaultDiscountAmountCents"],
+      message: "Choisissez soit une remise en %, soit une remise fixe.",
+    });
+  }
 });
 
 export type ProductInput = z.infer<typeof productSchema>;
@@ -138,6 +178,7 @@ const productListSelect = Prisma.validator<Prisma.ProductSelect>()({
   priceTTCCents: true,
   vatRate: true,
   defaultDiscountRate: true,
+  defaultDiscountAmountCents: true,
   isActive: true,
 });
 
@@ -156,20 +197,20 @@ export type ProductListResult = {
 const productCategoryTag = (userId: string) =>
   `products:categories:${userId}`;
 
-function slugify(value: string): string {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .replace(/-{2,}/g, "-");
-}
-
 function normalizeOptionalString(value: string | null | undefined) {
   if (!value) return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
+}
+
+function normalizeRequestedSlug(value: string | null | undefined) {
+  const normalized = normalizeOptionalString(value);
+  if (!normalized) {
+    return null;
+  }
+
+  const slug = slugify(normalized);
+  return slug || normalized.toLowerCase();
 }
 
 function normalizeProductPayload(input: ProductInput) {
@@ -177,16 +218,25 @@ function normalizeProductPayload(input: ProductInput) {
   const sanitizedHtml = normalizeOptionalString(
     input.descriptionHtml ? sanitizeProductHtml(input.descriptionHtml) : "",
   );
+  const sanitizedShortDescriptionHtml = normalizeOptionalString(
+    input.shortDescriptionHtml
+      ? sanitizeProductHtml(input.shortDescriptionHtml)
+      : "",
+  );
   const normalizedMetaTitle = normalizeOptionalString(input.metaTitle);
   const normalizedMetaDescription = normalizeOptionalString(
     input.metaDescription,
   );
+  const normalizedFaqItems = normalizeProductFaqItems(input.faqItems);
   return {
     ...input,
+    publicSlug: normalizeRequestedSlug(input.publicSlug),
     description: normalizedDescription,
     descriptionHtml: sanitizedHtml,
+    shortDescriptionHtml: sanitizedShortDescriptionHtml,
     metaTitle: normalizedMetaTitle,
     metaDescription: normalizedMetaDescription,
+    faqItems: normalizedFaqItems.length ? normalizedFaqItems : null,
   };
 }
 
@@ -211,11 +261,13 @@ function buildProductWriteData(
     saleMode: data.saleMode,
     description: data.description ?? null,
     descriptionHtml: data.descriptionHtml ?? null,
+    shortDescriptionHtml: data.shortDescriptionHtml ?? null,
     excerpt: data.excerpt ?? null,
     metaTitle: data.metaTitle ?? null,
     metaDescription: data.metaDescription ?? null,
     coverImageUrl: data.coverImageUrl ?? null,
     gallery: toJsonInput(data.gallery),
+    faqItems: toJsonInput(data.faqItems),
     quoteFormSchema: toJsonInput(data.quoteFormSchema),
     optionConfig: toJsonInput(data.optionConfig),
     variantStock: toJsonInput(data.variantStock),
@@ -226,6 +278,7 @@ function buildProductWriteData(
     priceTTCCents: data.priceTTCCents,
     vatRate: data.vatRate,
     defaultDiscountRate: data.defaultDiscountRate ?? null,
+    defaultDiscountAmountCents: data.defaultDiscountAmountCents ?? null,
     isActive: data.isActive,
     isListedInCatalog: data.isListedInCatalog,
   };
@@ -265,7 +318,7 @@ async function resolveProductSlug(options: {
   if (requested) {
     return requested;
   }
-  const base = slugify(options.sku || options.name || "produit");
+  const base = slugify(options.name || options.sku || "produit");
   return findAvailableProductSlug(options.userId, base || "produit");
 }
 

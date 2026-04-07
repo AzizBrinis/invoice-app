@@ -1,3 +1,5 @@
+import { useCisecoI18n } from "../../i18n";
+
 type AuthPrimaryButtonProps = {
   label: string;
   type?: "button" | "submit";
@@ -13,9 +15,10 @@ export function AuthPrimaryButton({
   isLoading,
   loadingLabel,
 }: AuthPrimaryButtonProps) {
+  const { t } = useCisecoI18n();
   const resolvedLabel = isLoading
-    ? loadingLabel ?? "Chargement..."
-    : label;
+    ? t(loadingLabel ?? "Loading...")
+    : t(label);
   return (
     <button
       type={type}

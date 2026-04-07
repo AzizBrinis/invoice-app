@@ -2,7 +2,8 @@
 
 import clsx from "clsx";
 import { useMemo } from "react";
-import { usePathname } from "next/navigation";
+import { useCisecoI18n } from "../../i18n";
+import { useCisecoLocation } from "../../navigation";
 
 const ACCOUNT_TABS = [
   "Settings",
@@ -17,7 +18,8 @@ type AccountTabsProps = {
 };
 
 export function AccountTabs({ activeTab = "Settings" }: AccountTabsProps) {
-  const pathname = usePathname();
+  const { pathname } = useCisecoLocation();
+  const { t, localizeHref } = useCisecoI18n();
   const basePath = useMemo(() => {
     if (!pathname) return "";
     const segments = pathname.split("/").filter(Boolean);
@@ -49,7 +51,7 @@ export function AccountTabs({ activeTab = "Settings" }: AccountTabsProps) {
         return (
           <a
             key={tab}
-            href={resolveHref(tab)}
+            href={localizeHref(resolveHref(tab))}
             className={clsx(
               "relative pb-3 text-left transition sm:pb-4",
               isActive
@@ -57,7 +59,7 @@ export function AccountTabs({ activeTab = "Settings" }: AccountTabsProps) {
                 : "text-slate-500 hover:text-slate-700",
             )}
           >
-            <span className="block truncate">{tab}</span>
+            <span className="block truncate">{t(tab)}</span>
             {isActive ? (
               <span className="absolute bottom-0 left-0 h-0.5 w-full bg-[var(--site-accent)]" />
             ) : null}

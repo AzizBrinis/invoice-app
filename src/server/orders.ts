@@ -39,7 +39,9 @@ const orderCustomerSchema = z.object({
   name: z.string().min(2, "Nom requis"),
   email: z.string().email("E-mail invalide"),
   phone: z.string().nullable().optional(),
+  type: z.enum(["individual", "company"]).optional().default("individual"),
   company: z.string().nullable().optional(),
+  vatNumber: z.string().nullable().optional(),
   address: z.string().nullable().optional(),
 });
 
@@ -783,6 +785,7 @@ export async function createOrder(input: OrderInput, providedUserId?: string) {
       email: normalizedEmail,
       phone: payload.customer.phone ?? null,
       company: payload.customer.company ?? null,
+      vatNumber: payload.customer.vatNumber ?? null,
       address: payload.customer.address ?? null,
     },
     userId,
@@ -883,6 +886,7 @@ export async function updateOrder(id: string, input: OrderInput) {
       email: normalizedEmail,
       phone: payload.customer.phone ?? null,
       company: payload.customer.company ?? null,
+      vatNumber: payload.customer.vatNumber ?? null,
       address: payload.customer.address ?? null,
     },
     userId,

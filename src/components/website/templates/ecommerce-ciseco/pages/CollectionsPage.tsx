@@ -14,7 +14,13 @@ import { ExtraSections } from "../components/builder/ExtraSections";
 import { Footer } from "../components/layout/Footer";
 import { Navbar } from "../components/layout/Navbar";
 import { PageShell } from "../components/layout/PageShell";
-import { buildHomeProducts, buildProductGallery } from "../utils";
+import { useCisecoI18n } from "../i18n";
+import {
+  buildCisecoHref,
+  buildHomeProducts,
+  buildProductGallery,
+  toCartProduct,
+} from "../utils";
 
 type CollectionsPageProps = {
   theme: ThemeTokens;
@@ -56,7 +62,11 @@ export function CollectionsPage({
   collectionSlug,
   builder,
 }: CollectionsPageProps) {
-  const productSource = Array.isArray(products?.all) ? products.all : [];
+  const { t } = useCisecoI18n();
+  const productSource = useMemo(
+    () => (Array.isArray(products?.all) ? products.all : []),
+    [products],
+  );
   const homeProducts = useMemo(
     () =>
       buildHomeProducts({
@@ -72,7 +82,7 @@ export function CollectionsPage({
   const collections = useMemo<CollectionEntry[]>(() => {
     const entries = new Map<string, CollectionEntry>();
     homeProducts.forEach((product) => {
-      const label = product.category?.trim() || "Collection";
+      const label = product.category?.trim() || t("Collection");
       const slug = slugify(label) || "collection";
       const existing = entries.get(slug);
       if (existing) {
@@ -88,7 +98,7 @@ export function CollectionsPage({
     return Array.from(entries.values()).sort((left, right) =>
       left.label.localeCompare(right.label),
     );
-  }, [homeProducts]);
+  }, [homeProducts, t]);
   const selectedCollectionSlug = normalizeCollectionSlug(collectionSlug);
   const selectedCollection = useMemo(
     () =>
@@ -102,11 +112,11 @@ export function CollectionsPage({
       return homeProducts;
     }
     return homeProducts.filter((product) => {
-      const collection = product.category?.trim() || "Collection";
+      const collection = product.category?.trim() || t("Collection");
       const slug = slugify(collection) || "collection";
       return slug === selectedCollectionSlug;
     });
-  }, [homeProducts, selectedCollectionSlug]);
+  }, [homeProducts, selectedCollectionSlug, t]);
   const collectionProducts = useMemo<CollectionProduct[]>(
     () =>
       filteredProducts.map((product, index) => ({
@@ -114,15 +124,17 @@ export function CollectionsPage({
         name: product.name,
         subtitle: product.category,
         price: product.price,
+        href: buildCisecoHref(homeHref, `/produit/${product.slug}`),
+        cartProduct: toCartProduct(product),
         rating: product.rating,
         reviewCount: 36 + (index % 6) * 9,
         image: product.image,
         colors: product.colors,
-        badge: index < 2 ? "New in" : undefined,
+        badge: index < 2 ? t("New in") : undefined,
         favorite: index % 3 === 0,
         showActions: true,
       })),
-    [filteredProducts],
+    [filteredProducts, homeHref, t],
   );
   const featuredSource = filteredProducts.length > 0 ? filteredProducts : homeProducts;
   const featuredProducts = useMemo<FeaturedProduct[]>(
@@ -171,18 +183,20 @@ export function CollectionsPage({
     [collections, selectedCollectionSlug],
   );
   const collectionTitle = selectedCollection
-    ? `${selectedCollection.label} collection`
+    ? `${t(selectedCollection.label)} ${t("collection")}`
     : selectedCollectionSlug
-      ? `${titleizeSlug(selectedCollectionSlug)} collection`
-      : "Sale collection";
+      ? `${t(titleizeSlug(selectedCollectionSlug))} ${t("collection")}`
+      : t("Sale collection");
   const collectionSubtitle =
     selectedCollection != null
-      ? `Discover ${selectedCollection.count} item${
-          selectedCollection.count > 1 ? "s" : ""
-        } in this collection.`
+      ? `${t("Discover")} ${selectedCollection.count} ${t(
+          selectedCollection.count > 1 ? "items" : "item",
+        )} ${t("in this collection.")}`
       : selectedCollectionSlug
-        ? "No products are currently assigned to this collection."
-        : "Excellent new arrivals for every occasion, from casual to formal, explore our collection of trendy pieces that elevate your outfit.";
+        ? t("No products are currently assigned to this collection.")
+        : t(
+            "Excellent new arrivals for every occasion, from casual to formal, explore our collection of trendy pieces that elevate your outfit.",
+          );
   const sections = builder?.sections ?? [];
   const mediaLibrary = builder?.mediaLibrary ?? [];
   const heroSection = resolveBuilderSection(sections, "hero");
@@ -209,10 +223,10 @@ export function CollectionsPage({
         >
           <div className="max-w-3xl space-y-3">
             <h1 className="text-2xl font-semibold text-slate-900 sm:text-3xl">
-              {heroSection?.title ?? collectionTitle}
+              {t(heroSection?.title ?? collectionTitle)}
             </h1>
             <p className="text-sm text-slate-500 sm:text-base">
-              {heroSubtitle ?? collectionSubtitle}
+              {t(heroSubtitle ?? collectionSubtitle)}
             </p>
           </div>
           <div className="mt-6 border-b border-black/5" />
@@ -222,7 +236,7 @@ export function CollectionsPage({
               className="inline-flex items-center gap-2 rounded-full border border-black/10 bg-white px-4 py-2 text-xs font-semibold text-slate-600"
             >
               <FilterIcon className="h-4 w-4" />
-              Filters
+              {t("Filters")}
             </button>
           </div>
           <div className="mt-8 grid gap-10 lg:grid-cols-[240px_minmax(0,1fr)] xl:grid-cols-[260px_minmax(0,1fr)]">
@@ -242,7 +256,7 @@ export function CollectionsPage({
                 </>
               ) : (
                 <div className="rounded-3xl border border-black/10 bg-white px-6 py-10 text-center text-sm text-slate-500">
-                  No products found for this collection yet.
+                  {t("No products found for this collection yet.")}
                 </div>
               )}
             </div>
@@ -251,7 +265,11 @@ export function CollectionsPage({
         {featuredProducts.length ? (
           <FeaturedRow theme={theme} items={featuredProducts} />
         ) : null}
-        <PromoBlock theme={theme} companyName={companyName} />
+        <PromoBlock
+          theme={theme}
+          companyName={companyName}
+          homeHref={homeHref}
+        />
         {extraSections.length ? (
           <ExtraSections
             theme={theme}
@@ -260,7 +278,7 @@ export function CollectionsPage({
           />
         ) : null}
       </main>
-      <Footer theme={theme} companyName={companyName} />
+      <Footer theme={theme} companyName={companyName} homeHref={homeHref} />
     </PageShell>
   );
 }

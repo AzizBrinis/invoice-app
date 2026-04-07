@@ -8,6 +8,7 @@ import {
   markMailboxMessageSeen,
   replaceMailboxMessages,
   setMailboxCacheUser,
+  shouldReconcileMailboxPage,
 } from "@/app/(app)/messagerie/_state/mailbox-store";
 import type { MailboxListItem, MessageDetail } from "@/server/messaging";
 
@@ -170,10 +171,63 @@ describe("mailbox store", () => {
       totalMessages: 1,
     });
 
+    vi.runAllTimers();
+    const sessionStorage = globalThis.window?.sessionStorage;
+    const setItemMock = sessionStorage
+      ? vi.mocked(sessionStorage.setItem)
+      : undefined;
+    setItemMock?.mockClear();
+
     const before = getMailboxStoreSnapshot().mailboxes.inbox;
     markMailboxMessageSeen("inbox", 1);
+    vi.runAllTimers();
     const after = getMailboxStoreSnapshot().mailboxes.inbox;
 
     expect(after).toBe(before);
+    expect(setItemMock).not.toHaveBeenCalled();
+  });
+
+  it("does not request page reconcile when a replacement would be a no-op", () => {
+    initializeMailboxCache("inbox", {
+      messages: Array.from({ length: 20 }, (_, index) =>
+        buildMessage(40 - index),
+      ),
+      page: 1,
+      pageSize: 20,
+      hasMore: true,
+      totalMessages: 40,
+    });
+
+    appendMailboxMessages(
+      "inbox",
+      Array.from({ length: 20 }, (_, index) => buildMessage(20 - index)),
+      {
+        page: 2,
+        pageSize: 20,
+        hasMore: false,
+        totalMessages: 40,
+      },
+    );
+
+    appendMailboxMessages("inbox", [buildMessage(42), buildMessage(41)], {
+      page: 2,
+      pageSize: 20,
+      hasMore: false,
+      totalMessages: 42,
+    });
+
+    const inbox = getMailboxStoreSnapshot().mailboxes.inbox;
+
+    expect(
+      shouldReconcileMailboxPage(inbox, {
+        messages: Array.from({ length: 20 }, (_, index) =>
+          buildMessage(40 - index),
+        ),
+        page: 1,
+        pageSize: 20,
+        hasMore: true,
+        totalMessages: 42,
+      }),
+    ).toBe(false);
   });
 });

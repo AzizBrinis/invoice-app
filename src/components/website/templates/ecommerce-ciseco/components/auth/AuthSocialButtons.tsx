@@ -1,3 +1,5 @@
+import { useCisecoI18n } from "../../i18n";
+
 export type SocialProvider = "facebook" | "twitter" | "google";
 
 const PROVIDER_LABELS: Record<SocialProvider, string> = {
@@ -20,6 +22,8 @@ export function AuthSocialButtons({
   onProviderClick,
   disabled,
 }: AuthSocialButtonsProps) {
+  const { t } = useCisecoI18n();
+
   if (providers && providers.length === 0) {
     return null;
   }
@@ -40,7 +44,7 @@ export function AuthSocialButtons({
           <span className="absolute left-4 flex h-5 w-5 items-center justify-center transition-transform duration-200 group-hover:scale-105">
             <SocialIcon provider={provider} />
           </span>
-          {PROVIDER_LABELS[provider]}
+          {t(PROVIDER_LABELS[provider])}
         </button>
       ))}
     </div>

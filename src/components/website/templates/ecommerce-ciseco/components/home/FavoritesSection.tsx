@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button";
 import type { WebsiteBuilderSection } from "@/lib/website/builder";
 import { FAVORITE_FILTERS } from "../../data/home";
 import type { HomeProduct, HomeProductStatus, ThemeTokens } from "../../types";
-import { buildCategoryFilters } from "../../utils";
+import { useCisecoI18n } from "../../i18n";
+import { buildCategoryFilters, resolveCisecoNavigationHref } from "../../utils";
 import { Section } from "../layout/Section";
 import { PillTabs } from "../shared/PillTabs";
 import { ProductCard, ProductCardSkeleton } from "../shared/ProductCard";
@@ -13,10 +14,14 @@ import { Reveal } from "../shared/Reveal";
 type FavoritesSectionProps = {
   theme: ThemeTokens;
   section?: WebsiteBuilderSection | null;
+  homeHref: string;
   products: HomeProduct[];
   status: HomeProductStatus;
   baseLink: (target: string) => string;
-  onAddToCart: (product: HomeProduct) => void;
+  onAddToCart: (product: HomeProduct) => boolean;
+  isWishlisted: (productId: string) => boolean;
+  pendingIds: Set<string>;
+  onToggleWishlist: (productId: string) => Promise<boolean>;
   emptyMessage: string;
   errorMessage: string;
 };
@@ -24,13 +29,18 @@ type FavoritesSectionProps = {
 export function FavoritesSection({
   theme,
   section,
+  homeHref,
   products,
   status,
   baseLink,
   onAddToCart,
+  isWishlisted,
+  pendingIds,
+  onToggleWishlist,
   emptyMessage,
   errorMessage,
 }: FavoritesSectionProps) {
+  const { t, localizeHref } = useCisecoI18n();
   const overrideTabs =
     section?.items?.length
       ? section.items
@@ -59,7 +69,7 @@ export function FavoritesSection({
   const productHref = (slug: string) => baseLink(`/produit/${slug}`);
   const filteredEmptyMessage =
     activeLabel && activeLabel.toLowerCase() !== "all"
-      ? "No items match this filter yet."
+      ? t("No items match this filter yet.")
       : emptyMessage;
   const eyebrow = section?.eyebrow ?? "Browse by category";
   const title = section?.title ?? "Find your favorite products";
@@ -77,14 +87,14 @@ export function FavoritesSection({
     >
       <div className="space-y-4">
         <div className="space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-900">
-            {eyebrow}
+          <p className="ciseco-home-eyebrow">
+            {t(eyebrow)}
           </p>
-          <h2 className="text-[30px] font-semibold leading-tight text-slate-900 sm:text-[34px]">
-            {title}
+          <h2 className="ciseco-home-title max-w-3xl text-[34px] sm:text-[42px]">
+            {t(title)}
           </h2>
-          <p className="text-sm text-slate-500">
-            {subtitle}
+          <p className="ciseco-home-subtitle max-w-2xl">
+            {t(subtitle)}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -117,6 +127,9 @@ export function FavoritesSection({
                     <ProductCard
                       product={card}
                       href={productHref(card.slug)}
+                      isWishlisted={isWishlisted(card.id)}
+                      isWishlistBusy={pendingIds.has(card.id)}
+                      onToggleWishlist={() => onToggleWishlist(card.id)}
                       onAddToCart={() => onAddToCart(card)}
                     />
                   </Reveal>
@@ -134,10 +147,21 @@ export function FavoritesSection({
               asChild
               className={clsx(
                 theme.buttonShape,
-                "bg-slate-900 px-6 text-white shadow-[0_18px_30px_-20px_rgba(15,23,42,0.4)] hover:opacity-90",
+                "bg-slate-900 px-6 text-white shadow-[0_18px_30px_-20px_rgba(15,23,42,0.4)] transition-[transform,box-shadow] duration-200 hover:-translate-y-0.5 hover:shadow-[0_22px_38px_-20px_rgba(15,23,42,0.45)]",
               )}
             >
-              <a href={cta.href ?? "#"}>{cta.label}</a>
+              <a
+                href={localizeHref(
+                  resolveCisecoNavigationHref({
+                    href: cta.href,
+                    homeHref,
+                    baseLink,
+                    fallbackPath: "/collections",
+                  }),
+                )}
+              >
+                {t(cta.label)}
+              </a>
             </Button>
           ) : null}
         </div>

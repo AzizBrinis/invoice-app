@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { Buffer } from "node:buffer";
 import { randomUUID } from "node:crypto";
 import { getAppHostnames } from "@/lib/env";
+import { createCisecoRequestTranslator } from "@/lib/website/ciseco-request-locale";
 import { resolveCatalogWebsite } from "@/server/website";
 import { attachOrderTransferProof } from "@/server/orders";
 
@@ -22,7 +23,7 @@ const ALLOWED_PROOF_MIME_TYPES = new Map([
 
 function getStorageConfig() {
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-    throw new Error("Stockage des preuves non configuré.");
+    throw new Error("Proof storage is not configured.");
   }
   return {
     baseUrl: SUPABASE_URL.replace(/\/+$/, ""),
@@ -77,9 +78,7 @@ async function uploadProofToSupabase(options: {
   });
   if (!response.ok) {
     const errorBody = await response.text();
-    throw new Error(
-      `Impossible de stocker la preuve. ${errorBody || "Erreur inconnue."}`,
-    );
+    throw new Error(errorBody || "Unable to store the proof. Unknown error.");
   }
 
   return {
@@ -101,11 +100,12 @@ export async function POST(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
+  const { t } = createCisecoRequestTranslator(request);
   try {
     const params = await context.params;
     const orderId = params.id;
     if (!orderId || orderId.includes("/") || orderId.includes("..")) {
-      throw new Error("Commande invalide.");
+      throw new Error("Invalid order.");
     }
 
     const formData = await request.formData();
@@ -121,28 +121,27 @@ export async function POST(
       preview: mode === "preview",
     });
     if (!website) {
-      throw new Error("Site introuvable.");
+      throw new Error("Site unavailable.");
     }
 
     if (mode === "preview") {
       return NextResponse.json({
         status: "preview-only",
-        message:
-          "Mode previsualisation : aucun fichier n'a ete enregistre.",
+        message: t("Preview mode: no proof file was saved."),
       });
     }
 
     const proof = formData.get("proof");
     if (!(proof instanceof File) || proof.size === 0) {
-      throw new Error("Fichier de preuve invalide.");
+      throw new Error("Invalid proof file.");
     }
     if (proof.size > MAX_PROOF_FILE_SIZE) {
-      throw new Error("La preuve depasse la taille maximale de 6 Mo.");
+      throw new Error("The proof exceeds the 6 MB limit.");
     }
     const extension = ALLOWED_PROOF_MIME_TYPES.get(proof.type);
     if (!extension) {
       throw new Error(
-        "Format de preuve non supporte. Utilisez PNG, JPG, WEBP ou PDF.",
+        "Unsupported proof format. Use PNG, JPG, WEBP, or PDF.",
       );
     }
 
@@ -170,9 +169,7 @@ export async function POST(
     });
   } catch (error) {
     const message =
-      error instanceof Error
-        ? error.message
-        : "Impossible d'enregistrer la preuve.";
+      error instanceof Error ? t(error.message) : t("Unable to save the proof.");
     return NextResponse.json(
       { error: message },
       {

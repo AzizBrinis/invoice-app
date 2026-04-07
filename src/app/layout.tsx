@@ -8,6 +8,7 @@ import {
   type Theme,
 } from "@/components/theme/theme-provider";
 import { ToastProvider } from "@/components/ui/toast-provider";
+import { getAppBaseUrl } from "@/lib/env";
 
 const geistSans = localFont({
   variable: "--font-geist-sans",
@@ -77,7 +78,19 @@ const geistMono = localFont({
   ],
 });
 
+function resolveMetadataBase() {
+  try {
+    return new URL(getAppBaseUrl());
+  } catch {
+    if (process.env.VERCEL_URL) {
+      return new URL(`https://${process.env.VERCEL_URL}`);
+    }
+    return new URL("http://localhost:3000");
+  }
+}
+
 export const metadata: Metadata = {
+  metadataBase: resolveMetadataBase(),
   title: "Application de facturation",
   description:
     "Gérez vos devis, factures, clients et paiements dans une interface moderne en français.",

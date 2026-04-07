@@ -2,6 +2,11 @@ import { cookies } from "next/headers";
 import { createHash, randomBytes } from "crypto";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
+import {
+  toCatalogClientProfile,
+  type CatalogClientProfile,
+  type CatalogViewerState,
+} from "@/lib/catalog-viewer";
 import { extractSignedToken, signSessionToken } from "@/lib/session-cookie";
 
 export const CLIENT_SESSION_COOKIE_NAME =
@@ -70,6 +75,54 @@ export async function getClientFromSessionToken(token: string) {
   });
 
   return session?.client ?? null;
+}
+
+export async function getCatalogClientProfileById(
+  clientId: string,
+): Promise<CatalogClientProfile | null> {
+  const client = await prisma.client.findUnique({
+    where: { id: clientId },
+    select: {
+      displayName: true,
+      email: true,
+      phone: true,
+      address: true,
+      companyName: true,
+      vatNumber: true,
+      notes: true,
+    },
+  });
+
+  if (!client) {
+    return null;
+  }
+
+  return toCatalogClientProfile(client);
+}
+
+export async function getCatalogViewerForTenant(
+  tenantUserId: string,
+): Promise<CatalogViewerState> {
+  const token = await getClientSessionTokenFromCookie();
+  if (!token) {
+    return {
+      authStatus: "unauthenticated",
+      profile: null,
+    };
+  }
+
+  const client = await getClientFromSessionToken(token);
+  if (!client || !client.isActive || client.userId !== tenantUserId) {
+    return {
+      authStatus: "unauthenticated",
+      profile: null,
+    };
+  }
+
+  return {
+    authStatus: "authenticated",
+    profile: toCatalogClientProfile(client),
+  };
 }
 
 export async function signOutClient() {

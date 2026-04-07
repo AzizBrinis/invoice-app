@@ -14,6 +14,7 @@ import { ExtraSections } from "../components/builder/ExtraSections";
 import { Footer } from "../components/layout/Footer";
 import { Navbar } from "../components/layout/Navbar";
 import { PageShell } from "../components/layout/PageShell";
+import { useCisecoI18n } from "../i18n";
 import { buildCisecoHref } from "../utils";
 
 type CartPageProps = {
@@ -33,13 +34,14 @@ function CartEmptyState({
   theme: ThemeTokens;
   homeHref: string;
 }) {
+  const { t, localizeHref } = useCisecoI18n();
   const safeHomeHref = homeHref || "/";
   return (
     <div className="flex flex-col items-start gap-3 py-10 text-sm text-slate-600">
       <p className="text-base font-semibold text-slate-900">
-        Your cart is empty
+        {t("Your cart is empty")}
       </p>
-      <p>Browse the shop to add items and start checkout.</p>
+      <p>{t("Browse the shop to add items and start checkout.")}</p>
       <Button
         asChild
         className={clsx(
@@ -47,21 +49,22 @@ function CartEmptyState({
           "bg-slate-900 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 focus-visible:ring-2 focus-visible:ring-slate-900/30",
         )}
       >
-        <a href={safeHomeHref}>Back to shop</a>
+        <a href={localizeHref(safeHomeHref)}>{t("Back to shop")}</a>
       </Button>
     </div>
   );
 }
 
 function CartLoadingState() {
+  const { t } = useCisecoI18n();
   return (
     <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.42fr)]">
       <div className="rounded-3xl border border-dashed border-black/10 bg-white/70 px-6 py-10 text-sm text-slate-500">
-        Loading cart...
+        {t("Loading cart...")}
       </div>
       <div className="pt-8 lg:border-l lg:border-black/5 lg:pl-10 lg:pt-2">
         <div className="rounded-3xl border border-dashed border-black/10 bg-white/70 px-6 py-10 text-sm text-slate-500">
-          Preparing summary...
+          {t("Preparing summary...")}
         </div>
       </div>
     </div>
@@ -77,6 +80,7 @@ function CartPageContent({
   homeHref: string;
   checkoutHref: string;
 }) {
+  const { t } = useCisecoI18n();
   const { items, isHydrated } = useCart();
   const isEmpty = items.length === 0;
 
@@ -84,7 +88,7 @@ function CartPageContent({
     <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.42fr)]">
       <div className="divide-y divide-black/5 border-b border-black/5">
         {!isHydrated ? (
-          <div className="py-10 text-sm text-slate-500">Loading cart...</div>
+          <div className="py-10 text-sm text-slate-500">{t("Loading cart...")}</div>
         ) : isEmpty ? (
           <CartEmptyState theme={theme} homeHref={homeHref} />
         ) : (
@@ -109,6 +113,7 @@ export function CartPage({
   homeHref,
   builder,
 }: CartPageProps) {
+  const { t } = useCisecoI18n();
   const { isHydrated } = useCart();
   const checkoutHref = buildCisecoHref(homeHref, CHECKOUT_PATH);
   const sections = builder?.sections ?? [];
@@ -138,10 +143,10 @@ export function CartPage({
         >
           <div className="space-y-3">
             <h1 className="text-2xl font-semibold text-slate-900 sm:text-3xl">
-              {heroSection?.title ?? "Shopping Cart"}
+              {t(heroSection?.title ?? "Shopping Cart")}
             </h1>
             {heroSubtitle ? (
-              <p className="text-sm text-slate-600">{heroSubtitle}</p>
+              <p className="text-sm text-slate-600">{t(heroSubtitle)}</p>
             ) : null}
             <Breadcrumb
               items={[
@@ -170,7 +175,7 @@ export function CartPage({
           />
         ) : null}
       </main>
-      <Footer theme={theme} companyName={companyName} />
+      <Footer theme={theme} companyName={companyName} homeHref={homeHref} />
     </PageShell>
   );
 }

@@ -5,12 +5,12 @@ import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import type {
   CartLine,
-  CartProductOption,
 } from "@/components/website/cart/cart-context";
 import { useCart } from "@/components/website/cart/cart-context";
 import { formatCurrency } from "@/lib/formatters";
 import { fromCents } from "@/lib/money";
 import { WEBSITE_MEDIA_PLACEHOLDERS } from "@/lib/website/placeholders";
+import { useCisecoI18n } from "../../i18n";
 
 type CartDrawerProps = {
   open: boolean;
@@ -21,20 +21,6 @@ type CartDrawerProps = {
 
 const QUANTITY_OPTIONS = [1, 2, 3, 4];
 const FALLBACK_CURRENCY_CODE = "TND";
-const COLOR_KEYS = ["color", "colour", "couleur"];
-const SIZE_KEYS = ["size", "taille"];
-
-const resolveOptionValue = (
-  options: CartProductOption[] | null | undefined,
-  keys: string[],
-) => {
-  if (!options?.length) return null;
-  const match = options.find((option) =>
-    keys.some((key) => option.name.toLowerCase().includes(key)),
-  );
-  return match?.value ?? null;
-};
-
 const resolveQuantityOptions = (quantity: number) => {
   if (quantity <= QUANTITY_OPTIONS[QUANTITY_OPTIONS.length - 1]) {
     return QUANTITY_OPTIONS;
@@ -43,32 +29,30 @@ const resolveQuantityOptions = (quantity: number) => {
 };
 
 const formatLinePrice = (item: CartLine) => {
-  if (item.product.unitAmountCents != null) {
-    const code = item.product.currencyCode || FALLBACK_CURRENCY_CODE;
-    return formatCurrency(fromCents(item.product.unitAmountCents, code), code);
+  const code = item.product.currencyCode || FALLBACK_CURRENCY_CODE;
+  const effectiveUnitAmountCents =
+    item.lineTotalCents != null
+      ? Math.round(item.lineTotalCents / item.quantity)
+      : item.product.unitAmountCents;
+  if (effectiveUnitAmountCents != null) {
+    return formatCurrency(fromCents(effectiveUnitAmountCents, code), code);
   }
   return item.product.price || "--";
 };
 
 function CartDrawerItem({ item }: { item: CartLine }) {
+  const { t } = useCisecoI18n();
   const { updateItemQuantity, removeItem } = useCart();
   const quantityOptions = resolveQuantityOptions(item.quantity);
   const selectedOptions = item.product.selectedOptions ?? [];
-  const resolvedColor = resolveOptionValue(selectedOptions, COLOR_KEYS);
-  const resolvedSize = resolveOptionValue(selectedOptions, SIZE_KEYS);
-  const extraOptions = selectedOptions.filter((option) => {
-    const name = option.name.toLowerCase();
-    return !COLOR_KEYS.some((key) => name.includes(key)) &&
-      !SIZE_KEYS.some((key) => name.includes(key));
-  });
-  const extraOptionsLabel = extraOptions.length
-    ? extraOptions.map((option) => `${option.name}: ${option.value}`).join(" · ")
+  const optionsLabel = selectedOptions.length
+    ? selectedOptions
+        .map((option) => `${t(option.name)}: ${t(option.value)}`)
+        .join(" · ")
     : null;
-  const colorLabel = resolvedColor ?? "Standard";
-  const sizeLabel = resolvedSize ?? "One size";
   const imageSrc =
     item.product.image || WEBSITE_MEDIA_PLACEHOLDERS.products[0];
-  const title = item.product.title || "Item";
+  const title = t(item.product.title || "Item");
   const unitPriceLabel = formatLinePrice(item);
 
   return (
@@ -85,15 +69,12 @@ function CartDrawerItem({ item }: { item: CartLine }) {
         <p className="truncate text-sm font-semibold text-slate-900 sm:text-base">
           {title}
         </p>
-        <p className="mt-1 text-xs text-slate-500 sm:text-sm">
-          {colorLabel} <span className="px-1 text-slate-300">|</span> {sizeLabel}
-        </p>
-        {extraOptionsLabel ? (
-          <p className="mt-1 text-xs text-slate-400">{extraOptionsLabel}</p>
+        {optionsLabel ? (
+          <p className="mt-1 text-xs text-slate-400">{optionsLabel}</p>
         ) : null}
         <div className="mt-3">
           <label className="sr-only" htmlFor={`drawer-qty-${item.id}`}>
-            Quantity for {title}
+            {t("Quantity")} {title}
           </label>
           <select
             id={`drawer-qty-${item.id}`}
@@ -122,7 +103,7 @@ function CartDrawerItem({ item }: { item: CartLine }) {
           className="text-xs font-semibold text-sky-600 transition hover:text-sky-700"
           onClick={() => removeItem(item.id)}
         >
-          Remove
+          {t("Remove")}
         </button>
       </div>
     </div>
@@ -135,6 +116,7 @@ export function CartDrawer({
   cartHref,
   checkoutHref,
 }: CartDrawerProps) {
+  const { t, localizeHref } = useCisecoI18n();
   const { items, isHydrated } = useCart();
   const [mounted, setMounted] = useState(false);
 
@@ -227,12 +209,12 @@ export function CartDrawer({
             id="cart-drawer-title"
             className="text-2xl font-semibold text-slate-900 sm:text-xl"
           >
-            Shopping Cart
+            {t("Shopping Cart")}
           </h2>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close cart"
+            aria-label={t("Close cart")}
             className="flex h-10 w-10 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
           >
             <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
@@ -247,14 +229,14 @@ export function CartDrawer({
         </div>
         <div className="flex-1 overflow-y-auto px-5 sm:px-6">
           {!isHydrated ? (
-            <div className="py-10 text-sm text-slate-500">Loading cart...</div>
+            <div className="py-10 text-sm text-slate-500">{t("Loading cart...")}</div>
           ) : items.length === 0 ? (
             <div className="py-12 text-center text-sm text-slate-500">
               <p className="text-base font-semibold text-slate-900">
-                Your cart is empty
+                {t("Your cart is empty")}
               </p>
               <p className="mt-2">
-                Add items to see them here and start checkout.
+                {t("Add items to see them here and start checkout.")}
               </p>
             </div>
           ) : (
@@ -268,23 +250,23 @@ export function CartDrawer({
         <div className="border-t border-black/10 px-5 py-5 sm:px-6">
           {hasMissingAmounts ? (
             <p className="mb-3 text-xs text-amber-700">
-              Some items could not be priced. Remove them to continue.
+              {t("Some items could not be priced. Remove them to continue.")}
             </p>
           ) : null}
           <div className="flex items-center justify-between text-sm font-semibold text-slate-900">
-            <span>Subtotal</span>
+            <span>{t("Subtotal")}</span>
             <span>{subtotalLabel}</span>
           </div>
           <p className="mt-1 text-xs text-slate-500">
-            Shipping and taxes calculated at checkout.
+            {t("Shipping and taxes calculated at checkout.")}
           </p>
           <div className="mt-4 flex flex-col gap-3 sm:flex-row">
             <a
-              href={cartHref}
+              href={localizeHref(cartHref)}
               className="flex-1 rounded-full border border-black/10 bg-white px-4 py-3 text-center text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
               onClick={onClose}
             >
-              View cart
+              {t("View cart")}
             </a>
             {isCheckoutDisabled ? (
               <button
@@ -292,15 +274,15 @@ export function CartDrawer({
                 className="flex-1 cursor-not-allowed rounded-full bg-slate-300 px-4 py-3 text-sm font-semibold text-white"
                 disabled
               >
-                Check out
+                {t("Check out")}
               </button>
             ) : (
               <a
-                href={checkoutHref}
+                href={localizeHref(checkoutHref)}
                 className="flex-1 rounded-full bg-slate-900 px-4 py-3 text-center text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
                 onClick={onClose}
               >
-                Check out
+                {t("Check out")}
               </a>
             )}
           </div>
@@ -309,7 +291,7 @@ export function CartDrawer({
             className="mt-4 w-full text-center text-xs font-semibold tracking-[0.18em] text-slate-500 transition hover:text-slate-700"
             onClick={onClose}
           >
-            or CONTINUE SHOPPING →
+            {t("or CONTINUE SHOPPING →")}
           </button>
         </div>
       </aside>

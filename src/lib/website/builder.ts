@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { generateId } from "@/lib/id";
+import { slugify } from "@/lib/slug";
 import { WEBSITE_MEDIA_PLACEHOLDERS } from "@/lib/website/placeholders";
 import {
   ABOUT_FAST_FACTS,
@@ -21,9 +22,9 @@ import {
   DISCOVERY_CARDS,
   FAVORITE_FILTERS,
   FEATURE_ITEMS,
+  HOME_HERO_SLIDES,
   TESTIMONIALS,
 } from "@/components/website/templates/ecommerce-ciseco/data/home";
-import { HERO_BADGES } from "@/components/website/templates/ecommerce-ciseco/data/navigation";
 import { CISECO_PAGE_DEFINITIONS, type CisecoPageKey } from "@/lib/website/ciseco-pages";
 
 export const BUILDER_SECTION_TYPES = [
@@ -48,6 +49,7 @@ export type BuilderSectionType =
   (typeof BUILDER_SECTION_TYPES)[number];
 
 export const BUILDER_SECTION_BUTTON_LIMIT = 6;
+export const BUILDER_ITEM_BUTTON_LIMIT = 4;
 
 export const BUILDER_ANIMATIONS = [
   "none",
@@ -58,6 +60,28 @@ export const BUILDER_ANIMATIONS = [
 
 export type BuilderAnimation =
   (typeof BUILDER_ANIMATIONS)[number];
+
+export const HOME_HERO_SLIDER_MODES = ["image", "content"] as const;
+
+export type HomeHeroSliderMode =
+  (typeof HOME_HERO_SLIDER_MODES)[number];
+
+export const HOME_HERO_CONTENT_BACKGROUNDS = [
+  "mist",
+  "linen",
+  "pearl",
+  "blush",
+  "sage",
+  "clay",
+  "navy",
+  "obsidian",
+] as const;
+
+export type HomeHeroContentBackground =
+  (typeof HOME_HERO_CONTENT_BACKGROUNDS)[number];
+
+export const DEFAULT_HOME_HERO_SLIDER_INTERVAL_MS = 5500;
+export const DEFAULT_HOME_HERO_CONTENT_BACKGROUND = "mist";
 
 export const BUILDER_TYPOGRAPHY_PRESETS = [
   "modern",
@@ -81,6 +105,14 @@ const builderStatisticSchema = z.object({
   label: z.string().max(80),
   value: z.string().max(40),
 });
+
+const builderSectionSettingsSchema = z
+  .object({
+    sliderMode: z.enum(HOME_HERO_SLIDER_MODES).optional(),
+    contentBackground: z.enum(HOME_HERO_CONTENT_BACKGROUNDS).optional(),
+    autoSlideIntervalMs: z.number().int().min(2500).max(15000).optional(),
+  })
+  .optional();
 
 function isValidBuilderMediaSrc(value: string) {
   if (value.startsWith("data:")) {
@@ -133,11 +165,13 @@ const builderItemSchema = z.object({
   title: z.string().max(160).nullable().optional(),
   description: z.string().max(400).nullable().optional(),
   badge: z.string().max(60).nullable().optional(),
-  tag: z.string().max(60).nullable().optional(),
+  tag: z.string().max(160).nullable().optional(),
+  contentBackground: z.enum(HOME_HERO_CONTENT_BACKGROUNDS).optional(),
   price: z.string().max(60).nullable().optional(),
   linkLabel: z.string().max(80).nullable().optional(),
   href: z.string().max(200).nullable().optional(),
   mediaId: z.string().nullable().optional(),
+  buttons: z.array(builderButtonSchema).max(BUILDER_ITEM_BUTTON_LIMIT).optional(),
   stats: z.array(builderStatisticSchema).optional().default([]),
 });
 
@@ -156,6 +190,7 @@ const builderSectionSchema = z.object({
   visible: z.boolean().default(true),
   mediaId: z.string().nullable().optional(),
   secondaryMediaId: z.string().nullable().optional(),
+  settings: builderSectionSettingsSchema,
   items: z.array(builderItemSchema).default([]),
   buttons: z.array(builderButtonSchema).max(BUILDER_SECTION_BUTTON_LIMIT).default([]),
 });
@@ -199,7 +234,7 @@ export function sanitizeBuilderPages(
       return normalized ?? entry;
     });
   };
-  const normalizeSectionValue = (value: unknown) => {
+  const normalizeItemValue = (value: unknown) => {
     const resolved = parseJsonValue(value);
     if (!resolved || typeof resolved !== "object" || Array.isArray(resolved)) {
       return resolved;
@@ -208,8 +243,27 @@ export function sanitizeBuilderPages(
     const normalizedButtons = normalizeArrayValue(record.buttons);
     return {
       ...record,
+      stats: normalizeArrayValue(record.stats),
+      buttons: Array.isArray(normalizedButtons)
+        ? normalizedButtons.slice(0, BUILDER_ITEM_BUTTON_LIMIT)
+        : normalizedButtons,
+    };
+  };
+  const normalizeSectionValue = (value: unknown) => {
+    const resolved = parseJsonValue(value);
+    if (!resolved || typeof resolved !== "object" || Array.isArray(resolved)) {
+      return resolved;
+    }
+    const record = resolved as Record<string, unknown>;
+    const normalizedButtons = normalizeArrayValue(record.buttons);
+    const normalizedItems = normalizeArrayValue(record.items);
+    return {
+      ...record,
       visible: normalizeBoolean(record.visible),
-      items: normalizeArrayValue(record.items),
+      settings: parseJsonValue(record.settings),
+      items: Array.isArray(normalizedItems)
+        ? normalizedItems.map((item) => normalizeItemValue(item))
+        : normalizedItems,
       buttons: Array.isArray(normalizedButtons)
         ? normalizedButtons.slice(0, BUILDER_SECTION_BUTTON_LIMIT)
         : normalizedButtons,
@@ -342,9 +396,10 @@ export type WebsiteBuilderTheme = z.infer<typeof builderThemeSchema>;
 export type WebsiteBuilderConfig = z.infer<typeof builderConfigSchema>;
 export type WebsiteBuilderVersionEntry = z.infer<typeof builderVersionEntrySchema>;
 
-const CURRENT_BUILDER_CONFIG_VERSION = 3;
+const CURRENT_BUILDER_CONFIG_VERSION = 5;
 const CISECO_SIMPLIFIED_HOME_VERSION = 2;
 const CISECO_PAGE_SYNC_VERSION = 3;
+const CISECO_HOME_SLIDER_VERSION = 5;
 const CISECO_DEFAULT_HOME_VISIBLE_LAYOUTS = new Set([
   "home-hero",
   "best-sellers",
@@ -383,6 +438,57 @@ export type CisecoPageSectionCatalog = {
   genericSectionTypes: BuilderSectionType[];
 };
 
+export function clampHomeHeroSliderInterval(value: number | null | undefined) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return DEFAULT_HOME_HERO_SLIDER_INTERVAL_MS;
+  }
+  return Math.min(15000, Math.max(2500, Math.round(value)));
+}
+
+function isHomeHeroContentBackground(
+  value: string | null | undefined,
+): value is HomeHeroContentBackground {
+  return Boolean(
+    value &&
+      HOME_HERO_CONTENT_BACKGROUNDS.includes(
+        value as HomeHeroContentBackground,
+      ),
+  );
+}
+
+export function resolveHomeHeroSliderMode(
+  section: Pick<WebsiteBuilderSection, "settings" | "mediaId" | "items">,
+): HomeHeroSliderMode {
+  const configuredMode = section.settings?.sliderMode;
+  if (configuredMode === "image" || configuredMode === "content") {
+    return configuredMode;
+  }
+  const hasImageSlides =
+    Boolean(section.mediaId) ||
+    (section.items ?? []).some((item) => Boolean(item.mediaId));
+  return hasImageSlides ? "image" : "content";
+}
+
+export function resolveHomeHeroContentBackground(
+  settings: WebsiteBuilderSection["settings"] | null | undefined,
+): HomeHeroContentBackground {
+  const configuredBackground = settings?.contentBackground;
+  if (isHomeHeroContentBackground(configuredBackground)) {
+    return configuredBackground;
+  }
+  return DEFAULT_HOME_HERO_CONTENT_BACKGROUND;
+}
+
+export function resolveHomeHeroSlideContentBackground(params: {
+  slideBackground?: string | null;
+  settings?: WebsiteBuilderSection["settings"] | null | undefined;
+}): HomeHeroContentBackground {
+  if (isHomeHeroContentBackground(params.slideBackground)) {
+    return params.slideBackground;
+  }
+  return resolveHomeHeroContentBackground(params.settings);
+}
+
 function cloneBuilderButton(button: WebsiteBuilderButton): WebsiteBuilderButton {
   return { ...button };
 }
@@ -399,6 +505,7 @@ function cloneBuilderMediaAsset(
 function cloneBuilderItem(item: WebsiteBuilderItem): WebsiteBuilderItem {
   return {
     ...item,
+    buttons: item.buttons?.map((button) => cloneBuilderButton(button)),
     stats: [...(item.stats ?? [])],
   };
 }
@@ -408,6 +515,7 @@ function cloneBuilderSection(
 ): WebsiteBuilderSection {
   return {
     ...section,
+    settings: section.settings ? { ...section.settings } : undefined,
     items: (section.items ?? []).map((item) => cloneBuilderItem(item)),
     buttons: (section.buttons ?? []).map((button) => cloneBuilderButton(button)),
   };
@@ -626,6 +734,120 @@ function migrateLegacyCisecoHomePage(
         mediaLibrary: homePage.mediaLibrary,
         seo: homePage.seo,
       }),
+    },
+  };
+}
+
+function isLegacyCisecoHomeHeroBadgeItem(item: WebsiteBuilderItem) {
+  return Boolean(item.title?.trim()) &&
+    !item.description?.trim() &&
+    !item.badge?.trim() &&
+    !item.tag?.trim() &&
+    !item.price?.trim() &&
+    !item.linkLabel?.trim() &&
+    !item.href?.trim() &&
+    !item.mediaId &&
+    !(item.buttons?.length);
+}
+
+function normalizeHomeHeroSlideItem(
+  item: WebsiteBuilderItem,
+  fallbackBackground: HomeHeroContentBackground,
+): WebsiteBuilderItem {
+  const buttons =
+    item.buttons?.length
+      ? item.buttons
+          .slice(0, BUILDER_ITEM_BUTTON_LIMIT)
+          .map((button) => cloneBuilderButton(button))
+      : item.linkLabel?.trim()
+        ? [
+            {
+              id: generateId("btn"),
+              label: item.linkLabel.trim(),
+              href: item.href?.trim() || "#",
+              style: "secondary" as const,
+            },
+          ]
+        : undefined;
+
+  return {
+    ...item,
+    contentBackground: resolveHomeHeroSlideContentBackground({
+      slideBackground: item.contentBackground,
+      settings: {
+        contentBackground: fallbackBackground,
+      },
+    }),
+    buttons,
+  };
+}
+
+function normalizeCisecoHomeHeroSection(
+  section: WebsiteBuilderSection,
+): WebsiteBuilderSection {
+  if (
+    section.id !== "ciseco-home-hero" &&
+    !(section.type === "hero" && section.layout === "home-hero")
+  ) {
+    return section;
+  }
+
+  const items = section.items ?? [];
+  const legacyBadgeItems =
+    items.length > 0 && items.every((item) => isLegacyCisecoHomeHeroBadgeItem(item));
+  const legacyContentBackground = resolveHomeHeroContentBackground(
+    section.settings,
+  );
+  const nextItems = legacyBadgeItems
+    ? []
+    : items.map((item) =>
+        normalizeHomeHeroSlideItem(item, legacyContentBackground),
+      );
+  const nextSettings = {
+    ...(section.settings ?? {}),
+    sliderMode: resolveHomeHeroSliderMode({
+      ...section,
+      items: nextItems,
+    }),
+    contentBackground: legacyContentBackground,
+    autoSlideIntervalMs: clampHomeHeroSliderInterval(
+      section.settings?.autoSlideIntervalMs,
+    ),
+  };
+
+  return {
+    ...section,
+    settings: nextSettings,
+    items: nextItems,
+  };
+}
+
+function migrateCisecoHomeSliderConfig(
+  config: WebsiteBuilderConfig,
+): WebsiteBuilderConfig {
+  if (config.version >= CISECO_HOME_SLIDER_VERSION) {
+    return config;
+  }
+
+  const homePage = config.pages.home;
+  if (!homePage) {
+    return {
+      ...config,
+      version: CISECO_HOME_SLIDER_VERSION,
+    };
+  }
+
+  return {
+    ...config,
+    version: CISECO_HOME_SLIDER_VERSION,
+    pages: {
+      ...config.pages,
+      home: {
+        ...homePage,
+        sections: homePage.sections.map((section) =>
+          normalizeCisecoHomeHeroSection(section),
+        ),
+      },
     },
   };
 }
@@ -1243,6 +1465,7 @@ function createCisecoHeroSection(params: {
   layout?: string;
   buttons?: WebsiteBuilderButton[];
   items?: WebsiteBuilderSection["items"];
+  settings?: WebsiteBuilderSection["settings"];
 }) {
   return {
     id: params.id,
@@ -1256,17 +1479,14 @@ function createCisecoHeroSection(params: {
     visible: true,
     mediaId: null,
     secondaryMediaId: null,
+    settings: params.settings,
     items: params.items ?? [],
     buttons: params.buttons ?? [],
   } satisfies WebsiteBuilderSection;
 }
 
 function createCisecoHomePageConfig(): WebsiteBuilderPageConfig {
-  const heroBadges = HERO_BADGES.map((badge, index) => ({
-    id: `ciseco-home-hero-badge-${index + 1}`,
-    title: badge,
-    stats: [],
-  }));
+  const [primaryHeroSlide, ...secondaryHeroSlides] = HOME_HERO_SLIDES;
   const discoveryItems = DISCOVERY_CARDS.map((card) => ({
     id: `ciseco-home-discovery-${card.id}`,
     title: card.title,
@@ -1314,28 +1534,48 @@ function createCisecoHomePageConfig(): WebsiteBuilderPageConfig {
   const sections: WebsiteBuilderSection[] = [
     createCisecoHeroSection({
       id: "ciseco-home-hero",
-      eyebrow: "Flexible starter template",
-      title: "A neutral homepage for any business",
+      eyebrow: primaryHeroSlide?.eyebrow ?? "Flexible starter template",
+      title:
+        primaryHeroSlide?.title ??
+        "A neutral homepage for any business",
       subtitle:
+        primaryHeroSlide?.subtitle ??
         "Use this clean starting point to showcase products, services, or content without being locked to a specific niche.",
       description:
+        primaryHeroSlide?.note ??
         "Designed to adapt across catalogs, services, and content-led sites",
       layout: "home-hero",
-      items: heroBadges,
-      buttons: [
-        {
-          id: "ciseco-home-hero-primary",
-          label: "Get started",
-          href: "#",
-          style: "primary",
-        },
-        {
-          id: "ciseco-home-hero-secondary",
-          label: "See sections",
-          href: "#",
-          style: "ghost",
-        },
-      ],
+      settings: {
+        sliderMode: "image",
+        contentBackground:
+          primaryHeroSlide?.contentBackground ??
+          DEFAULT_HOME_HERO_CONTENT_BACKGROUND,
+        autoSlideIntervalMs: DEFAULT_HOME_HERO_SLIDER_INTERVAL_MS,
+      },
+      items: secondaryHeroSlides.map((slide, index) => ({
+        id: `ciseco-home-hero-slide-${index + 2}`,
+        title: slide.title,
+        description: slide.subtitle,
+        badge: slide.eyebrow,
+        tag: slide.note ?? null,
+        contentBackground:
+          slide.contentBackground ?? DEFAULT_HOME_HERO_CONTENT_BACKGROUND,
+        buttons: slide.buttons.map((button, buttonIndex) => ({
+          id: `ciseco-home-hero-slide-${index + 2}-btn-${buttonIndex + 1}`,
+          label: button.label,
+          href: button.href,
+          style: button.style,
+        })),
+        stats: [],
+      })),
+      buttons: (primaryHeroSlide?.buttons ?? []).map((button, index) => ({
+        id: index === 0
+          ? "ciseco-home-hero-primary"
+          : `ciseco-home-hero-btn-${index + 1}`,
+        label: button.label,
+        href: button.href,
+        style: button.style,
+      })),
     }),
     {
       id: "ciseco-home-discovery",
@@ -1370,7 +1610,7 @@ function createCisecoHomePageConfig(): WebsiteBuilderPageConfig {
         {
           id: "ciseco-home-new-arrivals-cta",
           label: "View all",
-          href: "#",
+          href: "/collections",
           style: "secondary",
         },
       ],
@@ -1408,7 +1648,7 @@ function createCisecoHomePageConfig(): WebsiteBuilderPageConfig {
         {
           id: "ciseco-home-promo-cta",
           label: "Get started",
-          href: "#",
+          href: "/contact",
           style: "primary",
         },
       ],
@@ -1429,7 +1669,7 @@ function createCisecoHomePageConfig(): WebsiteBuilderPageConfig {
       buttons: CATEGORY_TABS.map((tab, index) => ({
         id: `ciseco-home-category-tab-${index + 1}`,
         label: tab,
-        href: "#",
+        href: `/collections/${slugify(tab)}`,
         style: "ghost",
       })),
     },
@@ -1467,7 +1707,7 @@ function createCisecoHomePageConfig(): WebsiteBuilderPageConfig {
         {
           id: "ciseco-home-kids-cta",
           label: "Learn more",
-          href: "#",
+          href: "/about",
           style: "primary",
         },
       ],
@@ -1513,7 +1753,7 @@ function createCisecoHomePageConfig(): WebsiteBuilderPageConfig {
         {
           id: "ciseco-home-favorites-cta",
           label: "Load more",
-          href: "#",
+          href: "/collections",
           style: "primary",
         },
       ],
@@ -2605,7 +2845,8 @@ export function ensureCisecoPageConfigs(
     defaults,
   );
   const syncedConfig = migrateLegacyCisecoPageSync(normalizedConfig, defaults);
-  const resolvedPages = syncedConfig.pages as Record<
+  const sliderConfig = migrateCisecoHomeSliderConfig(syncedConfig);
+  const resolvedPages = sliderConfig.pages as Record<
     CisecoPageKey,
     WebsiteBuilderPageConfig
   >;
@@ -2628,7 +2869,7 @@ export function ensureCisecoPageConfigs(
 
   if (!override && hasPages) {
     return {
-      ...syncedConfig,
+      ...sliderConfig,
       pages: resolvedPages,
       sections: shouldMigrate ? [] : config.sections,
       mediaLibrary: shouldMigrate ? [] : config.mediaLibrary,
@@ -2637,7 +2878,7 @@ export function ensureCisecoPageConfigs(
 
   if (override) {
     return {
-      ...syncedConfig,
+      ...sliderConfig,
       pages: resolvedPages,
       sections: [],
       mediaLibrary: [],
@@ -2645,7 +2886,7 @@ export function ensureCisecoPageConfigs(
   }
 
   return {
-    ...syncedConfig,
+    ...sliderConfig,
     pages: resolvedPages,
     sections: shouldMigrate ? [] : config.sections,
     mediaLibrary: shouldMigrate ? [] : config.mediaLibrary,

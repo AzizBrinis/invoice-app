@@ -1,8 +1,16 @@
 import clsx from "clsx";
-import type { OrderSuccessItem } from "../../types";
+
+export type OrderSuccessListItem = {
+  id: string;
+  name: string;
+  detail?: string | null;
+  price: string;
+  quantity: number;
+  image: string;
+};
 
 type OrderItemsListProps = {
-  items: OrderSuccessItem[];
+  items: OrderSuccessListItem[];
 };
 
 const priceBadgeClassName =
@@ -18,11 +26,7 @@ export function OrderItemsList({ items }: OrderItemsListProps) {
   );
 }
 
-type OrderItemRowProps = {
-  item: OrderSuccessItem;
-};
-
-function OrderItemRow({ item }: OrderItemRowProps) {
+function OrderItemRow({ item }: { item: OrderSuccessListItem }) {
   return (
     <div className="flex flex-col gap-4 py-6 sm:flex-row sm:items-center sm:gap-6">
       <div className="flex flex-1 items-start gap-4">
@@ -40,26 +44,20 @@ function OrderItemRow({ item }: OrderItemRowProps) {
               <p className="text-sm font-semibold text-slate-900 sm:text-base">
                 {item.name}
               </p>
-              <p className="text-xs text-slate-500">
-                {item.color} <span className="px-1 text-slate-400">/</span>{" "}
-                {item.size}
-              </p>
+              {item.detail ? (
+                <p className="text-xs text-slate-500">{item.detail}</p>
+              ) : null}
             </div>
             <PriceBadge className="hidden sm:inline-flex" price={item.price} />
           </div>
           <PriceBadge className="sm:hidden" price={item.price} />
-          <p className="text-xs text-slate-500">Qty {item.quantity}</p>
+          <p className="text-xs text-slate-500">Qté {item.quantity}</p>
         </div>
       </div>
     </div>
   );
 }
 
-type PriceBadgeProps = {
-  price: string;
-  className?: string;
-};
-
-function PriceBadge({ price, className }: PriceBadgeProps) {
+function PriceBadge({ price, className }: { price: string; className?: string }) {
   return <span className={clsx(priceBadgeClassName, className)}>{price}</span>;
 }

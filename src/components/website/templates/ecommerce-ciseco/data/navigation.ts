@@ -1,12 +1,11 @@
-import type { FooterLinkGroup } from "../types";
+import type { FooterLinkGroup, NavItem } from "../types";
 
-export const NAV_ITEMS = [
-  "Overview",
-  "Highlights",
-  "Catalog",
-  "Stories",
-  "Resources",
-  "Contact",
+export const NAV_ITEMS: NavItem[] = [
+  { label: "Home", href: "/" },
+  { label: "Collections", href: "/collections" },
+  { label: "About Us", href: "/about" },
+  { label: "Blog", href: "/blog" },
+  { label: "Contact", href: "/contact" },
 ];
 
 export const HERO_BADGES = [
@@ -17,19 +16,39 @@ export const HERO_BADGES = [
 
 export const FOOTER_LINKS: FooterLinkGroup[] = [
   {
-    title: "Start here",
-    links: ["Overview", "Highlights", "Pages", "Changelog"],
-  },
-  {
-    title: "Resources",
-    links: ["Guides", "Documentation", "Support", "FAQ"],
+    title: "Browse",
+    links: [
+      { label: "Home", href: "/" },
+      { label: "Collections", href: "/collections" },
+      { label: "Search", href: "/search" },
+      { label: "Cart", href: "/cart" },
+    ],
   },
   {
     title: "Company",
-    links: ["About", "Careers", "Press", "Contact"],
+    links: [
+      { label: "About Us", href: "/about" },
+      { label: "Blog", href: "/blog" },
+      { label: "Contact", href: "/contact" },
+      { label: "Checkout", href: "/checkout" },
+    ],
   },
   {
-    title: "Explore",
-    links: ["Catalog", "Stories", "Pricing", "Updates"],
+    title: "Account",
+    links: [
+      { label: "Sign In", href: "/login" },
+      { label: "Create Account", href: "/signup" },
+      { label: "Wishlists", href: "/account/wishlists" },
+      { label: "Orders", href: "/account/orders" },
+    ],
+  },
+  {
+    title: "More",
+    links: [
+      { label: "Collections", href: "/collections" },
+      { label: "Search", href: "/search" },
+      { label: "Contact", href: "/contact" },
+      { label: "About Us", href: "/about" },
+    ],
   },
 ];

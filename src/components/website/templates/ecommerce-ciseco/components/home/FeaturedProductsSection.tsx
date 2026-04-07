@@ -1,5 +1,6 @@
 import type { WebsiteBuilderSection } from "@/lib/website/builder";
 import type { HomeProduct, HomeProductStatus, ThemeTokens } from "../../types";
+import { useCisecoI18n } from "../../i18n";
 import { Section } from "../layout/Section";
 import { Reveal } from "../shared/Reveal";
 
@@ -9,7 +10,7 @@ type FeaturedProductsSectionProps = {
   products: HomeProduct[];
   status: HomeProductStatus;
   baseLink: (target: string) => string;
-  onAddToCart: (product: HomeProduct) => void;
+  onAddToCart: (product: HomeProduct) => boolean;
   emptyMessage: string;
   errorMessage: string;
 };
@@ -23,6 +24,7 @@ export function FeaturedProductsSection({
   emptyMessage,
   errorMessage,
 }: FeaturedProductsSectionProps) {
+  const { t, localizeHref } = useCisecoI18n();
   const productHref = (slug: string) => baseLink(`/produit/${slug}`);
   const heroCards = products.slice(0, 3);
   const stripCards = products.slice(0, 9);
@@ -41,14 +43,14 @@ export function FeaturedProductsSection({
     >
       <div className="space-y-4">
         <div className="space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-900">
-            {eyebrow}
+          <p className="ciseco-home-eyebrow">
+            {t(eyebrow)}
           </p>
-          <h2 className="text-[30px] font-semibold leading-tight text-slate-900 sm:text-[34px]">
-            {title}
+          <h2 className="ciseco-home-title max-w-3xl text-[34px] sm:text-[42px]">
+            {t(title)}
           </h2>
-          <p className="text-sm text-slate-500">
-            {subtitle}
+          <p className="ciseco-home-subtitle max-w-2xl">
+            {t(subtitle)}
           </p>
         </div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -75,21 +77,21 @@ export function FeaturedProductsSection({
               ? heroCards.map((card, index) => (
                   <Reveal key={`${card.id}-feature-${index}`} delay={index * 60}>
                     <a
-                      href={productHref(card.slug)}
+                      href={localizeHref(productHref(card.slug))}
                       className="group overflow-hidden rounded-2xl bg-white shadow-sm"
                     >
                       <div className="relative aspect-[4/3] overflow-hidden bg-slate-100">
                         <img
                           src={card.image}
-                          alt={card.name}
+                          alt={t(card.name)}
                           className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.03]"
                           loading="lazy"
                         />
                       </div>
                       <div className="flex items-center justify-between p-3 text-sm">
-                        <span className="font-semibold text-slate-900">{card.name}</span>
-                        <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                          {card.category}
+                        <span className="font-semibold text-slate-900">{t(card.name)}</span>
+                        <span className="ciseco-card-meta">
+                          {t(card.category)}
                         </span>
                       </div>
                     </a>
@@ -107,14 +109,14 @@ export function FeaturedProductsSection({
             {stripCards.map((card, index) => (
               <a
                 key={`${card.id}-thumb-${index}`}
-                href={productHref(card.slug)}
+                href={localizeHref(productHref(card.slug))}
                 className="overflow-hidden rounded-xl border border-black/5 bg-white"
-                aria-label={`Open ${card.name}`}
+                aria-label={`${t("Open")} ${t(card.name)}`}
               >
                 <div className="aspect-square overflow-hidden bg-slate-100">
                   <img
                     src={card.image}
-                    alt={card.name}
+                    alt={t(card.name)}
                     className="h-full w-full object-cover"
                     loading="lazy"
                   />

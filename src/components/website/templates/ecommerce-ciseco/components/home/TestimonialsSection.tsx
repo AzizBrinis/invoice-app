@@ -6,6 +6,7 @@ import type {
 } from "@/lib/website/builder";
 import type { ThemeTokens } from "../../types";
 import { resolveBuilderMedia } from "../../builder-helpers";
+import { useCisecoI18n } from "../../i18n";
 import { Section } from "../layout/Section";
 
 type TestimonialsSectionProps = {
@@ -19,6 +20,7 @@ export function TestimonialsSection({
   section,
   mediaLibrary = [],
 }: TestimonialsSectionProps) {
+  const { t } = useCisecoI18n();
   const eyebrow = section?.eyebrow ?? "What people are saying";
   const title = section?.title ?? "People love our products";
   const subtitle =
@@ -51,14 +53,14 @@ export function TestimonialsSection({
     >
       <div className="space-y-6">
         <div className="space-y-2 text-center">
-          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-900">
-            {eyebrow}
+          <p className="ciseco-home-eyebrow">
+            {t(eyebrow)}
           </p>
-          <h2 className="text-[30px] font-semibold leading-tight text-slate-900 sm:text-[34px]">
-            {title}
+          <h2 className="ciseco-home-title text-[34px] sm:text-[42px]">
+            {t(title)}
           </h2>
-          <p className="text-sm text-slate-500">
-            {subtitle}
+          <p className="ciseco-home-subtitle">
+            {t(subtitle)}
           </p>
         </div>
         <div className="relative mx-auto max-w-3xl">
@@ -78,14 +80,14 @@ export function TestimonialsSection({
                 </svg>
               ))}
             </div>
-            <p className="mt-4 text-[22px] leading-relaxed text-slate-700">
-              &ldquo;{featured.quote}&rdquo;
+            <p className="mt-4 text-[24px] leading-relaxed text-slate-700 [font-family:var(--ciseco-font-display),var(--font-geist-sans),serif]">
+              &ldquo;{t(featured.quote)}&rdquo;
             </p>
-            <div className="mt-5 text-sm font-semibold text-slate-900">
-              {featured.name}
+            <div className="mt-5 ciseco-card-title text-[15px] text-slate-900">
+              {t(featured.name)}
             </div>
-            <div className="text-xs text-slate-500">{featured.role}</div>
-            <div className="mt-1 text-xs font-semibold text-slate-700">
+            <div className="text-[13px] text-slate-500">{t(featured.role)}</div>
+            <div className="mt-1 text-[12px] font-semibold text-slate-700">
               {featured.rating.toFixed(1)}
             </div>
           </div>

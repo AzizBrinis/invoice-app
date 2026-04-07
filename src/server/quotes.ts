@@ -143,6 +143,7 @@ const quoteProductSelect = Prisma.validator<Prisma.ProductSelect>()({
   vatRate: true,
   unit: true,
   defaultDiscountRate: true,
+  defaultDiscountAmountCents: true,
 });
 
 function normalizeQuoteFilters(filters: QuoteFilters = {}): NormalizedQuoteFilters {

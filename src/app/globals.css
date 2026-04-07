@@ -16,6 +16,10 @@
     height: 100%;
   }
 
+  html {
+    scroll-behavior: smooth;
+  }
+
   body {
     @apply bg-zinc-50 text-zinc-900 transition-colors dark:bg-zinc-950 dark:text-zinc-100;
     font-family: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
@@ -105,6 +109,12 @@
 
   .dark .hover\:bg-zinc-100:hover {
     background-color: #3f3f46;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
   }
 }
 
@@ -708,6 +718,72 @@
 
   .animate-chat-in {
     animation: chat-bubble-in 0.35s ease forwards;
+  }
+
+  @keyframes ciseco-heart-pop {
+    0% {
+      transform: scale(0.86);
+    }
+    45% {
+      transform: scale(1.16);
+    }
+    100% {
+      transform: scale(1);
+    }
+  }
+
+  .animate-ciseco-heart-pop {
+    animation: ciseco-heart-pop 0.38s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .ciseco-home-eyebrow {
+    font-family: var(--ciseco-font-body), var(--font-geist-sans), sans-serif;
+    font-size: 0.72rem;
+    font-weight: 700;
+    line-height: 1.15;
+    letter-spacing: 0.12em;
+    text-transform: none;
+    color: rgb(71 85 105 / 0.9);
+  }
+
+  .ciseco-home-title {
+    font-family: var(--ciseco-font-display), var(--font-geist-sans), serif;
+    font-weight: 600;
+    letter-spacing: -0.045em;
+    line-height: 0.98;
+    color: #020617;
+    text-wrap: balance;
+  }
+
+  .ciseco-home-subtitle {
+    font-family: var(--ciseco-font-body), var(--font-geist-sans), sans-serif;
+    font-size: 0.96rem;
+    font-weight: 500;
+    line-height: 1.72;
+    color: #64748b;
+    text-wrap: pretty;
+  }
+
+  .ciseco-card-meta {
+    font-family: var(--ciseco-font-body), var(--font-geist-sans), sans-serif;
+    font-size: 0.72rem;
+    font-weight: 700;
+    line-height: 1.15;
+    letter-spacing: 0.06em;
+    text-transform: none;
+    color: rgb(100 116 139 / 0.92);
+  }
+
+  .ciseco-card-title {
+    font-family: var(--ciseco-font-body), var(--font-geist-sans), sans-serif;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    text-wrap: balance;
+  }
+
+  .ciseco-price-chip {
+    font-family: var(--ciseco-font-body), var(--font-geist-sans), sans-serif;
+    font-feature-settings: "tnum" 1;
   }
 
   .card {

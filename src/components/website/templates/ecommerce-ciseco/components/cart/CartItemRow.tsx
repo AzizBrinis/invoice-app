@@ -2,34 +2,19 @@
 
 import type {
   CartLine,
-  CartProductOption,
 } from "@/components/website/cart/cart-context";
 import { useCart } from "@/components/website/cart/cart-context";
 import { formatCurrency } from "@/lib/formatters";
 import { fromCents } from "@/lib/money";
 import { WEBSITE_MEDIA_PLACEHOLDERS } from "@/lib/website/placeholders";
+import { useCisecoI18n } from "../../i18n";
 
 type CartItemRowProps = {
   item: CartLine;
 };
 
 const QUANTITY_OPTIONS = [1, 2, 3, 4];
-const CURRENCY_CODE = "TND";
 const STOCK_LABEL = "In Stock";
-const COLOR_KEYS = ["color", "colour", "couleur"];
-const SIZE_KEYS = ["size", "taille"];
-
-const resolveOptionValue = (
-  options: CartProductOption[] | null | undefined,
-  keys: string[],
-) => {
-  if (!options?.length) return null;
-  const match = options.find((option) =>
-    keys.some((key) => option.name.toLowerCase().includes(key)),
-  );
-  return match?.value ?? null;
-};
-
 const resolveQuantityOptions = (quantity: number) => {
   if (quantity <= QUANTITY_OPTIONS[QUANTITY_OPTIONS.length - 1]) {
     return QUANTITY_OPTIONS;
@@ -38,31 +23,30 @@ const resolveQuantityOptions = (quantity: number) => {
 };
 
 export function CartItemRow({ item }: CartItemRowProps) {
+  const { t } = useCisecoI18n();
   const { updateItemQuantity, removeItem } = useCart();
   const quantityOptions = resolveQuantityOptions(item.quantity);
   const selectedOptions = item.product.selectedOptions ?? [];
-  const resolvedColor = resolveOptionValue(selectedOptions, COLOR_KEYS);
-  const resolvedSize = resolveOptionValue(selectedOptions, SIZE_KEYS);
-  const extraOptions = selectedOptions.filter((option) => {
-    const name = option.name.toLowerCase();
-    return !COLOR_KEYS.some((key) => name.includes(key)) &&
-      !SIZE_KEYS.some((key) => name.includes(key));
-  });
-  const extraOptionsLabel = extraOptions.length
-    ? extraOptions.map((option) => `${option.name}: ${option.value}`).join(" · ")
+  const optionsLabel = selectedOptions.length
+    ? selectedOptions
+        .map((option) => `${t(option.name)}: ${t(option.value)}`)
+        .join(" · ")
     : null;
-  const colorLabel = resolvedColor ?? "Standard";
-  const sizeLabel = resolvedSize ?? "One size";
+  const currencyCode = item.product.currencyCode || "TND";
+  const effectiveUnitAmountCents =
+    item.lineTotalCents != null
+      ? Math.round(item.lineTotalCents / item.quantity)
+      : item.product.unitAmountCents;
   const unitPriceLabel =
-    item.product.unitAmountCents != null
+    effectiveUnitAmountCents != null
       ? formatCurrency(
-          fromCents(item.product.unitAmountCents, CURRENCY_CODE),
-          CURRENCY_CODE,
+          fromCents(effectiveUnitAmountCents, currencyCode),
+          currencyCode,
         )
       : item.product.price || "--";
   const imageSrc =
     item.product.image || WEBSITE_MEDIA_PLACEHOLDERS.products[0];
-  const title = item.product.title || "Item";
+  const title = t(item.product.title || "Item");
 
   return (
     <div className="flex flex-col gap-4 py-6 sm:flex-row sm:items-start sm:gap-6">
@@ -79,41 +63,8 @@ export function CartItemRow({ item }: CartItemRowProps) {
           <p className="text-sm font-semibold text-slate-900 sm:text-base">
             {title}
           </p>
-          <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
-            <span className="flex items-center gap-1">
-              <svg
-                viewBox="0 0 24 24"
-                className="h-3.5 w-3.5"
-                aria-hidden="true"
-              >
-                <path
-                  d="M12 4l5 6a6 6 0 1 1-10 0l5-6z"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  fill="none"
-                />
-              </svg>
-              {colorLabel}
-            </span>
-            <span className="h-3 w-px bg-black/10" />
-            <span className="flex items-center gap-1">
-              <svg
-                viewBox="0 0 24 24"
-                className="h-3.5 w-3.5"
-                aria-hidden="true"
-              >
-                <path
-                  d="M5 9h14M7 6v12M17 6v12"
-                  stroke="currentColor"
-                  strokeWidth="1.4"
-                  strokeLinecap="round"
-                />
-              </svg>
-              {sizeLabel}
-            </span>
-          </div>
-          {extraOptionsLabel ? (
-            <p className="text-xs text-slate-500">{extraOptionsLabel}</p>
+          {optionsLabel ? (
+            <p className="text-xs text-slate-500">{optionsLabel}</p>
           ) : null}
           <span className="inline-flex items-center gap-2 rounded-full border border-black/10 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600">
             <svg
@@ -137,7 +88,7 @@ export function CartItemRow({ item }: CartItemRowProps) {
                 strokeLinejoin="round"
               />
             </svg>
-            {STOCK_LABEL}
+            {t(STOCK_LABEL)}
           </span>
         </div>
       </div>
@@ -147,7 +98,7 @@ export function CartItemRow({ item }: CartItemRowProps) {
             <button
               type="button"
               className="flex h-8 w-8 items-center justify-center rounded-full border border-black/10 bg-white text-slate-500 shadow-sm transition hover:border-slate-300 hover:text-slate-700"
-              aria-label={`Decrease quantity for ${title}`}
+              aria-label={`${t("Decrease quantity")} ${title}`}
               onClick={() => updateItemQuantity(item.id, item.quantity - 1)}
             >
               -
@@ -158,7 +109,7 @@ export function CartItemRow({ item }: CartItemRowProps) {
             <button
               type="button"
               className="flex h-8 w-8 items-center justify-center rounded-full border border-black/10 bg-white text-slate-500 shadow-sm transition hover:border-slate-300 hover:text-slate-700"
-              aria-label={`Increase quantity for ${title}`}
+              aria-label={`${t("Increase quantity")} ${title}`}
               onClick={() => updateItemQuantity(item.id, item.quantity + 1)}
             >
               +
@@ -166,7 +117,7 @@ export function CartItemRow({ item }: CartItemRowProps) {
           </div>
           <div className="flex w-full items-center justify-between sm:hidden">
             <label className="sr-only" htmlFor={`quantity-${item.id}`}>
-              Quantity for {title}
+              {t("Quantity")} {title}
             </label>
             <select
               id={`quantity-${item.id}`}
@@ -201,7 +152,7 @@ export function CartItemRow({ item }: CartItemRowProps) {
               removeItem(item.id);
             }}
           >
-            Remove
+            {t("Remove")}
           </a>
         </div>
         <div className="flex justify-end sm:hidden">
@@ -213,7 +164,7 @@ export function CartItemRow({ item }: CartItemRowProps) {
               removeItem(item.id);
             }}
           >
-            Remove
+            {t("Remove")}
           </a>
         </div>
       </div>

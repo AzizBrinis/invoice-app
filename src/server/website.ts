@@ -1,5 +1,6 @@
 import { unstable_cache, revalidateTag } from "next/cache";
-import { z } from "zod";
+import { cache } from "react";
+import { z, ZodError } from "zod";
 import {
   Prisma,
   ClientSource,
@@ -31,6 +32,9 @@ import {
 } from "@/lib/website/contact";
 import { DEFAULT_PRIMARY_CTA_LABEL } from "@/lib/website/defaults";
 import { slugify } from "@/lib/slug";
+import { fromCents } from "@/lib/money";
+import { stripProductHtml } from "@/lib/product-html";
+import { normalizeProductFaqItems } from "@/lib/product-seo";
 import {
   applyThemeFallbacks,
   builderConfigSchema,
@@ -43,9 +47,19 @@ import {
   type WebsiteBuilderConfig,
   type WebsiteBuilderVersionEntry,
 } from "@/lib/website/builder";
+import {
+  isReservedWebsiteCmsPagePath,
+  normalizeWebsiteCmsPagePath,
+  renderWebsiteCmsPageContent,
+  summarizeWebsiteCmsPageContent,
+  WEBSITE_CMS_PAGE_MAX_CONTENT_LENGTH,
+  WEBSITE_CMS_PAGE_MAX_PATH_LENGTH,
+  type WebsiteCmsPageHeading,
+} from "@/lib/website/cms";
 import { generateId } from "@/lib/id";
 import { revalidateClientFilters } from "@/server/clients";
 import { revalidateQuoteFilterClients } from "@/server/quotes";
+import type { CatalogViewerState } from "@/lib/catalog-viewer";
 
 const slugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const hexColorPattern = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
@@ -137,6 +151,29 @@ const contactPageSchema = z.object({
   contactPhoneOverride: z.string().max(60).nullable().optional(),
   contactAddressOverride: z.string().max(280).nullable().optional(),
   socialLinks: contactSocialLinksSchema.default([]),
+});
+
+const websiteCmsPageSchema = z.object({
+  id: z.string().cuid().nullable().optional(),
+  title: z.string().trim().min(3).max(140),
+  path: z
+    .string()
+    .trim()
+    .min(1)
+    .max(WEBSITE_CMS_PAGE_MAX_PATH_LENGTH),
+  content: z
+    .string()
+    .trim()
+    .min(1, "Ajoutez le contenu de la page.")
+    .max(
+      WEBSITE_CMS_PAGE_MAX_CONTENT_LENGTH,
+      `Le contenu ne doit pas dépasser ${WEBSITE_CMS_PAGE_MAX_CONTENT_LENGTH} caractères.`,
+    ),
+  showInFooter: z.boolean().default(false),
+});
+
+const websiteCmsPageDeleteSchema = z.object({
+  id: z.string().cuid(),
 });
 
 export function resolveContactSocialLinks(
@@ -340,17 +377,20 @@ const leadSchema = z.object({
 type WebsiteContentInput = z.infer<typeof websiteContentSchema>;
 type DomainInput = z.infer<typeof domainSchema>;
 type PublishInput = z.infer<typeof publishSchema>;
+type WebsiteCmsPageInput = z.infer<typeof websiteCmsPageSchema>;
 
 export type CatalogProduct = {
   id: string;
   name: string;
   description: string | null;
   descriptionHtml: string | null;
+  shortDescriptionHtml?: string | null;
   excerpt: string | null;
   metaTitle: string | null;
   metaDescription: string | null;
   coverImageUrl: string | null;
   gallery: Prisma.JsonValue | null;
+  faqItems?: Prisma.JsonValue | null;
   quoteFormSchema: Prisma.JsonValue | null;
   optionConfig: Prisma.JsonValue | null;
   variantStock: Prisma.JsonValue | null;
@@ -361,6 +401,7 @@ export type CatalogProduct = {
   priceTTCCents: number;
   vatRate: number;
   defaultDiscountRate: number | null;
+  defaultDiscountAmountCents?: number | null;
   sku: string;
   publicSlug: string;
   saleMode: ProductSaleMode;
@@ -373,6 +414,30 @@ export type CatalogWebsiteMetadata = {
   canonicalUrl: string;
   socialImageUrl: string | null;
   keywords: string | null;
+};
+
+export type CatalogWebsiteCmsPageLink = {
+  id: string;
+  title: string;
+  path: string;
+  showInFooter: boolean;
+};
+
+export type CatalogWebsiteCmsPage = CatalogWebsiteCmsPageLink & {
+  contentHtml: string;
+  excerpt: string | null;
+  headings: WebsiteCmsPageHeading[];
+};
+
+export type WebsiteAdminCmsPage = {
+  id: string;
+  title: string;
+  path: string;
+  content: string;
+  excerpt: string | null;
+  showInFooter: boolean;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type CatalogWebsiteSummary = {
@@ -407,6 +472,7 @@ export type CatalogWebsiteSummary = {
     logoUrl: string | null;
     logoData: string | null;
   };
+  cmsPages: CatalogWebsiteCmsPageLink[];
   metadata: CatalogWebsiteMetadata;
   builder: WebsiteBuilderConfig;
 };
@@ -417,6 +483,8 @@ export type CatalogPayload = {
     featured: CatalogProduct[];
     all: CatalogProduct[];
   };
+  currentCmsPage: CatalogWebsiteCmsPage | null;
+  viewer?: CatalogViewerState;
 };
 
 export type WebsiteBuilderState = {
@@ -472,6 +540,87 @@ export type WebsiteProductListResult = {
   pageSize: number;
   pageCount: number;
 };
+
+const websiteCmsPageAdminSelect =
+  Prisma.validator<Prisma.WebsiteCmsPageSelect>()({
+    id: true,
+    title: true,
+    path: true,
+    content: true,
+    showInFooter: true,
+    createdAt: true,
+    updatedAt: true,
+  });
+
+const websiteCmsPageLinkSelect =
+  Prisma.validator<Prisma.WebsiteCmsPageSelect>()({
+    id: true,
+    title: true,
+    path: true,
+    showInFooter: true,
+  });
+
+const websiteCmsPageContentSelect =
+  Prisma.validator<Prisma.WebsiteCmsPageSelect>()({
+    id: true,
+    title: true,
+    path: true,
+    content: true,
+    showInFooter: true,
+  });
+
+type WebsiteCmsPageAdminRecord = Prisma.WebsiteCmsPageGetPayload<{
+  select: typeof websiteCmsPageAdminSelect;
+}>;
+
+type WebsiteCmsPageLinkRecord = Prisma.WebsiteCmsPageGetPayload<{
+  select: typeof websiteCmsPageLinkSelect;
+}>;
+
+type WebsiteCmsPageContentRecord = Prisma.WebsiteCmsPageGetPayload<{
+  select: typeof websiteCmsPageContentSelect;
+}>;
+
+function serializeWebsiteCmsPageAdmin(
+  page: WebsiteCmsPageAdminRecord,
+): WebsiteAdminCmsPage {
+  return {
+    id: page.id,
+    title: page.title,
+    path: page.path,
+    content: page.content,
+    excerpt: summarizeWebsiteCmsPageContent(page.content),
+    showInFooter: page.showInFooter,
+    createdAt: page.createdAt.toISOString(),
+    updatedAt: page.updatedAt.toISOString(),
+  };
+}
+
+function serializeCatalogWebsiteCmsPageLink(
+  page: WebsiteCmsPageLinkRecord,
+): CatalogWebsiteCmsPageLink {
+  return {
+    id: page.id,
+    title: page.title,
+    path: page.path,
+    showInFooter: page.showInFooter,
+  };
+}
+
+function serializeCatalogWebsiteCmsPage(
+  page: WebsiteCmsPageContentRecord,
+): CatalogWebsiteCmsPage {
+  const rendered = renderWebsiteCmsPageContent(page.content);
+  return {
+    id: page.id,
+    title: page.title,
+    path: page.path,
+    showInFooter: page.showInFooter,
+    contentHtml: rendered.html,
+    excerpt: rendered.excerpt,
+    headings: rendered.headings,
+  };
+}
 
 async function resolveUserId(userId?: string) {
   if (userId) {
@@ -716,6 +865,145 @@ export async function saveWebsiteContent(
   });
   revalidateTag(websiteAdminTag(resolvedUserId), "max");
   return updated;
+}
+
+export async function listWebsiteCmsPages(userId?: string) {
+  const resolvedUserId = await resolveUserId(userId);
+  const website = await ensureWebsiteConfig(resolvedUserId);
+  const pages = await prisma.websiteCmsPage.findMany({
+    where: {
+      websiteId: website.id,
+    },
+    orderBy: [
+      { createdAt: "asc" },
+      { id: "asc" },
+    ],
+    select: websiteCmsPageAdminSelect,
+  });
+  return pages.map((page) => serializeWebsiteCmsPageAdmin(page));
+}
+
+export async function saveWebsiteCmsPage(
+  input: WebsiteCmsPageInput,
+  userId?: string,
+) {
+  const resolvedUserId = await resolveUserId(userId);
+  const website = await ensureWebsiteConfig(resolvedUserId);
+  const parsed = websiteCmsPageSchema.parse(input);
+  const normalizedPath = normalizeWebsiteCmsPagePath(parsed.path);
+
+  if (!normalizedPath) {
+    throw new ZodError([
+      {
+        code: "custom",
+        path: ["path"],
+        message:
+          "Utilisez une URL courte comme /delivery ou /mentions-legales.",
+      },
+    ]);
+  }
+
+  if (isReservedWebsiteCmsPagePath(normalizedPath)) {
+    throw new ZodError([
+      {
+        code: "custom",
+        path: ["path"],
+        message:
+          "Cette URL est réservée par le template. Choisissez un autre chemin.",
+      },
+    ]);
+  }
+
+  const existing = parsed.id
+    ? await prisma.websiteCmsPage.findFirst({
+        where: {
+          id: parsed.id,
+          websiteId: website.id,
+        },
+        select: {
+          id: true,
+        },
+      })
+    : null;
+
+  if (parsed.id && !existing) {
+    throw new Error("Cette page CMS est introuvable.");
+  }
+
+  const conflict = await prisma.websiteCmsPage.findUnique({
+    where: {
+      websiteId_path: {
+        websiteId: website.id,
+        path: normalizedPath,
+      },
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  if (conflict && conflict.id !== existing?.id) {
+    throw new ZodError([
+      {
+        code: "custom",
+        path: ["path"],
+        message: "Cette URL est déjà utilisée par une autre page CMS.",
+      },
+    ]);
+  }
+
+  const payload = {
+    title: parsed.title.trim(),
+    path: normalizedPath,
+    content: parsed.content.trim(),
+    showInFooter: parsed.showInFooter,
+  };
+
+  const saved = existing
+    ? await prisma.websiteCmsPage.update({
+        where: {
+          id: existing.id,
+        },
+        data: payload,
+        select: websiteCmsPageAdminSelect,
+      })
+    : await prisma.websiteCmsPage.create({
+        data: {
+          ...payload,
+          userId: resolvedUserId,
+          websiteId: website.id,
+        },
+        select: websiteCmsPageAdminSelect,
+      });
+
+  revalidateTag(websiteAdminTag(resolvedUserId), "max");
+  return serializeWebsiteCmsPageAdmin(saved);
+}
+
+export async function deleteWebsiteCmsPage(id: string, userId?: string) {
+  const resolvedUserId = await resolveUserId(userId);
+  const website = await ensureWebsiteConfig(resolvedUserId);
+  const parsed = websiteCmsPageDeleteSchema.parse({ id });
+  const existing = await prisma.websiteCmsPage.findFirst({
+    where: {
+      id: parsed.id,
+      websiteId: website.id,
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  if (!existing) {
+    throw new Error("Cette page CMS est introuvable.");
+  }
+
+  await prisma.websiteCmsPage.delete({
+    where: {
+      id: existing.id,
+    },
+  });
+  revalidateTag(websiteAdminTag(resolvedUserId), "max");
 }
 
 export async function saveWebsiteContactPage(
@@ -1063,6 +1351,146 @@ function resolveCategoryLabel(products: CatalogProduct[], slug: string) {
   return titleizeCategorySlug(slug);
 }
 
+function trimCatalogText(value?: string | null) {
+  return value?.replace(/\s+/g, " ").trim() ?? "";
+}
+
+function truncateCatalogText(value: string, maxLength: number) {
+  if (value.length <= maxLength) {
+    return value;
+  }
+
+  return `${value.slice(0, maxLength - 1).trimEnd()}…`;
+}
+
+function collectProductTextCandidates(product: CatalogProduct) {
+  return [
+    trimCatalogText(product.excerpt),
+    trimCatalogText(stripProductHtml(product.shortDescriptionHtml ?? "")),
+    trimCatalogText(stripProductHtml(product.descriptionHtml ?? "")),
+    trimCatalogText(product.description),
+  ].filter((entry): entry is string => entry.length > 0);
+}
+
+function collectProductImageUrls(product: CatalogProduct) {
+  const urls: string[] = [];
+  const seen = new Set<string>();
+  const pushUrl = (value?: string | null) => {
+    const normalized = trimCatalogText(value);
+    if (!normalized || seen.has(normalized)) {
+      return;
+    }
+    seen.add(normalized);
+    urls.push(normalized);
+  };
+
+  pushUrl(product.coverImageUrl);
+  if (Array.isArray(product.gallery)) {
+    product.gallery.forEach((entry) => {
+      if (typeof entry === "string") {
+        pushUrl(entry);
+        return;
+      }
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+        return;
+      }
+      const record = entry as Record<string, unknown>;
+      pushUrl(
+        typeof record.src === "string"
+          ? record.src
+          : typeof record.url === "string"
+            ? record.url
+            : null,
+      );
+    });
+  }
+
+  return urls;
+}
+
+function resolveCatalogMarketLabel(payload: CatalogPayload) {
+  const address = trimCatalogText(payload.website.contact.address).toLowerCase();
+  if (payload.website.currencyCode === "TND") {
+    return "Tunisie";
+  }
+  if (
+    /(tunisie|tunis|sfax|sousse|nabeul|bizerte|monastir|ariana|ben arous|gabes|gabès|mahdia|kairouan|tozeur|gafsa)/i.test(
+      address,
+    )
+  ) {
+    return "Tunisie";
+  }
+  return null;
+}
+
+function buildProductMetaTitle(options: {
+  product: CatalogProduct;
+  companyName: string;
+  marketLabel: string | null;
+}) {
+  const localizedSuffix =
+    options.marketLabel &&
+    !options.product.name.toLowerCase().includes(options.marketLabel.toLowerCase())
+      ? ` en ${options.marketLabel}`
+      : "";
+  return `${options.product.name}${localizedSuffix} — ${options.companyName}`;
+}
+
+function buildProductMetaDescription(options: {
+  product: CatalogProduct;
+  fallbackDescription: string;
+  currencyCode: string;
+  showPrices: boolean;
+  marketLabel: string | null;
+}) {
+  const source =
+    collectProductTextCandidates(options.product)[0] ||
+    trimCatalogText(options.fallbackDescription);
+  const qualifiers = [
+    trimCatalogText(options.product.category),
+    options.product.saleMode === "INSTANT" && options.showPrices
+      ? `prix en ${options.currencyCode}`
+      : "devis sur demande",
+    options.marketLabel,
+  ].filter((entry): entry is string => Boolean(entry));
+  const description = [source, qualifiers.join(" · ")]
+    .filter((entry): entry is string => entry.length > 0)
+    .join(" ");
+
+  return truncateCatalogText(description, 160);
+}
+
+function buildProductKeywordFallback(options: {
+  product: CatalogProduct;
+  companyName: string;
+  marketLabel: string | null;
+  currencyCode: string;
+}) {
+  const entries = [
+    options.product.name,
+    options.product.category,
+    options.product.sku,
+    options.companyName,
+    options.product.publicSlug.replace(/-/g, " "),
+    options.marketLabel,
+    options.marketLabel ? `${options.product.name} ${options.marketLabel}` : null,
+    options.currencyCode === "TND" ? "TND" : null,
+  ]
+    .map((entry) => trimCatalogText(entry))
+    .filter((entry): entry is string => entry.length > 0);
+
+  if (!entries.length) {
+    return null;
+  }
+
+  const unique = entries.filter((entry, index, values) => {
+    const normalized = entry.toLowerCase();
+    return values.findIndex((candidate) => candidate.toLowerCase() === normalized) === index;
+  });
+
+  return unique.join(", ");
+}
+
 const SEO_TEMPLATE_TOKEN_PATTERN = /\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g;
 
 function renderSeoTemplate(
@@ -1162,11 +1590,19 @@ export function resolveCatalogMetadata(options: {
 }): CatalogWebsiteMetadata {
   const base = options.payload.website.metadata;
   const companyName = options.payload.website.contact.companyName;
+  const marketLabel = resolveCatalogMarketLabel(options.payload);
   const target = resolveCatalogMetadataTarget(options.path);
   const cisecoSeo = resolveCisecoPageSeo(options);
+  const cmsPage = options.payload.currentCmsPage;
   let resolved = base;
   let resolvedProduct: CatalogProduct | null = null;
-  if (target.kind === "product") {
+  if (cmsPage) {
+    resolved = {
+      ...base,
+      title: `${cmsPage.title} — ${companyName}`,
+      description: cmsPage.excerpt ?? base.description,
+    };
+  } else if (target.kind === "product") {
     const product = options.payload.products.all.find(
       (item) => item.publicSlug === target.slug,
     );
@@ -1174,32 +1610,38 @@ export function resolveCatalogMetadata(options: {
     if (!product) {
       resolved = base;
     } else {
-      const galleryFallback = Array.isArray(product.gallery)
-        ? product.gallery
-            .map((entry) => {
-              if (typeof entry === "string") return entry;
-              if (entry && typeof entry === "object") {
-                const record = entry as Record<string, unknown>;
-                if (typeof record.src === "string") return record.src;
-                if (typeof record.url === "string") return record.url;
-              }
-              return null;
-            })
-            .find((entry): entry is string => Boolean(entry))
-        : null;
+      const imageUrls = collectProductImageUrls(product);
       const metaTitle = product.metaTitle?.trim();
       const metaDescription = product.metaDescription?.trim();
       resolved = {
         ...base,
         title: metaTitle && metaTitle.length > 0
           ? metaTitle
-          : `${product.name} — ${companyName}`,
+          : buildProductMetaTitle({
+              product,
+              companyName,
+              marketLabel,
+            }),
         description:
           metaDescription && metaDescription.length > 0
             ? metaDescription
-            : product.excerpt ?? product.description ?? base.description,
+            : buildProductMetaDescription({
+                product,
+                fallbackDescription: base.description,
+                currencyCode: options.payload.website.currencyCode,
+                showPrices: options.payload.website.showPrices,
+                marketLabel,
+              }),
         socialImageUrl:
-          product.coverImageUrl ?? galleryFallback ?? base.socialImageUrl,
+          imageUrls[0] ?? base.socialImageUrl,
+        keywords:
+          base.keywords ??
+          buildProductKeywordFallback({
+            product,
+            companyName,
+            marketLabel,
+            currencyCode: options.payload.website.currencyCode,
+          }),
       };
     }
   } else if (target.kind === "category") {
@@ -1261,6 +1703,135 @@ export function resolveCatalogMetadata(options: {
   return resolved;
 }
 
+export function resolveCatalogStructuredData(options: {
+  payload: CatalogPayload;
+  path?: string | null;
+}) {
+  const target = resolveCatalogMetadataTarget(options.path);
+  if (target.kind !== "product") {
+    return [] as Array<Record<string, unknown>>;
+  }
+
+  const product = options.payload.products.all.find(
+    (item) => item.publicSlug === target.slug,
+  );
+  if (!product) {
+    return [] as Array<Record<string, unknown>>;
+  }
+
+  const metadata = resolveCatalogMetadata(options);
+  const companyName = options.payload.website.contact.companyName;
+  const marketLabel = resolveCatalogMarketLabel(options.payload);
+  const imageUrls = collectProductImageUrls(product);
+  const faqItems = normalizeProductFaqItems(product.faqItems);
+  const categorySlug = product.category ? slugify(product.category) : "";
+  const productDescription =
+    collectProductTextCandidates(product)[0] || metadata.description;
+  const productUrl = metadata.canonicalUrl;
+  const breadcrumbItems = [
+    {
+      "@type": "ListItem",
+      position: 1,
+      name: companyName,
+      item: buildCatalogUrl({
+        website: options.payload.website,
+        path: "/",
+      }),
+    },
+    ...(categorySlug
+      ? [
+          {
+            "@type": "ListItem",
+            position: 2,
+            name: product.category,
+            item: buildCatalogUrl({
+              website: options.payload.website,
+              path: `/categories/${categorySlug}`,
+            }),
+          },
+        ]
+      : []),
+    {
+      "@type": "ListItem",
+      position: categorySlug ? 3 : 2,
+      name: product.name,
+      item: productUrl,
+    },
+  ];
+
+  const productStructuredData: Record<string, unknown> = {
+    "@context": "https://schema.org",
+    "@type": "Product",
+    name: product.name,
+    description: productDescription,
+    sku: product.sku,
+    category: product.category ?? undefined,
+    url: productUrl,
+    image: imageUrls.length ? imageUrls : undefined,
+    brand: {
+      "@type": "Brand",
+      name: companyName,
+    },
+  };
+
+  if (
+    product.saleMode === "INSTANT" &&
+    options.payload.website.showPrices &&
+    product.priceTTCCents > 0
+  ) {
+    productStructuredData.offers = {
+      "@type": "Offer",
+      url: productUrl,
+      priceCurrency: options.payload.website.currencyCode,
+      price: fromCents(
+        product.priceTTCCents,
+        options.payload.website.currencyCode,
+      ).toFixed(2),
+      availability:
+        product.isActive !== false &&
+        (product.stockQuantity == null || product.stockQuantity > 0)
+          ? "https://schema.org/InStock"
+          : "https://schema.org/OutOfStock",
+      seller: {
+        "@type": "Organization",
+        name: companyName,
+      },
+      eligibleRegion: marketLabel
+        ? {
+            "@type": "Country",
+            name: marketLabel,
+          }
+        : undefined,
+    };
+  }
+
+  const structuredData: Array<Record<string, unknown>> = [
+    {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      itemListElement: breadcrumbItems,
+    },
+    productStructuredData,
+  ];
+
+  if (faqItems.length) {
+    structuredData.push({
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      mainEntity: faqItems.map((item) => ({
+        "@type": "Question",
+        name: item.question,
+        acceptedAnswer: {
+          "@type": "Answer",
+          text: item.answer,
+        },
+      })),
+    });
+  }
+
+  return structuredData;
+}
+
 async function loadCatalogWebsite(
   selector:
     | { slug: string }
@@ -1301,11 +1872,13 @@ async function listCatalogProducts(userId: string, options?: { includeInactive?:
         name: true,
         description: true,
         descriptionHtml: true,
+        shortDescriptionHtml: true,
         excerpt: true,
         metaTitle: true,
         metaDescription: true,
         coverImageUrl: true,
         gallery: true,
+        faqItems: true,
         quoteFormSchema: true,
         optionConfig: true,
         variantStock: true,
@@ -1316,6 +1889,7 @@ async function listCatalogProducts(userId: string, options?: { includeInactive?:
         priceTTCCents: true,
         vatRate: true,
         defaultDiscountRate: true,
+        defaultDiscountAmountCents: true,
       sku: true,
       publicSlug: true,
       saleMode: true,
@@ -1325,76 +1899,76 @@ async function listCatalogProducts(userId: string, options?: { includeInactive?:
   return products as CatalogProduct[];
 }
 
-function catalogDataCacheKey(website: WebsiteConfig) {
-  return [
-    "catalog-data",
-    website.id,
-    website.updatedAt?.toISOString() ?? "0",
-    website.showInactiveProducts ? "with-inactive" : "active",
-  ];
-}
+const readCatalogProductsCached = cache(
+  async (userId: string, includeInactive: boolean) =>
+    listCatalogProducts(userId, { includeInactive }),
+);
 
-function getCatalogDataForWebsite(website: WebsiteConfig) {
-  const cached = unstable_cache(
-    async () => {
-      const [settings, products] = await Promise.all([
-        getSettings(website.userId),
-        listCatalogProducts(website.userId, {
-          includeInactive: website.showInactiveProducts,
-        }),
-      ]);
-      const ecommerceSettings = resolveEcommerceSettingsFromWebsite(website, {
-        includeSecrets: true,
-      });
-      const featured = pickFeaturedProducts(
-        products,
-        ecommerceSettings.featuredProductIds,
-      );
-      return {
-        settings,
-        products,
-        featured,
-      };
-    },
-    catalogDataCacheKey(website),
-    {
-      revalidate: CATALOG_PAYLOAD_REVALIDATE_SECONDS,
-    },
+async function getCatalogDataForWebsite(website: WebsiteConfig) {
+  const [settings, products] = await Promise.all([
+    getSettings(website.userId),
+    readCatalogProductsCached(website.userId, website.showInactiveProducts),
+  ]);
+  const ecommerceSettings = resolveEcommerceSettingsFromWebsite(website, {
+    includeSecrets: true,
+  });
+  const featured = pickFeaturedProducts(
+    products,
+    ecommerceSettings.featuredProductIds,
   );
-  return cached();
+  return {
+    settings,
+    products,
+    featured,
+  };
 }
 
-function catalogPayloadCacheKey(website: WebsiteConfig, path: string) {
-  return [
-    "catalog-payload",
-    website.id,
-    website.updatedAt?.toISOString() ?? "0",
-    website.showInactiveProducts ? "with-inactive" : "active",
-    path,
-  ];
+async function listCatalogWebsiteCmsPageLinks(websiteId: string) {
+  const pages = await prisma.websiteCmsPage.findMany({
+    where: {
+      websiteId,
+    },
+    orderBy: [
+      { createdAt: "asc" },
+      { id: "asc" },
+    ],
+    select: websiteCmsPageLinkSelect,
+  });
+  return pages.map((page) => serializeCatalogWebsiteCmsPageLink(page));
 }
 
-function getCatalogPayloadForWebsite(
-  website: WebsiteConfig,
-  options?: { path?: string | null },
+async function getCurrentCatalogWebsiteCmsPage(
+  websiteId: string,
+  path?: string | null,
 ) {
-  const normalizedPath = normalizeCatalogPath(options?.path);
-  const cached = unstable_cache(
-    async () =>
-      buildCatalogPayloadFromWebsite(website, { path: normalizedPath }),
-    catalogPayloadCacheKey(website, normalizedPath),
-    {
-      revalidate: CATALOG_PAYLOAD_REVALIDATE_SECONDS,
+  const normalizedPath = normalizeWebsiteCmsPagePath(path);
+  if (!normalizedPath) {
+    return null;
+  }
+
+  const page = await prisma.websiteCmsPage.findUnique({
+    where: {
+      websiteId_path: {
+        websiteId,
+        path: normalizedPath,
+      },
     },
-  );
-  return cached();
+    select: websiteCmsPageContentSelect,
+  });
+
+  return page ? serializeCatalogWebsiteCmsPage(page) : null;
 }
 
 async function buildCatalogPayloadFromWebsite(
   website: WebsiteConfig,
   options?: { path?: string | null },
 ) {
-  const { settings, products, featured } = await getCatalogDataForWebsite(website);
+  const [{ settings, products, featured }, cmsPages, currentCmsPage] =
+    await Promise.all([
+      getCatalogDataForWebsite(website),
+      listCatalogWebsiteCmsPageLinks(website.id),
+      getCurrentCatalogWebsiteCmsPage(website.id, options?.path),
+    ]);
   const currencyCode = resolveCatalogCurrencyCode(
     website,
     settings.defaultCurrency,
@@ -1439,6 +2013,7 @@ async function buildCatalogPayloadFromWebsite(
         logoUrl: settings.logoUrl,
         logoData: settings.logoData,
       },
+      cmsPages,
       metadata,
       builder: builderConfig,
     },
@@ -1446,24 +2021,52 @@ async function buildCatalogPayloadFromWebsite(
       featured,
       all: products,
     },
+    currentCmsPage,
   } satisfies CatalogPayload;
 }
+
+// Full catalogue payloads can exceed Next.js's 2 MB data-cache limit.
+// Keep payload assembly request-scoped while reusing the cached subqueries below.
+const getCatalogPayloadBySlugCached = cache(
+  async (
+    slug: string,
+    preview: boolean,
+    normalizedPath: string,
+  ): Promise<CatalogPayload | null> => {
+    const website = await loadCatalogWebsite(
+      { slug },
+      { allowUnpublished: preview },
+    );
+    if (!website) {
+      return null;
+    }
+    return buildCatalogPayloadFromWebsite(website, { path: normalizedPath });
+  },
+);
+
+const getCatalogPayloadByDomainCached = cache(
+  async (
+    domain: string,
+    normalizedPath: string,
+  ): Promise<CatalogPayload | null> => {
+    const website = await loadCatalogWebsite({ domain });
+    if (!website) {
+      return null;
+    }
+    return buildCatalogPayloadFromWebsite(website, { path: normalizedPath });
+  },
+);
 
 export async function getCatalogPayloadBySlug(
   slug: string,
   options?: { preview?: boolean; path?: string | null },
 ) {
-  const website = await loadCatalogWebsite(
-    { slug },
-    { allowUnpublished: options?.preview },
+  const normalizedPath = normalizeCatalogPath(options?.path);
+  return getCatalogPayloadBySlugCached(
+    slug,
+    options?.preview === true,
+    normalizedPath,
   );
-  if (!website) {
-    return null;
-  }
-  if (options?.preview) {
-    return buildCatalogPayloadFromWebsite(website, { path: options?.path });
-  }
-  return getCatalogPayloadForWebsite(website, { path: options?.path });
 }
 
 export async function getCatalogPayloadByDomain(domain: string, path?: string | null) {
@@ -1471,11 +2074,10 @@ export async function getCatalogPayloadByDomain(domain: string, path?: string | 
   if (!normalized) {
     return null;
   }
-  const website = await loadCatalogWebsite({ domain: normalized });
-  if (!website) {
-    return null;
-  }
-  return getCatalogPayloadForWebsite(website, { path });
+  return getCatalogPayloadByDomainCached(
+    normalized,
+    normalizeCatalogPath(path),
+  );
 }
 
 export async function resolveCatalogWebsite(input: {
@@ -1972,10 +2574,12 @@ export async function getWebsiteAdminPayload(userId?: string) {
       const builderConfig = resolveBuilderConfigFromWebsite(website);
       const builderHistory = resolveBuilderHistoryFromWebsite(website);
       const ecommerceSettings = resolveEcommerceSettingsFromWebsite(website);
+      const cmsPages = await listWebsiteCmsPages(resolvedUserId);
       return {
         website: {
           ...website,
           ecommerceSettings,
+          cmsPages,
         },
         company: settings,
         links: {

@@ -1,4 +1,5 @@
 import clsx from "clsx";
+import { useCisecoI18n } from "../../i18n";
 
 type FilterOption = {
   id: string;
@@ -52,6 +53,7 @@ export function FiltersSidebar({
   className,
   categoryOptions,
 }: FiltersSidebarProps) {
+  const { t } = useCisecoI18n();
   const categories =
     categoryOptions && categoryOptions.length > 0
       ? categoryOptions
@@ -59,7 +61,7 @@ export function FiltersSidebar({
   return (
     <aside className={clsx("space-y-6 text-sm text-slate-600", className)}>
       <div className="space-y-4 border-b border-black/5 pb-6">
-        <h3 className="text-sm font-semibold text-slate-900">Categories</h3>
+        <h3 className="text-sm font-semibold text-slate-900">{t("Categories")}</h3>
         <div className="space-y-3">
           {categories.map((option) => (
             <label key={option.id} className="flex items-center gap-2 text-xs">
@@ -68,13 +70,13 @@ export function FiltersSidebar({
                 defaultChecked={option.checked}
                 className="h-4 w-4 rounded border border-black/10 accent-slate-900"
               />
-              <span className="text-slate-700">{option.label}</span>
+              <span className="text-slate-700">{t(option.label)}</span>
             </label>
           ))}
         </div>
       </div>
       <div className="space-y-4 border-b border-black/5 pb-6">
-        <h3 className="text-sm font-semibold text-slate-900">Colors</h3>
+        <h3 className="text-sm font-semibold text-slate-900">{t("Colors")}</h3>
         <div className="space-y-3">
           {COLOR_OPTIONS.map((option) => (
             <label key={option.id} className="flex items-center gap-2 text-xs">
@@ -87,13 +89,13 @@ export function FiltersSidebar({
                 className="h-2.5 w-2.5 rounded-full ring-1 ring-black/10"
                 style={{ backgroundColor: option.swatch }}
               />
-              <span className="text-slate-700">{option.label}</span>
+              <span className="text-slate-700">{t(option.label)}</span>
             </label>
           ))}
         </div>
       </div>
       <div className="space-y-4 border-b border-black/5 pb-6">
-        <h3 className="text-sm font-semibold text-slate-900">Sizes</h3>
+        <h3 className="text-sm font-semibold text-slate-900">{t("Sizes")}</h3>
         <div className="space-y-3">
           {SIZE_OPTIONS.map((option) => (
             <label key={option.id} className="flex items-center gap-2 text-xs">
@@ -108,7 +110,7 @@ export function FiltersSidebar({
         </div>
       </div>
       <div className="space-y-4 border-b border-black/5 pb-6">
-        <h3 className="text-sm font-semibold text-slate-900">Price</h3>
+        <h3 className="text-sm font-semibold text-slate-900">{t("Price")}</h3>
         <div className="space-y-3">
           <input
             type="range"
@@ -116,11 +118,11 @@ export function FiltersSidebar({
             max="1000"
             defaultValue="350"
             className="h-1 w-full accent-slate-900"
-            aria-label="Price range"
+            aria-label={t("Price range")}
           />
           <div className="grid grid-cols-2 gap-3">
             <label className="grid gap-1 text-xs">
-              <span className="text-[11px] text-slate-500">Min price</span>
+              <span className="text-[11px] text-slate-500">{t("Min price")}</span>
               <input
                 type="text"
                 defaultValue="$0"
@@ -128,7 +130,7 @@ export function FiltersSidebar({
               />
             </label>
             <label className="grid gap-1 text-xs">
-              <span className="text-[11px] text-slate-500">Max price</span>
+              <span className="text-[11px] text-slate-500">{t("Max price")}</span>
               <input
                 type="text"
                 defaultValue="$1000"
@@ -139,7 +141,7 @@ export function FiltersSidebar({
         </div>
       </div>
       <div className="space-y-4">
-        <h3 className="text-sm font-semibold text-slate-900">Sort by</h3>
+        <h3 className="text-sm font-semibold text-slate-900">{t("Sort by")}</h3>
         <div className="space-y-3">
           {SORT_OPTIONS.map((option) => (
             <label key={option.id} className="flex items-center gap-2 text-xs">
@@ -155,7 +157,7 @@ export function FiltersSidebar({
                   option.checked && "font-semibold text-slate-900",
                 )}
               >
-                {option.label}
+                {t(option.label)}
               </span>
             </label>
           ))}

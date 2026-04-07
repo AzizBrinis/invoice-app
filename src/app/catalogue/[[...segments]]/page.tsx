@@ -1,14 +1,22 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
+import { getCatalogViewerForTenant } from "@/lib/client-auth";
 import { CatalogPage } from "@/components/website/catalog-page";
+import {
+  CISECO_LOCALE_COOKIE_NAME,
+  resolveCisecoLocale,
+} from "@/components/website/templates/ecommerce-ciseco/locale";
 import {
   getCatalogPayloadByDomain,
   getCatalogPayloadBySlug,
   normalizeCatalogDomainInput,
   normalizeCatalogPathInput,
   normalizeCatalogSlugInput,
+  resolveCatalogWebsite,
   resolveCatalogMetadata,
   resolveCatalogMetadataTarget,
+  resolveCatalogStructuredData,
   type CatalogPayload,
 } from "@/server/website";
 
@@ -21,6 +29,10 @@ type CataloguePageProps = {
 
 export const revalidate = 30;
 export const dynamicParams = true;
+
+function serializeStructuredData(value: Record<string, unknown>) {
+  return JSON.stringify(value).replace(/</g, "\\u003c");
+}
 
 function stripSlugPrefix(path: string | null, slug: string) {
   if (!path) return null;
@@ -134,11 +146,46 @@ export default async function CatalogueCatchAllPage({
   if (!resolved.payload) {
     notFound();
   }
+  const resolvedSearchParams = (await searchParams) ?? {};
+  const cookieStore = await cookies();
+  const langParamRaw = resolvedSearchParams.lang;
+  const langParam = Array.isArray(langParamRaw) ? langParamRaw[0] : langParamRaw;
+  const persistedLocale = cookieStore.get(CISECO_LOCALE_COOKIE_NAME)?.value;
+  const website = await resolveCatalogWebsite({
+    slug: resolved.payload.website.slug,
+    preview: false,
+  });
+  const viewer = website
+    ? await getCatalogViewerForTenant(website.userId)
+    : {
+        authStatus: "unauthenticated" as const,
+        profile: null,
+      };
+  const structuredData = resolveCatalogStructuredData({
+    payload: resolved.payload as CatalogPayload,
+    path: resolved.path,
+  });
+  const payload = {
+    ...(resolved.payload as CatalogPayload),
+    viewer,
+  } satisfies CatalogPayload;
   return (
-    <CatalogPage
-      data={resolved.payload as CatalogPayload}
-      mode="public"
-      path={resolved.path}
-    />
+    <>
+      {structuredData.map((entry, index) => (
+        <script
+          key={`catalog-jsonld-${index + 1}`}
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: serializeStructuredData(entry),
+          }}
+        />
+      ))}
+      <CatalogPage
+        data={payload}
+        mode="public"
+        path={resolved.path}
+        initialLocale={resolveCisecoLocale(langParam, persistedLocale)}
+      />
+    </>
   );
 }

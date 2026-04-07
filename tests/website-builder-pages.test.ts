@@ -2,8 +2,25 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { WebsiteDomainStatus, WebsiteThemeMode } from "@prisma/client";
 import { describe, expect, it, vi } from "vitest";
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    prefetch: vi.fn(),
+  }),
+  usePathname: () => "/",
+  useSearchParams: () => new URLSearchParams(),
+}));
+vi.mock("@/components/website/templates/ecommerce-ciseco/i18n", () => ({
+  CisecoLocaleProvider: ({ children }: { children: unknown }) => children,
+  useCisecoI18n: () => ({
+    locale: "fr",
+    setLocale: () => undefined,
+    t: (text: string) => text,
+    localizeHref: (href: string) => href,
+  }),
+}));
 import { CatalogPage } from "@/components/website/catalog-page";
-import { BlogPage } from "@/components/website/templates/ecommerce-ciseco/pages/BlogPage";
 import { type CatalogPayload } from "@/server/website";
 import {
   builderConfigSchema,
@@ -16,14 +33,6 @@ import {
   resolveCisecoSectionTemplate,
   sanitizeBuilderPages,
 } from "@/lib/website/builder";
-
-const TEST_THEME = {
-  accent: "#22c55e",
-  containerClass: "max-w-[1240px]",
-  sectionSpacing: "py-7 sm:py-9 lg:py-11",
-  corner: "rounded-[30px]",
-  buttonShape: "rounded-full",
-} as const;
 
 function createCisecoConfig() {
   return ensureCisecoPageConfigs(
@@ -110,6 +119,7 @@ function createCisecoCatalogPayload(
         logoUrl: null,
         logoData: null,
       },
+      cmsPages: [],
       metadata: {
         title: "Demo",
         description: "Demo description",
@@ -123,6 +133,7 @@ function createCisecoCatalogPayload(
       featured: [],
       all: [],
     },
+    currentCmsPage: null,
   };
 }
 
@@ -362,6 +373,12 @@ describe("website builder page persistence", () => {
         "ciseco-home-blog",
       ]),
     );
+
+    const heroSection = homeSections.find((section) => section.id === "ciseco-home-hero");
+    expect(heroSection?.settings?.sliderMode).toBe("image");
+    expect(heroSection?.settings?.autoSlideIntervalMs).toBe(5500);
+    expect(heroSection?.items.length).toBeGreaterThan(0);
+    expect(heroSection?.items[0]?.buttons?.length).toBeGreaterThan(0);
   });
 
   it("migrates legacy ciseco home defaults to the simplified visible set", () => {
@@ -371,7 +388,7 @@ describe("website builder page persistence", () => {
       .filter((section) => section.visible !== false)
       .map((section) => section.id);
 
-    expect(config.version).toBe(2);
+    expect(config.version).toBe(5);
     expect(visibleHomeIds).toEqual([
       "ciseco-home-hero",
       "ciseco-home-best-sellers",
@@ -389,6 +406,10 @@ describe("website builder page persistence", () => {
     expect(
       homeSections.find((section) => section.id === "ciseco-home-featured-products")?.title,
     ).toBe("Shopping essentials");
+    const heroSection = homeSections.find((section) => section.id === "ciseco-home-hero");
+    expect(heroSection?.settings?.sliderMode).toBe("image");
+    expect(heroSection?.settings?.autoSlideIntervalMs).toBe(5500);
+    expect(heroSection?.items.length).toBeGreaterThan(0);
   });
 
   it("preserves hidden home sections after normalization", () => {
@@ -496,7 +517,7 @@ describe("website builder page persistence", () => {
       },
     });
 
-    expect(config.version).toBe(3);
+    expect(config.version).toBe(5);
     expect(config.pages.blog?.sections.map((section) => section.id)).toEqual([
       "ciseco-blog-hero",
       "ciseco-blog-featured",
@@ -568,6 +589,208 @@ describe("website builder page persistence", () => {
     expect(resolvedContact?.sections[0]?.id).not.toBe("ciseco-home-hero");
   });
 
+  it("does not render fallback hero copy or CTA placeholders when content is cleared", () => {
+    const config = createCisecoConfig();
+    config.pages.home.sections = config.pages.home.sections.map((section) =>
+      section.id === "ciseco-home-hero"
+        ? {
+            ...section,
+            eyebrow: "",
+            title: "Custom hero title",
+            subtitle: "",
+            description: "",
+            buttons: [],
+            items: [
+              {
+                id: "custom-empty-slide",
+                title: "",
+                description: "",
+                badge: "",
+                tag: "",
+                mediaId: null,
+                buttons: [],
+                stats: [],
+              },
+            ],
+          }
+        : section,
+    );
+
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const html = (() => {
+      try {
+        return renderToStaticMarkup(
+          createElement(CatalogPage, {
+            data: createCisecoCatalogPayload(config),
+            mode: "preview",
+            path: "/",
+          }),
+        );
+      } finally {
+        consoleErrorSpy.mockRestore();
+      }
+    })();
+
+    expect(html).toContain("Custom hero title");
+    expect(html).not.toContain("Collection signature");
+    expect(html).not.toContain(
+      "Use full-size imagery when you want a stronger first impression",
+    );
+    expect(html).not.toContain("Browse collections");
+    expect(html).not.toContain("Highlight a campaign");
+  });
+
+  it("keeps inactive home hero slides out of layout flow and restores image ghost links", () => {
+    const config = createCisecoConfig();
+
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const html = (() => {
+      try {
+        return renderToStaticMarkup(
+          createElement(CatalogPage, {
+            data: createCisecoCatalogPayload(config),
+            mode: "preview",
+            path: "/",
+          }),
+        );
+      } finally {
+        consoleErrorSpy.mockRestore();
+      }
+    })();
+
+    expect(html).toContain("absolute inset-0 z-0");
+    expect(html).toContain("underline decoration-white/30");
+  });
+
+  it("renders content-mode hero ghost buttons as underlined text links with per-slide backgrounds", () => {
+    const config = createCisecoConfig();
+    config.pages.home.sections = config.pages.home.sections.map((section) =>
+      section.id === "ciseco-home-hero"
+        ? {
+            ...section,
+            settings: {
+              ...section.settings,
+              sliderMode: "content",
+              contentBackground: "linen",
+            },
+            buttons: [
+              {
+                id: "hero-ghost-link",
+                label: "Discover more",
+                href: "/contact",
+                style: "ghost",
+              },
+            ],
+            items: [
+              {
+                id: "hero-secondary-slide",
+                title: "Secondary slide",
+                description: "Another tone for the same content slider.",
+                badge: "Editorial",
+                tag: "",
+                contentBackground: "navy",
+                buttons: [
+                  {
+                    id: "hero-secondary-slide-btn-1",
+                    label: "Dark slide CTA",
+                    href: "/collections",
+                    style: "secondary",
+                  },
+                  {
+                    id: "hero-secondary-slide-btn-2",
+                    label: "Dark slide link",
+                    href: "/contact",
+                    style: "ghost",
+                  },
+                ],
+                stats: [],
+              },
+            ],
+          }
+        : section,
+    );
+
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const html = (() => {
+      try {
+        return renderToStaticMarkup(
+          createElement(CatalogPage, {
+            data: createCisecoCatalogPayload(config),
+            mode: "preview",
+            path: "/",
+          }),
+        );
+      } finally {
+        consoleErrorSpy.mockRestore();
+      }
+    })();
+
+    expect(html).toContain("underline decoration-slate-300");
+    expect(html).not.toContain("border-white/16 bg-white/10 text-white/88");
+    expect(html).toContain(
+      "bg-[linear-gradient(135deg,#fffdf8_0%,#faf6ee_56%,#f2ecdf_100%)]",
+    );
+    expect(html).toContain(
+      "bg-[linear-gradient(135deg,#0f172a_0%,#172036_56%,#243250_100%)]",
+    );
+    expect(html).toContain("text-white/82");
+    expect(html).toContain("border border-white/24 bg-white/10 text-white");
+    expect(html).toContain("text-white/88 underline decoration-white/30");
+  });
+
+  it("migrates legacy global content backgrounds onto each home hero slide", () => {
+    const config = createCisecoConfig();
+    const heroSection = config.pages.home.sections.find(
+      (section) => section.id === "ciseco-home-hero",
+    );
+
+    expect(heroSection).toBeTruthy();
+
+    const legacyConfig = {
+      ...config,
+      version: 4,
+      pages: {
+        ...config.pages,
+        home: {
+          ...config.pages.home,
+          sections: config.pages.home.sections.map((section) =>
+            section.id === "ciseco-home-hero"
+              ? {
+                  ...section,
+                  settings: {
+                    ...section.settings,
+                    sliderMode: "content" as const,
+                    contentBackground: "sage" as const,
+                  },
+                  items: (section.items ?? []).map((item) => ({
+                    ...item,
+                    contentBackground: undefined,
+                  })),
+                }
+              : section,
+          ),
+        },
+      },
+    };
+
+    const resolved = ensureCisecoPageConfigs(legacyConfig);
+    const resolvedHero = resolved.pages.home.sections.find(
+      (section) => section.id === "ciseco-home-hero",
+    );
+
+    expect(resolved.version).toBe(5);
+    expect(resolvedHero?.settings?.contentBackground).toBe("sage");
+    expect(
+      resolvedHero?.items.every((item) => item.contentBackground === "sage"),
+    ).toBe(true);
+  });
+
   it("renders an added optional contact preset through the catalog page pipeline", () => {
     const config = createCisecoConfig();
     const promo = createCisecoSectionFromTemplate(
@@ -633,24 +856,23 @@ describe("website builder page persistence", () => {
   });
 
   it("does not render removed blog sections when a builder config is present", () => {
+    const config = createCisecoConfig();
+    config.pages.blog = createLegacyHeroOnlyPage(
+      "ciseco-blog-hero",
+      "Journal",
+      "Only the hero should remain",
+    );
+
     const consoleErrorSpy = vi
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
     const html = (() => {
       try {
         return renderToStaticMarkup(
-          createElement(BlogPage, {
-            theme: TEST_THEME,
-            inlineStyles: {},
-            companyName: "Demo",
-            homeHref: "/",
-            baseLink: (target: string) => target,
+          createElement(CatalogPage, {
+            data: createCisecoCatalogPayload(config),
+            mode: "preview",
             path: "/blog",
-            builder: createLegacyHeroOnlyPage(
-              "ciseco-blog-hero",
-              "Journal",
-              "Only the hero should remain",
-            ),
           }),
         );
       } finally {

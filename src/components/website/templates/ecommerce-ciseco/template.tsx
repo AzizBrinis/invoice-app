@@ -9,6 +9,7 @@ import { ContactPage } from "./pages/ContactPage";
 import { HomePage } from "./pages/HomePage";
 import { BlogPage } from "./pages/BlogPage";
 import { BlogDetailPage } from "./pages/BlogDetailPage";
+import { CmsPage } from "./pages/CmsPage";
 import { SearchPage } from "./pages/SearchPage";
 import { CollectionsPage } from "./pages/CollectionsPage";
 import { CartPage } from "./pages/CartPage";
@@ -24,6 +25,13 @@ import { OrdersHistoryPage } from "./pages/OrdersHistoryPage";
 import { OrderDetailPage } from "./pages/OrderDetailPage";
 import { SignupPage } from "./pages/SignupPage";
 import { resolveCisecoPageConfig } from "./builder-helpers";
+import { CisecoLocaleProvider } from "./i18n";
+import { AccountProfileProvider } from "./hooks/useAccountProfile";
+import { CisecoCmsPagesProvider } from "./cms-context";
+import {
+  CisecoNavigationProvider,
+  useCisecoLocation,
+} from "./navigation";
 import {
   buildHomeProducts,
   normalizePath,
@@ -31,11 +39,17 @@ import {
   toCartProduct,
   withAlpha,
 } from "./utils";
+import {
+  appendCisecoLocaleToHref,
+  DEFAULT_CISECO_LOCALE,
+  type CisecoLocale,
+} from "./locale";
 
 type TemplateProps = {
   data: CatalogPayload;
   mode: "public" | "preview";
   path?: string | null;
+  initialLocale?: CisecoLocale;
 };
 
 type TemplateStyleVars = CSSProperties & {
@@ -45,12 +59,15 @@ type TemplateStyleVars = CSSProperties & {
   "--ciseco-bg": string;
   "--ciseco-hero": string;
   "--ciseco-ink": string;
+  "--ciseco-font-body": string;
+  "--ciseco-font-display": string;
 };
 
 export function EcommerceCisecoHomeTemplate({
   data,
   mode,
   path,
+  initialLocale,
 }: TemplateProps) {
   const accent = data.website.accentColor ?? "#22c55e";
   const theme: ThemeTokens = {
@@ -67,16 +84,22 @@ export function EcommerceCisecoHomeTemplate({
     "--ciseco-bg": "#f5f6f7",
     "--ciseco-hero": "#d5ecd1",
     "--ciseco-ink": "#0f172a",
-    fontFamily: 'var(--font-geist-sans), "Sora", "DM Sans", sans-serif',
+    "--ciseco-font-body":
+      '"Avenir Next","Segoe UI","Helvetica Neue",var(--font-geist-sans),sans-serif',
+    "--ciseco-font-display":
+      '"Avenir Next","Helvetica Neue","Segoe UI",var(--font-geist-sans),sans-serif',
+    fontFamily: "var(--ciseco-font-body)",
   };
   const companyName = data.website.contact?.companyName || "Your Brand";
-  const page = resolvePage(path);
-  const pageBuilder = resolveCisecoPageConfig(data.website.builder, page.page);
-  const baseLink = (target: string) =>
+  const locale = initialLocale ?? DEFAULT_CISECO_LOCALE;
+  const rawBaseLink = (target: string) =>
     mode === "preview"
       ? `/preview?path=${encodeURIComponent(normalizePath(target))}`
       : `/catalogue/${data.website.slug}${normalizePath(target)}`;
+  const baseLink = (target: string) =>
+    appendCisecoLocaleToHref(rawBaseLink(target), locale);
   const homeHref = baseLink("/");
+  const initialHref = baseLink(path ?? "/");
   const cartStorageKey = `catalog-cart:${data.website.id}`;
   const productSource = useMemo(
     () => (Array.isArray(data.products?.all) ? data.products.all : []),
@@ -90,8 +113,71 @@ export function EcommerceCisecoHomeTemplate({
       }).map(toCartProduct),
     [productSource, data.website.showPrices],
   );
+  const cmsPaths = useMemo(
+    () => data.website.cmsPages.map((entry) => entry.path),
+    [data.website.cmsPages],
+  );
 
-  const content = (() => {
+  return (
+    <CisecoNavigationProvider
+      mode={mode}
+      slug={data.website.slug}
+      initialHref={initialHref}
+      initialPath={path}
+      serverRoutedPaths={cmsPaths}
+    >
+      <CisecoLocaleProvider initialLocale={locale}>
+        <CisecoCmsPagesProvider links={data.website.cmsPages}>
+          <CartProvider storageKey={cartStorageKey} catalog={cartCatalog}>
+            <AccountProfileProvider initialViewer={data.viewer}>
+              <TemplateContent
+                data={data}
+                mode={mode}
+                inlineStyles={inlineStyles}
+                theme={theme}
+                companyName={companyName}
+                homeHref={homeHref}
+                baseLink={baseLink}
+                path={path}
+                cmsPaths={cmsPaths}
+              />
+            </AccountProfileProvider>
+          </CartProvider>
+        </CisecoCmsPagesProvider>
+      </CisecoLocaleProvider>
+    </CisecoNavigationProvider>
+  );
+}
+
+type TemplateContentProps = {
+  data: CatalogPayload;
+  mode: "public" | "preview";
+  inlineStyles: TemplateStyleVars;
+  theme: ThemeTokens;
+  companyName: string;
+  homeHref: string;
+  baseLink: (target: string) => string;
+  path?: string | null;
+  cmsPaths: string[];
+};
+
+function TemplateContent({
+  data,
+  mode,
+  inlineStyles,
+  theme,
+  companyName,
+  homeHref,
+  baseLink,
+  path,
+  cmsPaths,
+}: TemplateContentProps) {
+  const { logicalPath } = useCisecoLocation();
+  const currentPath = logicalPath || path || "/";
+  const page = resolvePage(currentPath, { cmsPaths });
+  const pageBuilder = resolveCisecoPageConfig(data.website.builder, page.page);
+
+  return (() => {
     if (page.page === "product") {
       return (
         <ProductPage
@@ -99,6 +185,7 @@ export function EcommerceCisecoHomeTemplate({
           inlineStyles={inlineStyles}
           companyName={companyName}
           homeHref={homeHref}
+          catalogSlug={data.website.slug}
           baseLink={baseLink}
           products={data.products}
           showPrices={data.website.showPrices}
@@ -128,7 +215,7 @@ export function EcommerceCisecoHomeTemplate({
           baseLink={baseLink}
           slug={data.website.slug}
           mode={mode}
-          path={path}
+          path={currentPath}
           showPrices={data.website.showPrices}
           ecommerceSettings={data.website.ecommerceSettings}
           builder={pageBuilder}
@@ -142,6 +229,9 @@ export function EcommerceCisecoHomeTemplate({
           inlineStyles={inlineStyles}
           companyName={companyName}
           homeHref={homeHref}
+          slug={data.website.slug}
+          mode={mode}
+          ecommerceSettings={data.website.ecommerceSettings}
           builder={pageBuilder}
         />
       );
@@ -156,7 +246,7 @@ export function EcommerceCisecoHomeTemplate({
           baseLink={baseLink}
           mode={mode}
           slug={data.website.slug}
-          path={path}
+          path={currentPath}
           signupSettings={data.website.ecommerceSettings.signup}
           builder={pageBuilder}
         />
@@ -172,7 +262,7 @@ export function EcommerceCisecoHomeTemplate({
           baseLink={baseLink}
           mode={mode}
           slug={data.website.slug}
-          path={path}
+          path={currentPath}
           signupSettings={data.website.ecommerceSettings.signup}
           builder={pageBuilder}
         />
@@ -217,6 +307,8 @@ export function EcommerceCisecoHomeTemplate({
           inlineStyles={inlineStyles}
           companyName={companyName}
           homeHref={homeHref}
+          catalogSlug={data.website.slug}
+          loginHref={baseLink("/login")}
           showPrices={data.website.showPrices}
           builder={pageBuilder}
         />
@@ -266,7 +358,7 @@ export function EcommerceCisecoHomeTemplate({
           companyName={companyName}
           homeHref={homeHref}
           baseLink={baseLink}
-          path={path}
+          path={currentPath}
           builder={pageBuilder}
         />
       );
@@ -290,6 +382,9 @@ export function EcommerceCisecoHomeTemplate({
           inlineStyles={inlineStyles}
           companyName={companyName}
           homeHref={homeHref}
+          baseLink={baseLink}
+          products={data.products}
+          showPrices={data.website.showPrices}
           builder={pageBuilder}
         />
       );
@@ -317,9 +412,20 @@ export function EcommerceCisecoHomeTemplate({
           socialLinks={data.website.socialLinks}
           slug={data.website.slug}
           mode={mode}
-          path={path}
+          path={currentPath}
           spamProtectionEnabled={data.website.spamProtectionEnabled}
           builder={pageBuilder}
+        />
+      );
+    }
+    if (page.page === "cms" && data.currentCmsPage) {
+      return (
+        <CmsPage
+          theme={theme}
+          inlineStyles={inlineStyles}
+          companyName={companyName}
+          homeHref={homeHref}
+          page={data.currentCmsPage}
         />
       );
     }
@@ -330,6 +436,7 @@ export function EcommerceCisecoHomeTemplate({
         inlineStyles={inlineStyles}
         companyName={companyName}
         homeHref={homeHref}
+        catalogSlug={data.website.slug}
         baseLink={baseLink}
         products={data.products}
         showPrices={data.website.showPrices}
@@ -337,10 +444,4 @@ export function EcommerceCisecoHomeTemplate({
       />
     );
   })();
-
-  return (
-    <CartProvider storageKey={cartStorageKey} catalog={cartCatalog}>
-      {content}
-    </CartProvider>
-  );
 }

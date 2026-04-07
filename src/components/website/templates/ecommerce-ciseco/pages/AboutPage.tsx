@@ -304,6 +304,7 @@ export function AboutPage({
             <PromoBlock
               theme={theme}
               companyName={companyName}
+              homeHref={homeHref}
               title={promoTitle}
               description={promoDescription}
               buttons={promoButtons}
@@ -324,7 +325,7 @@ export function AboutPage({
           />
         ) : null}
       </main>
-      <Footer theme={theme} companyName={companyName} />
+      <Footer theme={theme} companyName={companyName} homeHref={homeHref} />
     </PageShell>
   );
 }

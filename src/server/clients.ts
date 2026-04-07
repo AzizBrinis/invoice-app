@@ -454,6 +454,7 @@ export type ClientContactInput = {
   phone?: string | null;
   company?: string | null;
   address?: string | null;
+  vatNumber?: string | null;
   clientId?: string | null;
 };
 
@@ -501,6 +502,7 @@ export async function resolveClientForContact(
       address: input.address ?? null,
       email: normalizedEmail,
       phone: input.phone ?? null,
+      vatNumber: input.vatNumber ?? null,
       notes: options.notes ?? null,
       isActive: true,
       source: options.source ?? ClientSource.MANUAL,

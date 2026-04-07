@@ -1,7 +1,11 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
+import {
+  createClientSession,
+  getCatalogClientProfileById,
+} from "@/lib/client-auth";
 import { getAppHostnames } from "@/lib/env";
-import { createClientSession } from "@/lib/client-auth";
+import { createCisecoRequestTranslator } from "@/lib/website/ciseco-request-locale";
 import { authenticateWebsiteLogin } from "@/server/website-login";
 
 const APP_HOSTS = new Set(getAppHostnames().map((host) => host.toLowerCase()));
@@ -52,6 +56,7 @@ function formDataToObject(formData: FormData) {
 }
 
 export async function POST(request: NextRequest) {
+  const { t } = createCisecoRequestTranslator(request);
   try {
     const contentType = request.headers.get("content-type") ?? "";
     let payload: Record<string, unknown>;
@@ -85,17 +90,23 @@ export async function POST(request: NextRequest) {
           : "public",
     });
 
+    let profile = null;
     if (result.clientId && result.status !== "preview-only") {
       await createClientSession(result.clientId);
+      profile = await getCatalogClientProfileById(result.clientId);
     }
 
     const { clientId: _clientId, ...responsePayload } = result;
     void _clientId;
 
-    return NextResponse.json(responsePayload);
+    return NextResponse.json({
+      ...responsePayload,
+      profile,
+      message: responsePayload.message ? t(responsePayload.message) : undefined,
+    });
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "Unable to sign in.";
+      error instanceof Error ? t(error.message) : t("Unable to sign in.");
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }

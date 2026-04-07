@@ -49,6 +49,7 @@ model User {
   messagingMailboxLocalSyncStates MessagingMailboxLocalSyncState[]
   messagingLocalMessages     MessagingLocalMessage[]
   websiteConfig              WebsiteConfig?
+  websiteCmsPages            WebsiteCmsPage[]
   contactMessages            ContactMessage[]
   aiConversations            AIConversation[]
   aiMessages                 AIMessage[]
@@ -257,7 +258,26 @@ model WebsiteConfig {
   previewPath            String              @default("catalogue")
   createdAt              DateTime            @default(now())
   updatedAt              DateTime            @updatedAt
+  cmsPages               WebsiteCmsPage[]
   contactMessages        ContactMessage[]
+}
+
+model WebsiteCmsPage {
+  id           String        @id @default(cuid())
+  userId       String
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  websiteId    String
+  website      WebsiteConfig @relation(fields: [websiteId], references: [id], onDelete: Cascade)
+  title        String
+  path         String
+  content      String
+  showInFooter Boolean       @default(false)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@unique([websiteId, path])
+  @@index([userId, createdAt])
+  @@index([websiteId, createdAt])
 }
 
 model ContactMessage {
@@ -916,11 +936,13 @@ model Product {
   saleMode            ProductSaleMode @default(INSTANT)
   description         String?
   descriptionHtml     String?
+  shortDescriptionHtml String?
   excerpt             String?
   metaTitle           String?
   metaDescription     String?
   coverImageUrl       String?
   gallery             Json?
+  faqItems            Json?
   quoteFormSchema     Json?
   optionConfig        Json?
   variantStock        Json?
@@ -931,6 +953,7 @@ model Product {
   priceTTCCents       Int
   vatRate             Float
   defaultDiscountRate Float?
+  defaultDiscountAmountCents Int?
   isActive            Boolean         @default(true)
   isListedInCatalog   Boolean         @default(true)
   createdAt           DateTime        @default(now())

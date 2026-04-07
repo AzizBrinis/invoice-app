@@ -16,6 +16,12 @@ import {
   type SocialProvider,
 } from "../components/auth/AuthSocialButtons";
 import type { SignupSettingsInput } from "@/server/website";
+import {
+  useAccountProfile,
+  type ClientProfile,
+} from "../hooks/useAccountProfile";
+import { useCisecoI18n } from "../i18n";
+import { useCisecoNavigation } from "../navigation";
 
 type SignupPageProps = {
   theme: ThemeTokens;
@@ -36,21 +42,13 @@ type SignupResponse = {
   status: "created" | "existing" | "preview-only";
   message?: string;
   redirectTo?: string;
+  profile?: ClientProfile | null;
 };
 
 const PROVIDER_ORDER: SocialProvider[] = ["google", "facebook", "twitter"];
 
 function resolveSignupRedirectPath(target: SignupSettingsInput["redirectTarget"]) {
   return target === "account" ? "/account" : "/";
-}
-
-function resolveRedirectUrl(baseLink: (target: string) => string, target: string) {
-  if (typeof window === "undefined") {
-    return baseLink(target);
-  }
-  return window.location.pathname.startsWith("/catalogue/")
-    ? baseLink(target)
-    : target;
 }
 
 export function SignupPage({
@@ -65,6 +63,11 @@ export function SignupPage({
   signupSettings,
   builder,
 }: SignupPageProps) {
+  const { t } = useCisecoI18n();
+  const { navigate } = useCisecoNavigation();
+  const { applyAuthenticatedProfile } = useAccountProfile({
+    redirectOnUnauthorized: false,
+  });
   const [status, setStatus] = useState<SignupStatus>("idle");
   const [message, setMessage] = useState<string | null>(null);
 
@@ -91,7 +94,7 @@ export function SignupPage({
 
     if (!email || !password) {
       setStatus("error");
-      setMessage("Please enter an email and password.");
+      setMessage(t("Please enter an email and password."));
       return;
     }
 
@@ -120,26 +123,28 @@ export function SignupPage({
         throw new Error(
           "error" in result && result.error
             ? result.error
-            : "Unable to create account.",
+            : t("Unable to create account."),
         );
       }
 
       setStatus("success");
-      setMessage(result.message ?? "Signup successful.");
+      setMessage(t(result.message ?? "Signup successful."));
 
       if (result.status !== "preview-only") {
+        if (result.profile) {
+          applyAuthenticatedProfile(result.profile);
+        }
         const redirectTo = result.redirectTo ?? redirectPath;
-        const redirectUrl = resolveRedirectUrl(baseLink, redirectTo);
         setTimeout(() => {
-          window.location.assign(redirectUrl);
+          navigate(baseLink(redirectTo));
         }, 600);
       }
     } catch (error) {
       setStatus("error");
       setMessage(
         error instanceof Error
-          ? error.message
-          : "Unable to create account.",
+          ? t(error.message)
+          : t("Unable to create account."),
       );
     }
   };
@@ -151,13 +156,13 @@ export function SignupPage({
     }
     if (mode === "preview") {
       setStatus("success");
-      setMessage("Preview mode: no signup recorded.");
+      setMessage(t("Preview mode: no signup recorded."));
       return;
     }
 
     setStatus("error");
     setMessage(
-      "Social signup is not available yet. Please use email and password.",
+      t("Social signup is not available yet. Please use email and password."),
     );
   };
 
@@ -182,7 +187,7 @@ export function SignupPage({
     <AuthLayout
       theme={theme}
       inlineStyles={inlineStyles}
-      title={heroSection?.title ?? "Sign up"}
+      title={t(heroSection?.title ?? "Sign up")}
       subtitle={heroSubtitle}
       builderSectionId={heroSection?.id}
       belowContent={
@@ -209,9 +214,9 @@ export function SignupPage({
           <AuthField
             id="signup-email"
             name="email"
-            label="Email"
+            label={t("Email")}
             type="email"
-            placeholder="example@example.com"
+            placeholder={t("example@example.com")}
             required
             autoComplete="email"
             disabled={status === "loading"}
@@ -219,7 +224,7 @@ export function SignupPage({
           <AuthField
             id="signup-password"
             name="password"
-            label="Password"
+            label={t("Password")}
             type="password"
             required
             autoComplete="new-password"
@@ -227,11 +232,11 @@ export function SignupPage({
           />
         </div>
         <AuthPrimaryButton
-          label="Continue"
+          label={t("Continue")}
           type="submit"
           isLoading={status === "loading"}
           disabled={status === "loading"}
-          loadingLabel="Creating account..."
+          loadingLabel={t("Creating account...")}
         />
         {message ? (
           <p
@@ -242,12 +247,12 @@ export function SignupPage({
         ) : null}
       </form>
       <AuthFooterText>
-        Already have an account?{" "}
+        {t("Already have an account?")}{" "}
         <a
           href={baseLink("/login")}
           className="font-semibold text-sky-600 transition-colors hover:text-sky-700"
         >
-          Sign in
+          {t("Sign in")}
         </a>
       </AuthFooterText>
     </AuthLayout>

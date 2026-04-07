@@ -3,7 +3,10 @@
 import clsx from "clsx";
 import { useCallback, useMemo } from "react";
 import type { CSSProperties } from "react";
-import { calculateLineTotals } from "@/lib/documents";
+import {
+  computeAdjustedUnitPriceTTCCents,
+  resolveProductDiscount,
+} from "@/lib/product-pricing";
 import { WEBSITE_MEDIA_PLACEHOLDERS } from "@/lib/website/placeholders";
 import type { WebsiteBuilderPageConfig, WebsiteBuilderSection } from "@/lib/website/builder";
 import type { ThemeTokens } from "../types";
@@ -13,11 +16,13 @@ import { ExtraSections } from "../components/builder/ExtraSections";
 import { Footer } from "../components/layout/Footer";
 import { Navbar } from "../components/layout/Navbar";
 import { PageShell } from "../components/layout/PageShell";
-import { StarIcon } from "../components/shared/Icons";
+import { StarIcon, WishlistHeartIcon } from "../components/shared/Icons";
 import {
   resolveVariantOptions,
+  formatCisecoLabel,
   formatCisecoPrice,
 } from "../utils";
+import { useCisecoI18n } from "../i18n";
 import { useWishlist } from "../hooks/useWishlist";
 import { useAccountProfile } from "../hooks/useAccountProfile";
 
@@ -26,6 +31,8 @@ type WishlistsPageProps = {
   inlineStyles: CSSProperties;
   companyName: string;
   homeHref: string;
+  catalogSlug: string;
+  loginHref: string;
   showPrices: boolean;
   builder?: WebsiteBuilderPageConfig | null;
 };
@@ -76,17 +83,17 @@ function resolveUnitAmountCents(options: {
   priceTTCCents: number | null;
   priceHTCents: number | null;
   vatRate: number | null;
+  discountRate?: number | null;
+  discountAmountCents?: number | null;
 }) {
-  if (options.saleMode !== "INSTANT") return null;
-  if (options.priceTTCCents != null) return options.priceTTCCents;
-  if (options.priceHTCents == null || options.vatRate == null) return null;
-  return calculateLineTotals({
-    quantity: 1,
-    unitPriceHTCents: options.priceHTCents,
+  return computeAdjustedUnitPriceTTCCents({
+    saleMode: options.saleMode,
+    priceTTCCents: options.priceTTCCents,
+    priceHTCents: options.priceHTCents,
     vatRate: options.vatRate,
-    discountRate: null,
-    discountAmountCents: null,
-  }).totalTTCCents;
+    discountRate: options.discountRate ?? null,
+    discountAmountCents: options.discountAmountCents ?? null,
+  });
 }
 
 function resolveWishlistRating(index: number) {
@@ -104,12 +111,17 @@ export function WishlistsPage({
   inlineStyles,
   companyName,
   homeHref,
+  catalogSlug,
+  loginHref,
   showPrices,
   builder,
 }: WishlistsPageProps) {
+  const { t } = useCisecoI18n();
   const { items, status, error, pendingIds, toggleWishlist } = useWishlist({
     redirectOnLoad: true,
     redirectOnAction: true,
+    slug: catalogSlug,
+    loginHref,
   });
   const { profile, status: profileStatus } = useAccountProfile({
     redirectOnUnauthorized: true,
@@ -124,14 +136,14 @@ export function WishlistsPage({
         return {
           id: item.id,
           productId: item.productId,
-          name: "Product unavailable",
-          subtitle: "This item is no longer available.",
-          price: "Unavailable",
+          name: t("Product unavailable"),
+          subtitle: t("This item is no longer available."),
+          price: t("Unavailable"),
           rating: 0,
           reviewCount: 0,
           image: fallbackImage,
           colors: DEFAULT_SWATCHES.slice(0, 3),
-          badge: "Removed",
+          badge: t("Removed"),
           favorite: true,
           isMissing: true,
         } satisfies WishlistItem;
@@ -156,13 +168,14 @@ export function WishlistsPage({
         priceTTCCents: item.product.priceTTCCents,
         priceHTCents: item.product.priceHTCents,
         vatRate: item.product.vatRate,
+        ...resolveProductDiscount(item.product),
       });
 
       return {
         id: item.id,
         productId: item.productId,
         name: item.product.name,
-        subtitle: item.product.category?.trim() || "Collection",
+        subtitle: formatCisecoLabel(item.product.category, "Collection"),
         price: formatCisecoPrice({
           saleMode: item.product.saleMode,
           showPrices,
@@ -172,11 +185,11 @@ export function WishlistsPage({
         reviewCount: resolveWishlistReviews(index),
         image,
         colors,
-        badge: index < 2 ? "New in" : undefined,
+        badge: index < 2 ? t("New in") : undefined,
         favorite: true,
       } satisfies WishlistItem;
     });
-  }, [items, showPrices]);
+  }, [items, showPrices, t]);
 
   const handleToggle = useCallback(
     (productId: string) => {
@@ -222,20 +235,20 @@ export function WishlistsPage({
           <div className="mx-auto max-w-5xl">
             <div className="space-y-2">
               <h1 className="text-2xl font-semibold text-slate-900 sm:text-3xl">
-                {heroSection?.title ?? "Account"}
+                {t(heroSection?.title ?? "Account")}
               </h1>
               {heroSubtitle ? (
-                <p className="text-sm text-slate-600">{heroSubtitle}</p>
+                <p className="text-sm text-slate-600">{t(heroSubtitle)}</p>
               ) : null}
               <p className="text-sm text-slate-500 sm:text-base">
                 <span className="font-semibold text-slate-900">
                   {profile.name ||
-                    (profileStatus === "loading" ? "Loading..." : "—")}
+                    (profileStatus === "loading" ? t("Loading...") : "—")}
                 </span>
                 {headerDetails
                   ? `, ${headerDetails}`
                   : profileStatus === "loading"
-                    ? " · Loading details..."
+                    ? ` · ${t("Loading details...")}`
                     : null}
               </p>
             </div>
@@ -244,23 +257,24 @@ export function WishlistsPage({
             </div>
             <section className="mt-10">
               <h2 className="text-lg font-semibold text-slate-900 sm:text-xl">
-                Wishlists
+                {t("Wishlists")}
               </h2>
               <p className="mt-2 text-sm text-slate-500">
-                Check out your wishlists. You can add or remove items from your
-                wishlists.
+                {t(
+                  "Check out your wishlists. You can add or remove items from your wishlists.",
+                )}
               </p>
               {isLoading ? (
                 <WishlistSkeletonGrid />
               ) : null}
               {showError ? (
                 <div className="mt-8 rounded-3xl border border-dashed border-black/10 bg-white p-6 text-sm text-rose-600">
-                  {error ?? "Unable to load wishlist."}
+                  {error ?? t("Unable to load wishlist.")}
                 </div>
               ) : null}
               {isEmpty ? (
                 <div className="mt-8 rounded-3xl border border-dashed border-black/10 bg-white p-6 text-sm text-slate-600">
-                  You have no saved items yet.
+                  {t("You have no saved items yet.")}
                 </div>
               ) : null}
               {!isLoading && displayItems.length ? (
@@ -278,7 +292,7 @@ export function WishlistsPage({
                         "bg-slate-900 px-6 py-2.5 text-[13px] font-semibold text-white shadow-sm transition hover:bg-slate-800",
                       )}
                     >
-                      Show me more
+                      {t("Show me more")}
                     </a>
                   </div>
                 </>
@@ -294,7 +308,7 @@ export function WishlistsPage({
           />
         ) : null}
       </main>
-      <Footer theme={theme} companyName={companyName} />
+      <Footer theme={theme} companyName={companyName} homeHref={homeHref} />
     </PageShell>
   );
 }
@@ -331,6 +345,7 @@ function WishlistCard({
   onToggle: (productId: string) => void;
   isBusy: boolean;
 }) {
+  const { t } = useCisecoI18n();
   const imageSrc = item.image || WEBSITE_MEDIA_PLACEHOLDERS.products[0];
   return (
     <article className="flex w-full flex-col">
@@ -353,7 +368,7 @@ function WishlistCard({
               : "text-slate-400 hover:text-rose-500",
             isBusy ? "cursor-wait opacity-70" : null,
           )}
-          aria-label="Toggle wishlist"
+          aria-label={t("Toggle wishlist")}
         >
           {isBusy ? (
             <span
@@ -361,7 +376,7 @@ function WishlistCard({
               aria-hidden="true"
             />
           ) : (
-            <HeartIcon className="h-4 w-4" filled={item.favorite} />
+            <WishlistHeartIcon className="h-4 w-4" filled={item.favorite} />
           )}
         </button>
         <img
@@ -394,7 +409,8 @@ function WishlistCard({
             {item.rating.toFixed(1)}
           </span>
           <span className="text-slate-400">
-            ({item.reviewCount} reviews)
+            ({item.reviewCount}{" "}
+            {t(item.reviewCount === 1 ? "review" : "reviews")})
           </span>
         </div>
       </div>
@@ -425,24 +441,6 @@ function WishlistSkeletonGrid() {
         </div>
       ))}
     </div>
-  );
-}
-
-type IconProps = {
-  className?: string;
-  filled?: boolean;
-};
-
-function HeartIcon({ className, filled }: IconProps) {
-  return (
-    <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
-      <path
-        d="M12 20s-6.5-3.7-8.5-7.6C1.6 9.4 3.1 6 6.4 6c1.9 0 3.2 1 3.6 2.1C10.4 7 11.7 6 13.6 6c3.3 0 4.8 3.4 2.9 6.4C18.5 16.3 12 20 12 20z"
-        fill={filled ? "currentColor" : "none"}
-        stroke="currentColor"
-        strokeWidth="1.4"
-      />
-    </svg>
   );
 }
 

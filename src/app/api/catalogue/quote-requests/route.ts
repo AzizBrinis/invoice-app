@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getAppHostnames } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
+import { createCisecoRequestTranslator } from "@/lib/website/ciseco-request-locale";
 import { createQuoteRequest } from "@/server/quote-requests";
 import {
   normalizeCatalogDomainInput,
@@ -24,15 +25,15 @@ const jsonObjectOrArraySchema = z.union([
 ]);
 
 const quoteRequestCustomerSchema = z.object({
-  name: z.string().min(2, "Nom requis"),
-  email: z.string().email("E-mail invalide"),
+  name: z.string().min(2, "Name is required."),
+  email: z.string().email("Invalid email address."),
   phone: z.string().max(40).nullable().optional(),
   company: z.string().max(120).nullable().optional(),
   address: z.string().max(240).nullable().optional(),
 });
 
 const quoteRequestPayloadSchema = z.object({
-  productId: z.string().min(1, "Produit requis"),
+  productId: z.string().min(1, "Product is required."),
   customer: quoteRequestCustomerSchema,
   message: z.string().max(2000).nullable().optional(),
   formData: z.union([jsonObjectOrArraySchema, z.string()]).nullable().optional(),
@@ -63,11 +64,11 @@ function parseFormDataValue(value: string) {
   try {
     parsed = JSON.parse(value);
   } catch {
-    throw new Error("Formulaire invalide.");
+    throw new Error("Invalid form data.");
   }
   const result = jsonObjectOrArraySchema.safeParse(parsed);
   if (!result.success) {
-    throw new Error("Formulaire invalide.");
+    throw new Error("Invalid form data.");
   }
   return result.data;
 }
@@ -77,6 +78,7 @@ function containsExternalLinks(value: string) {
 }
 
 export async function POST(request: NextRequest) {
+  const { t } = createCisecoRequestTranslator(request);
   try {
     const contentType = request.headers.get("content-type") ?? "";
     let payload: Record<string, unknown>;
@@ -104,13 +106,13 @@ export async function POST(request: NextRequest) {
     const parsed = quoteRequestPayloadSchema.parse(normalizedPayload);
 
     if (parsed.honeypot && parsed.honeypot.trim().length > 0) {
-      throw new Error("Requete bloquee.");
+      throw new Error("Request blocked.");
     }
 
     if (parsed.mode === "preview") {
       return NextResponse.json({
         status: "preview-only",
-        message: "Mode previsualisation : aucune demande enregistree.",
+        message: t("Preview mode: no quote request recorded."),
       });
     }
 
@@ -123,7 +125,7 @@ export async function POST(request: NextRequest) {
     const slug = isAppHost ? normalizeCatalogSlugInput(parsed.slug) : null;
     const resolvedPath = normalizeCatalogPathInput(parsed.path);
     if (parsed.path && !resolvedPath) {
-      throw new Error("Chemin invalide.");
+      throw new Error("Invalid path.");
     }
     const website = await resolveCatalogWebsite({
       slug,
@@ -131,7 +133,7 @@ export async function POST(request: NextRequest) {
       preview: false,
     });
     if (!website) {
-      throw new Error("Site introuvable.");
+      throw new Error("Site unavailable.");
     }
 
     const product = await prisma.product.findFirst({
@@ -147,10 +149,10 @@ export async function POST(request: NextRequest) {
       },
     });
     if (!product) {
-      throw new Error("Produit introuvable.");
+      throw new Error("Product not found.");
     }
     if (product.saleMode !== "QUOTE") {
-      throw new Error("Ce produit ne peut pas etre demande en devis.");
+      throw new Error("This product cannot be requested as a quote.");
     }
 
     const normalizedEmail = parsed.customer.email.trim().toLowerCase();
@@ -171,17 +173,17 @@ export async function POST(request: NextRequest) {
       });
       if (duplicateCount > 0) {
         throw new Error(
-          "Nous avons bien recu votre demande. Merci de patienter avant de renvoyer un message.",
+          "We already received your request. Please wait before sending another message.",
         );
       }
       if (parsed.message && containsExternalLinks(parsed.message)) {
         throw new Error(
-          "La description ne doit pas contenir de liens externes.",
+          "Description must not contain external links.",
         );
       }
       if (formDataValue && containsExternalLinks(JSON.stringify(formDataValue))) {
         throw new Error(
-          "Les champs ne doivent pas contenir de liens externes.",
+          "Form fields must not contain external links.",
         );
       }
     }
@@ -209,15 +211,16 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       status: "created",
-      message:
-        "Merci ! Votre demande de devis a bien ete transmise a l'equipe.",
+      message: t("Thanks! Your quote request has been sent to the team."),
       quoteRequestId: created.id,
     });
   } catch (error) {
     const message =
-      error instanceof Error
-        ? error.message
-        : "Impossible d'enregistrer la demande.";
+      error instanceof z.ZodError
+        ? t(error.issues[0]?.message ?? "Invalid form data.")
+        : error instanceof Error
+          ? t(error.message)
+          : t("Unable to save the request.");
     return NextResponse.json(
       { error: message },
       {

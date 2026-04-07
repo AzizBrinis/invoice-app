@@ -11,6 +11,8 @@ import { Reveal } from "../components/shared/Reveal";
 import { Footer } from "../components/layout/Footer";
 import { Navbar } from "../components/layout/Navbar";
 import { PageShell } from "../components/layout/PageShell";
+import { useCisecoI18n } from "../i18n";
+import { formatCisecoDate } from "../locale";
 
 type BlogPageProps = {
   theme: ThemeTokens;
@@ -195,6 +197,7 @@ export function BlogPage({
   path,
   builder,
 }: BlogPageProps) {
+  const { t } = useCisecoI18n();
   const container = clsx("mx-auto px-6 sm:px-8", theme.containerClass);
   const blogHref = (slug: string) => baseLink(`/blog/${slug}`);
   const pageHref = (page: number) =>
@@ -319,14 +322,14 @@ export function BlogPage({
             >
               {heroSection?.eyebrow ? (
                 <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-600">
-                  {heroSection.eyebrow}
+                  {t(heroSection.eyebrow)}
                 </p>
               ) : null}
               <h1 className="text-3xl font-semibold text-slate-900 sm:text-4xl">
-                {heroSection?.title ?? "Journal"}
+                {t(heroSection?.title ?? "Journal")}
               </h1>
               {heroSubtitle ? (
-                <p className="text-sm text-slate-600">{heroSubtitle}</p>
+                <p className="text-sm text-slate-600">{t(heroSubtitle)}</p>
               ) : null}
             </div>
           ) : null}
@@ -411,7 +414,7 @@ export function BlogPage({
           >
             <div className="flex items-center gap-2">
               <h2 className="text-lg font-semibold text-slate-900 sm:text-xl">
-                {latestTitle}
+                {t(latestTitle)}
               </h2>
               <PinIcon className="h-4 w-4 text-rose-500" />
             </div>
@@ -455,7 +458,7 @@ export function BlogPage({
           />
         ) : null}
       </main>
-      <Footer theme={theme} companyName={companyName} />
+      <Footer theme={theme} companyName={companyName} homeHref={homeHref} />
     </PageShell>
   );
 }
@@ -466,21 +469,23 @@ type PostProps = {
 };
 
 function FeaturedPost({ post, href }: PostProps) {
+  const { t } = useCisecoI18n();
+
   return (
     <a href={href} className="group block">
       <article className="space-y-4 transition hover:-translate-y-1">
         <div className="relative aspect-[4/3] w-full overflow-hidden rounded-[28px] bg-slate-100 shadow-sm transition-shadow duration-300 group-hover:shadow-lg">
           <img
             src={post.image}
-            alt={post.title}
+            alt={t(post.title)}
             className="h-full w-full object-cover transition duration-500 ease-out group-hover:scale-[1.04]"
           />
         </div>
         <div className="space-y-2">
           <h1 className="text-xl font-semibold text-slate-900 transition group-hover:text-slate-950 sm:text-2xl">
-            {post.title}
+            {t(post.title)}
           </h1>
-          <p className="text-sm text-slate-500">{post.excerpt}</p>
+          <p className="text-sm text-slate-500">{t(post.excerpt)}</p>
           <AuthorRow author={post.author} />
         </div>
       </article>
@@ -489,20 +494,22 @@ function FeaturedPost({ post, href }: PostProps) {
 }
 
 function MiniPost({ post, href }: PostProps) {
+  const { t } = useCisecoI18n();
+
   return (
     <a href={href} className="group block">
       <article className="flex flex-col gap-3 rounded-2xl border border-black/5 bg-white p-4 shadow-sm transition hover:-translate-y-1 hover:shadow-md lg:border-0 lg:bg-transparent lg:p-0 lg:shadow-none lg:hover:translate-y-0 lg:hover:shadow-none">
         <div className="flex items-start gap-4">
           <div className="flex-1 space-y-2">
             <h3 className="text-sm font-semibold text-slate-900 transition group-hover:text-slate-950">
-              {post.title}
+              {t(post.title)}
             </h3>
-            <p className="text-xs text-slate-500">{post.excerpt}</p>
+            <p className="text-xs text-slate-500">{t(post.excerpt)}</p>
           </div>
           <div className="relative h-16 w-20 flex-shrink-0 overflow-hidden rounded-2xl bg-slate-100 lg:hidden">
             <img
               src={post.image}
-              alt={post.title}
+              alt={t(post.title)}
               className="h-full w-full object-cover transition duration-500 ease-out group-hover:scale-[1.05]"
               loading="lazy"
             />
@@ -515,22 +522,24 @@ function MiniPost({ post, href }: PostProps) {
 }
 
 function ArticleCard({ post, href }: PostProps) {
+  const { t } = useCisecoI18n();
+
   return (
     <a href={href} className="group block">
       <article className="space-y-3 transition hover:-translate-y-1">
         <div className="relative aspect-[4/3] w-full overflow-hidden rounded-3xl bg-slate-100 shadow-sm transition-shadow duration-300 group-hover:shadow-lg">
           <img
             src={post.image}
-            alt={post.title}
+            alt={t(post.title)}
             className="h-full w-full object-cover transition duration-500 ease-out group-hover:scale-[1.04]"
             loading="lazy"
           />
         </div>
         <div className="space-y-2">
           <h3 className="text-sm font-semibold text-slate-900 transition group-hover:text-slate-950 sm:text-base">
-            {post.title}
+            {t(post.title)}
           </h3>
-          <p className="text-xs text-slate-500">{post.excerpt}</p>
+          <p className="text-xs text-slate-500">{t(post.excerpt)}</p>
           <AuthorRow author={post.author} compact />
         </div>
       </article>
@@ -544,6 +553,8 @@ type AuthorRowProps = {
 };
 
 function AuthorRow({ author, compact }: AuthorRowProps) {
+  const { locale } = useCisecoI18n();
+
   return (
     <div
       className={clsx(
@@ -564,7 +575,7 @@ function AuthorRow({ author, compact }: AuthorRowProps) {
       <span aria-hidden="true" className="text-slate-300">
         &middot;
       </span>
-      <span>{author.date}</span>
+      <span>{formatCisecoDate(locale, author.date)}</span>
     </div>
   );
 }
@@ -576,10 +587,12 @@ type AdsBannerProps = {
 };
 
 function AdsBanner({ eyebrow, title, description }: AdsBannerProps) {
+  const { t } = useCisecoI18n();
+
   return (
     <div className="relative overflow-hidden rounded-[28px] bg-[#f7c9c9] px-6 py-12 text-center sm:py-14">
       <span className="text-sm font-semibold uppercase tracking-[0.55em] text-white/90">
-        {eyebrow || "A.D.S"}
+        {t(eyebrow || "A.D.S")}
       </span>
       <span className="pointer-events-none absolute left-8 top-6 hidden h-5 w-20 rounded-full border border-white/40 sm:block" />
       <span className="pointer-events-none absolute right-10 top-8 hidden h-3 w-12 rounded-full border border-white/40 sm:block" />
@@ -588,12 +601,12 @@ function AdsBanner({ eyebrow, title, description }: AdsBannerProps) {
         <div className="mt-4 space-y-2">
           {title ? (
             <h3 className="text-xl font-semibold text-slate-900 sm:text-2xl">
-              {title}
+              {t(title)}
             </h3>
           ) : null}
           {description ? (
             <p className="mx-auto max-w-xl text-sm text-slate-700/80">
-              {description}
+              {t(description)}
             </p>
           ) : null}
         </div>
@@ -609,6 +622,7 @@ type PaginationBarProps = {
 };
 
 function PaginationBar({ pages, currentPage, hrefForPage }: PaginationBarProps) {
+  const { t } = useCisecoI18n();
   const totalPages = Math.max(...pages);
   const previousPage = Math.max(1, currentPage - 1);
   const nextPage = Math.min(totalPages, currentPage + 1);
@@ -624,7 +638,7 @@ function PaginationBar({ pages, currentPage, hrefForPage }: PaginationBarProps) 
         aria-disabled={currentPage === 1}
       >
         <span aria-hidden="true">&larr;</span>
-        Previous
+        {t("Previous")}
       </a>
       <div className="flex items-center gap-2">
         {pages.map((page) => (
@@ -651,7 +665,7 @@ function PaginationBar({ pages, currentPage, hrefForPage }: PaginationBarProps) 
         )}
         aria-disabled={currentPage === totalPages}
       >
-        Next
+        {t("Next")}
         <span aria-hidden="true">&rarr;</span>
       </a>
     </div>
@@ -675,6 +689,8 @@ function PromoBanner({
   buttonHref,
   image,
 }: PromoBannerProps) {
+  const { t } = useCisecoI18n();
+
   return (
     <div className="relative overflow-hidden rounded-[32px] bg-[#fff6d6] px-6 py-10 sm:px-10 sm:py-12">
       <span className="pointer-events-none absolute left-10 top-6 h-2 w-2 rounded-full bg-rose-400" />
@@ -684,7 +700,7 @@ function PromoBanner({
         <div className="relative mx-auto w-full max-w-[280px] sm:max-w-none">
           <img
             src={image ?? BLOG_IMAGES.kids}
-            alt="Kid with skateboard"
+            alt={t("Kid with skateboard")}
             className="h-full w-full object-contain"
             loading="lazy"
           />
@@ -697,21 +713,24 @@ function PromoBanner({
           <h3 className="text-xl font-semibold text-slate-900 sm:text-2xl">
             {title ?? (
               <>
-                Special offer
+                {t("Special offer")}
                 <br />
-                in kids products
+                {t("in kids products")}
               </>
             )}
           </h3>
           <p className="text-sm text-slate-500">
-            {description ??
-              "Fashion is a form of self-expression and autonomy at a particular period and place."}
+            {description
+              ? t(description)
+              : t(
+                  "Fashion is a form of self-expression and autonomy at a particular period and place.",
+                )}
           </p>
           <a
             href={buttonHref ?? "#"}
             className="inline-flex items-center rounded-full bg-slate-900 px-5 py-2 text-xs font-semibold text-white shadow-sm"
           >
-            {buttonLabel ?? "Discover more"}
+            {buttonLabel ? t(buttonLabel) : t("Discover more")}
           </a>
         </div>
       </div>

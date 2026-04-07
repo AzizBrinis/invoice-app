@@ -11,6 +11,7 @@ import { resolveClientForContact } from "@/server/clients";
 import { queueQuoteRequestEmailJob } from "@/server/order-email-jobs";
 import { createQuoteForUser } from "@/server/quotes";
 import { getSettings } from "@/server/settings";
+import { resolveProductDiscount } from "@/lib/product-pricing";
 
 const quoteRequestAttachmentInputSchema = z.object({
   fileName: z.string().min(1, "Nom requis"),
@@ -470,6 +471,7 @@ export async function convertQuoteRequestToQuote(
           priceHTCents: true,
           vatRate: true,
           defaultDiscountRate: true,
+          defaultDiscountAmountCents: true,
         },
       },
       quote: true,
@@ -500,7 +502,7 @@ export async function convertQuoteRequestToQuote(
   const unit = product?.unit ?? "unite";
   const unitPriceHTCents = product?.priceHTCents ?? 0;
   const vatRate = product?.vatRate ?? 0;
-  const discountRate = product?.defaultDiscountRate ?? null;
+  const discount = resolveProductDiscount(product ?? {});
   const notes = buildQuoteNotes({
     message: request.message,
     formData: request.formData,
@@ -524,8 +526,8 @@ export async function convertQuoteRequestToQuote(
         unit,
         unitPriceHTCents,
         vatRate,
-        discountRate,
-        discountAmountCents: null,
+        discountRate: discount.discountRate,
+        discountAmountCents: discount.discountAmountCents,
         fodecRate: null,
         position: 0,
       },

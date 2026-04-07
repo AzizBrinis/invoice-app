@@ -1,5 +1,6 @@
 import clsx from "clsx";
 import type { ThemeTokens } from "../../types";
+import { useCisecoI18n } from "../../i18n";
 import { Section } from "../layout/Section";
 
 const ORBIT_POSITIONS = [
@@ -41,14 +42,16 @@ export function TestimonialsOrbit({
   avatars,
   sectionId,
 }: TestimonialsOrbitProps) {
+  const { t } = useCisecoI18n();
+
   return (
     <Section theme={theme} id="testimonials" builderSectionId={sectionId}>
       <div className="space-y-10">
         <div className="space-y-2 text-center">
           <h2 className="text-2xl font-semibold text-slate-900 sm:text-3xl">
-            {title}
+            {t(title)}
           </h2>
-          <p className="text-sm text-slate-500">{subtitle}</p>
+          <p className="text-sm text-slate-500">{t(subtitle)}</p>
         </div>
         <div className="relative mx-auto max-w-3xl pt-10">
           <div className="relative rounded-3xl border border-black/5 bg-white px-6 pb-8 pt-10 text-center shadow-sm sm:px-10">
@@ -56,7 +59,7 @@ export function TestimonialsOrbit({
               <div className="h-16 w-16 overflow-hidden rounded-full border-4 border-white shadow-sm">
                 <img
                   src={testimonial.avatar}
-                  alt={testimonial.name}
+                  alt={t(testimonial.name)}
                   className="h-full w-full object-cover"
                   loading="lazy"
                 />
@@ -75,10 +78,10 @@ export function TestimonialsOrbit({
               &rdquo;
             </span>
             <p className="text-sm text-slate-700 sm:text-base">
-              {testimonial.quote}
+              {t(testimonial.quote)}
             </p>
             <p className="mt-4 text-sm font-semibold text-slate-900">
-              {testimonial.name}
+              {t(testimonial.name)}
             </p>
             <div className="mt-2 flex items-center justify-center gap-1 text-amber-400">
               {Array.from({ length: testimonial.rating }).map((_, idx) => (

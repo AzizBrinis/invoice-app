@@ -5,6 +5,8 @@ import type {
   WebsiteBuilderSection,
 } from "@/lib/website/builder";
 import type { HomeProduct, HomeProductStatus, ThemeTokens } from "../../types";
+import { useCisecoI18n } from "../../i18n";
+import { useWishlist } from "../../hooks/useWishlist";
 import { toCartProduct } from "../../utils";
 import { ExtraSections } from "../builder/ExtraSections";
 import { BestSellersSection } from "./BestSellersSection";
@@ -26,6 +28,8 @@ type HomeSectionsProps = {
   products: HomeProduct[];
   featuredProducts: HomeProduct[];
   status: HomeProductStatus;
+  homeHref: string;
+  catalogSlug: string;
   baseLink: (target: string) => string;
   sections: WebsiteBuilderSection[];
   mediaLibrary: WebsiteBuilderMediaAsset[];
@@ -37,15 +41,24 @@ export function HomeSections({
   products,
   featuredProducts,
   status,
+  homeHref,
+  catalogSlug,
   baseLink,
   sections,
   mediaLibrary,
   hasBuilder,
 }: HomeSectionsProps) {
+  const { t } = useCisecoI18n();
   const { addItem } = useCart();
+  const { isWishlisted, toggleWishlist, pendingIds } = useWishlist({
+    redirectOnLoad: false,
+    redirectOnAction: true,
+    slug: catalogSlug,
+    loginHref: baseLink("/login"),
+  });
   const handleAddToCart = useCallback(
     (product: HomeProduct) => {
-      addItem(toCartProduct(product));
+      return addItem(toCartProduct(product));
     },
     [addItem],
   );
@@ -57,9 +70,9 @@ export function HomeSections({
   }, [status]);
 
   const emptyMessage =
-    "No items are available yet. Please check back soon.";
+    t("No items are available yet. Please check back soon.");
   const errorMessage =
-    "We could not load the catalog right now. Please refresh the page.";
+    t("We could not load the catalog right now. Please refresh the page.");
   const featured = featuredProducts.length ? featuredProducts : products;
 
   const renderSection = (section: WebsiteBuilderSection) => {
@@ -72,6 +85,7 @@ export function HomeSections({
             theme={theme}
             section={section}
             mediaLibrary={mediaLibrary}
+            homeHref={homeHref}
           />
         );
       case "discovery":
@@ -81,6 +95,7 @@ export function HomeSections({
             theme={theme}
             section={section}
             mediaLibrary={mediaLibrary}
+            homeHref={homeHref}
           />
         );
       case "new-arrivals":
@@ -89,10 +104,14 @@ export function HomeSections({
             key={section.id}
             theme={theme}
             section={section}
+            homeHref={homeHref}
             products={products}
             status={status}
             baseLink={baseLink}
             onAddToCart={handleAddToCart}
+            isWishlisted={isWishlisted}
+            pendingIds={pendingIds}
+            onToggleWishlist={toggleWishlist}
             emptyMessage={emptyMessage}
             errorMessage={errorMessage}
           />
@@ -108,6 +127,7 @@ export function HomeSections({
             theme={theme}
             section={section}
             mediaLibrary={mediaLibrary}
+            homeHref={homeHref}
           />
         );
       case "explore":
@@ -116,6 +136,7 @@ export function HomeSections({
             key={section.id}
             theme={theme}
             section={section}
+            homeHref={homeHref}
           />
         );
       case "best-sellers":
@@ -128,6 +149,9 @@ export function HomeSections({
             status={status}
             baseLink={baseLink}
             onAddToCart={handleAddToCart}
+            isWishlisted={isWishlisted}
+            pendingIds={pendingIds}
+            onToggleWishlist={toggleWishlist}
             emptyMessage={emptyMessage}
             errorMessage={errorMessage}
           />
@@ -139,6 +163,7 @@ export function HomeSections({
             theme={theme}
             section={section}
             mediaLibrary={mediaLibrary}
+            homeHref={homeHref}
           />
         );
       case "featured":
@@ -161,10 +186,14 @@ export function HomeSections({
             key={section.id}
             theme={theme}
             section={section}
+            homeHref={homeHref}
             products={products}
             status={status}
             baseLink={baseLink}
             onAddToCart={handleAddToCart}
+            isWishlisted={isWishlisted}
+            pendingIds={pendingIds}
+            onToggleWishlist={toggleWishlist}
             emptyMessage={emptyMessage}
             errorMessage={errorMessage}
           />
@@ -176,6 +205,7 @@ export function HomeSections({
             theme={theme}
             section={section}
             mediaLibrary={mediaLibrary}
+            homeHref={homeHref}
           />
         );
       case "home-blog":
@@ -188,6 +218,7 @@ export function HomeSections({
             theme={theme}
             section={section}
             mediaLibrary={mediaLibrary}
+            homeHref={homeHref}
           />
         );
       case "home-testimonials":
@@ -208,6 +239,7 @@ export function HomeSections({
                 theme={theme}
                 section={section}
                 mediaLibrary={mediaLibrary}
+                homeHref={homeHref}
               />
             );
           case "services":
@@ -217,6 +249,7 @@ export function HomeSections({
                 theme={theme}
                 section={section}
                 mediaLibrary={mediaLibrary}
+                homeHref={homeHref}
               />
             );
           case "promo":
@@ -226,6 +259,7 @@ export function HomeSections({
                 theme={theme}
                 section={section}
                 mediaLibrary={mediaLibrary}
+                homeHref={homeHref}
               />
             );
           case "categories":
@@ -234,6 +268,7 @@ export function HomeSections({
                 key={section.id}
                 theme={theme}
                 section={section}
+                homeHref={homeHref}
               />
             );
           case "gallery":
@@ -243,6 +278,7 @@ export function HomeSections({
                 theme={theme}
                 section={section}
                 mediaLibrary={mediaLibrary}
+                homeHref={homeHref}
               />
             );
           case "content":
@@ -252,6 +288,7 @@ export function HomeSections({
                 theme={theme}
                 section={section}
                 mediaLibrary={mediaLibrary}
+                homeHref={homeHref}
               />
             );
           case "testimonials":
@@ -269,10 +306,14 @@ export function HomeSections({
                 key={section.id}
                 theme={theme}
                 section={section}
+                homeHref={homeHref}
                 products={products}
                 status={status}
                 baseLink={baseLink}
                 onAddToCart={handleAddToCart}
+                isWishlisted={isWishlisted}
+                pendingIds={pendingIds}
+                onToggleWishlist={toggleWishlist}
                 emptyMessage={emptyMessage}
                 errorMessage={errorMessage}
               />
@@ -293,13 +334,16 @@ export function HomeSections({
   if (!hasBuilder) {
     return (
       <>
-        <HeroSection theme={theme} />
+        <HeroSection theme={theme} homeHref={homeHref} />
         <BestSellersSection
           theme={theme}
           products={products}
           status={status}
           baseLink={baseLink}
           onAddToCart={handleAddToCart}
+          isWishlisted={isWishlisted}
+          pendingIds={pendingIds}
+          onToggleWishlist={toggleWishlist}
           emptyMessage={emptyMessage}
           errorMessage={errorMessage}
         />
@@ -314,10 +358,14 @@ export function HomeSections({
         />
         <FavoritesSection
           theme={theme}
+          homeHref={homeHref}
           products={products}
           status={status}
           baseLink={baseLink}
           onAddToCart={handleAddToCart}
+          isWishlisted={isWishlisted}
+          pendingIds={pendingIds}
+          onToggleWishlist={toggleWishlist}
           emptyMessage={emptyMessage}
           errorMessage={errorMessage}
         />

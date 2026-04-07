@@ -1,7 +1,12 @@
 import type { CartProduct } from "@/components/website/cart/cart-context";
-import { calculateLineTotals } from "@/lib/documents";
 import { formatCurrency } from "@/lib/formatters";
 import { fromCents } from "@/lib/money";
+import { normalizeProductOptionConfig } from "@/lib/product-options";
+import { buildProductImageAlt } from "@/lib/product-seo";
+import {
+  computeAdjustedUnitPriceTTCCents,
+  resolveProductDiscount,
+} from "@/lib/product-pricing";
 import { slugify } from "@/lib/slug";
 import { WEBSITE_MEDIA_PLACEHOLDERS } from "@/lib/website/placeholders";
 import type { CatalogPayload } from "@/server/website";
@@ -37,6 +42,28 @@ export function withAlpha(color: string, alphaHex: string) {
   return `${color}${alphaHex}`;
 }
 
+export function formatCisecoLabel(
+  value: string | null | undefined,
+  fallback = "",
+) {
+  const trimmed = value?.trim();
+  if (!trimmed) return fallback;
+
+  const lettersOnly = trimmed.replace(/[^a-zA-ZÀ-ÿ]/g, "");
+  const isUppercaseLabel =
+    lettersOnly.length > 1 && lettersOnly === lettersOnly.toUpperCase();
+
+  if (!isUppercaseLabel) {
+    return trimmed;
+  }
+
+  return trimmed
+    .toLocaleLowerCase()
+    .replace(/(^|[\s/-])([a-zÀ-ÿ])/g, (_match, prefix: string, letter: string) => {
+      return `${prefix}${letter.toLocaleUpperCase()}`;
+    });
+}
+
 export function normalizePath(path?: string | null): string {
   if (!path) return "/";
   const trimmed = path.trim();
@@ -44,22 +71,110 @@ export function normalizePath(path?: string | null): string {
   return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
 }
 
+function normalizeComparablePath(path?: string | null) {
+  const normalized = normalizePath(path);
+  if (normalized.length > 1 && normalized.endsWith("/")) {
+    return normalized.slice(0, -1);
+  }
+  return normalized;
+}
+
 export function buildCisecoHref(homeHref: string, targetPath: string) {
   const normalizedTarget = normalizePath(targetPath);
   if (!homeHref || homeHref === "#") return normalizedTarget;
-  if (homeHref.includes("?")) {
-    const [base, query = ""] = homeHref.split("?");
-    const params = new URLSearchParams(query);
+
+  const [baseHref, hash = ""] = homeHref.split("#");
+  const [pathname, query = ""] = baseHref.split("?");
+  const params = new URLSearchParams(query);
+
+  if (pathname.startsWith("/preview")) {
     params.set("path", normalizedTarget);
     const queryString = params.toString();
-    return queryString ? `${base}?${queryString}` : base;
+    return `${pathname}${queryString ? `?${queryString}` : ""}${hash ? `#${hash}` : ""}`;
   }
-  const trimmed = homeHref.endsWith("/") ? homeHref.slice(0, -1) : homeHref;
-  return `${trimmed}${normalizedTarget}`;
+
+  const trimmed = pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
+  const queryString = params.toString();
+  return `${trimmed}${normalizedTarget}${queryString ? `?${queryString}` : ""}${hash ? `#${hash}` : ""}`;
 }
 
-export function resolvePage(path?: string | null): PageDescriptor {
-  const normalized = normalizePath(path);
+export function buildCisecoHrefWithQuery(
+  homeHref: string,
+  targetPath: string,
+  params: Record<string, string | number | null | undefined>,
+) {
+  const baseHref = buildCisecoHref(homeHref, targetPath);
+  const [pathname, query = ""] = baseHref.split("?");
+  const searchParams = new URLSearchParams(query);
+
+  Object.entries(params).forEach(([key, value]) => {
+    if (value == null || value === "") {
+      searchParams.delete(key);
+      return;
+    }
+    searchParams.set(key, String(value));
+  });
+
+  const nextQuery = searchParams.toString();
+  return nextQuery ? `${pathname}?${nextQuery}` : pathname;
+}
+
+const EXTERNAL_HREF_PATTERN = /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i;
+const SCOPED_CISECO_HREF_PATTERN = /^\/(?:catalogue\/|preview(?:[/?]|$))/i;
+
+function resolveInternalCisecoHref(
+  value: string,
+  options: {
+    homeHref?: string;
+    baseLink?: ((target: string) => string) | undefined;
+  },
+) {
+  const normalizedTarget = normalizePath(value);
+  if (options.baseLink) {
+    return options.baseLink(normalizedTarget);
+  }
+  if (options.homeHref) {
+    return buildCisecoHref(options.homeHref, normalizedTarget);
+  }
+  return normalizedTarget;
+}
+
+export function resolveCisecoNavigationHref(options: {
+  href?: string | null;
+  homeHref?: string;
+  baseLink?: (target: string) => string;
+  fallbackPath?: string;
+  fallbackHref?: string;
+}) {
+  const candidate = options.href?.trim();
+
+  if (candidate && candidate !== "#") {
+    if (
+      candidate.startsWith("#") ||
+      EXTERNAL_HREF_PATTERN.test(candidate) ||
+      SCOPED_CISECO_HREF_PATTERN.test(candidate)
+    ) {
+      return candidate;
+    }
+    return resolveInternalCisecoHref(candidate, options);
+  }
+
+  if (options.fallbackHref) {
+    return options.fallbackHref;
+  }
+
+  if (options.fallbackPath) {
+    return resolveInternalCisecoHref(options.fallbackPath, options);
+  }
+
+  return candidate === "#" ? "#" : options.homeHref ?? "/";
+}
+
+export function resolvePage(
+  path?: string | null,
+  options?: { cmsPaths?: string[] | null },
+): PageDescriptor {
+  const normalized = normalizeComparablePath(path);
   const segments = normalized.split("/").filter(Boolean);
   const [head, second, third] = segments;
   if (head === "cart" || head === "panier") {
@@ -163,6 +278,13 @@ export function resolvePage(path?: string | null): PageDescriptor {
     second
   ) {
     return { page: "product", productSlug: second };
+  }
+  const cmsPaths = options?.cmsPaths ?? [];
+  if (normalized !== "/" && cmsPaths.includes(normalized)) {
+    return {
+      page: "cms",
+      cmsPath: normalized,
+    };
   }
   return { page: "home" };
 }
@@ -368,7 +490,12 @@ export function buildProductGallery(options: {
   return capped.map((entry, index) => ({
     id: `${options.product.id}-image-${index + 1}`,
     src: entry.src,
-    alt: entry.alt ?? `${title} image ${index + 1}`,
+    alt: buildProductImageAlt({
+      explicitAlt: entry.alt ?? null,
+      name: title,
+      category: options.product.category,
+      index,
+    }),
   }));
 }
 
@@ -377,96 +504,8 @@ type VariantOptionValue = {
   label: string;
   enabled: boolean;
   swatch?: string | null;
+  priceAdjustmentCents?: number | null;
 };
-
-type VariantOptionGroup = {
-  id: string;
-  name: string;
-  values: VariantOptionValue[];
-};
-
-function normalizeOptionValues(value: unknown): VariantOptionValue[] {
-  if (!Array.isArray(value)) return [];
-  const options: VariantOptionValue[] = [];
-  value.forEach((entry, index) => {
-    if (!isRecord(entry)) return;
-    const label =
-      typeof entry.label === "string"
-        ? entry.label
-        : typeof entry.title === "string"
-          ? entry.title
-          : typeof entry.name === "string"
-            ? entry.name
-            : "";
-    const trimmedLabel = label.trim();
-    const rawId =
-      typeof entry.id === "string"
-        ? entry.id
-        : typeof entry.value === "string"
-          ? entry.value
-          : "";
-    const resolvedId =
-      rawId.trim() || slugify(trimmedLabel) || `option-${index + 1}`;
-    options.push({
-      id: resolvedId,
-      label: trimmedLabel || resolvedId,
-      enabled: entry.enabled !== false,
-      swatch: typeof entry.swatch === "string" ? entry.swatch : null,
-    });
-  });
-  return options;
-}
-
-function normalizeOptionGroups(value: unknown): VariantOptionGroup[] {
-  if (!Array.isArray(value)) return [];
-  const groups: VariantOptionGroup[] = [];
-  value.forEach((entry, index) => {
-    if (!isRecord(entry)) return;
-    const name =
-      typeof entry.name === "string"
-        ? entry.name
-        : typeof entry.label === "string"
-          ? entry.label
-          : typeof entry.title === "string"
-            ? entry.title
-            : "";
-    const trimmedName = name.trim();
-    const rawId =
-      typeof entry.id === "string"
-        ? entry.id
-        : typeof entry.key === "string"
-          ? entry.key
-          : "";
-    const resolvedId =
-      rawId.trim() || slugify(trimmedName) || `option-${index + 1}`;
-    const valuesSource = Array.isArray(entry.values)
-      ? entry.values
-      : Array.isArray(entry.options)
-        ? entry.options
-        : [];
-    groups.push({
-      id: resolvedId,
-      name: trimmedName || `Option ${index + 1}`,
-      values: normalizeOptionValues(valuesSource),
-    });
-  });
-  return groups;
-}
-
-function normalizeOptionConfig(value: unknown): {
-  colors: VariantOptionValue[];
-  sizes: VariantOptionValue[];
-  options: VariantOptionGroup[];
-} {
-  if (!isRecord(value)) {
-    return { colors: [], sizes: [], options: [] };
-  }
-  return {
-    colors: normalizeOptionValues(value.colors),
-    sizes: normalizeOptionValues(value.sizes),
-    options: normalizeOptionGroups(value.options),
-  };
-}
 
 export function resolveVariantOptions(
   schema: unknown,
@@ -474,9 +513,18 @@ export function resolveVariantOptions(
 ): {
   colors: Array<ProductColorOption & { disabled?: boolean }>;
   sizes: Array<{ id: string; label: string; disabled?: boolean }>;
-  custom: Array<{ id: string; name: string; values: Array<{ id: string; label: string; disabled?: boolean }> }>;
+  custom: Array<{
+    id: string;
+    name: string;
+    values: Array<{
+      id: string;
+      label: string;
+      disabled?: boolean;
+      priceAdjustmentCents?: number | null;
+    }>;
+  }>;
 } {
-  const normalizedConfig = normalizeOptionConfig(optionConfig);
+  const normalizedConfig = normalizeProductOptionConfig(optionConfig);
   if (
     normalizedConfig.colors.length ||
     normalizedConfig.sizes.length ||
@@ -489,7 +537,7 @@ export function resolveVariantOptions(
         swatch: option.swatch ?? resolveSwatch(option.label, index),
         disabled: option.enabled === false,
       })),
-      sizes: normalizedConfig.sizes.map((option, index) => ({
+      sizes: normalizedConfig.sizes.map((option) => ({
         id: option.id,
         label: option.label,
         disabled: option.enabled === false,
@@ -503,6 +551,7 @@ export function resolveVariantOptions(
               id: value.id,
               label: value.label,
               disabled: value.enabled === false,
+              priceAdjustmentCents: value.priceAdjustmentCents ?? null,
             }))
             .filter((value) => value.label.trim().length > 0),
         }))
@@ -559,17 +608,19 @@ function resolveUnitAmountCents(options: {
   priceTTCCents: number | null;
   priceHTCents: number | null;
   vatRate: number | null;
+  adjustmentCents?: number | null;
+  discountRate?: number | null;
+  discountAmountCents?: number | null;
 }) {
-  if (options.saleMode !== "INSTANT") return null;
-  if (options.priceTTCCents != null) return options.priceTTCCents;
-  if (options.priceHTCents == null || options.vatRate == null) return null;
-  return calculateLineTotals({
-    quantity: 1,
-    unitPriceHTCents: options.priceHTCents,
+  return computeAdjustedUnitPriceTTCCents({
+    saleMode: options.saleMode,
+    priceTTCCents: options.priceTTCCents,
+    priceHTCents: options.priceHTCents,
     vatRate: options.vatRate,
-    discountRate: null,
-    discountAmountCents: null,
-  }).totalTTCCents;
+    adjustmentCents: options.adjustmentCents,
+    discountRate: options.discountRate ?? null,
+    discountAmountCents: options.discountAmountCents ?? null,
+  });
 }
 
 export function formatCisecoPrice(options: {
@@ -595,21 +646,20 @@ export function buildHomeProducts(options: {
 }): HomeProduct[] {
   if (!options.products.length) return [];
   return options.products.map((product, index) => {
-    const category = product.category?.trim() || "General";
+    const category = formatCisecoLabel(product.category, "General");
     const rating = Math.max(4.3, 4.9 - index * 0.06);
     const unitPriceHTCents =
       product.saleMode === "INSTANT" ? product.priceHTCents : null;
     const vatRate = product.saleMode === "INSTANT" ? product.vatRate : null;
+    const discount = resolveProductDiscount(product);
     const unitAmountCents = resolveUnitAmountCents({
       saleMode: product.saleMode,
       priceTTCCents: product.priceTTCCents ?? null,
       priceHTCents: unitPriceHTCents,
       vatRate,
+      discountRate: discount.discountRate,
+      discountAmountCents: discount.discountAmountCents,
     });
-    const discountRate =
-      product.saleMode === "INSTANT"
-        ? product.defaultDiscountRate ?? null
-        : null;
     return {
       id: product.id,
       name: product.name,
@@ -628,7 +678,8 @@ export function buildHomeProducts(options: {
       unitAmountCents,
       unitPriceHTCents,
       vatRate,
-      discountRate,
+      discountRate: discount.discountRate,
+      discountAmountCents: discount.discountAmountCents,
       currencyCode: CISECO_CURRENCY_CODE,
     };
   });
@@ -643,6 +694,7 @@ export function toCartProduct(product: HomeProduct): CartProduct {
     unitPriceHTCents: product.unitPriceHTCents,
     vatRate: product.vatRate,
     discountRate: product.discountRate,
+    discountAmountCents: product.discountAmountCents,
     currencyCode: product.currencyCode,
     image: product.image,
     tag: product.category,

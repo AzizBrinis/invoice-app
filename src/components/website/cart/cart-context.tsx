@@ -8,11 +8,18 @@ import {
   useMemo,
   useState,
 } from "react";
-import { calculateLineTotals } from "@/lib/documents";
+import {
+  calculateDiscountedLineTotals,
+  computeAdjustedUnitPriceTTCCents,
+} from "@/lib/product-pricing";
 
 export type CartProductOption = {
+  kind?: "color" | "size" | "custom";
+  groupId?: string | null;
+  valueId?: string | null;
   name: string;
   value: string;
+  priceAdjustmentCents?: number | null;
 };
 
 export type CartProduct = {
@@ -23,6 +30,7 @@ export type CartProduct = {
   unitPriceHTCents: number | null;
   vatRate: number | null;
   discountRate: number | null;
+  discountAmountCents?: number | null;
   currencyCode: string;
   image: string;
   tag: string | null;
@@ -33,6 +41,7 @@ export type CartProduct = {
 
 type CartEntry = {
   id: string;
+  productId: string;
   quantity: number;
   product?: CartProduct | null;
 };
@@ -61,7 +70,7 @@ type CartContextValue = {
   totals: CartTotals | null;
   hasMissingPrices: boolean;
   isHydrated: boolean;
-  addItem: (product: CartProduct, quantity?: number) => void;
+  addItem: (product: CartProduct, quantity?: number) => boolean;
   removeItem: (id: string) => void;
   updateItemQuantity: (id: string, quantity: number) => void;
   clearCart: () => void;
@@ -71,6 +80,7 @@ const CartContext = createContext<CartContextValue | undefined>(undefined);
 
 const CART_STORAGE_PREFIX = "catalog-cart:";
 const CART_STORAGE_POINTER_KEY = "catalog-cart:active-key";
+export const CART_ITEM_ADDED_EVENT = "catalog:cart-item-added";
 
 const normalizeQuantity = (value: number) => {
   if (!Number.isFinite(value)) return 1;
@@ -99,7 +109,7 @@ const normalizeSelectedOptions = (
 ): CartProductOption[] | null => {
   if (!Array.isArray(value)) return null;
   const options = value
-    .map((entry) => {
+    .map((entry): CartProductOption | null => {
       if (!isRecord(entry)) return null;
       const name =
         typeof entry.name === "string"
@@ -116,15 +126,28 @@ const normalizeSelectedOptions = (
       const normalizedName = name.trim();
       const normalizedValue = optionValue.trim();
       if (!normalizedName || !normalizedValue) return null;
+      const kind =
+        entry.kind === "color" ||
+        entry.kind === "size" ||
+        entry.kind === "custom"
+          ? entry.kind
+          : undefined;
       return {
+        kind,
+        groupId:
+          typeof entry.groupId === "string" && entry.groupId.trim().length > 0
+            ? entry.groupId
+            : null,
+        valueId:
+          typeof entry.valueId === "string" && entry.valueId.trim().length > 0
+            ? entry.valueId
+            : null,
         name: normalizedName,
         value: normalizedValue,
+        priceAdjustmentCents: normalizeNumber(entry.priceAdjustmentCents),
       };
     })
-    .filter(
-      (entry): entry is CartProductOption =>
-        Boolean(entry?.name && entry.value),
-    );
+    .filter((entry): entry is CartProductOption => Boolean(entry));
   return options.length ? options : null;
 };
 
@@ -167,6 +190,7 @@ const normalizeCartProduct = (
     unitPriceHTCents: normalizeNumber(value.unitPriceHTCents),
     vatRate: normalizeNumber(value.vatRate),
     discountRate: normalizeNumber(value.discountRate),
+    discountAmountCents: normalizeNumber(value.discountAmountCents),
     currencyCode,
     image,
     tag,
@@ -180,11 +204,40 @@ const resolveEntryProduct = (
   entry: CartEntry,
   catalogMap: Map<string, CartProduct>,
 ) => {
-  const catalogProduct = catalogMap.get(entry.id);
+  const catalogProduct = catalogMap.get(entry.productId);
   if (catalogProduct) {
-    const selectedOptions = entry.product?.selectedOptions;
-    if (selectedOptions && selectedOptions.length > 0) {
-      return { ...catalogProduct, selectedOptions };
+    if (entry.product) {
+      const unitPriceHTCents =
+        entry.product.unitPriceHTCents ?? catalogProduct.unitPriceHTCents;
+      const vatRate = entry.product.vatRate ?? catalogProduct.vatRate;
+      const unitAmountCents =
+        unitPriceHTCents != null && vatRate != null
+          ? computeAdjustedUnitPriceTTCCents({
+              saleMode: catalogProduct.saleMode,
+              priceTTCCents: null,
+              priceHTCents: unitPriceHTCents,
+              vatRate,
+              discountRate: catalogProduct.discountRate ?? null,
+              discountAmountCents: catalogProduct.discountAmountCents ?? null,
+            })
+          : entry.product.unitAmountCents ?? catalogProduct.unitAmountCents;
+      return {
+        ...catalogProduct,
+        ...entry.product,
+        title: catalogProduct.title || entry.product.title,
+        price: catalogProduct.price || entry.product.price,
+        unitAmountCents,
+        unitPriceHTCents,
+        vatRate,
+        discountRate: catalogProduct.discountRate,
+        discountAmountCents: catalogProduct.discountAmountCents,
+        currencyCode: catalogProduct.currencyCode || entry.product.currencyCode,
+        image: catalogProduct.image || entry.product.image,
+        tag: catalogProduct.tag ?? entry.product.tag ?? null,
+        slug: catalogProduct.slug || entry.product.slug,
+        saleMode: catalogProduct.saleMode,
+        selectedOptions: entry.product.selectedOptions,
+      };
     }
     return catalogProduct;
   }
@@ -201,14 +254,22 @@ const readStoredEntries = (storageKey: string): CartEntry[] => {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
     return parsed.reduce<CartEntry[]>((entries, entry) => {
-        const id = typeof entry?.id === "string" ? entry.id.trim() : "";
-        if (!id) {
+        const product = normalizeCartProduct(
+          entry?.product,
+          typeof entry?.productId === "string" ? entry.productId : undefined,
+        );
+        const productId =
+          typeof entry?.productId === "string"
+            ? entry.productId.trim()
+            : product?.id?.trim() ?? "";
+        if (!productId) {
           return entries;
         }
         entries.push({
-          id,
+          id: typeof entry?.id === "string" ? entry.id.trim() : productId,
+          productId,
           quantity: normalizeQuantity(Number(entry?.quantity)),
-          product: normalizeCartProduct(entry?.product, id),
+          product,
         });
         return entries;
       }, []);
@@ -264,23 +325,26 @@ const normalizeEntries = (
   const products = new Map<string, CartProduct>();
 
   entries.forEach((entry) => {
-    if (!entry || !entry.id) return;
+    if (!entry) return;
     const product = resolveEntryProduct(entry, catalogMap);
     if (!product || product.saleMode !== "INSTANT") {
       return;
     }
+    const lineId = getCartLineId(product, entry.productId);
+    if (!lineId) return;
     const normalizedQuantity = normalizeQuantity(entry.quantity);
-    if (!quantities.has(entry.id)) {
-      order.push(entry.id);
-      quantities.set(entry.id, normalizedQuantity);
+    if (!quantities.has(lineId)) {
+      order.push(lineId);
+      quantities.set(lineId, normalizedQuantity);
     } else {
-      quantities.set(entry.id, quantities.get(entry.id)! + normalizedQuantity);
+      quantities.set(lineId, quantities.get(lineId)! + normalizedQuantity);
     }
-    products.set(entry.id, product);
+    products.set(lineId, product);
   });
 
   return order.map((id) => ({
     id,
+    productId: products.get(id)?.id ?? id,
     quantity: quantities.get(id) ?? 1,
     product: products.get(id) ?? null,
   }));
@@ -291,8 +355,28 @@ const getOptionSignature = (
 ) => {
   if (!options?.length) return "";
   return options
-    .map((option) => `${option.name}:${option.value}`)
+    .map(
+      (option) =>
+        [
+          option.kind ?? "",
+          option.groupId ?? "",
+          option.valueId ?? "",
+          option.name,
+          option.value,
+          option.priceAdjustmentCents ?? "",
+        ].join(":"),
+    )
     .join("|");
+};
+
+const getCartLineId = (
+  product?: CartProduct | null,
+  fallbackProductId = "",
+) => {
+  const productId = product?.id ?? fallbackProductId;
+  if (!productId) return "";
+  const signature = getOptionSignature(product?.selectedOptions);
+  return signature ? `${productId}::${signature}` : productId;
 };
 
 const getProductSignature = (product?: CartProduct | null) => {
@@ -305,6 +389,7 @@ const getProductSignature = (product?: CartProduct | null) => {
     product.unitPriceHTCents ?? "",
     product.vatRate ?? "",
     product.discountRate ?? "",
+    product.discountAmountCents ?? "",
     product.currencyCode,
     product.image,
     product.tag ?? "",
@@ -319,6 +404,7 @@ const areEntriesEqual = (left: CartEntry[], right: CartEntry[]) => {
   return left.every(
     (entry, index) =>
       entry.id === right[index]?.id &&
+      entry.productId === right[index]?.productId &&
       entry.quantity === right[index]?.quantity &&
       getProductSignature(entry.product) ===
         getProductSignature(right[index]?.product),
@@ -363,14 +449,15 @@ export function CartProvider({
   const addItem = useCallback(
     (product: CartProduct, quantity = 1) => {
       if (product.saleMode !== "INSTANT") {
-        return;
+        return false;
       }
       setEntries((current) =>
         normalizeEntries(
           [
             ...current,
             {
-              id: product.id,
+              id: getCartLineId(product, product.id),
+              productId: product.id,
               quantity: normalizeQuantity(quantity),
               product,
             },
@@ -378,6 +465,17 @@ export function CartProvider({
           catalogMap,
         ),
       );
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent(CART_ITEM_ADDED_EVENT, {
+            detail: {
+              productId: product.id,
+              quantity: normalizeQuantity(quantity),
+            },
+          }),
+        );
+      }
+      return true;
     },
     [catalogMap],
   );
@@ -422,12 +520,12 @@ export function CartProvider({
       if (!product) return;
       const lineTotals =
         product.unitPriceHTCents != null && product.vatRate != null
-          ? calculateLineTotals({
+          ? calculateDiscountedLineTotals({
               quantity: entry.quantity,
               unitPriceHTCents: product.unitPriceHTCents,
               vatRate: product.vatRate,
               discountRate: product.discountRate ?? null,
-              discountAmountCents: null,
+              discountAmountCents: product.discountAmountCents ?? null,
             })
           : null;
       lines.push({
@@ -536,6 +634,7 @@ export function useCart() {
       isHydrated: true,
       addItem: (product: CartProduct) => {
         console.warn("[cart] CartProvider missing. Item dropped:", product?.id);
+        return false;
       },
       removeItem: (id: string) => {
         console.warn("[cart] CartProvider missing. Remove dropped:", id);

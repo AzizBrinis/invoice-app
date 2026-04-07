@@ -9,6 +9,7 @@ import { useDebouncedValue } from "@/lib/hooks/useDebouncedValue";
 import {
   INITIAL_WEBSITE_CONTENT_FORM_STATE,
   INITIAL_WEBSITE_ECOMMERCE_FORM_STATE,
+  type WebsiteCmsPageRecord,
   type WebsiteContentFormState,
   type WebsiteEcommerceFormState,
 } from "@/app/(app)/site-web/form-state";
@@ -17,12 +18,14 @@ import {
   saveWebsiteEcommerceSettingsAction,
 } from "@/app/(app)/site-web/actions";
 import { useWebsiteProductList } from "@/app/(app)/site-web/_hooks/useWebsiteProductList";
+import { WebsiteCmsPagesManager } from "@/app/(app)/site-web/_components/website-cms-pages-manager";
 import {
   WEBSITE_TEMPLATES,
   type WebsiteTemplateKey,
 } from "@/lib/website/templates";
 
 type WebsiteContentFormProps = {
+  websiteSlug: string;
   defaultValues: {
     slug: string;
     templateKey: WebsiteTemplateKey;
@@ -50,6 +53,7 @@ type WebsiteContentFormProps = {
     leadAutoTag: string | null;
     leadThanksMessage: string | null;
     spamProtectionEnabled: boolean;
+    cmsPages: WebsiteCmsPageRecord[];
     ecommerceSettings: {
       payments: {
         methods: {
@@ -71,7 +75,10 @@ type WebsiteContentFormProps = {
   };
 };
 
-export function WebsiteContentForm({ defaultValues }: WebsiteContentFormProps) {
+export function WebsiteContentForm({
+  defaultValues,
+  websiteSlug,
+}: WebsiteContentFormProps) {
   const [state, formAction] = useActionState<
     WebsiteContentFormState,
     FormData
@@ -721,6 +728,11 @@ export function WebsiteContentForm({ defaultValues }: WebsiteContentFormProps) {
           </FormSubmitButton>
         </div>
       </form>
+
+      <WebsiteCmsPagesManager
+        initialPages={defaultValues.cmsPages}
+        websiteSlug={websiteSlug}
+      />
     </div>
   );
 }

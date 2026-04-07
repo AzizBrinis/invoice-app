@@ -1,13 +1,15 @@
+import clsx from "clsx";
 import { useEffect, useMemo } from "react";
 import type { CSSProperties } from "react";
 import type { CatalogPayload } from "@/server/website";
 import type { WebsiteBuilderPageConfig } from "@/lib/website/builder";
-import type { HomeProduct, PurchasedProductCard, ThemeTokens } from "../types";
+import type { HomeProduct, ThemeTokens } from "../types";
 import { resolveBuilderSection } from "../builder-helpers";
 import { Footer } from "../components/layout/Footer";
 import { Navbar } from "../components/layout/Navbar";
 import { PageShell } from "../components/layout/PageShell";
 import { ProductDetailPage } from "../components/product/ProductDetailPage";
+import { useCisecoI18n } from "../i18n";
 import { buildHomeProducts, resolveVariantOptions } from "../utils";
 
 type ProductPageProps = {
@@ -15,6 +17,7 @@ type ProductPageProps = {
   inlineStyles: CSSProperties;
   companyName: string;
   homeHref: string;
+  catalogSlug: string;
   baseLink: (path: string) => string;
   products: CatalogPayload["products"] | null;
   showPrices: boolean;
@@ -35,14 +38,22 @@ export function ProductPage({
   inlineStyles,
   companyName,
   homeHref,
+  catalogSlug,
   baseLink,
   products,
   showPrices,
   productSlug,
   builder,
 }: ProductPageProps) {
-  const productSource = Array.isArray(products?.all) ? products.all : [];
-  const featuredSource = Array.isArray(products?.featured) ? products.featured : [];
+  const { t } = useCisecoI18n();
+  const productSource = useMemo(
+    () => (Array.isArray(products?.all) ? products.all : []),
+    [products],
+  );
+  const featuredSource = useMemo(
+    () => (Array.isArray(products?.featured) ? products.featured : []),
+    [products],
+  );
   const status: ProductDetailStatus = !products
     ? "loading"
     : Array.isArray(products.all)
@@ -79,7 +90,7 @@ export function ProductPage({
     }
   }, [productSlug, resolvedStatus]);
 
-  const relatedProducts = useMemo<PurchasedProductCard[]>(() => {
+  const relatedProducts = useMemo<HomeProduct[]>(() => {
     if (!activeProduct) return [];
     const category = activeProduct.category?.trim().toLowerCase() ?? "";
     const byCategory = category
@@ -98,26 +109,19 @@ export function ProductPage({
         ? featured
         : productSource.filter((product) => product.id !== activeProduct.id).slice(-4);
     const homeMap = new Map(homeProducts.map((product) => [product.id, product]));
-    return fallback
-      .slice(0, 4)
-      .map((product) => {
-        const home = homeMap.get(product.id);
-        if (!home) return null;
-        const variantColors = resolveVariantOptions(
-          product.quoteFormSchema,
-          product.optionConfig,
-        ).colors;
-        return {
-          id: product.id,
-          name: product.name,
-          price: home.price,
-          rating: 0,
-          reviewCount: 0,
-          image: home.image,
-          colors: variantColors.map((color) => color.swatch),
-        };
-      })
-      .filter((entry): entry is PurchasedProductCard => Boolean(entry));
+    const entries: HomeProduct[] = [];
+    fallback.slice(0, 4).forEach((product) => {
+      const home = homeMap.get(product.id);
+      if (!home) return;
+      const variantColors = resolveVariantOptions(product.quoteFormSchema, product.optionConfig).colors;
+      entries.push({
+        ...home,
+        colors: variantColors.length
+          ? variantColors.map((color) => color.swatch)
+          : home.colors,
+      });
+    });
+    return entries;
   }, [activeProduct, featuredSource, homeProducts, productSource]);
   const sections = builder?.sections ?? [];
   const mediaLibrary = builder?.mediaLibrary ?? [];
@@ -136,29 +140,37 @@ export function ProductPage({
       <main>
         {heroSection ? (
           <section
-            className="mx-auto px-6 pt-8 sm:px-8"
+            className="pt-8 sm:pt-9 lg:pt-10"
             data-builder-section={heroSection.id}
           >
-            <div className="max-w-3xl space-y-2">
-              {heroSection.eyebrow ? (
-                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-600">
-                  {heroSection.eyebrow}
+            <div
+              className={clsx(
+                "mx-auto w-full px-4 sm:px-6 lg:px-8",
+                theme.containerClass,
+              )}
+            >
+              <div className="max-w-3xl space-y-2">
+                {heroSection.eyebrow ? (
+                  <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-600">
+                    {t(heroSection.eyebrow)}
+                  </p>
+                ) : null}
+                <p className="text-2xl font-semibold text-slate-900 sm:text-3xl">
+                  {t(heroSection.title ?? "Product details")}
                 </p>
-              ) : null}
-              <h1 className="text-2xl font-semibold text-slate-900 sm:text-3xl">
-                {heroSection.title ?? "Product details"}
-              </h1>
-              {heroSection.subtitle ?? heroSection.description ? (
-                <p className="text-sm text-slate-600">
-                  {heroSection.subtitle ?? heroSection.description}
-                </p>
-              ) : null}
+                {heroSection.subtitle ?? heroSection.description ? (
+                  <p className="text-sm text-slate-600">
+                    {t(heroSection.subtitle ?? heroSection.description ?? "")}
+                  </p>
+                ) : null}
+              </div>
             </div>
           </section>
         ) : null}
         <ProductDetailPage
           theme={theme}
           baseLink={baseLink}
+          catalogSlug={catalogSlug}
           status={resolvedStatus}
           product={activeProduct}
           cartProduct={activeHomeProduct}
@@ -167,7 +179,7 @@ export function ProductPage({
           mediaLibrary={mediaLibrary}
         />
       </main>
-      <Footer theme={theme} companyName={companyName} />
+      <Footer theme={theme} companyName={companyName} homeHref={homeHref} />
     </PageShell>
   );
 }

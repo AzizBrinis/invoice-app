@@ -1,6 +1,7 @@
 import clsx from "clsx";
 import { WEBSITE_MEDIA_PLACEHOLDERS } from "@/lib/website/placeholders";
 import type { ThemeTokens } from "../../types";
+import { useCisecoI18n } from "../../i18n";
 import { StarIcon } from "../shared/Icons";
 
 export type FeaturedProduct = {
@@ -20,6 +21,7 @@ type FeaturedRowProps = {
 };
 
 export function FeaturedRow({ theme, items }: FeaturedRowProps) {
+  const { t } = useCisecoI18n();
   return (
     <section className="border-t border-black/5">
       <div
@@ -30,21 +32,21 @@ export function FeaturedRow({ theme, items }: FeaturedRowProps) {
       >
         <div className="flex items-center justify-between gap-4">
           <h2 className="text-2xl font-semibold text-slate-900 sm:text-3xl">
-            Chosen by experts.{" "}
-            <span className="text-slate-400">Featured of the week</span>
+            {t("Chosen by experts.")}{" "}
+            <span className="text-slate-400">{t("Featured of the week")}</span>
           </h2>
           <div className="hidden items-center gap-2 sm:flex">
             <button
               type="button"
               className="flex h-9 w-9 items-center justify-center rounded-full border border-black/10 text-slate-600 transition hover:text-slate-900"
-              aria-label="Previous"
+              aria-label={t("Previous")}
             >
               <ArrowLeftIcon className="h-4 w-4" />
             </button>
             <button
               type="button"
               className="flex h-9 w-9 items-center justify-center rounded-full border border-black/10 text-slate-600 transition hover:text-slate-900"
-              aria-label="Next"
+              aria-label={t("Next")}
             >
               <ArrowRightIcon className="h-4 w-4" />
             </button>
@@ -61,6 +63,7 @@ export function FeaturedRow({ theme, items }: FeaturedRowProps) {
 }
 
 function FeaturedCard({ item }: { item: FeaturedProduct }) {
+  const { t } = useCisecoI18n();
   const imageSrc = item.image || WEBSITE_MEDIA_PLACEHOLDERS.products[0];
   const thumbnails =
     item.thumbnails.length > 0
@@ -72,7 +75,7 @@ function FeaturedCard({ item }: { item: FeaturedProduct }) {
         <div className="aspect-square">
           <img
             src={imageSrc}
-            alt={item.name}
+            alt={t(item.name)}
             className="h-full w-full object-contain"
             loading="lazy"
           />
@@ -86,7 +89,7 @@ function FeaturedCard({ item }: { item: FeaturedProduct }) {
           >
             <img
               src={thumb}
-              alt={`${item.name} thumbnail ${index + 1}`}
+              alt={`${t(item.name)} ${t("thumbnail")} ${index + 1}`}
               className="h-full w-full object-cover"
               loading="lazy"
             />
@@ -95,15 +98,15 @@ function FeaturedCard({ item }: { item: FeaturedProduct }) {
       </div>
       <div className="mt-4 flex items-start justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold text-slate-900">{item.name}</h3>
-          <p className="text-xs text-slate-500">{item.subtitle}</p>
+          <h3 className="text-sm font-semibold text-slate-900">{t(item.name)}</h3>
+          <p className="text-xs text-slate-500">{t(item.subtitle)}</p>
           <div className="mt-2 flex items-center gap-1 text-[11px] text-slate-500">
             <StarIcon className="h-3 w-3 text-amber-500" />
             <span className="font-semibold text-slate-700">
               {item.rating.toFixed(1)}
             </span>
             <span className="text-slate-400">
-              ({item.reviewCount} reviews)
+              ({item.reviewCount} {t("reviews")})
             </span>
           </div>
         </div>

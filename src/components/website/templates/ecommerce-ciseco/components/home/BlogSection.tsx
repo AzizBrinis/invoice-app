@@ -5,6 +5,8 @@ import type {
 } from "@/lib/website/builder";
 import type { ThemeTokens } from "../../types";
 import { resolveBuilderMedia } from "../../builder-helpers";
+import { resolveCisecoNavigationHref } from "../../utils";
+import { useCisecoI18n } from "../../i18n";
 import { BlogCard } from "../shared/BlogCard";
 import { Reveal } from "../shared/Reveal";
 import { Section } from "../layout/Section";
@@ -13,13 +15,16 @@ type BlogSectionProps = {
   theme: ThemeTokens;
   section?: WebsiteBuilderSection | null;
   mediaLibrary?: WebsiteBuilderMediaAsset[];
+  homeHref: string;
 };
 
 export function BlogSection({
   theme,
   section,
   mediaLibrary = [],
+  homeHref,
 }: BlogSectionProps) {
+  const { t, localizeHref } = useCisecoI18n();
   const eyebrow = section?.eyebrow ?? "Latest updates";
   const title = section?.title ?? "Stories, notes, and ideas";
   const subtitle =
@@ -37,6 +42,7 @@ export function BlogSection({
             image: asset?.src ?? fallback?.image ?? "",
             tag: item.tag ?? fallback?.tag ?? "Story",
             date: item.badge ?? fallback?.date ?? "",
+            href: item.href ?? fallback?.href ?? "/blog",
           };
         })
       : BLOG_POSTS;
@@ -51,24 +57,47 @@ export function BlogSection({
     >
       <div className="space-y-4">
         <div className="space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-900">
-            {eyebrow}
+          <p className="ciseco-home-eyebrow">
+            {t(eyebrow)}
           </p>
-          <h2 className="text-[30px] font-semibold leading-tight text-slate-900 sm:text-[34px]">
-            {title}
+          <h2 className="ciseco-home-title max-w-3xl text-[34px] sm:text-[42px]">
+            {t(title)}
           </h2>
-          <p className="text-sm text-slate-500">
-            {subtitle}
+          <p className="ciseco-home-subtitle max-w-2xl">
+            {t(subtitle)}
           </p>
         </div>
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
           <Reveal delay={40}>
-            <BlogCard post={featured} />
+            <BlogCard
+              post={{
+                ...featured,
+                href: localizeHref(
+                  resolveCisecoNavigationHref({
+                    href: featured?.href,
+                    homeHref,
+                    fallbackPath: "/blog",
+                  }),
+                ),
+              }}
+            />
           </Reveal>
           <div className="grid gap-4">
             {rest.map((post, index) => (
               <Reveal key={post.id} delay={60 + index * 60}>
-                <BlogCard post={post} variant="compact" />
+                <BlogCard
+                  post={{
+                    ...post,
+                    href: localizeHref(
+                      resolveCisecoNavigationHref({
+                        href: post.href,
+                        homeHref,
+                        fallbackPath: "/blog",
+                      }),
+                    ),
+                  }}
+                  variant="compact"
+                />
               </Reveal>
             ))}
           </div>

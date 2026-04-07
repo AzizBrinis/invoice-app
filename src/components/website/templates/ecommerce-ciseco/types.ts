@@ -6,6 +6,11 @@ export type ThemeTokens = {
   buttonShape: string;
 };
 
+export type NavItem = {
+  label: string;
+  href: string;
+};
+
 export type DiscoveryCard = {
   id: string;
   title: string;
@@ -33,6 +38,7 @@ export type HomeProduct = ProductCardData & {
   unitPriceHTCents: number | null;
   vatRate: number | null;
   discountRate: number | null;
+  discountAmountCents?: number | null;
   currencyCode: string;
 };
 
@@ -57,6 +63,7 @@ export type CategoryCard = {
     | "support"
     | "resources";
   badge?: string | null;
+  href?: string;
 };
 
 export type DepartmentCard = {
@@ -64,6 +71,7 @@ export type DepartmentCard = {
   title: string;
   subtitle: string;
   image: string;
+  href?: string;
 };
 
 export type BlogPost = {
@@ -73,6 +81,7 @@ export type BlogPost = {
   image: string;
   tag: string;
   date: string;
+  href?: string;
 };
 
 export type Testimonial = {
@@ -84,15 +93,21 @@ export type Testimonial = {
   avatar: string;
 };
 
+export type FooterLink = {
+  label: string;
+  href: string;
+};
+
 export type FooterLinkGroup = {
   title: string;
-  links: string[];
+  links: FooterLink[];
 };
 
 export type PageDescriptor =
   | { page: "home" }
   | { page: "blog" }
   | { page: "blog-detail"; slug?: string }
+  | { page: "cms"; cmsPath: string }
   | { page: "contact" }
   | { page: "about" }
   | { page: "search" }
@@ -157,6 +172,7 @@ export type PurchasedProductCard = {
   rating: number;
   reviewCount: number;
   image: string;
+  href?: string;
   badge?: string;
   colors: string[];
 };

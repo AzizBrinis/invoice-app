@@ -66,6 +66,7 @@ import {
 import { canApplyPathScopedNavigationUpdate } from "@/lib/path-scoped-navigation";
 import {
   useMailboxStore,
+  getMailboxStoreSnapshot,
   initializeMailboxCache,
   appendMailboxMessages,
   replaceMailboxMessages,
@@ -78,6 +79,7 @@ import {
   endMailboxSync,
   cacheMessageDetail,
   getCachedMessageDetail,
+  shouldReconcileMailboxPage,
 } from "@/app/(app)/messagerie/_state/mailbox-store";
 import type { LucideIcon } from "lucide-react";
 
@@ -229,19 +231,6 @@ function areMailboxItemsEqual(
     areStringArraysEqual(left.to, right.to) &&
     areTrackingSummariesEqual(left.tracking, right.tracking)
   );
-}
-
-function areMailboxPagesEqual(
-  left: MailboxListItem[],
-  right: MailboxListItem[],
-) {
-  if (left.length !== right.length) {
-    return false;
-  }
-  return left.every((item, index) => {
-    const other = right[index];
-    return other ? areMailboxItemsEqual(item, other) : false;
-  });
 }
 
 type MoveOption = {
@@ -695,6 +684,7 @@ export function MailboxClient({
   const initialLoadAttemptedRef = useRef(false);
   const searchRequestIdRef = useRef(0);
   const refreshRequestIdRef = useRef(0);
+  const appliedInitialPageRef = useRef<string | null>(null);
 
   const mailboxState = useMailboxStore((state) => state.mailboxes[mailbox]);
   const searchEnabled = isMailboxSearchable(mailbox);
@@ -866,31 +856,29 @@ export function MailboxClient({
   const displayedLoadingMore = hasActiveSearch
     ? searchLoadingMore
     : loadingMore;
-  const initialPageNeedsReconcile = useMemo(() => {
+  const initialPageKey = useMemo(() => {
     if (!initialPage) {
-      return false;
+      return null;
     }
-    if (!mailboxState.initialized || mailboxState.messages.length === 0) {
-      return true;
-    }
-    if (
-      mailboxState.pageSize !== initialPage.pageSize ||
-      mailboxState.totalMessages !== initialPage.totalMessages
-    ) {
-      return true;
-    }
-    const currentFirstPage = mailboxState.messages.slice(
-      0,
-      initialPage.messages.length
-    );
-    return !areMailboxPagesEqual(currentFirstPage, initialPage.messages);
-  }, [
-    initialPage,
-    mailboxState.initialized,
-    mailboxState.messages,
-    mailboxState.pageSize,
-    mailboxState.totalMessages,
-  ]);
+    return JSON.stringify({
+      mailbox,
+      page: initialPage.page,
+      pageSize: initialPage.pageSize,
+      hasMore: initialPage.hasMore,
+      totalMessages: initialPage.totalMessages,
+      messages: initialPage.messages.map((message) => ({
+        uid: message.uid,
+        messageId: message.messageId,
+        subject: message.subject,
+        from: message.from,
+        to: message.to,
+        date: message.date,
+        seen: message.seen,
+        hasAttachments: message.hasAttachments,
+        tracking: message.tracking ?? null,
+      })),
+    });
+  }, [initialPage, mailbox]);
 
   const safeActionCall = useCallback(
     async <T,>(
@@ -1620,25 +1608,53 @@ export function MailboxClient({
       initialLoadAttemptedRef.current = false;
       return;
     }
+    if (!initialPage || !initialPageKey) {
+      appliedInitialPageRef.current = null;
+      return;
+    }
+    if (appliedInitialPageRef.current === initialPageKey) {
+      return;
+    }
 
-    if (initialPage && initialPageNeedsReconcile) {
-      initialLoadAttemptedRef.current = false;
-      const payload = {
-        messages: initialPage.messages,
-        page: initialPage.page,
-        pageSize: initialPage.pageSize,
-        hasMore: initialPage.hasMore,
-        totalMessages: initialPage.totalMessages,
-      };
-      if (mailboxState.initialized) {
+    initialLoadAttemptedRef.current = false;
+    const payload = {
+      messages: initialPage.messages,
+      page: initialPage.page,
+      pageSize: initialPage.pageSize,
+      hasMore: initialPage.hasMore,
+      totalMessages: initialPage.totalMessages,
+    };
+    const currentMailboxState =
+      getMailboxStoreSnapshot().mailboxes[mailbox];
+    if (shouldReconcileMailboxPage(currentMailboxState, payload)) {
+      if (currentMailboxState.initialized) {
         replaceMailboxMessages(mailbox, payload);
       } else {
         initializeMailboxCache(mailbox, payload);
       }
-      setListError(initialError);
+    }
+    appliedInitialPageRef.current = initialPageKey;
+    setListError(initialError);
+  }, [
+    hasActiveSearch,
+    initialError,
+    initialPage,
+    initialPageKey,
+    isConfigured,
+    mailbox,
+  ]);
+
+  useEffect(() => {
+    if (!isConfigured) {
+      setInitialLoading(false);
+      initialLoadAttemptedRef.current = false;
       return;
     }
-
+    if (hasActiveSearch) {
+      setInitialLoading(false);
+      initialLoadAttemptedRef.current = false;
+      return;
+    }
     if (mailboxState.initialized) {
       initialLoadAttemptedRef.current = false;
       return;
@@ -1728,8 +1744,6 @@ export function MailboxClient({
   }, [
     addToast,
     initialError,
-    initialPage,
-    initialPageNeedsReconcile,
     isConfigured,
     hasActiveSearch,
     mailbox,

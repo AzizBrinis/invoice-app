@@ -7,19 +7,24 @@ import type {
 } from "@/lib/website/builder";
 import type { ThemeTokens } from "../../types";
 import { resolveBuilderMedia } from "../../builder-helpers";
+import { resolveCisecoNavigationHref } from "../../utils";
+import { useCisecoI18n } from "../../i18n";
 import { Section } from "../layout/Section";
 
 type KidsPromoBannerProps = {
   theme: ThemeTokens;
   section?: WebsiteBuilderSection | null;
   mediaLibrary?: WebsiteBuilderMediaAsset[];
+  homeHref: string;
 };
 
 export function KidsPromoBanner({
   theme,
   section,
   mediaLibrary = [],
+  homeHref,
 }: KidsPromoBannerProps) {
+  const { t, localizeHref } = useCisecoI18n();
   const eyebrow = section?.eyebrow ?? "Featured highlight";
   const title = section?.title ?? "Highlight an announcement or offer";
   const subtitle =
@@ -41,30 +46,40 @@ export function KidsPromoBanner({
           <div className="relative mx-auto w-full max-w-[360px]">
             <img
               src={image}
-              alt={imageAlt}
+              alt={t(imageAlt)}
               className="h-auto w-full object-cover"
               loading="lazy"
             />
           </div>
           <div className="space-y-3">
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-900">
-              {eyebrow}
+            <p className="ciseco-home-eyebrow">
+              {t(eyebrow)}
             </p>
-            <h3 className="max-w-[360px] text-[34px] font-semibold leading-tight text-slate-900">
-              {title}
+            <h3 className="ciseco-home-title max-w-[360px] text-[38px] sm:text-[46px]">
+              {t(title)}
             </h3>
-            <p className="max-w-[360px] text-sm text-slate-600">
-              {subtitle}
+            <p className="ciseco-home-subtitle max-w-[360px]">
+              {t(subtitle)}
             </p>
             {cta ? (
               <Button
                 asChild
                 className={clsx(
                   theme.buttonShape,
-                  "bg-slate-900 px-6 text-white shadow-[0_18px_30px_-20px_rgba(15,23,42,0.4)] hover:opacity-90",
+                  "bg-slate-900 px-6 text-white shadow-[0_18px_30px_-20px_rgba(15,23,42,0.4)] transition-[transform,box-shadow] duration-200 hover:-translate-y-0.5 hover:shadow-[0_22px_38px_-20px_rgba(15,23,42,0.45)]",
                 )}
               >
-                <a href={cta.href ?? "#"}>{cta.label}</a>
+                <a
+                  href={localizeHref(
+                    resolveCisecoNavigationHref({
+                      href: cta.href,
+                      homeHref,
+                      fallbackPath: "/about",
+                    }),
+                  )}
+                >
+                  {t(cta.label)}
+                </a>
               </Button>
             ) : null}
           </div>

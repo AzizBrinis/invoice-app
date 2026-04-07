@@ -4,6 +4,7 @@ import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { getAppHostnames } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
+import { createCisecoRequestTranslator } from "@/lib/website/ciseco-request-locale";
 import {
   getClientFromSessionToken,
   getClientSessionTokenFromCookie,
@@ -41,19 +42,22 @@ function resolveDomainAndSlug(request: NextRequest) {
   return { slug, domain };
 }
 
-async function requireClientAndWebsite(request: NextRequest) {
+async function requireClientAndWebsite(
+  request: NextRequest,
+  t: (text: string) => string,
+) {
   const token = await getClientSessionTokenFromCookie();
   if (!token) {
-    return { error: "Please sign in.", status: 401 };
+    return { error: t("Please sign in."), status: 401 };
   }
 
   const client = await getClientFromSessionToken(token);
   if (!client) {
     await signOutClient();
-    return { error: "Please sign in.", status: 401 };
+    return { error: t("Please sign in."), status: 401 };
   }
   if (!client.isActive) {
-    return { error: "Account inactive.", status: 403 };
+    return { error: t("Account inactive."), status: 403 };
   }
 
   const { slug, domain } = resolveDomainAndSlug(request);
@@ -63,10 +67,10 @@ async function requireClientAndWebsite(request: NextRequest) {
     preview: false,
   });
   if (!website) {
-    return { error: "Site unavailable.", status: 404 };
+    return { error: t("Site unavailable."), status: 404 };
   }
   if (client.userId !== website.userId) {
-    return { error: "Access denied.", status: 403 };
+    return { error: t("Access denied."), status: 403 };
   }
 
   return { client, website };
@@ -100,7 +104,8 @@ type WishlistDelegate = {
 };
 
 export async function GET(request: NextRequest) {
-  const resolved = await requireClientAndWebsite(request);
+  const { t } = createCisecoRequestTranslator(request);
+  const resolved = await requireClientAndWebsite(request, t);
   if ("error" in resolved) {
     return NextResponse.json(
       { error: resolved.error },
@@ -144,6 +149,8 @@ export async function GET(request: NextRequest) {
             priceHTCents: true,
             priceTTCCents: true,
             vatRate: true,
+            defaultDiscountRate: true,
+            defaultDiscountAmountCents: true,
             coverImageUrl: true,
             gallery: true,
             quoteFormSchema: true,
@@ -182,14 +189,15 @@ export async function GET(request: NextRequest) {
     }
     console.error("[catalogue/wishlist] GET failed", error);
     return NextResponse.json(
-      { error: "Unable to load wishlist." },
+      { error: t("Unable to load wishlist.") },
       { status: 500 },
     );
   }
 }
 
 export async function POST(request: NextRequest) {
-  const resolved = await requireClientAndWebsite(request);
+  const { t } = createCisecoRequestTranslator(request);
+  const resolved = await requireClientAndWebsite(request, t);
   if ("error" in resolved) {
     return NextResponse.json(
       { error: resolved.error },
@@ -202,7 +210,7 @@ export async function POST(request: NextRequest) {
     if (!wishlistDelegate || typeof wishlistDelegate !== "object") {
       console.warn("[catalogue/wishlist] prisma.wishlistItem missing");
       return NextResponse.json(
-        { error: "Wishlist is not available." },
+        { error: t("Wishlist is not available.") },
         { status: 503 },
       );
     }
@@ -217,7 +225,7 @@ export async function POST(request: NextRequest) {
     });
     if (!product) {
       return NextResponse.json(
-        { error: "Product not found." },
+        { error: t("Product not found.") },
         { status: 404 },
       );
     }
@@ -243,18 +251,19 @@ export async function POST(request: NextRequest) {
     if (isWishlistTableMissing(error)) {
       console.warn("[catalogue/wishlist] WishlistItem table missing");
       return NextResponse.json(
-        { error: "Wishlist is not available." },
+        { error: t("Wishlist is not available.") },
         { status: 503 },
       );
     }
     const message =
-      error instanceof Error ? error.message : "Unable to update wishlist.";
+      error instanceof Error ? t(error.message) : t("Unable to update wishlist.");
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }
 
 export async function DELETE(request: NextRequest) {
-  const resolved = await requireClientAndWebsite(request);
+  const { t } = createCisecoRequestTranslator(request);
+  const resolved = await requireClientAndWebsite(request, t);
   if ("error" in resolved) {
     return NextResponse.json(
       { error: resolved.error },
@@ -267,7 +276,7 @@ export async function DELETE(request: NextRequest) {
     if (!wishlistDelegate || typeof wishlistDelegate !== "object") {
       console.warn("[catalogue/wishlist] prisma.wishlistItem missing");
       return NextResponse.json(
-        { error: "Wishlist is not available." },
+        { error: t("Wishlist is not available.") },
         { status: 503 },
       );
     }
@@ -286,12 +295,12 @@ export async function DELETE(request: NextRequest) {
     if (isWishlistTableMissing(error)) {
       console.warn("[catalogue/wishlist] WishlistItem table missing");
       return NextResponse.json(
-        { error: "Wishlist is not available." },
+        { error: t("Wishlist is not available.") },
         { status: 503 },
       );
     }
     const message =
-      error instanceof Error ? error.message : "Unable to update wishlist.";
+      error instanceof Error ? t(error.message) : t("Unable to update wishlist.");
     return NextResponse.json({ error: message }, { status: 400 });
   }
 }

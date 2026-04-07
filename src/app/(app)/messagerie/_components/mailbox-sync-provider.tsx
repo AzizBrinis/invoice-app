@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import type { Route } from "next";
 import { usePathname, useRouter } from "next/navigation";
 import type { Mailbox } from "@/server/messaging";
@@ -85,11 +85,14 @@ export function MailboxSyncProvider({
   const primedUserIdRef = useRef<string | null>(null);
   const pathname = usePathname();
 
-  if (primedUserIdRef.current !== userId) {
+  useLayoutEffect(() => {
+    if (primedUserIdRef.current === userId) {
+      return;
+    }
     setMailboxCacheUser(userId);
     syncStatusRef.current = createInitialSyncStatus();
     primedUserIdRef.current = userId;
-  }
+  }, [userId]);
 
   useMailboxStore(() => null);
   const { addToast } = useToast();

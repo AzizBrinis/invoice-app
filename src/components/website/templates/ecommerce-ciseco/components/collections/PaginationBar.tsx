@@ -1,4 +1,7 @@
+import { useCisecoI18n } from "../../i18n";
+
 export function PaginationBar() {
+  const { t } = useCisecoI18n();
   return (
     <div className="mt-10 flex flex-wrap items-center justify-center gap-3 text-xs text-slate-500">
       <a
@@ -6,7 +9,7 @@ export function PaginationBar() {
         className="inline-flex items-center gap-2 rounded-full px-2 py-1 text-xs font-semibold text-slate-600 hover:text-slate-900"
       >
         <ArrowLeftIcon className="h-3.5 w-3.5" />
-        Previous
+        {t("Previous")}
       </a>
       <div className="flex items-center gap-1">
         <span className="flex h-8 w-8 items-center justify-center rounded-full border border-black/5 bg-slate-100 text-xs font-semibold text-slate-900">
@@ -35,7 +38,7 @@ export function PaginationBar() {
         href="#"
         className="inline-flex items-center gap-2 rounded-full px-2 py-1 text-xs font-semibold text-slate-600 hover:text-slate-900"
       >
-        Next
+        {t("Next")}
         <ArrowRightIcon className="h-3.5 w-3.5" />
       </a>
     </div>

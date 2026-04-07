@@ -1,11 +1,19 @@
 import clsx from "clsx";
+import { ArrowRight, Check, ShoppingBag } from "lucide-react";
+import { useEffect, useState } from "react";
+import type { MouseEvent } from "react";
 import type { ProductCardData } from "../../types";
+import { WishlistHeartIcon } from "./Icons";
+import { useCisecoI18n } from "../../i18n";
 
 type ProductCardProps = {
   product: ProductCardData;
   variant?: "default" | "compact";
   href?: string;
-  onAddToCart?: () => void;
+  onAddToCart?: () => boolean;
+  onToggleWishlist?: () => Promise<boolean> | void;
+  isWishlisted?: boolean;
+  isWishlistBusy?: boolean;
 };
 
 type ProductCardSkeletonProps = {
@@ -17,98 +25,183 @@ export function ProductCard({
   variant = "default",
   href,
   onAddToCart,
+  onToggleWishlist,
+  isWishlisted = false,
+  isWishlistBusy = false,
 }: ProductCardProps) {
+  const { t, localizeHref } = useCisecoI18n();
   const isCompact = variant === "compact";
+  const [showCartFeedback, setShowCartFeedback] = useState(false);
+  const productName = t(product.name);
+  const productCategory = t(product.category);
+  const productBadge = product.badge ? t(product.badge) : null;
+  const productHref = localizeHref(href ?? "#");
+
+  useEffect(() => {
+    if (!showCartFeedback) return;
+    const timeout = window.setTimeout(() => {
+      setShowCartFeedback(false);
+    }, 1400);
+    return () => window.clearTimeout(timeout);
+  }, [showCartFeedback]);
+
+  const handleWishlistClick = async (event: MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!onToggleWishlist || isWishlistBusy) return;
+    await onToggleWishlist();
+  };
+
+  const handleAddToCartClick = (event: MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!onAddToCart) return;
+    const didAdd = onAddToCart();
+    if (didAdd) {
+      setShowCartFeedback(true);
+    }
+  };
+
   return (
     <article
       className={clsx(
-        "group relative flex h-full flex-col overflow-hidden rounded-2xl border border-black/8 bg-white p-2.5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md",
-        isCompact && "p-2",
+        "group relative flex h-full flex-col overflow-hidden rounded-[28px] border border-black/5 bg-white/95 p-3.5 shadow-[0_20px_50px_-38px_rgba(15,23,42,0.55)] transition-[transform,box-shadow,border-color] duration-300 hover:-translate-y-1 hover:border-black/10 hover:shadow-[0_28px_60px_-36px_rgba(15,23,42,0.48)] sm:p-3",
+        isCompact && "rounded-[24px] p-2.5",
       )}
     >
-      {href ? (
+      <div className="relative overflow-hidden rounded-[24px] bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.98),_rgba(241,245,249,0.95)_44%,_rgba(226,232,240,0.92))]">
         <a
-          href={href}
-          className="absolute inset-0 z-10"
-          aria-label={`View ${product.name}`}
-        />
-      ) : null}
-      <div className="relative overflow-hidden rounded-2xl bg-slate-100">
-        <div className={clsx(isCompact ? "aspect-square" : "aspect-square")}>
-          <img
-            src={product.image}
-            alt={product.name}
-            className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.03]"
-            loading="lazy"
-          />
-        </div>
-        {product.badge ? (
-          <span className="absolute left-2 top-2 rounded-full bg-white/95 px-2 py-1 text-[9px] font-semibold uppercase tracking-[0.22em] text-emerald-600">
-            {product.badge}
+          href={productHref}
+          className="block"
+          aria-label={`${t("View details")} ${productName}`}
+        >
+          <div className="aspect-square overflow-hidden">
+            <img
+              src={product.image}
+              alt={productName}
+              className="h-full w-full object-cover transition duration-500 ease-out group-hover:scale-[1.05]"
+              loading="lazy"
+            />
+          </div>
+        </a>
+        {productBadge ? (
+          <span className="absolute left-3 top-3 z-20 rounded-full border border-white/75 bg-white/90 px-2.5 py-1 text-[9px] font-semibold tracking-[0.08em] text-slate-700 shadow-[0_10px_24px_-20px_rgba(15,23,42,0.65)] backdrop-blur-sm">
+            {productBadge}
           </span>
         ) : null}
         <button
           type="button"
-          aria-label={`Save ${product.name}`}
-          className="absolute right-2 top-2 z-20 flex h-7 w-7 items-center justify-center rounded-full bg-white/95 text-xs text-slate-700 shadow-sm"
+          onClick={handleWishlistClick}
+          disabled={!onToggleWishlist || isWishlistBusy}
+          aria-label={
+            isWishlisted
+              ? `${t("Remove")} ${productName} ${t("Wishlist")}`
+              : `${t("Wishlist")} ${productName}`
+          }
+          aria-pressed={isWishlisted}
+          aria-busy={isWishlistBusy}
+          className={clsx(
+            "absolute right-3 top-3 z-20 flex h-11 w-11 items-center justify-center rounded-full border border-white/85 bg-white/92 text-xs shadow-[0_16px_32px_-24px_rgba(15,23,42,0.75)] backdrop-blur-md transition-[transform,color,background-color,box-shadow,border-color] duration-300 hover:-translate-y-0.5 active:scale-95 sm:h-10 sm:w-10",
+            isWishlisted
+              ? "border-rose-200/80 bg-rose-50 text-rose-600 shadow-[0_18px_34px_-24px_rgba(244,63,94,0.65)]"
+              : "text-slate-500 hover:border-rose-100 hover:bg-white hover:text-rose-500",
+            isWishlistBusy ? "cursor-wait opacity-80" : null,
+          )}
         >
-          <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
-            <path
-              d="M12 20s-6.5-3.7-8.5-7.6C1.6 9.4 3.1 6 6.4 6c1.9 0 3.2 1 3.6 2.1C10.4 7 11.7 6 13.6 6c3.3 0 4.8 3.4 2.9 6.4C18.5 16.3 12 20 12 20z"
-              fill="currentColor"
-              opacity="0.2"
+          {isWishlistBusy ? (
+            <span
+              className="h-4 w-4 animate-spin rounded-full border-2 border-rose-200 border-t-rose-500"
+              aria-hidden="true"
             />
-            <path
-              d="M12 20s-6.5-3.7-8.5-7.6C1.6 9.4 3.1 6 6.4 6c1.9 0 3.2 1 3.6 2.1C10.4 7 11.7 6 13.6 6c3.3 0 4.8 3.4 2.9 6.4C18.5 16.3 12 20 12 20z"
-              stroke="currentColor"
-              strokeWidth="1.2"
-              fill="none"
+          ) : (
+            <WishlistHeartIcon
+              key={isWishlisted ? "wishlisted" : "idle"}
+              className={clsx(
+                "h-[18px] w-[18px] transition-transform duration-300",
+                isWishlisted && "animate-ciseco-heart-pop",
+              )}
+              filled={isWishlisted}
+              strokeWidth={1.9}
             />
-          </svg>
+          )}
         </button>
       </div>
-      <div className={clsx("flex flex-1 flex-col", isCompact ? "mt-2" : "mt-2.5")}>
-        <div className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">
-          <span>{product.category}</span>
-          <span className="text-slate-900">{product.price}</span>
+
+      <div className={clsx("flex flex-1 flex-col", isCompact ? "mt-2.5" : "mt-3.5")}>
+        <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <span className="ciseco-card-meta">
+            {productCategory}
+          </span>
+          <span
+            className="ciseco-price-chip inline-flex min-h-9 items-center rounded-full border px-3.5 py-1.5 text-[13px] font-semibold tabular-nums tracking-[-0.01em] text-slate-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]"
+            style={{
+              backgroundColor: "var(--site-accent-soft)",
+              borderColor: "var(--site-accent-strong)",
+            }}
+          >
+            {product.price}
+          </span>
         </div>
-        <h3 className="mt-1.5 line-clamp-2 text-[15px] font-semibold leading-tight text-slate-900">
-          {product.name}
+
+        <h3 className="mt-2 ciseco-card-title line-clamp-2 text-[17px] leading-[1.32] text-slate-950">
+          <a
+            href={productHref}
+            className="rounded-sm transition-colors duration-200 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/15"
+          >
+            {productName}
+          </a>
         </h3>
-        <div className="mt-auto flex items-center justify-between pt-2 text-xs text-slate-600">
-          <div className="flex items-center gap-1">
+
+        <div className="mt-auto flex flex-wrap items-center justify-between gap-3 pt-3 text-[11px] text-slate-500">
+          <div className="flex items-center gap-1.5 rounded-full bg-slate-100/80 px-2.5 py-1 font-medium text-slate-600">
             <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 text-amber-500">
               <path
                 d="M12 3l2.6 5.3 5.9.9-4.2 4.1 1 5.9L12 16.6 6.7 19l1-5.9L3.5 9.2l5.9-.9L12 3z"
                 fill="currentColor"
               />
             </svg>
-            <span>{product.rating.toFixed(1)}</span>
+            <span className="tabular-nums text-slate-700">
+              {product.rating.toFixed(1)}
+            </span>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1.5">
             {product.colors.map((color, colorIndex) => (
               <span
                 key={`${product.id}-color-${colorIndex}`}
-                className="h-2 w-2 rounded-full"
+                className="h-2.5 w-2.5 rounded-full ring-1 ring-black/10 transition-transform duration-300 group-hover:scale-110"
                 style={{ backgroundColor: color }}
               />
             ))}
           </div>
         </div>
-        <div className="relative z-20 mt-2 flex items-center justify-between gap-2">
+
+        <div className="relative z-20 mt-3.5 flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
           <a
-            href={href ?? "#"}
-            className="text-xs font-semibold text-slate-700"
+            href={productHref}
+            className="inline-flex min-h-10 w-full items-center justify-center gap-1.5 rounded-full border border-black/10 bg-white/80 px-4 py-2.5 text-[13px] font-semibold text-slate-600 shadow-[0_12px_24px_-24px_rgba(15,23,42,0.42)] transition-[transform,color,box-shadow,border-color,background-color] duration-200 hover:-translate-y-0.5 hover:border-black/15 hover:bg-white hover:text-slate-950 hover:shadow-[0_18px_28px_-24px_rgba(15,23,42,0.42)] lg:min-h-0 lg:w-auto lg:justify-start lg:border-0 lg:bg-transparent lg:px-0 lg:py-0 lg:shadow-none"
           >
-            View details
+            <span>{t("View details")}</span>
+            <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" strokeWidth={1.9} />
           </a>
           {!isCompact && onAddToCart ? (
             <button
               type="button"
-              onClick={onAddToCart}
-              className="rounded-full border border-black/10 bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-600 transition hover:bg-black/5"
+              onClick={handleAddToCartClick}
+              className={clsx(
+                "inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-full px-4 py-3 text-[13px] font-semibold leading-none tracking-[0.005em] shadow-[0_16px_28px_-20px_rgba(15,23,42,0.85)] transition-[transform,box-shadow,background-color,color] duration-200 hover:-translate-y-0.5 hover:shadow-[0_22px_36px_-20px_rgba(15,23,42,0.75)] active:translate-y-0 lg:min-h-10 lg:w-auto lg:px-3.5 lg:py-2 lg:text-[12px] xl:px-4 xl:text-[13px]",
+                showCartFeedback
+                  ? "bg-emerald-50 text-emerald-700 shadow-[0_16px_28px_-22px_rgba(16,185,129,0.55)]"
+                  : "bg-slate-950 text-white",
+              )}
             >
-              Add to cart
+              {showCartFeedback ? (
+                <Check className="h-3.5 w-3.5" aria-hidden="true" strokeWidth={2.2} />
+              ) : (
+                <ShoppingBag className="h-3.5 w-3.5" aria-hidden="true" strokeWidth={1.9} />
+              )}
+              <span className="whitespace-nowrap text-center">
+                {showCartFeedback ? t("Added") : t("Add to cart")}
+              </span>
             </button>
           ) : null}
         </div>
@@ -124,35 +217,30 @@ export function ProductCardSkeleton({
   return (
     <div
       className={clsx(
-        "flex h-full animate-pulse flex-col overflow-hidden rounded-2xl border border-black/8 bg-white p-2.5 shadow-sm",
-        isCompact && "p-2",
+        "flex h-full animate-pulse flex-col overflow-hidden rounded-[28px] border border-black/5 bg-white/95 p-3.5 shadow-[0_20px_50px_-38px_rgba(15,23,42,0.35)] sm:p-3",
+        isCompact && "rounded-[24px] p-2.5",
       )}
     >
-      <div className="relative overflow-hidden rounded-2xl bg-slate-50">
-        <div
-          className={clsx(
-            "bg-slate-100",
-            isCompact ? "aspect-square" : "aspect-square",
-          )}
-        />
+      <div className="relative overflow-hidden rounded-[24px] bg-slate-50">
+        <div className="aspect-square bg-slate-100" />
       </div>
-      <div className={clsx("flex flex-1 flex-col", isCompact ? "mt-2" : "mt-2.5")}>
-        <div className="flex items-center justify-between">
+      <div className={clsx("flex flex-1 flex-col", isCompact ? "mt-2.5" : "mt-3.5")}>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="h-3 w-20 rounded-full bg-slate-100" />
-          <div className="h-3 w-12 rounded-full bg-slate-100" />
+          <div className="h-9 w-24 rounded-full bg-slate-100" />
         </div>
-        <div className="mt-1.5 h-4 w-32 rounded-full bg-slate-100" />
-        <div className="mt-auto flex items-center justify-between pt-2">
-          <div className="h-3 w-16 rounded-full bg-slate-100" />
+        <div className="mt-2 h-5 w-36 rounded-full bg-slate-100" />
+        <div className="mt-auto flex items-center justify-between pt-3">
+          <div className="h-7 w-16 rounded-full bg-slate-100" />
           <div className="flex items-center gap-1">
-            <span className="h-2 w-2 rounded-full bg-slate-100" />
-            <span className="h-2 w-2 rounded-full bg-slate-100" />
-            <span className="h-2 w-2 rounded-full bg-slate-100" />
+            <span className="h-2.5 w-2.5 rounded-full bg-slate-100" />
+            <span className="h-2.5 w-2.5 rounded-full bg-slate-100" />
+            <span className="h-2.5 w-2.5 rounded-full bg-slate-100" />
           </div>
         </div>
-        <div className="mt-2 flex items-center justify-between gap-2">
-          <div className="h-3 w-16 rounded-full bg-slate-100" />
-          {!isCompact ? <div className="h-5 w-20 rounded-full bg-slate-100" /> : null}
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="h-3 w-20 rounded-full bg-slate-100" />
+          {!isCompact ? <div className="h-11 w-full rounded-full bg-slate-100 sm:h-10 sm:w-28" /> : null}
         </div>
       </div>
     </div>

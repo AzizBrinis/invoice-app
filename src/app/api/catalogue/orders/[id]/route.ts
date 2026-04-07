@@ -4,6 +4,7 @@ import { z } from "zod";
 import { getAppHostnames } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
 import { parseConfirmationToken } from "@/lib/confirmation-token";
+import { createCisecoRequestTranslator } from "@/lib/website/ciseco-request-locale";
 import {
   normalizeCatalogDomainInput,
   normalizeCatalogSlugInput,
@@ -31,6 +32,7 @@ export async function GET(
   request: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
+  const { t } = createCisecoRequestTranslator(request);
   try {
     const { id } = paramsSchema.parse(await context.params);
     const query = querySchema.parse({
@@ -51,12 +53,12 @@ export async function GET(
       preview: query.mode === "preview",
     });
     if (!website) {
-      throw new Error("Site introuvable.");
+      throw new Error("Site unavailable.");
     }
 
     const tokenPayload = await parseConfirmationToken(query.token);
     if (!tokenPayload || tokenPayload.orderId !== id) {
-      throw new Error("Confirmation invalide.");
+      throw new Error("Invalid confirmation.");
     }
 
     const order = await prisma.order.findFirst({
@@ -67,7 +69,17 @@ export async function GET(
       select: {
         id: true,
         orderNumber: true,
+        createdAt: true,
         currency: true,
+        paymentStatus: true,
+        customerName: true,
+        customerEmail: true,
+        customerPhone: true,
+        customerCompany: true,
+        customerAddress: true,
+        subtotalHTCents: true,
+        totalDiscountCents: true,
+        totalTVACents: true,
         totalTTCCents: true,
         items: {
           orderBy: { position: "asc" },
@@ -77,19 +89,37 @@ export async function GET(
             description: true,
             quantity: true,
             totalTTCCents: true,
+            product: {
+              select: {
+                name: true,
+                coverImageUrl: true,
+              },
+            },
+          },
+        },
+        payments: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+          select: {
+            method: true,
+            status: true,
+            proofStatus: true,
+            proofUploadedAt: true,
           },
         },
       },
     });
 
     if (!order) {
-      throw new Error("Commande introuvable.");
+      throw new Error("Order not found.");
     }
 
     const summaryItems = order.items.map((item) => ({
       productId: item.productId ?? item.id,
       title: item.description,
       quantity: item.quantity,
+      image: item.product?.coverImageUrl ?? null,
+      productName: item.product?.name ?? null,
       unitAmountCents:
         Number.isFinite(item.quantity) && item.quantity > 0
           ? Math.round(item.totalTTCCents / item.quantity)
@@ -102,7 +132,22 @@ export async function GET(
       order: {
         id: order.id,
         orderNumber: order.orderNumber,
+        createdAt: order.createdAt,
         currency: order.currency,
+        paymentStatus: order.paymentStatus,
+        paymentMethod: order.payments[0]?.method ?? null,
+        paymentProofStatus: order.payments[0]?.proofStatus ?? null,
+        paymentProofUploadedAt: order.payments[0]?.proofUploadedAt ?? null,
+        customer: {
+          name: order.customerName,
+          email: order.customerEmail,
+          phone: order.customerPhone,
+          company: order.customerCompany,
+          address: order.customerAddress,
+        },
+        subtotalHTCents: order.subtotalHTCents,
+        totalDiscountCents: order.totalDiscountCents,
+        totalTVACents: order.totalTVACents,
         totalTTCCents: order.totalTTCCents,
         items: summaryItems,
       },
@@ -110,9 +155,7 @@ export async function GET(
   } catch (error) {
     console.error("[catalogue/orders] summary failed", error);
     const message =
-      error instanceof Error
-        ? error.message
-        : "Impossible de récupérer la commande.";
+      error instanceof Error ? t(error.message) : t("Unable to fetch order.");
     return NextResponse.json(
       { error: message },
       {

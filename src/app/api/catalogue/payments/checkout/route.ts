@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getAppHostnames } from "@/lib/env";
 import { createCheckoutSession } from "@/server/payments";
+import { createCisecoRequestTranslator } from "@/lib/website/ciseco-request-locale";
 import {
   normalizeCatalogDomainInput,
   normalizeCatalogPathInput,
@@ -34,27 +35,28 @@ const checkoutPayloadSchema = z.object({
 function resolveReturnUrl(value: string, request: NextRequest) {
   const trimmed = value.trim();
   if (!trimmed) {
-    throw new Error("URL de retour invalide.");
+    throw new Error("Invalid return URL.");
   }
   const base = new URL(request.url);
   const resolved = new URL(trimmed, `${base.protocol}//${base.host}`);
   if (resolved.host !== base.host) {
-    throw new Error("URL de retour invalide.");
+    throw new Error("Invalid return URL.");
   }
   return resolved.toString();
 }
 
 export async function POST(request: NextRequest) {
+  const { t } = createCisecoRequestTranslator(request);
   try {
     const payload = checkoutPayloadSchema.parse(await request.json());
     if (payload.mode === "preview") {
-      throw new Error("Le paiement est indisponible en prévisualisation.");
+      throw new Error("Payment is unavailable in preview mode.");
     }
     if (payload.method && payload.method !== "card") {
-      throw new Error("Mode de paiement invalide.");
+      throw new Error("Select a valid payment method.");
     }
     if (payload.path && !normalizeCatalogPathInput(payload.path)) {
-      throw new Error("Chemin invalide.");
+      throw new Error("Invalid path.");
     }
 
     const host = request.headers.get("host")?.toLowerCase() ?? "";
@@ -71,7 +73,7 @@ export async function POST(request: NextRequest) {
       preview: false,
     });
     if (!website) {
-      throw new Error("Site introuvable.");
+      throw new Error("Site unavailable.");
     }
 
     const successUrl = resolveReturnUrl(payload.successUrl, request);
@@ -100,8 +102,8 @@ export async function POST(request: NextRequest) {
     console.error("[catalogue/payments] checkout failed", error);
     const message =
       error instanceof Error
-        ? error.message
-        : "Impossible de créer la session de paiement.";
+        ? t(error.message)
+        : t("Unable to create the payment session.");
     return NextResponse.json(
       { error: message },
       {

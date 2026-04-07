@@ -16,7 +16,7 @@ export const MAILBOX_KEYS: Mailbox[] = [
   "spam",
 ];
 
-type MailboxCache = {
+export type MailboxCache = {
   messages: MailboxListItem[];
   page: number;
   pageSize: number;
@@ -44,6 +44,14 @@ type MailboxUpdateOptions = {
   hasMore?: boolean;
   totalMessages?: number | null;
   lastSync?: number;
+};
+
+export type MailboxPagePayload = {
+  messages: MailboxListItem[];
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+  totalMessages: number | null;
 };
 
 const defaultMailboxCache = (): MailboxCache => ({
@@ -202,6 +210,9 @@ const store = {
             this.state,
           )
         : nextState;
+    if (computed === this.state) {
+      return;
+    }
     this.state = computed;
     if (typeof window !== "undefined" && options?.persist !== false) {
       schedulePersistState(this.state);
@@ -351,13 +362,7 @@ function computeHasMore(
 
 function resolveReplacementState(
   current: MailboxCache,
-  payload: {
-    messages: MailboxListItem[];
-    page: number;
-    pageSize: number;
-    hasMore: boolean;
-    totalMessages: number | null;
-  },
+  payload: MailboxPagePayload,
 ) {
   const shouldPreserveLoadedPages =
     payload.page === 1 &&
@@ -386,6 +391,73 @@ function resolveReplacementState(
         )
       : payload.hasMore,
   };
+}
+
+function resolveInitializedMailboxState(
+  current: MailboxCache,
+  payload: MailboxPagePayload,
+) {
+  const nextMessages = [...payload.messages];
+  const resolvedMessages = areMailboxListsEqual(current.messages, nextMessages)
+    ? current.messages
+    : nextMessages;
+  const nextLatestUid = computeLatestUid(nextMessages);
+  const hasChanged = !(
+    current.initialized &&
+    current.page === payload.page &&
+    current.pageSize === payload.pageSize &&
+    current.hasMore === payload.hasMore &&
+    current.totalMessages === payload.totalMessages &&
+    current.syncing === false &&
+    current.latestUid === nextLatestUid &&
+    areMailboxListsEqual(current.messages, nextMessages)
+  );
+
+  return {
+    hasChanged,
+    resolvedMessages,
+    nextLatestUid,
+  };
+}
+
+function resolveMailboxReplacement(
+  current: MailboxCache,
+  payload: MailboxPagePayload,
+) {
+  const replacement = resolveReplacementState(current, payload);
+  const resolvedMessages = areMailboxListsEqual(
+    current.messages,
+    replacement.messages,
+  )
+    ? current.messages
+    : replacement.messages;
+  const nextLatestUid = computeLatestUid(resolvedMessages);
+  const hasChanged = !(
+    current.initialized &&
+    current.page === replacement.page &&
+    current.pageSize === payload.pageSize &&
+    current.hasMore === replacement.hasMore &&
+    current.totalMessages === payload.totalMessages &&
+    current.syncing === false &&
+    current.latestUid === nextLatestUid &&
+    areMailboxListsEqual(current.messages, replacement.messages)
+  );
+
+  return {
+    hasChanged,
+    replacement,
+    resolvedMessages,
+    nextLatestUid,
+  };
+}
+
+export function shouldReconcileMailboxPage(
+  current: MailboxCache,
+  payload: MailboxPagePayload,
+) {
+  return current.initialized
+    ? resolveMailboxReplacement(current, payload).hasChanged
+    : resolveInitializedMailboxState(current, payload).hasChanged;
 }
 
 function updateMailbox(
@@ -426,31 +498,12 @@ function applyMetadata(
 
 export function initializeMailboxCache(
   mailbox: Mailbox,
-  payload: {
-    messages: MailboxListItem[];
-    page: number;
-    pageSize: number;
-    hasMore: boolean;
-    totalMessages: number | null;
-  },
+  payload: MailboxPagePayload,
 ) {
   updateMailbox(mailbox, (current) => {
-    const nextMessages = [...payload.messages];
-    const resolvedMessages = areMailboxListsEqual(current.messages, nextMessages)
-      ? current.messages
-      : nextMessages;
-    const nextLatestUid = computeLatestUid(nextMessages);
-    const nextLastSync = Date.now();
-    if (
-      current.initialized &&
-      current.page === payload.page &&
-      current.pageSize === payload.pageSize &&
-      current.hasMore === payload.hasMore &&
-      current.totalMessages === payload.totalMessages &&
-      current.syncing === false &&
-      current.latestUid === nextLatestUid &&
-      areMailboxListsEqual(current.messages, nextMessages)
-    ) {
+    const { hasChanged, resolvedMessages, nextLatestUid } =
+      resolveInitializedMailboxState(current, payload);
+    if (!hasChanged) {
       return current;
     }
     return {
@@ -460,7 +513,7 @@ export function initializeMailboxCache(
       pageSize: payload.pageSize,
       hasMore: payload.hasMore,
       initialized: true,
-      lastSync: nextLastSync,
+      lastSync: Date.now(),
       latestUid: nextLatestUid,
       totalMessages: payload.totalMessages,
       syncing: false,
@@ -470,34 +523,16 @@ export function initializeMailboxCache(
 
 export function replaceMailboxMessages(
   mailbox: Mailbox,
-  payload: {
-    messages: MailboxListItem[];
-    page: number;
-    pageSize: number;
-    hasMore: boolean;
-    totalMessages: number | null;
-  },
+  payload: MailboxPagePayload,
 ) {
   updateMailbox(mailbox, (current) => {
-    const replacement = resolveReplacementState(current, payload);
-    const resolvedMessages = areMailboxListsEqual(
-      current.messages,
-      replacement.messages,
-    )
-      ? current.messages
-      : replacement.messages;
-    const nextLatestUid = computeLatestUid(resolvedMessages);
-    const nextLastSync = Date.now();
-    if (
-      current.initialized &&
-      current.page === replacement.page &&
-      current.pageSize === payload.pageSize &&
-      current.hasMore === replacement.hasMore &&
-      current.totalMessages === payload.totalMessages &&
-      current.syncing === false &&
-      current.latestUid === nextLatestUid &&
-      areMailboxListsEqual(current.messages, replacement.messages)
-    ) {
+    const {
+      hasChanged,
+      replacement,
+      resolvedMessages,
+      nextLatestUid,
+    } = resolveMailboxReplacement(current, payload);
+    if (!hasChanged) {
       return current;
     }
     return {
@@ -507,7 +542,7 @@ export function replaceMailboxMessages(
       pageSize: payload.pageSize,
       hasMore: replacement.hasMore,
       initialized: true,
-      lastSync: nextLastSync,
+      lastSync: Date.now(),
       latestUid: nextLatestUid,
       totalMessages: payload.totalMessages,
       syncing: false,

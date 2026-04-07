@@ -46,4 +46,17 @@ export function sanitizeProductHtml(source: string): string {
   return sanitizeHtml(source, PRODUCT_SANITIZE_OPTIONS);
 }
 
+export function stripProductHtml(source: string): string {
+  if (!source) {
+    return "";
+  }
+
+  return sanitizeHtml(source, {
+    allowedTags: [],
+    allowedAttributes: {},
+  })
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export { PRODUCT_SANITIZE_OPTIONS };

@@ -79,7 +79,14 @@ export function AuthLayout({
         </div>
         {belowContent}
       </main>
-      {chrome ? <Footer theme={theme} companyName={chrome.companyName} /> : null}
+      {chrome ? (
+        <Footer
+          theme={theme}
+          companyName={chrome.companyName}
+          homeHref={chrome.homeHref}
+          spacing="compact"
+        />
+      ) : null}
     </PageShell>
   );
 }

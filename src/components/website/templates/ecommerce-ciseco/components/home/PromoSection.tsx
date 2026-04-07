@@ -7,19 +7,24 @@ import type {
 } from "@/lib/website/builder";
 import type { ThemeTokens } from "../../types";
 import { resolveBuilderMedia } from "../../builder-helpers";
+import { resolveCisecoNavigationHref } from "../../utils";
+import { useCisecoI18n } from "../../i18n";
 import { Section } from "../layout/Section";
 
 type PromoSectionProps = {
   theme: ThemeTokens;
   section?: WebsiteBuilderSection | null;
   mediaLibrary?: WebsiteBuilderMediaAsset[];
+  homeHref: string;
 };
 
 export function PromoSection({
   theme,
   section,
   mediaLibrary = [],
+  homeHref,
 }: PromoSectionProps) {
+  const { t, localizeHref } = useCisecoI18n();
   const eyebrow = section?.eyebrow ?? "Flexible callout";
   const title = section?.title ?? "Built for a wide range of use cases";
   const description =
@@ -38,24 +43,34 @@ export function PromoSection({
     >
       <div className="grid items-center gap-6 rounded-[26px] bg-white p-4 shadow-sm sm:p-6 lg:grid-cols-[1fr_1fr] lg:p-8">
         <div className="space-y-3">
-          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-900">
-            {eyebrow}
+          <p className="ciseco-home-eyebrow">
+            {t(eyebrow)}
           </p>
-          <h3 className="max-w-[460px] text-[34px] font-semibold leading-tight text-slate-900">
-            {title}
+          <h3 className="ciseco-home-title max-w-[460px] text-[38px] sm:text-[46px]">
+            {t(title)}
           </h3>
-          <p className="max-w-[460px] text-sm text-slate-500">
-            {description}
+          <p className="ciseco-home-subtitle max-w-[460px]">
+            {t(description)}
           </p>
           {cta ? (
             <Button
               asChild
               className={clsx(
                 theme.buttonShape,
-                "mt-2 bg-slate-900 px-6 text-white shadow-[0_18px_30px_-20px_rgba(15,23,42,0.4)] hover:opacity-90",
+                "mt-2 bg-slate-900 px-6 text-white shadow-[0_18px_30px_-20px_rgba(15,23,42,0.4)] transition-[transform,box-shadow] duration-200 hover:-translate-y-0.5 hover:shadow-[0_22px_38px_-20px_rgba(15,23,42,0.45)]",
               )}
             >
-              <a href={cta.href ?? "#"}>{cta.label}</a>
+              <a
+                href={localizeHref(
+                  resolveCisecoNavigationHref({
+                    href: cta.href,
+                    homeHref,
+                    fallbackPath: "/contact",
+                  }),
+                )}
+              >
+                {t(cta.label)}
+              </a>
             </Button>
           ) : null}
         </div>
@@ -64,7 +79,7 @@ export function PromoSection({
           <div className="absolute right-10 top-3 h-10 w-10 rounded-full bg-[#fed7aa]" />
           <img
             src={promoImage}
-            alt={promoAlt}
+            alt={t(promoAlt)}
             className="relative z-10 h-auto w-full object-contain"
             loading="lazy"
           />

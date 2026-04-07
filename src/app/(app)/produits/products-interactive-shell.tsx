@@ -15,6 +15,7 @@ import { clsx } from "clsx";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/formatters";
 import { fromCents } from "@/lib/money";
+import { formatProductDiscount } from "@/lib/product-pricing";
 import { canApplyPathScopedNavigationUpdate } from "@/lib/path-scoped-navigation";
 import type { CurrencyCode } from "@/lib/currency";
 import type { ProductListResult } from "@/server/products";
@@ -596,9 +597,12 @@ export function ProductsInteractiveShell({
                   <div className="space-y-1">
                     <dt className="text-xs uppercase tracking-wide">Remise</dt>
                     <dd>
-                      {product.defaultDiscountRate != null
-                        ? `${product.defaultDiscountRate}%`
-                        : "—"}
+                      {formatProductDiscount({
+                        discountRate: product.defaultDiscountRate,
+                        discountAmountCents:
+                          product.defaultDiscountAmountCents,
+                        currencyCode,
+                      })}
                     </dd>
                   </div>
                   <div className="space-y-1">
@@ -700,9 +704,12 @@ export function ProductsInteractiveShell({
                     {product.vatRate}%
                   </td>
                   <td className="px-4 py-3 text-zinc-600 dark:text-zinc-300">
-                    {product.defaultDiscountRate != null
-                      ? `${product.defaultDiscountRate}%`
-                      : "—"}
+                    {formatProductDiscount({
+                      discountRate: product.defaultDiscountRate,
+                      discountAmountCents:
+                        product.defaultDiscountAmountCents,
+                      currencyCode,
+                    })}
                   </td>
                   <td className="px-4 py-3">
                     <span

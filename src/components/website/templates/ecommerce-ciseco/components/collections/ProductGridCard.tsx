@@ -1,12 +1,17 @@
 import clsx from "clsx";
+import { useEffect, useState } from "react";
+import { useCart, type CartProduct } from "@/components/website/cart/cart-context";
 import { WEBSITE_MEDIA_PLACEHOLDERS } from "@/lib/website/placeholders";
-import { StarIcon } from "../shared/Icons";
+import { useCisecoI18n } from "../../i18n";
+import { StarIcon, WishlistHeartIcon } from "../shared/Icons";
 
 export type CollectionProduct = {
   id: string;
   name: string;
   subtitle: string;
   price: string;
+  href?: string;
+  cartProduct?: CartProduct | null;
   rating: number;
   reviewCount: number;
   image: string;
@@ -21,23 +26,48 @@ type ProductGridCardProps = {
 };
 
 export function ProductGridCard({ product }: ProductGridCardProps) {
+  const { t, localizeHref } = useCisecoI18n();
+  const { addItem } = useCart();
   const imageSrc = product.image || WEBSITE_MEDIA_PLACEHOLDERS.products[0];
+  const [showCartFeedback, setShowCartFeedback] = useState(false);
+
+  useEffect(() => {
+    if (!showCartFeedback) return;
+    const timeout = window.setTimeout(() => {
+      setShowCartFeedback(false);
+    }, 1400);
+    return () => window.clearTimeout(timeout);
+  }, [showCartFeedback]);
+
+  const handleAddToCartClick = () => {
+    if (!product.cartProduct) return;
+    const didAdd = addItem(product.cartProduct);
+    if (didAdd) {
+      setShowCartFeedback(true);
+    }
+  };
+
   return (
     <article className="group flex h-full flex-col">
       <div className="relative overflow-hidden rounded-3xl border border-black/5 bg-white p-3 shadow-sm">
-        <div className="relative overflow-hidden rounded-2xl bg-slate-50 p-6">
-          <div className="aspect-square">
-            <img
-              src={imageSrc}
-              alt={product.name}
-              className="h-full w-full object-contain"
-              loading="lazy"
-            />
+        <a
+          href={localizeHref(product.href ?? "#")}
+          className="block rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/15"
+        >
+          <div className="relative overflow-hidden rounded-2xl bg-slate-50 p-6">
+            <div className="aspect-square">
+              <img
+                src={imageSrc}
+                alt={t(product.name)}
+                className="h-full w-full object-contain"
+                loading="lazy"
+              />
+            </div>
           </div>
-        </div>
+        </a>
         {product.badge ? (
           <span className="absolute left-4 top-4 z-10 inline-flex items-center rounded-full border border-black/10 bg-white/90 px-2.5 py-1 text-[10px] font-semibold text-slate-600 shadow-sm">
-            {product.badge}
+            {t(product.badge)}
           </span>
         ) : null}
         <button
@@ -48,24 +78,36 @@ export function ProductGridCard({ product }: ProductGridCardProps) {
               ? "text-rose-500"
               : "text-slate-400 hover:text-rose-500",
           )}
-          aria-label="Toggle wishlist"
+          aria-label={t("Toggle wishlist")}
         >
-          <HeartIcon className="h-4 w-4" filled={product.favorite} />
+          <WishlistHeartIcon className="h-4 w-4" filled={product.favorite} />
         </button>
         {product.showActions ? (
-          <div className="pointer-events-none absolute inset-x-4 bottom-4 flex items-center justify-center gap-2 rounded-full bg-white/95 px-2 py-2 shadow-sm opacity-0 transition duration-200 group-hover:pointer-events-auto group-hover:opacity-100">
+          <div className="pointer-events-none absolute inset-x-4 bottom-4 flex items-center justify-center gap-1.5 rounded-[22px] bg-white/95 px-2.5 py-2.5 shadow-sm opacity-0 transition duration-200 group-hover:pointer-events-auto group-hover:opacity-100">
             <button
               type="button"
-              className="rounded-full bg-slate-900 px-3 py-1 text-[10px] font-semibold text-white"
+              onClick={handleAddToCartClick}
+              disabled={!product.cartProduct}
+              className={clsx(
+                "inline-flex min-h-8 min-w-0 flex-1 items-center justify-center rounded-full px-2.5 py-1.5 text-[9px] font-semibold leading-none transition sm:px-3 sm:text-[10px]",
+                showCartFeedback
+                  ? "bg-emerald-50 text-emerald-700"
+                  : "bg-slate-900 text-white",
+                !product.cartProduct && "cursor-not-allowed opacity-60",
+              )}
             >
-              Add to bag
+              <span className="whitespace-nowrap text-center">
+                {showCartFeedback ? t("Added") : t("Add to bag")}
+              </span>
             </button>
-            <button
-              type="button"
-              className="rounded-full border border-black/10 bg-white px-3 py-1 text-[10px] font-semibold text-slate-600"
+            <a
+              href={localizeHref(product.href ?? "#")}
+              className="inline-flex min-h-8 min-w-0 flex-1 items-center justify-center rounded-full border border-black/10 bg-white px-2.5 py-1.5 text-[9px] font-semibold leading-none text-slate-600 sm:px-3 sm:text-[10px]"
             >
-              Quick view
-            </button>
+              <span className="whitespace-nowrap text-center">
+                {t("Quick view")}
+              </span>
+            </a>
           </div>
         ) : null}
       </div>
@@ -79,9 +121,11 @@ export function ProductGridCard({ product }: ProductGridCardProps) {
         ))}
       </div>
       <h3 className="mt-3 text-sm font-semibold text-slate-900">
-        {product.name}
+        <a href={localizeHref(product.href ?? "#")} className="transition hover:text-slate-700">
+          {t(product.name)}
+        </a>
       </h3>
-      <p className="text-xs text-slate-500">{product.subtitle}</p>
+      <p className="text-xs text-slate-500">{t(product.subtitle)}</p>
       <div className="mt-3 flex items-center justify-between gap-3 text-xs">
         <span className="rounded-full border border-emerald-400 px-2 py-1 text-[11px] font-semibold text-emerald-600">
           {product.price}
@@ -92,28 +136,10 @@ export function ProductGridCard({ product }: ProductGridCardProps) {
             {product.rating.toFixed(1)}
           </span>
           <span className="text-slate-400">
-            ({product.reviewCount} reviews)
+            ({product.reviewCount} {t("reviews")})
           </span>
         </div>
       </div>
     </article>
-  );
-}
-
-type HeartIconProps = {
-  className?: string;
-  filled?: boolean;
-};
-
-function HeartIcon({ className, filled }: HeartIconProps) {
-  return (
-    <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
-      <path
-        d="M12 20s-6.5-3.7-8.5-7.6C1.6 9.4 3.1 6 6.4 6c1.9 0 3.2 1 3.6 2.1C10.4 7 11.7 6 13.6 6c3.3 0 4.8 3.4 2.9 6.4C18.5 16.3 12 20 12 20z"
-        fill={filled ? "currentColor" : "none"}
-        stroke="currentColor"
-        strokeWidth="1.4"
-      />
-    </svg>
   );
 }

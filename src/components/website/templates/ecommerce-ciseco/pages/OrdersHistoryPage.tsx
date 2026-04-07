@@ -11,6 +11,8 @@ import { ExtraSections } from "../components/builder/ExtraSections";
 import { Footer } from "../components/layout/Footer";
 import { Navbar } from "../components/layout/Navbar";
 import { PageShell } from "../components/layout/PageShell";
+import { useCisecoI18n } from "../i18n";
+import { formatCisecoDate } from "../locale";
 import { useAccountProfile } from "../hooks/useAccountProfile";
 
 type OrdersHistoryPageProps = {
@@ -41,7 +43,7 @@ const ORDER_HISTORY: OrderHistory[] = [
   {
     id: "4657",
     orderNumber: "#4657",
-    deliveredOn: "January 11, 2025",
+    deliveredOn: "2025-01-11",
     items: [
       {
         id: "nomad-tumbler",
@@ -66,7 +68,7 @@ const ORDER_HISTORY: OrderHistory[] = [
   {
     id: "4376",
     orderNumber: "#4376",
-    deliveredOn: "January 08, 2028",
+    deliveredOn: "2028-01-08",
     items: [
       {
         id: "nomad-tumbler-blue",
@@ -94,6 +96,7 @@ export function OrdersHistoryPage({
   homeHref,
   builder,
 }: OrdersHistoryPageProps) {
+  const { t } = useCisecoI18n();
   const { profile, status: profileStatus } = useAccountProfile({
     redirectOnUnauthorized: true,
   });
@@ -131,20 +134,20 @@ export function OrdersHistoryPage({
           <div className="mx-auto max-w-[760px]">
             <div className="space-y-2">
               <h1 className="text-2xl font-semibold text-slate-900 sm:text-3xl">
-                {heroSection?.title ?? "Account"}
+                {t(heroSection?.title ?? "Account")}
               </h1>
               {heroSubtitle ? (
-                <p className="text-sm text-slate-600">{heroSubtitle}</p>
+                <p className="text-sm text-slate-600">{t(heroSubtitle)}</p>
               ) : null}
               <p className="text-sm text-slate-500 sm:text-base">
                 <span className="font-semibold text-slate-900">
                   {profile.name ||
-                    (profileStatus === "loading" ? "Loading..." : "—")}
+                    (profileStatus === "loading" ? t("Loading...") : "—")}
                 </span>
                 {headerDetails
                   ? `, ${headerDetails}`
                   : profileStatus === "loading"
-                    ? " · Loading details..."
+                    ? ` · ${t("Loading details...")}`
                     : null}
               </p>
             </div>
@@ -153,11 +156,12 @@ export function OrdersHistoryPage({
             </div>
             <section className="mt-10">
               <h2 className="text-lg font-semibold text-slate-900 sm:text-xl">
-                Order history
+                {t("Order history")}
               </h2>
               <p className="mt-2 text-sm text-slate-500">
-                Check the status of recent orders, manage returns, and discover
-                similar products.
+                {t(
+                  "Check the status of recent orders, manage returns, and discover similar products.",
+                )}
               </p>
               <OrderHistoryList orders={ORDER_HISTORY} />
             </section>
@@ -171,7 +175,7 @@ export function OrdersHistoryPage({
           />
         ) : null}
       </main>
-      <Footer theme={theme} companyName={companyName} />
+      <Footer theme={theme} companyName={companyName} homeHref={homeHref} />
     </PageShell>
   );
 }
@@ -187,6 +191,8 @@ function OrderHistoryList({ orders }: { orders: OrderHistory[] }) {
 }
 
 function OrderCard({ order }: { order: OrderHistory }) {
+  const { t, locale } = useCisecoI18n();
+
   return (
     <article className="overflow-hidden rounded-2xl border border-black/5 bg-white shadow-sm">
       <header className="flex flex-col gap-4 border-b border-black/5 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-5">
@@ -195,15 +201,20 @@ function OrderCard({ order }: { order: OrderHistory }) {
             {order.orderNumber}
           </p>
           <p className="mt-1 text-xs text-slate-500 sm:text-sm">
-            Delivered on {order.deliveredOn}
+            {t("Delivered on")}{" "}
+            {formatCisecoDate(locale, order.deliveredOn, {
+              month: "long",
+              day: "numeric",
+              year: "numeric",
+            })}
           </p>
         </div>
         <div className="flex flex-wrap gap-2 sm:justify-end">
           <a href="#" className={actionButtonClassName}>
-            Buy again
+            {t("Buy again")}
           </a>
           <a href="#" className={actionButtonClassName}>
-            View order
+            {t("View order")}
           </a>
         </div>
       </header>
@@ -217,6 +228,8 @@ function OrderCard({ order }: { order: OrderHistory }) {
 }
 
 function OrderItemRow({ item }: { item: OrderItem }) {
+  const { t } = useCisecoI18n();
+
   return (
     <div className="flex items-start gap-4 px-4 py-4 sm:gap-6 sm:px-6 sm:py-5">
       <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-slate-100 p-2 shadow-sm sm:h-20 sm:w-20">
@@ -235,7 +248,9 @@ function OrderItemRow({ item }: { item: OrderItem }) {
           <p className="text-xs text-slate-500">{item.variant}</p>
           <p className="pt-3 text-xs text-slate-500">
             <span className="sm:hidden">x {item.quantity}</span>
-            <span className="hidden sm:inline">Qty {item.quantity}</span>
+            <span className="hidden sm:inline">
+              {t("Qty")} {item.quantity}
+            </span>
           </p>
         </div>
         <div className="flex flex-col items-end gap-2 text-right sm:gap-3">
@@ -244,7 +259,7 @@ function OrderItemRow({ item }: { item: OrderItem }) {
             href="#"
             className="text-xs font-semibold text-sky-600 transition hover:text-sky-700"
           >
-            Leave review
+            {t("Leave review")}
           </a>
         </div>
       </div>

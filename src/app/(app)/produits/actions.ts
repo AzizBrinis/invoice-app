@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { ZodError } from "zod";
 import { Prisma } from "@prisma/client";
 import { productSchema, createProduct, updateProduct, deleteProduct } from "@/server/products";
+import { buildProductFormValidationState } from "@/server/product-form-errors";
 import { toCents } from "@/lib/money";
 import { prisma } from "@/lib/prisma";
 import { getSettings } from "@/server/settings";
@@ -50,7 +51,14 @@ function slugify(value: string): string {
 async function parseProductForm(formData: FormData, currency: string) {
   const priceHT = Number(formData.get("priceHT") ?? 0);
   const vatRate = Number(formData.get("vatRate") ?? 0);
-  const discountRateRaw = formData.get("defaultDiscountRate");
+  const discountType =
+    formData.get("defaultDiscountType")?.toString() ?? "none";
+  const discountValueRaw =
+    formData.get("defaultDiscountValue")?.toString().trim() ?? "";
+  const normalizedDiscountValue = discountValueRaw.replace(",", ".");
+  const parsedDiscountValue = normalizedDiscountValue.length
+    ? Number(normalizedDiscountValue)
+    : null;
   const priceHTCents = toCents(priceHT, currency);
   const priceTTCCents = Math.round(priceHTCents * (1 + vatRate / 100));
   const publicSlugRaw = formData.get("publicSlug")?.toString().trim() ?? "";
@@ -60,10 +68,13 @@ async function parseProductForm(formData: FormData, currency: string) {
   const metaDescriptionRaw = formData.get("metaDescription")?.toString().trim();
   const coverImageUrlRaw = formData.get("coverImageUrl")?.toString().trim();
   const gallery = parseOptionalJsonField(formData, "gallery");
+  const faqItems = parseOptionalJsonField(formData, "faqItems");
   const quoteFormSchema = parseOptionalJsonField(formData, "quoteFormSchema");
   const optionConfig = parseOptionalJsonField(formData, "optionConfig");
   const variantStock = parseOptionalJsonField(formData, "variantStock");
   const descriptionHtmlRaw = formData.get("descriptionHtml")?.toString();
+  const shortDescriptionHtmlRaw =
+    formData.get("shortDescriptionHtml")?.toString();
   const stockQuantityRaw = formData.get("stockQuantity")?.toString();
   const stockQuantity =
     stockQuantityRaw && stockQuantityRaw.trim().length > 0
@@ -77,6 +88,7 @@ async function parseProductForm(formData: FormData, currency: string) {
     publicSlug,
     description: formData.get("description")?.toString() || null,
     descriptionHtml: descriptionHtmlRaw ?? null,
+    shortDescriptionHtml: shortDescriptionHtmlRaw ?? null,
     excerpt: excerptRaw && excerptRaw.length > 0 ? excerptRaw : null,
     metaTitle: metaTitleRaw && metaTitleRaw.length > 0 ? metaTitleRaw : null,
     metaDescription:
@@ -88,6 +100,7 @@ async function parseProductForm(formData: FormData, currency: string) {
         ? coverImageUrlRaw
         : null,
     gallery,
+    faqItems,
     quoteFormSchema,
     optionConfig,
     variantStock,
@@ -98,8 +111,12 @@ async function parseProductForm(formData: FormData, currency: string) {
     priceTTCCents,
     vatRate,
     defaultDiscountRate:
-      discountRateRaw && discountRateRaw.toString().length > 0
-        ? Number(discountRateRaw)
+      discountType === "percentage" && parsedDiscountValue !== null
+        ? parsedDiscountValue
+        : null,
+    defaultDiscountAmountCents:
+      discountType === "fixed" && parsedDiscountValue !== null
+        ? toCents(parsedDiscountValue, currency)
         : null,
     isActive:
       (formData.get("isActive")?.toString() ?? "true").toLowerCase() !==
@@ -205,54 +222,12 @@ export async function submitProductFormAction(
     };
   } catch (error) {
     if (error instanceof ZodError) {
-      const flat = error.flatten();
-      const fieldErrors = flat.fieldErrors as Record<
-        string,
-        string[] | undefined
-      >;
-      const fallbackMessages: Record<string, string> = {
-        priceHTCents: "Prix HT invalide",
-        vatRate: "TVA invalide",
-        defaultDiscountRate: "Remise invalide",
-        unit: "Unité requise",
-        publicSlug: "Slug invalide",
-        saleMode: "Mode de vente invalide",
-        excerpt: "Extrait invalide",
-        descriptionHtml: "Description HTML invalide",
-        metaTitle: "Meta title invalide",
-        metaDescription: "Meta description invalide",
-        coverImageUrl: "URL invalide",
-        gallery: "Galerie JSON invalide",
-        quoteFormSchema: "Schéma JSON invalide",
-        optionConfig: "Options invalides",
-        variantStock: "Stocks variantes invalides",
-        stockQuantity: "Stock invalide",
-      };
-      const pick = (key: string) =>
-        fieldErrors[key]?.[0] ?? fallbackMessages[key] ?? undefined;
+      const validationState = buildProductFormValidationState(error);
+      console.error("[submitProductFormAction] Validation failed", error.issues);
       return {
         status: "error",
-        message: flat.formErrors[0] ?? "Certains champs sont invalides.",
-        fieldErrors: {
-          sku: fieldErrors.sku?.[0],
-          name: fieldErrors.name?.[0],
-          publicSlug: pick("publicSlug"),
-          saleMode: pick("saleMode"),
-          excerpt: pick("excerpt"),
-          descriptionHtml: pick("descriptionHtml"),
-          metaTitle: pick("metaTitle"),
-          metaDescription: pick("metaDescription"),
-          coverImageUrl: pick("coverImageUrl"),
-          gallery: pick("gallery"),
-          quoteFormSchema: pick("quoteFormSchema"),
-          optionConfig: pick("optionConfig"),
-          variantStock: pick("variantStock"),
-          unit: pick("unit"),
-          stockQuantity: pick("stockQuantity"),
-          priceHTCents: pick("priceHTCents"),
-          vatRate: pick("vatRate"),
-          defaultDiscountRate: pick("defaultDiscountRate"),
-        },
+        message: validationState.message,
+        fieldErrors: validationState.fieldErrors,
       };
     }
 

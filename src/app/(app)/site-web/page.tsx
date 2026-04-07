@@ -148,7 +148,9 @@ export default async function SiteWebPage() {
             leadThanksMessage: website.leadThanksMessage,
             spamProtectionEnabled: website.spamProtectionEnabled,
             ecommerceSettings: website.ecommerceSettings,
+            cmsPages: website.cmsPages,
           }}
+          websiteSlug={website.slug}
         />
       </Suspense>
 

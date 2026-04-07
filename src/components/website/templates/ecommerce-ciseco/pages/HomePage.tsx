@@ -15,6 +15,7 @@ type HomePageProps = {
   inlineStyles: CSSProperties;
   companyName: string;
   homeHref: string;
+  catalogSlug: string;
   baseLink: (target: string) => string;
   products: CatalogPayload["products"];
   showPrices: boolean;
@@ -31,6 +32,7 @@ export function HomePage({
   inlineStyles,
   companyName,
   homeHref,
+  catalogSlug,
   baseLink,
   products,
   showPrices,
@@ -108,13 +110,15 @@ export function HomePage({
           products={homeProducts}
           featuredProducts={featuredProducts}
           status={status}
+          homeHref={homeHref}
+          catalogSlug={catalogSlug}
           baseLink={baseLink}
           sections={builder?.sections ?? []}
           mediaLibrary={builder?.mediaLibrary ?? []}
           hasBuilder={Boolean(builder)}
         />
       </main>
-      <Footer theme={theme} companyName={companyName} />
+      <Footer theme={theme} companyName={companyName} homeHref={homeHref} />
     </PageShell>
   );
 }

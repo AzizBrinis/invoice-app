@@ -1,5 +1,6 @@
 import clsx from "clsx";
 import type { ThemeTokens } from "../../types";
+import { useCisecoI18n } from "../../i18n";
 import { Section } from "../layout/Section";
 
 const TILE_OFFSETS = [
@@ -30,16 +31,18 @@ export function AboutHero({
   images,
   sectionId,
 }: AboutHeroProps) {
+  const { t } = useCisecoI18n();
+
   return (
     <Section theme={theme} id="about-hero" className="pt-8" builderSectionId={sectionId}>
       <div className="rounded-[36px] bg-gradient-to-br from-rose-50 via-white to-sky-50 px-6 py-10 shadow-sm sm:px-10 lg:px-12">
         <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] lg:items-center">
           <div className="max-w-lg space-y-4">
             <h1 className="text-3xl font-semibold text-slate-900 sm:text-4xl lg:text-5xl">
-              {title}
+              {t(title)}
             </h1>
             <p className="text-sm text-slate-600 sm:text-base">
-              {description}
+              {t(description)}
             </p>
           </div>
           {images.length ? (
@@ -55,7 +58,7 @@ export function AboutHero({
                   >
                     <img
                       src={image.src}
-                      alt={image.alt}
+                      alt={t(image.alt)}
                       className="h-full w-full rounded-2xl object-cover shadow-[0_16px_30px_-22px_rgba(15,23,42,0.45)]"
                       loading="lazy"
                     />

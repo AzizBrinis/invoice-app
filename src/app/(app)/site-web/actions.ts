@@ -3,7 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { ZodError } from "zod";
 import {
+  deleteWebsiteCmsPage,
+  listWebsiteCmsPages,
   saveWebsiteContent,
+  saveWebsiteCmsPage,
   saveWebsiteEcommerceSettings,
   getWebsiteEcommerceSettings,
   updateWebsitePublishing,
@@ -14,6 +17,7 @@ import {
 } from "@/server/website";
 import {
   type DomainFormState,
+  type WebsiteCmsPageFormState,
   type WebsiteEcommerceFormState,
   type WebsiteContentFormState,
 } from "@/app/(app)/site-web/form-state";
@@ -151,6 +155,94 @@ export async function saveWebsiteContentAction(
           error instanceof Error
             ? error.message
             : "Impossible d’enregistrer votre site.",
+    };
+  }
+}
+
+export async function saveWebsiteCmsPageAction(
+  _prevState: WebsiteCmsPageFormState,
+  formData: FormData,
+): Promise<WebsiteCmsPageFormState> {
+  try {
+    await requireWebsiteAccess();
+    const pageId = cleanNullable(formData.get("id"));
+    const savedPage = await saveWebsiteCmsPage({
+      id: pageId,
+      title: formData.get("title")?.toString() ?? "",
+      path: formData.get("path")?.toString() ?? "",
+      content: formData.get("content")?.toString() ?? "",
+      showInFooter: booleanFromForm(formData.get("showInFooter"), false),
+    });
+    const pages = await listWebsiteCmsPages();
+    revalidatePath("/site-web");
+    revalidatePath("/preview");
+    revalidatePath("/catalogue");
+    revalidatePath("/catalogue/[...segments]", "page");
+    return {
+      status: "success",
+      message: pageId
+        ? "Page CMS mise à jour."
+        : "Page CMS créée.",
+      pages,
+      savedPageId: savedPage.id,
+    };
+  } catch (error) {
+    if (error instanceof ZodError) {
+      const flattened = error.flatten();
+      const fieldErrors: Record<string, string | undefined> = {};
+      (
+        Object.entries(flattened.fieldErrors) as Array<
+          [string, string[] | undefined]
+        >
+      ).forEach(([key, value]) => {
+        if (value?.[0]) {
+          fieldErrors[key] = value[0];
+        }
+      });
+      return {
+        status: "error",
+        message:
+          error.issues[0]?.message ??
+          "Impossible d’enregistrer : certains champs sont invalides.",
+        fieldErrors,
+      };
+    }
+    console.error("[saveWebsiteCmsPageAction] Échec", error);
+    return {
+      status: "error",
+      message:
+        error instanceof Error
+          ? error.message
+          : "Impossible d’enregistrer la page CMS.",
+    };
+  }
+}
+
+export async function deleteWebsiteCmsPageAction(
+  id: string,
+): Promise<WebsiteCmsPageFormState> {
+  try {
+    await requireWebsiteAccess();
+    await deleteWebsiteCmsPage(id);
+    const pages = await listWebsiteCmsPages();
+    revalidatePath("/site-web");
+    revalidatePath("/preview");
+    revalidatePath("/catalogue");
+    revalidatePath("/catalogue/[...segments]", "page");
+    return {
+      status: "success",
+      message: "Page CMS supprimée.",
+      pages,
+      savedPageId: null,
+    };
+  } catch (error) {
+    console.error("[deleteWebsiteCmsPageAction] Échec", error);
+    return {
+      status: "error",
+      message:
+        error instanceof Error
+          ? error.message
+          : "Impossible de supprimer la page CMS.",
     };
   }
 }

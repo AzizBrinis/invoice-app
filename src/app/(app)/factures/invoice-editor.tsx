@@ -16,6 +16,7 @@ import {
   type CurrencyInfo,
   type CurrencyCode,
 } from "@/lib/currency";
+import { resolveProductDiscount } from "@/lib/product-pricing";
 import { normalizeTaxConfiguration, type TaxConfiguration } from "@/lib/taxes";
 import { submitInvoiceFormAction } from "@/app/(app)/factures/actions";
 import {
@@ -354,14 +355,18 @@ export function InvoiceEditor({
       handleLineChange(index, { productId: null });
       return;
     }
+    const discount = resolveProductDiscount(product);
     handleLineChange(index, {
       productId: product.id,
       description: product.name,
       unitPrice: fromCents(product.priceHTCents, currency),
       vatRate: product.vatRate,
       unit: product.unit,
-      discountRate: product.defaultDiscountRate ?? undefined,
-      discountAmount: undefined,
+      discountRate: discount.discountRate ?? undefined,
+      discountAmount:
+        discount.discountAmountCents != null
+          ? fromCents(discount.discountAmountCents, currency)
+          : undefined,
       fodecRate:
         taxConfiguration.fodec.application === "line" &&
         taxConfiguration.fodec.enabled &&
@@ -1263,6 +1268,7 @@ function createEmptyLine(
   defaultFodecRate: number | null | undefined,
   currency: CurrencyCode,
 ): InvoiceLineForm {
+  const discount = product ? resolveProductDiscount(product) : null;
   return {
     productId: product?.id ?? null,
     description: product?.name ?? "",
@@ -1270,8 +1276,11 @@ function createEmptyLine(
     unit: product?.unit ?? "unité",
     unitPrice: product ? fromCents(product.priceHTCents, currency) : 0,
     vatRate: product?.vatRate ?? 20,
-    discountRate: product?.defaultDiscountRate ?? undefined,
-    discountAmount: undefined,
+    discountRate: discount?.discountRate ?? undefined,
+    discountAmount:
+      discount?.discountAmountCents != null
+        ? fromCents(discount.discountAmountCents, currency)
+        : undefined,
     fodecRate: defaultFodecRate ?? null,
   };
 }

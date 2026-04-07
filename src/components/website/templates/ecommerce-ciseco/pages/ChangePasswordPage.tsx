@@ -3,7 +3,6 @@
 import clsx from "clsx";
 import { useCallback, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
-import { usePathname } from "next/navigation";
 import type { WebsiteBuilderPageConfig, WebsiteBuilderSection } from "@/lib/website/builder";
 import type { ThemeTokens } from "../types";
 import { resolveBuilderSection } from "../builder-helpers";
@@ -12,7 +11,9 @@ import { ExtraSections } from "../components/builder/ExtraSections";
 import { Footer } from "../components/layout/Footer";
 import { Navbar } from "../components/layout/Navbar";
 import { PageShell } from "../components/layout/PageShell";
+import { useCisecoI18n } from "../i18n";
 import { useAccountProfile } from "../hooks/useAccountProfile";
+import { useCisecoLocation, useCisecoNavigation } from "../navigation";
 
 type ChangePasswordPageProps = {
   theme: ThemeTokens;
@@ -34,7 +35,8 @@ export function ChangePasswordPage({
   homeHref,
   builder,
 }: ChangePasswordPageProps) {
-  const pathname = usePathname();
+  const { t } = useCisecoI18n();
+  const { pathname } = useCisecoLocation();
   const slug = useMemo(() => {
     if (!pathname) return null;
     const segments = pathname.split("/").filter(Boolean);
@@ -88,20 +90,20 @@ export function ChangePasswordPage({
           <div className="mx-auto max-w-[760px]">
             <div className="space-y-2">
               <h1 className="text-2xl font-semibold text-slate-900 sm:text-3xl">
-                {heroSection?.title ?? "Account"}
+                {t(heroSection?.title ?? "Account")}
               </h1>
               {heroSubtitle ? (
-                <p className="text-sm text-slate-600">{heroSubtitle}</p>
+                <p className="text-sm text-slate-600">{t(heroSubtitle)}</p>
               ) : null}
               <p className="text-sm text-slate-500 sm:text-base">
                 <span className="font-semibold text-slate-900">
                   {profile.name ||
-                    (profileStatus === "loading" ? "Loading..." : "—")}
+                    (profileStatus === "loading" ? t("Loading...") : "—")}
                 </span>
                 {headerDetails
                   ? `, ${headerDetails}`
                   : profileStatus === "loading"
-                    ? " · Loading details..."
+                    ? ` · ${t("Loading details...")}`
                     : null}
               </p>
             </div>
@@ -110,10 +112,10 @@ export function ChangePasswordPage({
             </div>
             <section className="mt-10">
               <h2 className="text-lg font-semibold text-slate-900 sm:text-xl">
-                Update your password
+                {t("Update your password")}
               </h2>
               <p className="mt-2 text-sm text-slate-500">
-                Update your password to keep your account secure.
+                {t("Update your password to keep your account secure.")}
               </p>
               <PasswordForm
                 theme={theme}
@@ -131,7 +133,12 @@ export function ChangePasswordPage({
           />
         ) : null}
       </main>
-      <Footer theme={theme} companyName={companyName} />
+      <Footer
+        theme={theme}
+        companyName={companyName}
+        homeHref={homeHref}
+        spacing="compact"
+      />
     </PageShell>
   );
 }
@@ -143,6 +150,8 @@ type PasswordFormProps = {
 };
 
 function PasswordForm({ theme, accountQuery, loginHref }: PasswordFormProps) {
+  const { t } = useCisecoI18n();
+  const { navigate } = useCisecoNavigation();
   const [currentPassword, setCurrentPassword] = useState("");
   const [nextPassword, setNextPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -162,22 +171,22 @@ function PasswordForm({ theme, accountQuery, loginHref }: PasswordFormProps) {
 
     if (!currentPassword) {
       setStatus("error");
-      setMessage("Please enter your current password.");
+      setMessage(t("Please enter your current password."));
       return;
     }
     if (nextPassword.length < 8) {
       setStatus("error");
-      setMessage("New password must be at least 8 characters.");
+      setMessage(t("New password must be at least 8 characters."));
       return;
     }
     if (nextPassword !== confirmPassword) {
       setStatus("error");
-      setMessage("New password and confirmation do not match.");
+      setMessage(t("New password and confirmation do not match."));
       return;
     }
 
     setStatus("loading");
-    setMessage("Updating password...");
+    setMessage(t("Updating password..."));
     try {
       const response = await fetch(
         `/api/catalogue/account/password${accountQuery}`,
@@ -195,26 +204,26 @@ function PasswordForm({ theme, accountQuery, loginHref }: PasswordFormProps) {
       );
 
       if (response.status === 401 || response.status === 403) {
-        if (typeof window !== "undefined") {
-          window.location.assign(loginHref);
-        }
+        navigate(loginHref);
         return;
       }
 
       const result = (await response.json()) as { message?: string };
       if (!response.ok) {
-        throw new Error(result.message || "Unable to update password.");
+        throw new Error(result.message || t("Unable to update password."));
       }
 
       setStatus("success");
-      setMessage(result.message || "Password updated successfully.");
+      setMessage(t(result.message || "Password updated successfully."));
       setCurrentPassword("");
       setNextPassword("");
       setConfirmPassword("");
     } catch (error) {
       setStatus("error");
       setMessage(
-        error instanceof Error ? error.message : "Unable to update password.",
+        error instanceof Error
+          ? t(error.message)
+          : t("Unable to update password."),
       );
     }
   }, [
@@ -222,16 +231,18 @@ function PasswordForm({ theme, accountQuery, loginHref }: PasswordFormProps) {
     confirmPassword,
     currentPassword,
     loginHref,
+    navigate,
     nextPassword,
     resetMessage,
     status,
+    t,
   ]);
 
   return (
     <div className="mt-6 w-full max-w-[440px] space-y-5">
       <div className="space-y-2">
         <label htmlFor="current-password" className={labelClassName}>
-          Current password
+          {t("Current password")}
         </label>
         <input
           id="current-password"
@@ -246,7 +257,7 @@ function PasswordForm({ theme, accountQuery, loginHref }: PasswordFormProps) {
       </div>
       <div className="space-y-2">
         <label htmlFor="new-password" className={labelClassName}>
-          New password
+          {t("New password")}
         </label>
         <input
           id="new-password"
@@ -261,7 +272,7 @@ function PasswordForm({ theme, accountQuery, loginHref }: PasswordFormProps) {
       </div>
       <div className="space-y-2">
         <label htmlFor="confirm-password" className={labelClassName}>
-          Confirm password
+          {t("Confirm password")}
         </label>
         <input
           id="confirm-password"
@@ -290,7 +301,7 @@ function PasswordForm({ theme, accountQuery, loginHref }: PasswordFormProps) {
             aria-hidden="true"
           />
         ) : null}
-        {status === "loading" ? "Updating..." : "Update password"}
+        {status === "loading" ? t("Updating...") : t("Update password")}
       </button>
       {message ? (
         <p

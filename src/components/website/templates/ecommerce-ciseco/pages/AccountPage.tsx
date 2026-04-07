@@ -3,7 +3,6 @@
 import clsx from "clsx";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ChangeEvent, CSSProperties } from "react";
-import { usePathname } from "next/navigation";
 import type { WebsiteBuilderPageConfig, WebsiteBuilderSection } from "@/lib/website/builder";
 import type { ThemeTokens } from "../types";
 import { resolveBuilderSection } from "../builder-helpers";
@@ -12,6 +11,9 @@ import { ExtraSections } from "../components/builder/ExtraSections";
 import { Footer } from "../components/layout/Footer";
 import { Navbar } from "../components/layout/Navbar";
 import { PageShell } from "../components/layout/PageShell";
+import { useAccountProfile } from "../hooks/useAccountProfile";
+import { useCisecoI18n } from "../i18n";
+import { useCisecoLocation, useCisecoNavigation } from "../navigation";
 
 type AccountPageProps = {
   theme: ThemeTokens;
@@ -27,6 +29,8 @@ type ClientProfile = {
   phone: string;
   address: string;
   notes: string;
+  companyName: string;
+  vatNumber: string;
   avatarUrl: string | null;
 };
 
@@ -38,6 +42,8 @@ const EMPTY_PROFILE: ClientProfile = {
   phone: "",
   address: "",
   notes: "",
+  companyName: "",
+  vatNumber: "",
   avatarUrl: null,
 };
 
@@ -56,7 +62,15 @@ export function AccountPage({
   homeHref,
   builder,
 }: AccountPageProps) {
-  const pathname = usePathname();
+  const { t } = useCisecoI18n();
+  const { pathname } = useCisecoLocation();
+  const { navigate } = useCisecoNavigation();
+  const {
+    profile: accountProfile,
+    applyAuthenticatedProfile,
+  } = useAccountProfile({
+    redirectOnUnauthorized: true,
+  });
   const slug = useMemo(() => {
     if (!pathname) return null;
     const segments = pathname.split("/").filter(Boolean);
@@ -69,60 +83,28 @@ export function AccountPage({
   const loginHref = slug ? `/catalogue/${slug}/login` : "/login";
 
   const [profile, setProfile] = useState<ClientProfile>(EMPTY_PROFILE);
+  const [hasDraftChanges, setHasDraftChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<
     "idle" | "loading" | "success" | "error"
   >("idle");
   const [updateMessage, setUpdateMessage] = useState<string | null>(null);
 
-  const redirectToLogin = useCallback(() => {
-    if (typeof window !== "undefined") {
-      window.location.assign(loginHref);
-    }
-  }, [loginHref]);
-
   useEffect(() => {
-    let active = true;
-    const loadProfile = async () => {
-      try {
-        const response = await fetch(`/api/catalogue/account${accountQuery}`, {
-          method: "GET",
-        });
-        if (response.status === 401 || response.status === 403) {
-          redirectToLogin();
-          return;
-        }
-
-        const result = (await response.json()) as
-          | { profile: ClientProfile }
-          | { error?: string };
-        if (!response.ok || !("profile" in result)) {
-          throw new Error(
-            "error" in result && result.error
-              ? result.error
-              : "Unable to load account.",
-          );
-        }
-
-        if (!active) return;
-        setProfile({
-          name: result.profile.name ?? "",
-          email: result.profile.email ?? "",
-          phone: result.profile.phone ?? "",
-          address: result.profile.address ?? "",
-          notes: result.profile.notes ?? "",
-          avatarUrl: result.profile.avatarUrl ?? null,
-        });
-      } catch (error) {
-        console.error("[AccountPage] Failed to load profile", error);
-      }
-    };
-
-    void loadProfile();
-    return () => {
-      active = false;
-    };
-  }, [accountQuery, redirectToLogin]);
+    if (hasDraftChanges || isSaving) {
+      return;
+    }
+    setProfile({
+      name: accountProfile.name ?? "",
+      email: accountProfile.email ?? "",
+      phone: accountProfile.phone ?? "",
+      address: accountProfile.address ?? "",
+      notes: accountProfile.notes ?? "",
+      companyName: accountProfile.companyName ?? "",
+      vatNumber: accountProfile.vatNumber ?? "",
+      avatarUrl: accountProfile.avatarUrl ?? null,
+    });
+  }, [accountProfile, hasDraftChanges, isSaving]);
 
   const handleFieldChange = useCallback(
     (field: EditableProfileField) =>
@@ -134,6 +116,7 @@ export function AccountPage({
         const value = event.target.value;
         setUpdateStatus("idle");
         setUpdateMessage(null);
+        setHasDraftChanges(true);
         setProfile((current) => ({
           ...current,
           [field]: value,
@@ -146,7 +129,7 @@ export function AccountPage({
     if (isSaving) return;
     setIsSaving(true);
     setUpdateStatus("loading");
-    setUpdateMessage("Updating account...");
+    setUpdateMessage(t("Updating account..."));
     try {
       const response = await fetch(`/api/catalogue/account${accountQuery}`, {
         method: "PATCH",
@@ -163,7 +146,7 @@ export function AccountPage({
       });
 
       if (response.status === 401 || response.status === 403) {
-        redirectToLogin();
+        navigate(loginHref);
         return;
       }
 
@@ -174,30 +157,37 @@ export function AccountPage({
         throw new Error(
           "error" in result && result.error
             ? result.error
-            : "Unable to update account.",
+            : t("Unable to update account."),
         );
       }
 
-      setProfile({
+      const nextProfile = {
         name: result.profile.name ?? "",
         email: result.profile.email ?? "",
         phone: result.profile.phone ?? "",
         address: result.profile.address ?? "",
         notes: result.profile.notes ?? "",
+        companyName: result.profile.companyName ?? "",
+        vatNumber: result.profile.vatNumber ?? "",
         avatarUrl: result.profile.avatarUrl ?? null,
-      });
+      };
+      setProfile(nextProfile);
+      setHasDraftChanges(false);
+      applyAuthenticatedProfile(nextProfile);
       setUpdateStatus("success");
-      setUpdateMessage("Account updated.");
+      setUpdateMessage(t("Account updated."));
     } catch (error) {
       console.error("[AccountPage] Failed to update profile", error);
       setUpdateStatus("error");
       setUpdateMessage(
-        error instanceof Error ? error.message : "Unable to update account.",
+        error instanceof Error
+          ? t(error.message)
+          : t("Unable to update account."),
       );
     } finally {
       setIsSaving(false);
     }
-  }, [accountQuery, isSaving, profile, redirectToLogin]);
+  }, [accountQuery, applyAuthenticatedProfile, isSaving, loginHref, navigate, profile, t]);
 
   const headerDetails = useMemo(() => {
     const parts = [profile.email, profile.address].filter(
@@ -233,10 +223,10 @@ export function AccountPage({
           <div className="mx-auto max-w-[760px]">
             <div className="space-y-2">
               <h1 className="text-2xl font-semibold text-slate-900 sm:text-3xl">
-                {heroSection?.title ?? "Account"}
+                {t(heroSection?.title ?? "Account")}
               </h1>
               {heroSubtitle ? (
-                <p className="text-sm text-slate-600">{heroSubtitle}</p>
+                <p className="text-sm text-slate-600">{t(heroSubtitle)}</p>
               ) : null}
               <p className="text-sm text-slate-500 sm:text-base">
                 <span className="font-semibold text-slate-900">
@@ -250,7 +240,7 @@ export function AccountPage({
             </div>
             <section className="mt-10">
               <h2 className="text-lg font-semibold text-slate-900 sm:text-xl">
-                Account infomation
+                {t("Account information")}
               </h2>
               <div className="mt-6">
                 <AccountForm
@@ -261,6 +251,7 @@ export function AccountPage({
                   isSaving={isSaving}
                   updateMessage={updateMessage}
                   updateStatus={updateStatus}
+                  t={t}
                 />
               </div>
             </section>
@@ -274,7 +265,12 @@ export function AccountPage({
           />
         ) : null}
       </main>
-      <Footer theme={theme} companyName={companyName} />
+      <Footer
+        theme={theme}
+        companyName={companyName}
+        homeHref={homeHref}
+        spacing="compact"
+      />
     </PageShell>
   );
 }
@@ -293,6 +289,7 @@ type AccountFormProps = {
   isSaving: boolean;
   updateStatus: "idle" | "loading" | "success" | "error";
   updateMessage: string | null;
+  t: (text: string) => string;
 };
 
 function AccountForm({
@@ -303,12 +300,13 @@ function AccountForm({
   isSaving,
   updateStatus,
   updateMessage,
+  t,
 }: AccountFormProps) {
   return (
     <div className="space-y-5">
       <div className="space-y-2">
         <label htmlFor="account-name" className={labelClassName}>
-          Full name
+          {t("Full name")}
         </label>
         <input
           id="account-name"
@@ -320,7 +318,7 @@ function AccountForm({
       </div>
       <div className="space-y-2">
         <label htmlFor="account-email" className={labelClassName}>
-          Email
+          {t("Email")}
         </label>
         <div className="relative">
           <MailIcon className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -335,7 +333,7 @@ function AccountForm({
       </div>
       <div className="space-y-2">
         <label htmlFor="account-birth" className={labelClassName}>
-          Date of birth
+          {t("Date of birth")}
         </label>
         <div className="relative">
           <CalendarIcon className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -350,7 +348,7 @@ function AccountForm({
       </div>
       <div className="space-y-2">
         <label htmlFor="account-address" className={labelClassName}>
-          Addess
+          {t("Address")}
         </label>
         <div className="relative">
           <MapPinIcon className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -365,7 +363,7 @@ function AccountForm({
       </div>
       <div className="space-y-2">
         <label htmlFor="account-gender" className={labelClassName}>
-          Gender
+          {t("Gender")}
         </label>
         <div className="relative">
           <select
@@ -373,16 +371,16 @@ function AccountForm({
             defaultValue="male"
             className={clsx(inputClassName, "appearance-none pr-10")}
           >
-            <option value="male">Male</option>
-            <option value="female">Female</option>
-            <option value="other">Other</option>
+            <option value="male">{t("Male")}</option>
+            <option value="female">{t("Female")}</option>
+            <option value="other">{t("Other")}</option>
           </select>
           <ChevronDownIcon className="absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
         </div>
       </div>
       <div className="space-y-2">
         <label htmlFor="account-phone" className={labelClassName}>
-          Phone number
+          {t("Phone number")}
         </label>
         <div className="relative">
           <PhoneIcon className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -397,7 +395,7 @@ function AccountForm({
       </div>
       <div className="space-y-2">
         <label htmlFor="account-about" className={labelClassName}>
-          About you
+          {t("About you")}
         </label>
         <textarea
           id="account-about"
@@ -423,7 +421,7 @@ function AccountForm({
             aria-hidden="true"
           />
         ) : null}
-        {isSaving ? "Updating..." : "Update account"}
+        {isSaving ? t("Updating...") : t("Update account")}
       </button>
       {updateMessage ? (
         <p

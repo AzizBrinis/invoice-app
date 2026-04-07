@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { usePathname } from "next/navigation";
+import { useCisecoI18n } from "../i18n";
+import { useCisecoLocation, useCisecoNavigation } from "../navigation";
 
 export type WishlistProduct = {
   id: string;
@@ -9,6 +10,8 @@ export type WishlistProduct = {
   priceHTCents: number | null;
   priceTTCCents: number | null;
   vatRate: number | null;
+  defaultDiscountRate?: number | null;
+  defaultDiscountAmountCents?: number | null;
   coverImageUrl: string | null;
   gallery: unknown;
   quoteFormSchema: unknown;
@@ -27,6 +30,8 @@ type WishlistStatus = "idle" | "loading" | "ready" | "error";
 type UseWishlistOptions = {
   redirectOnLoad?: boolean;
   redirectOnAction?: boolean;
+  slug?: string | null;
+  loginHref?: string;
 };
 
 type WishlistState = {
@@ -41,21 +46,35 @@ type WishlistState = {
 };
 
 export function useWishlist(options: UseWishlistOptions = {}): WishlistState {
-  const { redirectOnLoad = false, redirectOnAction = true } = options;
-  const pathname = usePathname();
+  const { t } = useCisecoI18n();
+  const {
+    redirectOnLoad = false,
+    redirectOnAction = true,
+    slug: explicitSlug,
+    loginHref: explicitLoginHref,
+  } = options;
+  const { pathname, searchParams } = useCisecoLocation();
+  const { navigate } = useCisecoNavigation();
   const slug = useMemo(() => {
+    const providedSlug = explicitSlug?.trim();
+    if (providedSlug) {
+      return providedSlug;
+    }
+
     if (!pathname) return null;
     const segments = pathname.split("/").filter(Boolean);
     if (segments[0] === "catalogue" && segments[1]) {
       return segments[1];
     }
-    return null;
-  }, [pathname]);
+    const querySlug = searchParams.get("slug")?.trim();
+    return querySlug || null;
+  }, [explicitSlug, pathname, searchParams]);
   const query = useMemo(
     () => (slug ? `?slug=${encodeURIComponent(slug)}` : ""),
     [slug],
   );
-  const loginHref = slug ? `/catalogue/${slug}/login` : "/login";
+  const loginHref =
+    explicitLoginHref ?? (slug ? `/catalogue/${slug}/login` : "/login");
 
   const [items, setItems] = useState<WishlistItem[]>([]);
   const [status, setStatus] = useState<WishlistStatus>("idle");
@@ -64,10 +83,8 @@ export function useWishlist(options: UseWishlistOptions = {}): WishlistState {
   const [optimisticIds, setOptimisticIds] = useState<Set<string>>(new Set());
 
   const redirectToLogin = useCallback(() => {
-    if (typeof window !== "undefined") {
-      window.location.assign(loginHref);
-    }
-  }, [loginHref]);
+    navigate(loginHref);
+  }, [loginHref, navigate]);
 
   const resolvedIds = useMemo(() => {
     const merged = new Set(items.map((item) => item.productId));
@@ -109,7 +126,7 @@ export function useWishlist(options: UseWishlistOptions = {}): WishlistState {
         throw new Error(
           "error" in result && result.error
             ? result.error
-            : "Unable to load wishlist.",
+            : t("Unable to load wishlist."),
         );
       }
 
@@ -118,11 +135,11 @@ export function useWishlist(options: UseWishlistOptions = {}): WishlistState {
       setStatus("ready");
     } catch (err) {
       const message =
-        err instanceof Error ? err.message : "Unable to load wishlist.";
+        err instanceof Error ? t(err.message) : t("Unable to load wishlist.");
       setStatus("error");
       setError(message);
     }
-  }, [query, redirectOnLoad, redirectToLogin]);
+  }, [query, redirectOnLoad, redirectToLogin, t]);
 
   useEffect(() => {
     void refresh();
@@ -151,7 +168,7 @@ export function useWishlist(options: UseWishlistOptions = {}): WishlistState {
 
         const result = (await response.json()) as { error?: string };
         if (!response.ok || result.error) {
-          throw new Error(result.error ?? "Unable to update wishlist.");
+          throw new Error(result.error ?? t("Unable to update wishlist."));
         }
 
         if (method === "DELETE") {
@@ -174,7 +191,9 @@ export function useWishlist(options: UseWishlistOptions = {}): WishlistState {
         return true;
       } catch (err) {
         const message =
-          err instanceof Error ? err.message : "Unable to update wishlist.";
+          err instanceof Error
+            ? t(err.message)
+            : t("Unable to update wishlist.");
         setError(message);
         return false;
       } finally {
@@ -187,6 +206,7 @@ export function useWishlist(options: UseWishlistOptions = {}): WishlistState {
       query,
       redirectOnAction,
       redirectToLogin,
+      t,
     ],
   );
 

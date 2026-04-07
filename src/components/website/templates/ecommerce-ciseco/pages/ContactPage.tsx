@@ -18,6 +18,7 @@ import { ExtraSections } from "../components/builder/ExtraSections";
 import { Footer } from "../components/layout/Footer";
 import { Navbar } from "../components/layout/Navbar";
 import { PageShell } from "../components/layout/PageShell";
+import { useCisecoI18n } from "../i18n";
 
 type ContactPageProps = {
   theme: ThemeTokens;
@@ -76,6 +77,7 @@ export function ContactPage({
   spamProtectionEnabled,
   builder,
 }: ContactPageProps) {
+  const { t } = useCisecoI18n();
   const sections = builder?.sections ?? [];
   const mediaLibrary = builder?.mediaLibrary ?? [];
   const hasBuilder = Boolean(builder);
@@ -126,7 +128,7 @@ export function ContactPage({
             <div className="space-y-6">
               {showHero ? (
                 <h1 className="text-3xl font-semibold text-slate-900 sm:text-4xl">
-                  {title}
+                  {t(title)}
                 </h1>
               ) : null}
               <ContactDetails
@@ -153,6 +155,7 @@ export function ContactPage({
           <PromoBlock
             theme={theme}
             companyName={companyName}
+            homeHref={homeHref}
             title={promoSection?.title ?? null}
             description={promoSection?.description ?? promoSection?.subtitle ?? null}
             buttons={promoButtons}
@@ -172,7 +175,12 @@ export function ContactPage({
           />
         ) : null}
       </main>
-      <Footer theme={theme} companyName={companyName} />
+      <Footer
+        theme={theme}
+        companyName={companyName}
+        homeHref={homeHref}
+        spacing="compact"
+      />
     </PageShell>
   );
 }
@@ -192,6 +200,7 @@ function ContactDetails({
   phone,
   socialLinks,
 }: ContactDetailsProps) {
+  const { t } = useCisecoI18n();
   const resolvedSocialLinks =
     socialLinks?.filter((link) => link.href) ?? [];
   return (
@@ -202,14 +211,14 @@ function ContactDetails({
         </p>
       ) : null}
       {address ? (
-        <ContactInfoItem icon={MapPinIcon} label="Address">
+        <ContactInfoItem icon={MapPinIcon} label={t("Address")}>
           <p className="max-w-[320px] text-sm leading-relaxed text-slate-500">
             {address}
           </p>
         </ContactInfoItem>
       ) : null}
       {email ? (
-        <ContactInfoItem icon={MailIcon} label="Email">
+        <ContactInfoItem icon={MailIcon} label={t("Email")}>
           <a
             className="text-sm text-slate-500 hover:text-slate-700"
             href={`mailto:${email}`}
@@ -219,7 +228,7 @@ function ContactDetails({
         </ContactInfoItem>
       ) : null}
       {phone ? (
-        <ContactInfoItem icon={PhoneIcon} label="Phone">
+        <ContactInfoItem icon={PhoneIcon} label={t("Phone")}>
           <a
             className="text-sm text-slate-500 hover:text-slate-700"
             href={`tel:${phone}`}
@@ -229,14 +238,14 @@ function ContactDetails({
         </ContactInfoItem>
       ) : null}
       {resolvedSocialLinks.length ? (
-        <ContactInfoItem icon={GlobeIcon} label="Socials">
+        <ContactInfoItem icon={GlobeIcon} label={t("Socials")}>
           <div className="flex flex-wrap items-center gap-3">
             {resolvedSocialLinks.map((link) => {
               const Icon = SOCIAL_ICON_COMPONENTS[link.icon] ?? GlobeIcon;
               const color =
                 CONTACT_SOCIAL_ICON_COLORS[link.icon] ?? "#0f172a";
               const label =
-                link.label || CONTACT_SOCIAL_ICON_LABELS[link.icon] || "Social";
+                link.label || CONTACT_SOCIAL_ICON_LABELS[link.icon] || t("Social");
               return (
                 <SocialLink
                   key={link.id}
@@ -270,6 +279,7 @@ function ContactForm({
   path,
   spamProtectionEnabled,
 }: ContactFormProps) {
+  const { t } = useCisecoI18n();
   const [status, setStatus] = useState<
     "idle" | "loading" | "success" | "error"
   >("idle");
@@ -291,7 +301,7 @@ function ContactForm({
 
     if (mode === "preview") {
       setStatus("success");
-      setFeedback("Preview mode: no data is saved.");
+      setFeedback(t("Preview mode: no data is saved."));
       return;
     }
 
@@ -313,18 +323,18 @@ function ContactForm({
       };
       if (!response.ok || result.error) {
         throw new Error(
-          result.error ?? "Unable to send your message.",
+          result.error ?? t("Unable to send your message."),
         );
       }
       form.reset();
       setStatus("success");
-      setFeedback(result.message ?? DEFAULT_SUCCESS_MESSAGE);
+      setFeedback(t(result.message ?? DEFAULT_SUCCESS_MESSAGE));
     } catch (submissionError) {
       setStatus("error");
       setError(
         submissionError instanceof Error
-          ? submissionError.message
-          : "Unable to send your message.",
+          ? t(submissionError.message)
+          : t("Unable to send your message."),
       );
     }
   }
@@ -349,13 +359,13 @@ function ContactForm({
       ) : null}
       <div className="space-y-2">
         <label htmlFor="contact-name" className={labelClassName}>
-          Full name
+          {t("Full name")}
         </label>
         <input
           id="contact-name"
           name="name"
           type="text"
-          placeholder="Example Doe"
+          placeholder={t("Example Doe")}
           className={inputClassName}
           required
           disabled={disabled}
@@ -363,13 +373,13 @@ function ContactForm({
       </div>
       <div className="space-y-2">
         <label htmlFor="contact-email" className={labelClassName}>
-          Email address
+          {t("Email address")}
         </label>
         <input
           id="contact-email"
           name="email"
           type="email"
-          placeholder="example@example.com"
+          placeholder={t("example@example.com")}
           className={inputClassName}
           required
           disabled={disabled}
@@ -377,7 +387,7 @@ function ContactForm({
       </div>
       <div className="space-y-2">
         <label htmlFor="contact-message" className={labelClassName}>
-          Message
+          {t("Message")}
         </label>
         <textarea
           id="contact-message"
@@ -390,7 +400,7 @@ function ContactForm({
       </div>
       {spamProtectionEnabled ? (
         <div className="sr-only" aria-hidden>
-          <label htmlFor="website-field">Ne pas remplir ce champ</label>
+          <label htmlFor="website-field">{t("Do not fill out this field")}</label>
           <input
             id="website-field"
             type="text"
@@ -408,7 +418,7 @@ function ContactForm({
         )}
         disabled={disabled}
       >
-        {status === "loading" ? "Sending..." : "Send Message"}
+        {status === "loading" ? t("Sending...") : t("Send Message")}
       </button>
     </form>
   );

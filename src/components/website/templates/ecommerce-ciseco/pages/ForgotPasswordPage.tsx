@@ -7,6 +7,7 @@ import { AuthFooterText } from "../components/auth/AuthFooterText";
 import { AuthLayout } from "../components/auth/AuthLayout";
 import { AuthPrimaryButton } from "../components/auth/AuthPrimaryButton";
 import { ExtraSections } from "../components/builder/ExtraSections";
+import { useCisecoI18n } from "../i18n";
 
 type ForgotPasswordPageProps = {
   theme: ThemeTokens;
@@ -21,6 +22,7 @@ export function ForgotPasswordPage({
   baseLink,
   builder,
 }: ForgotPasswordPageProps) {
+  const { t } = useCisecoI18n();
   const sections = builder?.sections ?? [];
   const mediaLibrary = builder?.mediaLibrary ?? [];
   const heroSection = resolveBuilderSection(sections, "hero");
@@ -34,9 +36,9 @@ export function ForgotPasswordPage({
     <AuthLayout
       theme={theme}
       inlineStyles={inlineStyles}
-      title={heroSection?.title ?? "Forgot password"}
+      title={t(heroSection?.title ?? "Forgot password")}
       subtitle={
-        heroSubtitle ?? "Enter your email address to reset your password"
+        heroSubtitle ?? t("Enter your email address to reset your password")
       }
       builderSectionId={heroSection?.id}
       belowContent={
@@ -52,25 +54,25 @@ export function ForgotPasswordPage({
     >
       <AuthField
         id="forgot-password-email"
-        label="Email address"
+        label={t("Email address")}
         type="email"
-        placeholder="example@example.com"
+        placeholder={t("example@example.com")}
       />
-      <AuthPrimaryButton label="Continue" />
+      <AuthPrimaryButton label={t("Continue")} />
       <AuthFooterText>
-        Go back for{" "}
+        {t("Go back for")}{" "}
         <a
           href={baseLink("/login")}
           className="font-semibold text-sky-600 transition-colors hover:text-sky-700"
         >
-          Sign in
+          {t("Sign in")}
         </a>{" "}
         /{" "}
         <a
           href={baseLink("/signup")}
           className="font-semibold text-sky-600 transition-colors hover:text-sky-700"
         >
-          Sign up
+          {t("Sign up")}
         </a>
       </AuthFooterText>
     </AuthLayout>

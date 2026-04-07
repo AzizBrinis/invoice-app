@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { useCart } from "@/components/website/cart/cart-context";
@@ -9,40 +9,51 @@ import type {
   WebsiteBuilderMediaAsset,
   WebsiteBuilderSection,
 } from "@/lib/website/builder";
+import { normalizeProductFaqItems } from "@/lib/product-seo";
+import { slugify } from "@/lib/slug";
 import { formatCurrency } from "@/lib/formatters";
+import { fromCents } from "@/lib/money";
+import {
+  computeAdjustedUnitPriceHTCents,
+  computeAdjustedUnitPriceTTCCents,
+  formatPriceAdjustmentLabel,
+} from "@/lib/product-pricing";
 import type { CatalogPayload } from "@/server/website";
 import type {
   HomeProduct,
   ProductAccordionItem,
   ProductReviewCard,
-  PurchasedProductCard,
   ThemeTokens,
 } from "../../types";
 import { PRODUCT_INFO_CARDS } from "../../data/product";
 import {
   buildProductGallery,
+  formatCisecoLabel,
   resolveVariantOptions,
   toCartProduct,
 } from "../../utils";
 import { ExtraSections } from "../builder/ExtraSections";
 import { Section } from "../layout/Section";
+import { WishlistHeartIcon } from "../shared/Icons";
+import { ProductCard } from "../shared/ProductCard";
 import { RatingStars } from "../shared/RatingStars";
 import { AccordionItem } from "./AccordionItem";
 import { InfoCard } from "./InfoCard";
 import { KidsOfferBanner } from "./KidsOfferBanner";
-import { PurchasedCard } from "./PurchasedCard";
 import { ReviewCard } from "./ReviewCard";
 import { useWishlist } from "../../hooks/useWishlist";
+import { useCisecoI18n } from "../../i18n";
 
 type ProductDetailStatus = "loading" | "error" | "not-found" | "ready";
 
 type ProductDetailPageProps = {
   theme: ThemeTokens;
   baseLink: (path: string) => string;
+  catalogSlug: string;
   status: ProductDetailStatus;
   product: CatalogPayload["products"]["all"][number] | null;
   cartProduct: HomeProduct | null;
-  relatedProducts: PurchasedProductCard[];
+  relatedProducts: HomeProduct[];
   sections?: WebsiteBuilderSection[];
   mediaLibrary?: WebsiteBuilderMediaAsset[];
 };
@@ -284,6 +295,7 @@ function findSectionItem(
 export function ProductDetailPage({
   theme,
   baseLink,
+  catalogSlug,
   status,
   product,
   cartProduct,
@@ -291,17 +303,29 @@ export function ProductDetailPage({
   sections = [],
   mediaLibrary = [],
 }: ProductDetailPageProps) {
+  const { t, localizeHref } = useCisecoI18n();
+  const translateTemplateSource = useCallback(
+    (value: string | null | undefined) => (value ? t(value) : value),
+    [t],
+  );
   const { isWishlisted, toggleWishlist, pendingIds } = useWishlist({
     redirectOnLoad: false,
     redirectOnAction: true,
+    slug: catalogSlug,
+    loginHref: baseLink("/login"),
   });
   const resolvedStatus: ProductDetailStatus =
     status === "ready" && (!product || !cartProduct) ? "not-found" : status;
 
-  const categoryLabel = product?.category?.trim() || "Collection";
+  const categoryLabel = t(formatCisecoLabel(product?.category, "Collection"));
   const description = product?.description?.trim() ?? "";
   const excerpt = product?.excerpt?.trim() ?? "";
+  const shortDescriptionHtml = product?.shortDescriptionHtml?.trim() ?? "";
   const descriptionHtml = product?.descriptionHtml?.trim() ?? "";
+  const faqItems = useMemo(
+    () => normalizeProductFaqItems(product?.faqItems),
+    [product?.faqItems],
+  );
   const detailParagraphs = useMemo(() => {
     if (descriptionHtml) return [];
     const paragraphs: string[] = [];
@@ -334,19 +358,21 @@ export function ProductDetailPage({
 
   const detailBullets = useMemo(() => {
     const bullets: string[] = [];
-    if (product?.sku) bullets.push(`SKU: ${product.sku}`);
-    if (product?.unit) bullets.push(`Unit: ${product.unit}`);
-    if (product?.category) bullets.push(`Category: ${product.category}`);
+    if (product?.sku) bullets.push(`${t("SKU")}: ${product.sku}`);
+    if (product?.unit) bullets.push(`${t("Unit")}: ${product.unit}`);
+    if (product?.category) bullets.push(`${t("Category")}: ${product.category}`);
     if (typeof product?.vatRate === "number") {
-      bullets.push(`VAT: ${product.vatRate}%`);
+      bullets.push(`${t("VAT")}: ${product.vatRate}%`);
     }
     if (product?.saleMode) {
       bullets.push(
-        `Sale mode: ${product.saleMode === "INSTANT" ? "Instant" : "Quote"}`,
+        `${t("Sale mode")}: ${t(
+          product.saleMode === "INSTANT" ? "Instant" : "Quote",
+        )}`,
       );
     }
     return bullets;
-  }, [product]);
+  }, [product, t]);
   const gallery = useMemo(() => {
     if (!product) return [];
     return buildProductGallery({
@@ -363,12 +389,16 @@ export function ProductDetailPage({
     : 0;
   const infoCards = useMemo(() => {
     const threshold = formatCurrency(50, "TND");
+    const shippingDescription = t("On orders over {{amount}}").replace(
+      "{{amount}}",
+      threshold,
+    );
     return PRODUCT_INFO_CARDS.map((item) =>
       item.id === "info-shipping"
-        ? { ...item, description: `On orders over ${threshold}` }
+        ? { ...item, description: shippingDescription }
         : item,
     );
-  }, []);
+  }, [t]);
 
   const [activeColor, setActiveColor] = useState(
     variantOptions.colors[0]?.id ?? "",
@@ -378,11 +408,16 @@ export function ProductDetailPage({
   );
   const [customSelections, setCustomSelections] = useState<Record<string, string>>({});
   const [quantity, setQuantity] = useState(1);
-  const [openAccordion, setOpenAccordion] = useState("description");
+  const [openAccordion, setOpenAccordion] = useState("specs");
+  const [openFaqId, setOpenFaqId] = useState("");
 
   const useVariantStock =
     hasVariantStock &&
     (variantOptions.colors.length > 0 || variantOptions.sizes.length > 0);
+  const categorySlug = product?.category ? slugify(product.category) : "";
+  const categoryHref = categorySlug
+    ? localizeHref(baseLink(`/categories/${categorySlug}`))
+    : localizeHref(baseLink("/collections"));
 
   const resolvedColors = useMemo(() => {
     return variantOptions.colors.map((color) => {
@@ -451,13 +486,74 @@ export function ProductDetailPage({
         if (!selectedValue) return [];
         return [
           {
+            kind: "custom" as const,
+            groupId: group.id,
+            valueId: selectedValue.id,
             name: group.name,
             value: selectedValue.label,
+            priceAdjustmentCents: selectedValue.priceAdjustmentCents ?? null,
           },
         ];
       }),
     [customSelections, resolvedCustomOptions],
   );
+  const selectedOptionAdjustmentCents = useMemo(
+    () =>
+      selectedCustomOptions.reduce(
+        (sum, option) => sum + (option.priceAdjustmentCents ?? 0),
+        0,
+      ),
+    [selectedCustomOptions],
+  );
+  const selectedUnitPriceHTCents = useMemo(
+    () =>
+      computeAdjustedUnitPriceHTCents(
+        cartProduct?.unitPriceHTCents,
+        selectedOptionAdjustmentCents,
+      ),
+    [cartProduct?.unitPriceHTCents, selectedOptionAdjustmentCents],
+  );
+  const selectedUnitAmountCents = useMemo(
+    () =>
+      computeAdjustedUnitPriceTTCCents({
+        saleMode: cartProduct?.saleMode ?? product?.saleMode ?? "QUOTE",
+        priceHTCents: cartProduct?.unitPriceHTCents ?? null,
+        priceTTCCents: cartProduct?.unitAmountCents ?? null,
+        vatRate: cartProduct?.vatRate ?? null,
+        adjustmentCents: selectedOptionAdjustmentCents,
+        discountRate: cartProduct?.discountRate ?? null,
+        discountAmountCents: cartProduct?.discountAmountCents ?? null,
+      }),
+    [
+      cartProduct?.discountAmountCents,
+      cartProduct?.discountRate,
+      cartProduct?.saleMode,
+      cartProduct?.unitAmountCents,
+      cartProduct?.unitPriceHTCents,
+      cartProduct?.vatRate,
+      product?.saleMode,
+      selectedOptionAdjustmentCents,
+    ],
+  );
+  const selectedPriceLabel = useMemo(() => {
+    if (!cartProduct) return "";
+    if (selectedUnitAmountCents != null) {
+      return formatCurrency(
+        fromCents(selectedUnitAmountCents, cartProduct.currencyCode),
+        cartProduct.currencyCode,
+      );
+    }
+    return cartProduct.price;
+  }, [cartProduct, selectedUnitAmountCents]);
+  const displayPriceLabel =
+    selectedPriceLabel || cartProduct?.price || t("Price on request");
+  const selectedPriceAdjustmentLabel =
+    selectedOptionAdjustmentCents !== 0
+      ? formatPriceAdjustmentLabel(
+          selectedOptionAdjustmentCents,
+          cartProduct?.currencyCode ?? "TND",
+        )
+      : null;
 
   const selectedStock = useMemo(() => {
     if (!useVariantStock) {
@@ -472,7 +568,10 @@ export function ProductDetailPage({
   const isOutOfStock =
     product?.isActive === false ||
     (typeof selectedStock === "number" ? selectedStock <= 0 : false);
-  const stockLabel = isOutOfStock ? "Rupture de stock" : "Disponible";
+  const stockLabel = isOutOfStock ? t("Rupture de stock") : t("Disponible");
+  const canIncreaseQuantity =
+    !isOutOfStock &&
+    (typeof selectedStock !== "number" || quantity < selectedStock);
 
   const visibleSections = useMemo(
     () => sections.filter((section) => section.visible !== false),
@@ -485,8 +584,8 @@ export function ProductDetailPage({
       productName: product?.name ?? "",
       "product.category": categoryLabel,
       productCategory: categoryLabel,
-      "product.price": cartProduct?.price ?? "",
-      productPrice: cartProduct?.price ?? "",
+      "product.price": selectedPriceLabel || cartProduct?.price || "",
+      productPrice: selectedPriceLabel || cartProduct?.price || "",
       "product.sku": product?.sku ?? "",
       productSku: product?.sku ?? "",
       "product.excerpt": excerpt,
@@ -502,7 +601,18 @@ export function ProductDetailPage({
       "review.count": String(reviewCount),
       reviewCount: String(reviewCount),
     }),
-    [cartProduct?.price, categoryLabel, description, excerpt, product?.name, product?.sku, rating, reviewCount, stockLabel],
+    [
+      cartProduct?.price,
+      categoryLabel,
+      description,
+      excerpt,
+      product?.name,
+      product?.sku,
+      rating,
+      reviewCount,
+      selectedPriceLabel,
+      stockLabel,
+    ],
   );
 
   const optionsSection = useMemo(
@@ -514,73 +624,99 @@ export function ProductDetailPage({
   );
 
   const addToCartLabel = applyTemplate(
-    optionsSection?.buttons?.find((button) => button.style === "primary")?.label,
+    translateTemplateSource(
+      optionsSection?.buttons?.find((button) => button.style === "primary")?.label,
+    ),
     templateContext,
-    "Add to cart",
+    t("Add to cart"),
   );
   const sizeChartButton =
     optionsSection?.buttons?.find((button) => button.style !== "primary") ?? null;
   const sizeChartLabel = applyTemplate(
-    sizeChartButton?.label,
+    translateTemplateSource(sizeChartButton?.label),
     templateContext,
-    "See sizing chart",
+    t("See sizing chart"),
   );
   const sizeChartHref = sizeChartButton?.href?.trim() || "#";
 
   const accordionItems = useMemo<ProductAccordionItem[]>(() => {
     const specs: string[] = [];
-    if (product?.sku) specs.push(`SKU: ${product.sku}`);
-    if (product?.unit) specs.push(`Unit: ${product.unit}`);
+    if (product?.sku) specs.push(`${t("SKU")}: ${product.sku}`);
+    if (product?.unit) specs.push(`${t("Unit")}: ${product.unit}`);
     if (typeof product?.vatRate === "number") {
-      specs.push(`VAT: ${product.vatRate}%`);
+      specs.push(`${t("VAT")}: ${product.vatRate}%`);
     }
-    const descriptionBody = descriptionHtml ? (
-      <div
-        className="space-y-2 text-xs text-slate-600 [&_a]:text-sky-600 [&_a]:underline [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4"
-        dangerouslySetInnerHTML={{ __html: descriptionHtml }}
-      />
-    ) : (
-      detailParagraphs[0] ?? "Details coming soon."
-    );
     return [
-      {
-        id: "description",
-        title: applyTemplate(
-          findSectionItem(optionsSection, "ciseco-product-options-accordion-description")?.title,
-          templateContext,
-          "Description",
-        ),
-        body: descriptionBody,
-      },
       {
         id: "specs",
         title: applyTemplate(
-          findSectionItem(optionsSection, "ciseco-product-options-accordion-specs")?.title,
+          translateTemplateSource(
+            findSectionItem(
+              optionsSection,
+              "ciseco-product-options-accordion-specs",
+            )?.title,
+          ),
           templateContext,
-          "Details",
+          t("Details"),
         ),
-        body: specs.length ? specs.join(" | ") : "Details coming soon.",
+        body: specs.length ? specs.join(" | ") : t("Details coming soon."),
       },
       {
         id: "category",
         title: applyTemplate(
-          findSectionItem(optionsSection, "ciseco-product-options-accordion-category")?.title,
+          translateTemplateSource(
+            findSectionItem(
+              optionsSection,
+              "ciseco-product-options-accordion-category",
+            )?.title,
+          ),
           templateContext,
-          "Category",
+          t("Category"),
         ),
         body: categoryLabel,
       },
       {
         id: "availability",
         title: applyTemplate(
-          findSectionItem(optionsSection, "ciseco-product-options-accordion-availability")?.title,
+          translateTemplateSource(
+            findSectionItem(
+              optionsSection,
+              "ciseco-product-options-accordion-availability",
+            )?.title,
+          ),
           templateContext,
-          "Availability",
+          t("Availability"),
         ),
         body: stockLabel,
       },
     ];
-  }, [categoryLabel, descriptionHtml, detailParagraphs, optionsSection, product, stockLabel, templateContext]);
+  }, [
+    categoryLabel,
+    optionsSection,
+    product,
+    stockLabel,
+    t,
+    templateContext,
+    translateTemplateSource,
+  ]);
+
+  const getOptionChipClassName = ({
+    isActive,
+    isDisabled,
+    compact = false,
+  }: {
+    isActive: boolean;
+    isDisabled: boolean;
+    compact?: boolean;
+  }) =>
+    clsx(
+      "inline-flex max-w-full items-center justify-center gap-x-1.5 gap-y-0.5 whitespace-normal rounded-full border px-4 py-2.5 text-center text-sm font-semibold leading-tight shadow-[0_14px_28px_-26px_rgba(15,23,42,0.45)] transition-[transform,border-color,background-color,box-shadow,color,opacity] duration-200",
+      compact ? "min-h-10 min-w-[3.5rem]" : "min-h-11",
+      isActive && !isDisabled
+        ? "border-slate-900 bg-slate-900 text-white shadow-[0_18px_34px_-24px_rgba(15,23,42,0.65)]"
+        : "border-black/10 bg-white text-slate-700 hover:-translate-y-0.5 hover:border-slate-900/70 hover:bg-slate-50 hover:shadow-[0_18px_34px_-26px_rgba(15,23,42,0.5)]",
+      isDisabled && "cursor-not-allowed opacity-45 hover:translate-y-0 hover:border-black/10 hover:bg-white hover:shadow-[0_14px_28px_-26px_rgba(15,23,42,0.45)]",
+    );
 
   useEffect(() => {
     const nextColor =
@@ -636,7 +772,7 @@ export function ProductDetailPage({
   }, [resolvedCustomOptions]);
 
   useEffect(() => {
-    setOpenAccordion(accordionItems[0]?.id ?? "description");
+    setOpenAccordion(accordionItems[0]?.id ?? "specs");
   }, [accordionItems]);
 
   useEffect(() => {
@@ -646,8 +782,15 @@ export function ProductDetailPage({
   }, [product?.id]);
 
   useEffect(() => {
-    if (typeof selectedStock !== "number" || selectedStock <= 0) return;
-    setQuantity((current) => Math.min(current, selectedStock));
+    setOpenFaqId(faqItems[0]?.question ?? "");
+  }, [faqItems]);
+
+  useEffect(() => {
+    if (typeof selectedStock !== "number") return;
+    setQuantity((current) => {
+      if (selectedStock <= 0) return 1;
+      return Math.min(current, selectedStock);
+    });
   }, [selectedStock]);
 
   if (resolvedStatus === "loading") {
@@ -658,8 +801,10 @@ export function ProductDetailPage({
     return (
       <ProductDetailMessage
         theme={theme}
-        title="Something went wrong"
-        description="We could not load this product right now. Please refresh and try again."
+        title={t("Something went wrong")}
+        description={t(
+          "We could not load this product right now. Please refresh and try again.",
+        )}
         action={
           <Button
             asChild
@@ -668,7 +813,7 @@ export function ProductDetailPage({
               "bg-slate-900 px-6 text-white hover:opacity-90",
             )}
           >
-            <a href={baseLink("/")}>Back to home</a>
+            <a href={localizeHref(baseLink("/"))}>{t("Back to home")}</a>
           </Button>
         }
       />
@@ -679,8 +824,8 @@ export function ProductDetailPage({
     return (
       <ProductDetailMessage
         theme={theme}
-        title="Product not found"
-        description="We could not find this product for the current catalog."
+        title={t("Product not found")}
+        description={t("We could not find this product for the current catalog.")}
         action={
           <Button
             asChild
@@ -689,7 +834,7 @@ export function ProductDetailPage({
               "bg-slate-900 px-6 text-white hover:opacity-90",
             )}
           >
-            <a href={baseLink("/")}>Browse products</a>
+            <a href={localizeHref(baseLink("/"))}>{t("Browse products")}</a>
           </Button>
         }
       />
@@ -701,34 +846,50 @@ export function ProductDetailPage({
   const hasColors = resolvedColors.length > 0;
   const hasSizes = resolvedSizes.length > 0;
   const hasCustomOptions = resolvedCustomOptions.length > 0;
+  const isCurrentWishlisted = product?.id ? isWishlisted(product.id) : false;
+  const isCurrentWishlistBusy = product?.id ? pendingIds.has(product.id) : false;
 
   const renderGalleryPanel = (section?: WebsiteBuilderSection | null) => (
     <div className="space-y-4" data-builder-section={section?.id}>
       <div className="relative overflow-hidden rounded-3xl border border-black/5 bg-white p-6 shadow-sm">
         <button
           type="button"
-          className="absolute left-4 top-4 flex h-9 w-9 items-center justify-center rounded-full border border-black/10 bg-white text-slate-600 shadow-sm transition hover:scale-105"
-          aria-label="Quick view"
+          onClick={() => {
+            if (!product?.id || isCurrentWishlistBusy) return;
+            void toggleWishlist(product.id);
+          }}
+          disabled={!product?.id || isCurrentWishlistBusy}
+          aria-label={
+            isCurrentWishlisted
+              ? `${t("Remove from wishlist")} ${product?.name ?? ""}`
+              : `${t("Add to wishlist")} ${product?.name ?? ""}`
+          }
+          aria-pressed={isCurrentWishlisted}
+          aria-busy={isCurrentWishlistBusy}
+          className={clsx(
+            "absolute left-4 top-4 z-20 flex h-12 w-12 items-center justify-center rounded-full border border-white/85 bg-white/92 text-xs shadow-[0_18px_34px_-24px_rgba(15,23,42,0.75)] backdrop-blur-md transition-[transform,color,background-color,box-shadow,border-color] duration-300 hover:-translate-y-0.5 active:scale-95",
+            isCurrentWishlisted
+              ? "border-rose-200/80 bg-rose-50 text-rose-600 shadow-[0_18px_34px_-24px_rgba(244,63,94,0.65)]"
+              : "text-slate-500 hover:border-rose-100 hover:bg-white hover:text-rose-500",
+            isCurrentWishlistBusy ? "cursor-wait opacity-80" : null,
+          )}
         >
-          <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
-            <circle
-              cx="12"
-              cy="12"
-              r="9"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              fill="none"
+          {isCurrentWishlistBusy ? (
+            <span
+              className="h-4 w-4 animate-spin rounded-full border-2 border-rose-200 border-t-rose-500"
+              aria-hidden="true"
             />
-            <circle cx="9" cy="10" r="1" fill="currentColor" />
-            <circle cx="15" cy="10" r="1" fill="currentColor" />
-            <path
-              d="M8 14c1.2 1 2.6 1.5 4 1.5s2.8-.5 4-1.5"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              fill="none"
+          ) : (
+            <WishlistHeartIcon
+              key={isCurrentWishlisted ? "wishlisted" : "idle"}
+              className={clsx(
+                "h-[22px] w-[22px] transition-transform duration-300",
+                isCurrentWishlisted && "animate-ciseco-heart-pop",
+              )}
+              filled={isCurrentWishlisted}
+              strokeWidth={1.9}
             />
-          </svg>
+          )}
         </button>
         <div className="aspect-square w-full">
           {mainImage ? (
@@ -736,6 +897,8 @@ export function ProductDetailPage({
               src={mainImage.src}
               alt={mainImage.alt}
               className="h-full w-full object-contain"
+              loading="eager"
+              decoding="async"
             />
           ) : null}
         </div>
@@ -763,34 +926,80 @@ export function ProductDetailPage({
   );
 
   const renderOptionsPanel = (section?: WebsiteBuilderSection | null) => {
-    const heading = applyTemplate(section?.title, templateContext, product?.name ?? "");
+    const heading = applyTemplate(
+      translateTemplateSource(section?.title),
+      templateContext,
+      product?.name ?? "",
+    );
     const subtitle = section?.subtitle
-      ? applyTemplate(section.subtitle, templateContext, section.subtitle)
+      ? applyTemplate(
+          translateTemplateSource(section.subtitle),
+          templateContext,
+          translateTemplateSource(section.subtitle) ?? section.subtitle,
+        )
       : null;
 
     return (
       <div className="space-y-6" data-builder-section={section?.id}>
-        <div className="space-y-3">
+        <div className="space-y-4">
           <h1 className="text-2xl font-semibold text-slate-900 sm:text-3xl">
             {heading}
           </h1>
-          <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
-            <span className="rounded-full bg-emerald-100 px-3 py-1 text-[11px] font-semibold text-emerald-700">
-              {cartProduct?.price ?? ""}
-            </span>
-            <div className="flex items-center gap-2">
-              <RatingStars rating={rating} />
-              <span className="text-xs font-semibold text-slate-900">
-                {rating.toFixed(1)}
-              </span>
-              <span className="text-slate-400">|</span>
-              <span>{reviewCount} Reviews</span>
+          <div className="flex flex-wrap items-start gap-3">
+            <div className="relative min-w-[220px] max-w-full flex-1">
+              <div
+                className="pointer-events-none absolute -left-6 top-5 h-16 w-40 rounded-full blur-3xl"
+                style={{ backgroundColor: "rgba(59, 130, 246, 0.12)" }}
+              />
+              <div className="relative">
+                <span className="inline-flex items-center gap-2 rounded-full border border-sky-100 bg-sky-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-sky-700">
+                  <span
+                    className="h-1.5 w-1.5 rounded-full"
+                    style={{ backgroundColor: "#2563eb" }}
+                  />
+                  {t("Price")}
+                </span>
+                <div className="mt-2 flex flex-wrap items-end gap-x-3 gap-y-1.5">
+                  <span className="text-[1.86rem] font-semibold leading-none tracking-[-0.05em] text-sky-950 tabular-nums sm:text-[2.08rem]">
+                    {displayPriceLabel}
+                  </span>
+                  {selectedPriceAdjustmentLabel ? (
+                    <span className="text-[13px] font-medium text-slate-500">
+                      {selectedPriceAdjustmentLabel}
+                    </span>
+                  ) : null}
+                </div>
+                <div
+                  className="mt-2.5 h-[2px] w-full max-w-[11rem] rounded-full opacity-95"
+                  style={{
+                    background:
+                      "linear-gradient(90deg, rgba(37,99,235,0.95) 0%, rgba(147,197,253,0.5) 62%, rgba(255,255,255,0) 100%)",
+                  }}
+                />
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+              {categoryLabel ? (
+                <span className="rounded-full border border-black/10 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 shadow-[0_12px_24px_-24px_rgba(15,23,42,0.35)]">
+                  {categoryLabel}
+                </span>
+              ) : null}
+              {reviewCount > 0 ? (
+                <div className="flex items-center gap-2 rounded-full border border-black/10 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 shadow-[0_12px_24px_-24px_rgba(15,23,42,0.35)]">
+                  <RatingStars rating={rating} />
+                  <span className="text-slate-900">{rating.toFixed(1)}</span>
+                  <span className="text-slate-400">|</span>
+                  <span>{reviewCount} {t("Reviews")}</span>
+                </div>
+              ) : null}
             </div>
           </div>
           <div
             className={clsx(
-              "flex items-center gap-2 text-xs",
-              isOutOfStock ? "text-rose-600" : "text-emerald-600",
+              "inline-flex w-fit items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold shadow-[0_12px_24px_-24px_rgba(15,23,42,0.3)]",
+              isOutOfStock
+                ? "border-rose-100 bg-rose-50 text-rose-600"
+                : "border-emerald-100 bg-emerald-50 text-emerald-700",
             )}
           >
             <span
@@ -804,13 +1013,28 @@ export function ProductDetailPage({
           {subtitle ? (
             <p className="text-sm text-slate-600">{subtitle}</p>
           ) : null}
+          {shortDescriptionHtml ? (
+            <div
+              className="text-sm leading-6 text-slate-600 [&_a]:text-sky-600 [&_a]:underline [&_strong]:font-semibold"
+              dangerouslySetInnerHTML={{ __html: shortDescriptionHtml }}
+            />
+          ) : excerpt ? (
+            <p className="text-sm text-slate-600">{excerpt}</p>
+          ) : null}
         </div>
         {hasColors ? (
-          <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-              Color
-            </p>
-            <div className="flex items-center gap-3">
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                {t("Color")}
+              </p>
+              {activeColorOption?.label ? (
+                <span className="text-sm font-medium text-slate-700">
+                  {activeColorOption.label}
+                </span>
+              ) : null}
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
               {resolvedColors.map((color) => {
                 const isActive = color.id === activeColor;
                 const isDisabled = color.disabled === true;
@@ -822,11 +1046,11 @@ export function ProductDetailPage({
                     aria-pressed={isActive}
                     disabled={isDisabled}
                     className={clsx(
-                      "flex h-8 w-8 items-center justify-center rounded-full border transition",
+                      "flex h-11 w-11 items-center justify-center rounded-full border bg-white shadow-[0_14px_28px_-24px_rgba(15,23,42,0.42)] transition-[transform,border-color,box-shadow,opacity] duration-200 hover:-translate-y-0.5",
                       isActive && !isDisabled
-                        ? "border-slate-900 ring-2 ring-slate-900/20"
+                        ? "border-slate-900 ring-2 ring-slate-900/15 shadow-[0_18px_34px_-22px_rgba(15,23,42,0.5)]"
                         : "border-black/10 hover:border-slate-400",
-                      isDisabled && "cursor-not-allowed opacity-40",
+                      isDisabled && "cursor-not-allowed opacity-40 hover:translate-y-0",
                     )}
                     onClick={() => {
                       if (isDisabled) return;
@@ -834,7 +1058,7 @@ export function ProductDetailPage({
                     }}
                   >
                     <span
-                      className="h-4 w-4 rounded-full"
+                      className="h-[22px] w-[22px] rounded-full border border-black/5"
                       style={{ backgroundColor: color.swatch }}
                     />
                   </button>
@@ -844,19 +1068,26 @@ export function ProductDetailPage({
           </div>
         ) : null}
         {hasSizes ? (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                Size
+                {t("Size")}
               </p>
-              <a
-                href={sizeChartHref}
-                className="text-xs font-semibold text-sky-600 transition hover:text-sky-700"
-              >
-                {sizeChartLabel}
-              </a>
+              <div className="flex flex-wrap items-center gap-3">
+                {activeSizeOption?.label ? (
+                  <span className="text-sm font-medium text-slate-700">
+                    {activeSizeOption.label}
+                  </span>
+                ) : null}
+                <a
+                  href={localizeHref(sizeChartHref)}
+                  className="text-xs font-semibold text-sky-600 transition hover:text-sky-700"
+                >
+                  {t(sizeChartLabel)}
+                </a>
+              </div>
             </div>
-            <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+            <div className="flex flex-wrap gap-2.5">
               {resolvedSizes.map((size) => {
                 const isActive = size.id === activeSize;
                 const isDisabled = size.disabled === true;
@@ -866,13 +1097,11 @@ export function ProductDetailPage({
                     type="button"
                     aria-pressed={isActive}
                     disabled={isDisabled}
-                    className={clsx(
-                      "rounded-full border px-2 py-1.5 text-xs font-semibold transition",
-                      isActive && !isDisabled
-                        ? "border-slate-900 bg-slate-900 text-white"
-                        : "border-black/10 bg-white text-slate-600 hover:border-slate-900",
-                      isDisabled && "cursor-not-allowed opacity-40",
-                    )}
+                    className={getOptionChipClassName({
+                      isActive,
+                      isDisabled,
+                      compact: true,
+                    })}
                     onClick={() => {
                       if (isDisabled) return;
                       setActiveSize(size.id);
@@ -887,63 +1116,100 @@ export function ProductDetailPage({
         ) : null}
         {hasCustomOptions ? (
           <div className="space-y-4">
-            {resolvedCustomOptions.map((group) => (
-              <div key={group.id} className="space-y-2">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                  {group.name}
-                </p>
-                <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-                  {group.values.map((value) => {
-                    const isActive = customSelections[group.id] === value.id;
-                    const isDisabled = value.disabled === true;
-                    return (
-                      <button
-                        key={value.id}
-                        type="button"
-                        aria-pressed={isActive}
-                        disabled={isDisabled}
-                        className={clsx(
-                          "rounded-full border px-2 py-1.5 text-xs font-semibold transition",
-                          isActive && !isDisabled
-                            ? "border-slate-900 bg-slate-900 text-white"
-                            : "border-black/10 bg-white text-slate-600 hover:border-slate-900",
-                          isDisabled && "cursor-not-allowed opacity-40",
-                        )}
-                        onClick={() => {
-                          if (isDisabled) return;
-                          setCustomSelections((prev) => ({
-                            ...prev,
-                            [group.id]: value.id,
-                          }));
-                        }}
-                      >
-                        {value.label}
-                      </button>
-                    );
-                  })}
+            {resolvedCustomOptions.map((group) => {
+              const selectedValue =
+                group.values.find((value) => customSelections[group.id] === value.id) ?? null;
+
+              return (
+                <div key={group.id} className="space-y-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                      {group.name}
+                    </p>
+                    {selectedValue ? (
+                      <span className="text-sm font-medium text-slate-700">
+                        {selectedValue.label}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="flex flex-wrap gap-2.5">
+                    {group.values.map((value) => {
+                      const isActive = customSelections[group.id] === value.id;
+                      const isDisabled = value.disabled === true;
+                      const priceAdjustmentLabel = formatPriceAdjustmentLabel(
+                        value.priceAdjustmentCents,
+                        cartProduct?.currencyCode ?? "TND",
+                      );
+                      return (
+                        <button
+                          key={value.id}
+                          type="button"
+                          aria-pressed={isActive}
+                          disabled={isDisabled}
+                          className={getOptionChipClassName({
+                            isActive,
+                            isDisabled,
+                          })}
+                          onClick={() => {
+                            if (isDisabled) return;
+                            setCustomSelections((prev) => ({
+                              ...prev,
+                              [group.id]: value.id,
+                            }));
+                          }}
+                        >
+                          <span className="flex max-w-full flex-wrap items-center justify-center gap-x-1.5 gap-y-0.5 text-center">
+                            <span className="break-words">{value.label}</span>
+                            {priceAdjustmentLabel ? (
+                              <span
+                                className={clsx(
+                                  "text-[11px] font-medium",
+                                  isActive && !isDisabled
+                                    ? "text-white/75"
+                                    : "text-slate-500",
+                                )}
+                              >
+                                {priceAdjustmentLabel}
+                              </span>
+                            ) : null}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : null}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <div className="flex items-center justify-between rounded-full border border-black/10 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm sm:w-32">
             <button
               type="button"
-              className="flex h-6 w-6 items-center justify-center rounded-full text-slate-500 transition hover:bg-black/5"
+              className="flex h-6 w-6 items-center justify-center rounded-full text-slate-500 transition hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40"
+              disabled={quantity <= 1}
               onClick={() =>
                 setQuantity((value) => Math.max(1, value - 1))
               }
-              aria-label="Decrease quantity"
+              aria-label={t("Decrease quantity")}
             >
               -
             </button>
             <span>{quantity}</span>
             <button
               type="button"
-              className="flex h-6 w-6 items-center justify-center rounded-full text-slate-500 transition hover:bg-black/5"
-              onClick={() => setQuantity((value) => value + 1)}
-              aria-label="Increase quantity"
+              className="flex h-6 w-6 items-center justify-center rounded-full text-slate-500 transition hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40"
+              disabled={!canIncreaseQuantity}
+              onClick={() =>
+                setQuantity((value) => {
+                  if (isOutOfStock) return value;
+                  if (typeof selectedStock === "number") {
+                    return Math.min(selectedStock, value + 1);
+                  }
+                  return value + 1;
+                })
+              }
+              aria-label={t("Increase quantity")}
             >
               +
             </button>
@@ -959,20 +1225,40 @@ export function ProductDetailPage({
             onClick={() => {
               if (!cartProduct || isOutOfStock) return;
               const selectedOptions = [
-                activeColorOption?.label
-                  ? { name: "Color", value: activeColorOption.label }
-                  : null,
-                activeSizeOption?.label
-                  ? { name: "Size", value: activeSizeOption.label }
-                  : null,
+                ...(activeColorOption?.label
+                  ? [
+                      {
+                        kind: "color" as const,
+                        groupId: "color",
+                        valueId: activeColorOption.id,
+                        name: "Color",
+                        value: activeColorOption.label,
+                      },
+                    ]
+                  : []),
+                ...(activeSizeOption?.label
+                  ? [
+                      {
+                        kind: "size" as const,
+                        groupId: "size",
+                        valueId: activeSizeOption.id,
+                        name: "Size",
+                        value: activeSizeOption.label,
+                      },
+                    ]
+                  : []),
                 ...selectedCustomOptions,
-              ].filter(
-                (entry): entry is { name: string; value: string } =>
-                  Boolean(entry),
-              );
+              ];
+              const nextCartProduct = toCartProduct(cartProduct);
               addItem(
                 {
-                  ...toCartProduct(cartProduct),
+                  ...nextCartProduct,
+                  price: selectedPriceLabel || nextCartProduct.price,
+                  unitAmountCents:
+                    selectedUnitAmountCents ?? nextCartProduct.unitAmountCents,
+                  unitPriceHTCents:
+                    selectedUnitPriceHTCents ??
+                    nextCartProduct.unitPriceHTCents,
                   selectedOptions: selectedOptions.length ? selectedOptions : null,
                 },
                 quantity,
@@ -989,7 +1275,7 @@ export function ProductDetailPage({
               <circle cx="9" cy="19" r="1.5" fill="currentColor" />
               <circle cx="16" cy="19" r="1.5" fill="currentColor" />
             </svg>
-            <span>{addToCartLabel}</span>
+            <span>{t(addToCartLabel)}</span>
           </Button>
         </div>
         <div className="space-y-2">
@@ -1032,18 +1318,30 @@ export function ProductDetailPage({
       <Section theme={theme} className="pt-8" key={key}>
         <div className="space-y-6">
           <nav
-            aria-label="Breadcrumb"
-            className="flex flex-wrap items-center gap-2 text-xs text-slate-500"
+            aria-label={t("Breadcrumb")}
+            className="text-xs text-slate-500"
           >
-            <a href={baseLink("/")} className="transition hover:text-slate-900">
-              Home
-            </a>
-            <span>/</span>
-            <a href={baseLink("/")} className="transition hover:text-slate-900">
-              {categoryLabel}
-            </a>
-            <span>/</span>
-            <span className="text-slate-900">{product?.name ?? ""}</span>
+            <ol className="flex flex-wrap items-center gap-2">
+              <li>
+                <a
+                  href={localizeHref(baseLink("/"))}
+                  className="transition hover:text-slate-900"
+                >
+                  {t("Home")}
+                </a>
+              </li>
+              <li aria-hidden="true">/</li>
+              <li>
+                <a
+                  href={categoryHref}
+                  className="transition hover:text-slate-900"
+                >
+                  {categoryLabel}
+                </a>
+              </li>
+              <li aria-hidden="true">/</li>
+              <li className="text-slate-900">{product?.name ?? ""}</li>
+            </ol>
           </nav>
           <div className={clsx("grid gap-8", columns)}>
             {showGallery ? renderGalleryPanel(gallerySection) : null}
@@ -1054,10 +1352,62 @@ export function ProductDetailPage({
     );
   };
 
+  const renderFaqSection = () => {
+    if (!faqItems.length) {
+      return null;
+    }
+
+    return (
+      <Section
+        theme={theme}
+        key="product-faq"
+      >
+        <div className="max-w-3xl space-y-4">
+          <div className="space-y-2">
+            <h2 className="text-xl font-semibold text-slate-900">
+              {t("Questions fréquentes")}
+            </h2>
+            <p className="text-sm text-slate-600">
+              {t("Réponses utiles pour mieux choisir ce produit avant achat ou demande de devis.")}
+            </p>
+          </div>
+          <div className="space-y-2">
+            {faqItems.map((item, index) => {
+              const itemId = `${product?.id ?? "product"}-faq-${index + 1}`;
+              return (
+                <AccordionItem
+                  key={itemId}
+                  id={itemId}
+                  title={item.question}
+                  isOpen={openFaqId === item.question}
+                  onToggle={() =>
+                    setOpenFaqId((current) =>
+                      current === item.question ? "" : item.question,
+                    )
+                  }
+                >
+                  {item.answer}
+                </AccordionItem>
+              );
+            })}
+          </div>
+        </div>
+      </Section>
+    );
+  };
+
   const renderDescriptionSection = (section?: WebsiteBuilderSection | null) => {
-    const heading = applyTemplate(section?.title, templateContext, "Product Details");
+    const heading = applyTemplate(
+      translateTemplateSource(section?.title),
+      templateContext,
+      t("Product Details"),
+    );
     const intro = section?.description
-      ? applyTemplate(section.description, templateContext, section.description)
+      ? applyTemplate(
+          translateTemplateSource(section.description),
+          templateContext,
+          translateTemplateSource(section.description) ?? section.description,
+        )
       : null;
 
     return (
@@ -1080,7 +1430,7 @@ export function ProductDetailPage({
           ) : (
             detailParagraphs.map((paragraph) => (
               <p key={paragraph} className="text-sm text-slate-600">
-                {paragraph}
+                {t(paragraph)}
               </p>
             ))
           )}
@@ -1089,7 +1439,7 @@ export function ProductDetailPage({
               {detailBullets.map((item) => (
                 <li key={item} className="flex items-start gap-2">
                   <span className="mt-1 h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                  <span>{item}</span>
+                  <span>{t(item)}</span>
                 </li>
               ))}
             </ul>
@@ -1101,20 +1451,20 @@ export function ProductDetailPage({
 
   const renderReviewsSection = (section?: WebsiteBuilderSection | null) => {
     const countLabel = applyTemplate(
-      section?.title,
+      translateTemplateSource(section?.title),
       templateContext,
-      `${reviewCount} Reviews`,
+      `${reviewCount} ${t("Reviews")}`,
     );
     const emptyLabel = applyTemplate(
-      section?.description,
+      translateTemplateSource(section?.description),
       templateContext,
-      "No reviews yet. Be the first to share your feedback.",
+      t("No reviews yet. Be the first to share your feedback."),
     );
     const reviewButton = section?.buttons?.[0] ?? null;
     const reviewButtonLabel = applyTemplate(
-      reviewButton?.label,
+      translateTemplateSource(reviewButton?.label),
       templateContext,
-      "Write a review",
+      t("Write a review"),
     );
 
     return (
@@ -1149,7 +1499,7 @@ export function ProductDetailPage({
               "w-fit bg-slate-900 px-5 text-white shadow-[0_18px_30px_-20px_rgba(15,23,42,0.4)] hover:opacity-90",
             )}
           >
-            <a href={reviewButton?.href ?? "#"}>{reviewButtonLabel}</a>
+            <a href={localizeHref(reviewButton?.href ?? "#")}>{reviewButtonLabel}</a>
           </Button>
         </div>
       </Section>
@@ -1158,14 +1508,14 @@ export function ProductDetailPage({
 
   const renderRelatedSection = (section?: WebsiteBuilderSection | null) => {
     const heading = applyTemplate(
-      section?.title,
+      translateTemplateSource(section?.title),
       templateContext,
-      "Customers also purchased",
+      t("Customers also purchased"),
     );
     const emptyLabel = applyTemplate(
-      section?.description,
+      translateTemplateSource(section?.description),
       templateContext,
-      "No related products are available yet.",
+      t("No related products are available yet."),
     );
 
     return (
@@ -1175,56 +1525,20 @@ export function ProductDetailPage({
         key={section?.id ?? "related-default"}
       >
         <div className="space-y-6">
-          <div className="flex items-center justify-between gap-4">
-            <h2 className="text-2xl font-semibold text-slate-900">
-              {heading}
-            </h2>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                className="flex h-9 w-9 items-center justify-center rounded-full border border-black/10 bg-white text-slate-600 transition hover:text-slate-900"
-                aria-label="Previous"
-              >
-                <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
-                  <path
-                    d="M15 6l-6 6 6 6"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    fill="none"
-                  />
-                </svg>
-              </button>
-              <button
-                type="button"
-                className="flex h-9 w-9 items-center justify-center rounded-full border border-black/10 bg-white text-slate-600 transition hover:text-slate-900"
-                aria-label="Next"
-              >
-                <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
-                  <path
-                    d="M9 6l6 6-6 6"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    fill="none"
-                  />
-                </svg>
-              </button>
-            </div>
-          </div>
+          <h2 className="text-2xl font-semibold text-slate-900">
+            {heading}
+          </h2>
           {relatedProducts.length ? (
-            <div className="flex gap-4 overflow-x-auto pb-2 lg:grid lg:grid-cols-4 lg:overflow-visible">
+            <div className="flex snap-x gap-3 overflow-x-auto pb-2 sm:grid sm:grid-cols-2 sm:overflow-visible lg:grid-cols-4">
               {relatedProducts.map((item) => (
-                <div key={item.id} className="min-w-[220px] lg:min-w-0">
-                  <PurchasedCard
+                <div key={item.id} className="min-w-[240px] snap-start sm:min-w-0">
+                  <ProductCard
                     product={item}
+                    variant="compact"
+                    href={baseLink(`/produit/${item.slug}`)}
                     isWishlisted={isWishlisted(item.id)}
                     isWishlistBusy={pendingIds.has(item.id)}
-                    onToggleWishlist={() => {
-                      void toggleWishlist(item.id);
-                    }}
+                    onToggleWishlist={() => toggleWishlist(item.id)}
                   />
                 </div>
               ))}
@@ -1243,6 +1557,7 @@ export function ProductDetailPage({
     <>
       {renderGalleryAndOptionsSection(null, null, "default-main")}
       {renderDescriptionSection(null)}
+      {renderFaqSection()}
       {renderReviewsSection(null)}
       {renderRelatedSection(null)}
       <KidsOfferBanner theme={theme} />
@@ -1272,6 +1587,7 @@ export function ProductDetailPage({
   }
 
   const rendered: ReactNode[] = [];
+  let hasRenderedFaq = false;
   for (let index = 0; index < sectionEntries.length; index += 1) {
     const current = sectionEntries[index];
     if (!current) continue;
@@ -1312,6 +1628,10 @@ export function ProductDetailPage({
         break;
       case "description":
         rendered.push(renderDescriptionSection(current.section));
+        if (!hasRenderedFaq && faqItems.length) {
+          rendered.push(renderFaqSection());
+          hasRenderedFaq = true;
+        }
         break;
       case "reviews":
         rendered.push(renderReviewsSection(current.section));
@@ -1341,6 +1661,10 @@ export function ProductDetailPage({
         );
         break;
     }
+  }
+
+  if (!hasRenderedFaq && faqItems.length) {
+    rendered.push(renderFaqSection());
   }
 
   return <>{rendered}</>;

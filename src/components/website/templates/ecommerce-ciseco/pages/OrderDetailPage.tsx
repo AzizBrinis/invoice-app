@@ -11,7 +11,12 @@ import { ExtraSections } from "../components/builder/ExtraSections";
 import { Footer } from "../components/layout/Footer";
 import { Navbar } from "../components/layout/Navbar";
 import { PageShell } from "../components/layout/PageShell";
-import { useAccountProfile } from "../hooks/useAccountProfile";
+import { useCisecoI18n } from "../i18n";
+import { formatCisecoDate } from "../locale";
+import {
+  useAccountProfile,
+  type ProfileStatus,
+} from "../hooks/useAccountProfile";
 
 type OrderDetailPageProps = {
   theme: ThemeTokens;
@@ -150,7 +155,7 @@ export function OrderDetailPage({
           />
         ) : null}
       </main>
-      <Footer theme={theme} companyName={companyName} />
+      <Footer theme={theme} companyName={companyName} homeHref={homeHref} />
     </PageShell>
   );
 }
@@ -164,26 +169,28 @@ function AccountHeader({
 }: {
   name: string;
   details: string;
-  status: "loading" | "ready" | "error";
+  status: ProfileStatus;
   title?: string | null;
   subtitle?: string | null;
 }) {
+  const { t } = useCisecoI18n();
+
   return (
     <div className="space-y-2">
       <h1 className="text-2xl font-semibold text-slate-900 sm:text-3xl">
-        {title ?? "Account"}
+        {t(title ?? "Account")}
       </h1>
       {subtitle ? (
-        <p className="text-sm text-slate-600">{subtitle}</p>
+        <p className="text-sm text-slate-600">{t(subtitle)}</p>
       ) : null}
       <p className="text-sm text-slate-500 sm:text-base">
         <span className="font-semibold text-slate-900">
-          {name || (status === "loading" ? "Loading..." : "—")}
+          {name || (status === "loading" ? t("Loading...") : "—")}
         </span>
         {details
           ? `, ${details}`
           : status === "loading"
-            ? " · Loading details..."
+            ? ` · ${t("Loading details...")}`
             : null}
       </p>
     </div>
@@ -191,15 +198,24 @@ function AccountHeader({
 }
 
 function OrderHeader() {
+  const { t, locale } = useCisecoI18n();
+
   return (
     <div className="mt-8 space-y-2">
-      <p className="text-xs text-slate-500">Order placed March 22, 2025</p>
+      <p className="text-xs text-slate-500">
+        {t("Order placed on")}{" "}
+        {formatCisecoDate(locale, "2025-03-22", {
+          month: "long",
+          day: "numeric",
+          year: "numeric",
+        })}
+      </p>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-lg font-semibold text-slate-900 sm:text-xl">
-          Order #4657
+          {t("Order")} #4657
         </h2>
         <a href="#" className={actionButtonClassName}>
-          View invoice <span aria-hidden="true">&rarr;</span>
+          {t("View invoice")} <span aria-hidden="true">&rarr;</span>
         </a>
       </div>
     </div>
@@ -207,6 +223,8 @@ function OrderHeader() {
 }
 
 function OrderItemCard({ item }: { item: OrderItemDetail }) {
+  const { t } = useCisecoI18n();
+
   return (
     <article className="overflow-hidden rounded-2xl border border-black/5 bg-white shadow-sm">
       <div className="p-4 sm:p-6">
@@ -224,13 +242,15 @@ function OrderItemCard({ item }: { item: OrderItemDetail }) {
               <p className="text-sm font-semibold text-slate-900 sm:text-base">
                 {item.name}
               </p>
-              <p className="text-xs text-slate-500">Qty {item.quantity}</p>
+              <p className="text-xs text-slate-500">
+                {t("Qty")} {item.quantity}
+              </p>
               <span className={priceBadgeClassName}>{item.price}</span>
             </div>
             <div className="grid gap-4 text-xs text-slate-500 sm:min-w-[260px] sm:grid-cols-2 sm:gap-6">
               <div className="space-y-2">
                 <p className="text-xs font-semibold text-slate-900">
-                  Delivery address
+                  {t("Delivery address")}
                 </p>
                 <div className="space-y-1">
                   {deliveryAddress.map((line) => (
@@ -240,7 +260,7 @@ function OrderItemCard({ item }: { item: OrderItemDetail }) {
               </div>
               <div className="space-y-2">
                 <p className="text-xs font-semibold text-slate-900">
-                  Shipping updates
+                  {t("Shipping updates")}
                 </p>
                 <div className="space-y-1">
                   <p>{shippingUpdates.email}</p>
@@ -250,7 +270,7 @@ function OrderItemCard({ item }: { item: OrderItemDetail }) {
                   href="#"
                   className="inline-flex items-center text-xs font-semibold text-slate-500 transition hover:text-slate-700"
                 >
-                  Edit <span aria-hidden="true">&rarr;</span>
+                  {t("Edit")} <span aria-hidden="true">&rarr;</span>
                 </a>
               </div>
             </div>
@@ -259,7 +279,7 @@ function OrderItemCard({ item }: { item: OrderItemDetail }) {
       </div>
       <div className="border-t border-black/5 px-4 pb-5 pt-4 sm:px-6 sm:pb-6">
         <p className="text-xs font-semibold text-slate-900 sm:text-sm">
-          {item.status}
+          {t(item.status)}
         </p>
         <ProgressTracker currentStep={item.currentStep} />
       </div>
@@ -268,6 +288,7 @@ function OrderItemCard({ item }: { item: OrderItemDetail }) {
 }
 
 function ProgressTracker({ currentStep }: { currentStep: number }) {
+  const { t } = useCisecoI18n();
   const clampedStep = Math.min(Math.max(currentStep, 0), ORDER_STEPS.length - 1);
   const progress = (clampedStep / (ORDER_STEPS.length - 1)) * 100;
 
@@ -295,7 +316,7 @@ function ProgressTracker({ currentStep }: { currentStep: number }) {
                     : "text-slate-400",
               )}
             >
-              {step}
+              {t(step)}
             </span>
           );
         })}
@@ -305,11 +326,15 @@ function ProgressTracker({ currentStep }: { currentStep: number }) {
 }
 
 function OrderSummaryCard() {
+  const { t } = useCisecoI18n();
+
   return (
     <article className="rounded-2xl border border-black/5 bg-slate-50/70 px-5 py-6 shadow-sm sm:px-6">
       <div className="grid gap-6 sm:gap-8 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.75fr)]">
         <div className="space-y-2 text-xs text-slate-500">
-          <p className="text-xs font-semibold text-slate-900">Billing address</p>
+          <p className="text-xs font-semibold text-slate-900">
+            {t("Billing address")}
+          </p>
           <div className="space-y-1">
             {deliveryAddress.map((line) => (
               <p key={line}>{line}</p>
@@ -318,15 +343,19 @@ function OrderSummaryCard() {
         </div>
         <div className="space-y-3 text-xs text-slate-500">
           <p className="text-xs font-semibold text-slate-900">
-            Payment information
+            {t("Payment information")}
           </p>
           <div className="flex items-center gap-2">
             <span className="inline-flex items-center rounded-md bg-blue-600 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-white">
               Visa
             </span>
-            <span className="text-xs text-slate-500">Ending with 4242</span>
+            <span className="text-xs text-slate-500">
+              {t("Ending with")} 4242
+            </span>
           </div>
-          <p>Expires 02 / 24</p>
+          <p>
+            {t("Expires")} 02 / 24
+          </p>
         </div>
         <div className="space-y-2 text-xs text-slate-500">
           {totals.map((row) => (
@@ -339,7 +368,7 @@ function OrderSummaryCard() {
           ))}
           <div className="my-3 border-t border-black/5" />
           <div className="flex items-center justify-between text-sm font-semibold text-slate-900">
-            <span>Order total</span>
+            <span>{t("Order total")}</span>
             <span>$83.16</span>
           </div>
         </div>

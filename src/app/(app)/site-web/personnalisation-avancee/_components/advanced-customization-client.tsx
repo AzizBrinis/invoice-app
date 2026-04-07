@@ -19,6 +19,7 @@ import type {
   WebsiteBuilderSection,
   WebsiteBuilderMediaAsset,
   WebsiteBuilderButton,
+  WebsiteBuilderItem,
 } from "@/lib/website/builder";
 import { WEBSITE_MEDIA_PLACEHOLDERS } from "@/lib/website/placeholders";
 import { CISECO_PAGE_DEFINITIONS, type CisecoPageKey } from "@/lib/website/ciseco-pages";
@@ -27,12 +28,21 @@ import {
   BUILDER_SECTION_LAYOUTS,
   TECH_AGENCY_SECTION_LAYOUT_PRESETS,
   BUILDER_SECTION_BUTTON_LIMIT,
+  BUILDER_ITEM_BUTTON_LIMIT,
+  DEFAULT_HOME_HERO_SLIDER_INTERVAL_MS,
+  DEFAULT_HOME_HERO_CONTENT_BACKGROUND,
+  HOME_HERO_CONTENT_BACKGROUNDS,
+  HOME_HERO_SLIDER_MODES,
   builderConfigSchema,
+  clampHomeHeroSliderInterval,
   createCisecoSectionFromTemplate,
   sanitizeBuilderPages,
   createSectionTemplate,
   getCisecoPageSectionCatalog,
   normalizeBuilderConfigForTemplate,
+  resolveHomeHeroContentBackground,
+  resolveHomeHeroSlideContentBackground,
+  resolveHomeHeroSliderMode,
   resolveCisecoBuilderPageConfig,
   resolveCisecoSectionTemplate,
 } from "@/lib/website/builder";
@@ -109,6 +119,20 @@ const animationOptions = [
   { label: "Fondu", value: "fade" },
   { label: "Glissé", value: "slide" },
   { label: "Zoom", value: "zoom" },
+];
+
+const homeSliderContentBackgroundOptions: Array<{
+  value: (typeof HOME_HERO_CONTENT_BACKGROUNDS)[number];
+  label: string;
+}> = [
+  { value: "mist", label: "Brume claire" },
+  { value: "linen", label: "Ivoire doux" },
+  { value: "pearl", label: "Perle froide" },
+  { value: "blush", label: "Rosé pâle" },
+  { value: "sage", label: "Vert sauge" },
+  { value: "clay", label: "Rouge feutré" },
+  { value: "navy", label: "Bleu marine" },
+  { value: "obsidian", label: "Noir profond" },
 ];
 
 type SectionMediaField = {
@@ -318,6 +342,70 @@ type AddSectionOption = {
   label: string;
   group: "preset" | "generic";
 };
+
+type HomeSliderEditorSlide = {
+  id: string;
+  index: number;
+  isPrimary: boolean;
+  eyebrow: string;
+  title: string;
+  description: string;
+  note: string;
+  contentBackground: (typeof HOME_HERO_CONTENT_BACKGROUNDS)[number];
+  mediaId: string | null;
+  buttons: WebsiteBuilderButton[];
+};
+
+function isHomeHeroSliderSection(
+  section: WebsiteBuilderSection | null | undefined,
+  pageKey: CisecoPageKey,
+  isCisecoTemplate: boolean,
+) {
+  return Boolean(
+    isCisecoTemplate &&
+      pageKey === "home" &&
+      section?.type === "hero" &&
+      section?.layout === "home-hero",
+  );
+}
+
+function resolveHomeSliderEditorSlides(
+  section: WebsiteBuilderSection | null | undefined,
+) {
+  if (!section) {
+    return [] as HomeSliderEditorSlide[];
+  }
+
+  return [
+    {
+      id: `${section.id}-primary`,
+      index: 0,
+      isPrimary: true,
+      eyebrow: section.eyebrow ?? "",
+      title: section.title ?? "",
+      description: section.subtitle ?? "",
+      note: section.description ?? "",
+      contentBackground: resolveHomeHeroContentBackground(section.settings),
+      mediaId: section.mediaId ?? null,
+      buttons: section.buttons ?? [],
+    },
+    ...(section.items ?? []).map((item, index) => ({
+      id: item.id,
+      index: index + 1,
+      isPrimary: false,
+      eyebrow: item.badge ?? "",
+      title: item.title ?? "",
+      description: item.description ?? "",
+      note: item.tag ?? "",
+      contentBackground: resolveHomeHeroSlideContentBackground({
+        slideBackground: item.contentBackground,
+        settings: section.settings,
+      }),
+      mediaId: item.mediaId ?? null,
+      buttons: item.buttons ?? [],
+    })),
+  ];
+}
 
 function normalizeEditorBuilderConfig(
   config: WebsiteBuilderConfig,
@@ -769,6 +857,14 @@ export function AdvancedCustomizationClient({
     activePageConfig.sections.find((section) => section.id === selectedSectionId) ??
     activePageConfig.sections[0] ??
     null;
+  const isSelectedHomeSlider = isHomeHeroSliderSection(
+    selectedSection,
+    selectedPageKey,
+    isCisecoTemplate,
+  );
+  const homeSliderSlides = resolveHomeSliderEditorSlides(
+    isSelectedHomeSlider ? selectedSection : null,
+  );
   const selectedSectionTemplate =
     isCisecoTemplate && selectedSection
       ? resolveCisecoSectionTemplate(selectedPageKey, selectedSection)
@@ -776,6 +872,16 @@ export function AdvancedCustomizationClient({
   const sectionMediaFields = selectedSection
     ? SECTION_MEDIA_FIELDS[selectedSection.type] ?? []
     : [];
+  const homeSliderMode = isSelectedHomeSlider && selectedSection
+    ? resolveHomeHeroSliderMode({
+        settings: selectedSection.settings,
+        mediaId: selectedSection.mediaId,
+        items: selectedSection.items ?? [],
+      })
+    : HOME_HERO_SLIDER_MODES[0];
+  const homeSliderIntervalMs = isSelectedHomeSlider
+    ? clampHomeHeroSliderInterval(selectedSection?.settings?.autoSlideIntervalMs)
+    : DEFAULT_HOME_HERO_SLIDER_INTERVAL_MS;
   const layoutOptions = selectedSection
     ? selectedSectionTemplate?.singleton
       ? [selectedSectionTemplate.section.layout]
@@ -880,6 +986,36 @@ export function AdvancedCustomizationClient({
     }));
   }
 
+  function updateItemButton(
+    sectionId: string,
+    itemId: string,
+    buttonId: string,
+    changes: Partial<WebsiteBuilderButton>,
+  ) {
+    updateActivePage((page) => ({
+      ...page,
+      sections: page.sections.map((section) =>
+        section.id === sectionId
+          ? {
+              ...section,
+              items: section.items?.map((item) =>
+                item.id === itemId
+                  ? {
+                      ...item,
+                      buttons: (item.buttons ?? []).map((button) =>
+                        button.id === buttonId
+                          ? { ...button, ...changes }
+                          : button,
+                      ),
+                    }
+                  : item,
+              ),
+            }
+          : section,
+      ),
+    }));
+  }
+
   function updateButton(
     sectionId: string,
     buttonId: string,
@@ -936,6 +1072,212 @@ export function AdvancedCustomizationClient({
           icon: fallback.value,
         },
       ],
+    }));
+  }
+
+  function updateHomeSliderSettings(
+    sectionId: string,
+    changes: Partial<NonNullable<WebsiteBuilderSection["settings"]>>,
+  ) {
+    updateSection(sectionId, (section) => ({
+      settings: {
+        ...(section.settings ?? {}),
+        ...changes,
+      },
+    }));
+  }
+
+  function updateHomeSliderSlide(
+    slideIndex: number,
+    changes: Partial<{
+      eyebrow: string;
+      title: string;
+      description: string;
+      note: string;
+      contentBackground: (typeof HOME_HERO_CONTENT_BACKGROUNDS)[number];
+      mediaId: string | null;
+    }>,
+  ) {
+    if (!selectedSection) return;
+    if (slideIndex === 0) {
+      const nextChanges: Partial<WebsiteBuilderSection> = {};
+      const nextSettings: Partial<NonNullable<WebsiteBuilderSection["settings"]>> = {};
+      if ("eyebrow" in changes) nextChanges.eyebrow = changes.eyebrow;
+      if ("title" in changes) nextChanges.title = changes.title;
+      if ("description" in changes) nextChanges.subtitle = changes.description;
+      if ("note" in changes) nextChanges.description = changes.note;
+      if ("contentBackground" in changes) {
+        nextSettings.contentBackground = changes.contentBackground;
+      }
+      if ("mediaId" in changes) nextChanges.mediaId = changes.mediaId;
+      updateSection(selectedSection.id, (section) => ({
+        ...nextChanges,
+        ...(Object.keys(nextSettings).length
+          ? {
+              settings: {
+                ...(section.settings ?? {}),
+                ...nextSettings,
+              },
+            }
+          : {}),
+      }));
+      return;
+    }
+    const targetSlide = homeSliderSlides[slideIndex];
+    if (!targetSlide) return;
+    const nextChanges: Partial<WebsiteBuilderSection["items"][number]> = {};
+    if ("eyebrow" in changes) nextChanges.badge = changes.eyebrow;
+    if ("title" in changes) nextChanges.title = changes.title;
+    if ("description" in changes) nextChanges.description = changes.description;
+    if ("note" in changes) nextChanges.tag = changes.note;
+    if ("contentBackground" in changes) {
+      nextChanges.contentBackground = changes.contentBackground;
+    }
+    if ("mediaId" in changes) nextChanges.mediaId = changes.mediaId;
+    updateItem(selectedSection.id, targetSlide.id, {
+      ...nextChanges,
+    });
+  }
+
+  function addHomeSliderSlide() {
+    if (!selectedSection) return;
+    updateSection(selectedSection.id, (section) => ({
+      items: [
+        ...(section.items ?? []),
+        {
+          id: generateId("item"),
+          title: `Slide ${(section.items?.length ?? 0) + 2}`,
+          description: "Ajoutez un message clair et un appel à l’action.",
+          badge: "Nouveau slide",
+          tag: "",
+          contentBackground:
+            homeSliderContentBackgroundOptions[
+              (section.items?.length ?? 0) %
+                homeSliderContentBackgroundOptions.length
+            ]?.value ?? DEFAULT_HOME_HERO_CONTENT_BACKGROUND,
+          mediaId: null,
+          buttons: [
+            {
+              id: generateId("btn"),
+              label: "Action principale",
+              href: "/collections",
+              style: "primary",
+            },
+          ],
+          stats: [],
+        } satisfies WebsiteBuilderItem,
+      ],
+    }));
+  }
+
+  function removeHomeSliderSlide(slideIndex: number) {
+    if (!selectedSection || slideIndex === 0) return;
+    const targetSlide = homeSliderSlides[slideIndex];
+    if (!targetSlide) return;
+    updateSection(selectedSection.id, (section) => ({
+      items: section.items?.filter((item) => item.id !== targetSlide.id),
+    }));
+  }
+
+  function moveHomeSliderSlide(slideIndex: number, direction: "up" | "down") {
+    if (!selectedSection || slideIndex === 0) return;
+    updateSection(selectedSection.id, (section) => {
+      const items = [...(section.items ?? [])];
+      const itemIndex = slideIndex - 1;
+      const targetIndex = direction === "up" ? itemIndex - 1 : itemIndex + 1;
+      if (
+        itemIndex < 0 ||
+        itemIndex >= items.length ||
+        targetIndex < 0 ||
+        targetIndex >= items.length
+      ) {
+        return { items };
+      }
+      const [moved] = items.splice(itemIndex, 1);
+      items.splice(targetIndex, 0, moved);
+      return { items };
+    });
+  }
+
+  function addHomeSliderButton(slideIndex: number) {
+    if (!selectedSection) return;
+    if (slideIndex === 0) {
+      updateSection(selectedSection.id, (section) => {
+        if ((section.buttons?.length ?? 0) >= BUILDER_SECTION_BUTTON_LIMIT) {
+          return { buttons: section.buttons };
+        }
+        return {
+          buttons: [
+            ...(section.buttons ?? []),
+            {
+              id: generateId("btn"),
+              label: "Nouveau bouton",
+              href: "/collections",
+              style: "primary",
+            },
+          ],
+        };
+      });
+      return;
+    }
+    const targetSlide = homeSliderSlides[slideIndex];
+    if (!targetSlide || targetSlide.buttons.length >= BUILDER_ITEM_BUTTON_LIMIT) {
+      return;
+    }
+    updateSection(selectedSection.id, (section) => ({
+      items: section.items?.map((item) =>
+        item.id === targetSlide.id
+          ? {
+              ...item,
+              buttons: [
+                ...(item.buttons ?? []),
+                {
+                  id: generateId("btn"),
+                  label: "Nouveau bouton",
+                  href: "/collections",
+                  style: "primary",
+                },
+              ],
+            }
+          : item,
+      ),
+    }));
+  }
+
+  function updateHomeSliderButton(
+    slideIndex: number,
+    buttonId: string,
+    changes: Partial<WebsiteBuilderButton>,
+  ) {
+    if (!selectedSection) return;
+    if (slideIndex === 0) {
+      updateButton(selectedSection.id, buttonId, changes);
+      return;
+    }
+    const targetSlide = homeSliderSlides[slideIndex];
+    if (!targetSlide) return;
+    updateItemButton(selectedSection.id, targetSlide.id, buttonId, changes);
+  }
+
+  function removeHomeSliderButton(slideIndex: number, buttonId: string) {
+    if (!selectedSection) return;
+    if (slideIndex === 0) {
+      updateSection(selectedSection.id, (section) => ({
+        buttons: section.buttons?.filter((button) => button.id !== buttonId),
+      }));
+      return;
+    }
+    const targetSlide = homeSliderSlides[slideIndex];
+    if (!targetSlide) return;
+    updateSection(selectedSection.id, (section) => ({
+      items: section.items?.map((item) =>
+        item.id === targetSlide.id
+          ? {
+              ...item,
+              buttons: item.buttons?.filter((button) => button.id !== buttonId),
+            }
+          : item,
+      ),
     }));
   }
 
@@ -1621,7 +1963,343 @@ export function AdvancedCustomizationClient({
               />
             </section>
           ) : null}
-          {selectedSection ? (
+          {selectedSection ? isSelectedHomeSlider ? (
+            <section className="card space-y-5 p-6">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.3em] text-zinc-500 dark:text-zinc-400">
+                    Slider d’accueil
+                  </p>
+                  <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+                    Hero slider premium
+                  </h2>
+                  <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+                    Deux modes pris en charge: visuel plein format ou contenu minimal élégant.
+                  </p>
+                </div>
+                <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-300">
+                  <input
+                    type="checkbox"
+                    checked={selectedSection.visible !== false}
+                    onChange={(event) =>
+                      updateSection(selectedSection.id, () => ({
+                        visible: event.target.checked,
+                      }))
+                    }
+                  />
+                  Visible
+                </label>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-3">
+                <label className="text-xs font-medium text-zinc-600 dark:text-zinc-300">
+                  Mode du slider
+                  <select
+                    className="input mt-1"
+                    value={homeSliderMode}
+                    onChange={(event) =>
+                      updateHomeSliderSettings(selectedSection.id, {
+                        sliderMode: event.target
+                          .value as (typeof HOME_HERO_SLIDER_MODES)[number],
+                      })
+                    }
+                  >
+                    <option value="image">Image plein format</option>
+                    <option value="content">Contenu simple</option>
+                  </select>
+                </label>
+                <label className="text-xs font-medium text-zinc-600 dark:text-zinc-300">
+                  Intervalle auto (secondes)
+                  <Input
+                    type="number"
+                    min={2.5}
+                    max={15}
+                    step={0.5}
+                    value={homeSliderIntervalMs / 1000}
+                    onChange={(event) => {
+                      const seconds = Number.isFinite(event.target.valueAsNumber)
+                        ? event.target.valueAsNumber
+                        : DEFAULT_HOME_HERO_SLIDER_INTERVAL_MS / 1000;
+                      updateHomeSliderSettings(selectedSection.id, {
+                        autoSlideIntervalMs: clampHomeHeroSliderInterval(
+                          Math.round(seconds * 1000),
+                        ),
+                      });
+                    }}
+                    className="mt-1"
+                  />
+                </label>
+                <label className="text-xs font-medium text-zinc-600 dark:text-zinc-300">
+                  Transition
+                  <select
+                    className="input mt-1"
+                    value={selectedSection.animation ?? "fade"}
+                    onChange={(event) => {
+                      const value = event.target.value as WebsiteBuilderSection["animation"];
+                      updateSection(selectedSection.id, () => ({
+                        animation: value,
+                      }));
+                    }}
+                  >
+                    {animationOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50/80 p-4 text-sm text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900/50 dark:text-zinc-300">
+                {homeSliderMode === "image"
+                  ? "Le mode image utilise un visuel plein format par slide, sur toute la surface du hero."
+                  : "Le mode contenu reste strictement texte + boutons, avec une présentation plus minimale et éditoriale, et un fond sobre configurable sur chaque slide."}
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.3em] text-zinc-500 dark:text-zinc-400">
+                      Slides
+                    </p>
+                    <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                      Le premier slide sert d’ouverture. Les suivants peuvent être réordonnés.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="text-xs font-semibold text-[var(--site-accent)]"
+                    onClick={addHomeSliderSlide}
+                  >
+                    Ajouter un slide
+                  </button>
+                </div>
+
+                {homeSliderSlides.map((slide, slideIndex) => (
+                  <div
+                    key={slide.id}
+                    className="space-y-4 rounded-2xl border border-zinc-200 p-4 dark:border-zinc-800"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
+                      <div>
+                        <p className="font-medium text-zinc-800 dark:text-zinc-100">
+                          {slide.isPrimary ? "Slide principal" : `Slide ${slideIndex + 1}`}
+                        </p>
+                        <p className="text-zinc-500 dark:text-zinc-400">
+                          {slide.title || "Sans titre"}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {!slide.isPrimary ? (
+                          <>
+                            <button
+                              type="button"
+                              className="rounded border px-2 py-1"
+                              disabled={slideIndex <= 1}
+                              onClick={() => moveHomeSliderSlide(slideIndex, "up")}
+                            >
+                              Monter
+                            </button>
+                            <button
+                              type="button"
+                              className="rounded border px-2 py-1"
+                              disabled={slideIndex >= homeSliderSlides.length - 1}
+                              onClick={() => moveHomeSliderSlide(slideIndex, "down")}
+                            >
+                              Descendre
+                            </button>
+                            <button
+                              type="button"
+                              className="text-red-500"
+                              onClick={() => removeHomeSliderSlide(slideIndex)}
+                            >
+                              Supprimer
+                            </button>
+                          </>
+                        ) : (
+                          <span className="rounded-full border border-zinc-200 px-2 py-1 text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
+                            Slide d’ouverture
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <Input
+                        value={slide.eyebrow}
+                        placeholder="Sur-titre"
+                        onChange={(event) =>
+                          updateHomeSliderSlide(slideIndex, {
+                            eyebrow: event.target.value,
+                          })
+                        }
+                      />
+                      <Input
+                        value={slide.title}
+                        placeholder="Titre"
+                        onChange={(event) =>
+                          updateHomeSliderSlide(slideIndex, {
+                            title: event.target.value,
+                          })
+                        }
+                      />
+                    </div>
+
+                    <Textarea
+                      value={slide.description}
+                      placeholder="Texte / sous-titre"
+                      rows={3}
+                      onChange={(event) =>
+                        updateHomeSliderSlide(slideIndex, {
+                          description: event.target.value,
+                        })
+                      }
+                    />
+
+                    <Textarea
+                      value={slide.note}
+                      placeholder="Note discrète (optionnelle)"
+                      rows={2}
+                      onChange={(event) =>
+                        updateHomeSliderSlide(slideIndex, {
+                          note: event.target.value,
+                        })
+                      }
+                    />
+
+                    {homeSliderMode === "content" ? (
+                      <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-300">
+                        Fond du slide
+                        <select
+                          className="input mt-1"
+                          value={slide.contentBackground}
+                          onChange={(event) =>
+                            updateHomeSliderSlide(slideIndex, {
+                              contentBackground: event.target
+                                .value as (typeof HOME_HERO_CONTENT_BACKGROUNDS)[number],
+                            })
+                          }
+                        >
+                          {homeSliderContentBackgroundOptions.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : null}
+
+                    {homeSliderMode === "image" ? (
+                      <MediaPlaceholderPicker
+                        label="Image du slide"
+                        description="Utilisée comme visuel principal du slide."
+                        value={slide.mediaId}
+                        assets={mediaAssets}
+                        fallbackImage={
+                          slideIndex === 0
+                            ? WEBSITE_MEDIA_PLACEHOLDERS.hero
+                            : WEBSITE_MEDIA_PLACEHOLDERS.gallery[
+                                (slideIndex - 1) % WEBSITE_MEDIA_PLACEHOLDERS.gallery.length
+                              ]
+                        }
+                        onChange={(nextValue) =>
+                          updateHomeSliderSlide(slideIndex, {
+                            mediaId: nextValue,
+                          })
+                        }
+                        onUpload={(files) => void handleMediaUpload(files)}
+                      />
+                    ) : null}
+
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs uppercase tracking-[0.3em] text-zinc-500 dark:text-zinc-400">
+                          Boutons
+                        </p>
+                        <button
+                          type="button"
+                          className="text-xs text-[var(--site-accent)] disabled:text-zinc-400 dark:disabled:text-zinc-600"
+                          disabled={
+                            slide.buttons.length >=
+                            (slide.isPrimary
+                              ? BUILDER_SECTION_BUTTON_LIMIT
+                              : BUILDER_ITEM_BUTTON_LIMIT)
+                          }
+                          onClick={() => addHomeSliderButton(slideIndex)}
+                        >
+                          Ajouter un bouton
+                        </button>
+                      </div>
+
+                      {slide.buttons.length === 0 ? (
+                        <div className="rounded-2xl border border-dashed border-zinc-200 p-4 text-sm text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
+                          Aucun bouton sur ce slide pour le moment.
+                        </div>
+                      ) : null}
+
+                      {slide.buttons.map((button) => (
+                        <div
+                          key={button.id}
+                          className="rounded-2xl border border-zinc-200 p-4 dark:border-zinc-800"
+                        >
+                          <div className="flex items-center justify-between text-xs">
+                            <p className="font-medium text-zinc-700 dark:text-zinc-200">
+                              {button.label || "CTA"}
+                            </p>
+                            <button
+                              type="button"
+                              className="text-red-500"
+                              onClick={() =>
+                                removeHomeSliderButton(slideIndex, button.id)
+                              }
+                            >
+                              Supprimer
+                            </button>
+                          </div>
+                          <Input
+                            className="mt-2"
+                            placeholder="Libellé"
+                            value={button.label ?? ""}
+                            onChange={(event) =>
+                              updateHomeSliderButton(slideIndex, button.id, {
+                                label: event.target.value,
+                              })
+                            }
+                          />
+                          <Input
+                            className="mt-2"
+                            placeholder="/collections"
+                            value={button.href ?? ""}
+                            onChange={(event) =>
+                              updateHomeSliderButton(slideIndex, button.id, {
+                                href: event.target.value,
+                              })
+                            }
+                          />
+                          <label className="mt-2 block text-xs text-zinc-500 dark:text-zinc-400">
+                            Style
+                            <select
+                              className="input mt-1"
+                              value={button.style ?? "primary"}
+                              onChange={(event) =>
+                                updateHomeSliderButton(slideIndex, button.id, {
+                                  style: event.target.value as WebsiteBuilderButton["style"],
+                                })
+                              }
+                            >
+                              <option value="primary">Principal</option>
+                              <option value="secondary">Secondaire</option>
+                              <option value="ghost">Ghost</option>
+                            </select>
+                          </label>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : (
             <section className="card space-y-4 p-6">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>

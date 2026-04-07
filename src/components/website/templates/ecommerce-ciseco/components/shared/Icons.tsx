@@ -1,4 +1,5 @@
 import clsx from "clsx";
+import { Heart } from "lucide-react";
 import type { CategoryCard, FeatureItem, ProductInfoCard } from "../../types";
 
 type FeatureIconProps = {
@@ -15,6 +16,12 @@ type InfoIconProps = {
 
 type StarIconProps = {
   className?: string;
+};
+
+type WishlistHeartIconProps = {
+  className?: string;
+  filled?: boolean;
+  strokeWidth?: number;
 };
 
 export function FeatureIcon({ name }: FeatureIconProps) {
@@ -296,5 +303,20 @@ export function StarIcon({ className }: StarIconProps) {
         fill="currentColor"
       />
     </svg>
+  );
+}
+
+export function WishlistHeartIcon({
+  className,
+  filled = false,
+  strokeWidth = 1.8,
+}: WishlistHeartIconProps) {
+  return (
+    <Heart
+      className={clsx("h-4 w-4", className)}
+      aria-hidden="true"
+      strokeWidth={strokeWidth}
+      fill={filled ? "currentColor" : "transparent"}
+    />
   );
 }

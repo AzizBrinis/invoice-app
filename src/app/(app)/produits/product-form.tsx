@@ -6,12 +6,17 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { FormSubmitButton } from "@/components/ui/form-submit-button";
-import { fromCents } from "@/lib/money";
+import { fromCents, toCents } from "@/lib/money";
 import type { CurrencyCode } from "@/lib/currency";
 import { Alert } from "@/components/ui/alert";
 import { useToast } from "@/components/ui/toast-provider";
 import { generateId } from "@/lib/id";
 import { slugify } from "@/lib/slug";
+import { normalizeProductOptionConfig } from "@/lib/product-options";
+import {
+  buildProductImageAlt,
+  normalizeProductFaqItems,
+} from "@/lib/product-seo";
 import {
   submitProductFormAction,
 } from "@/app/(app)/produits/actions";
@@ -32,11 +37,13 @@ type ProductFormProps = {
     saleMode?: "INSTANT" | "QUOTE";
     description?: string | null;
     descriptionHtml?: string | null;
+    shortDescriptionHtml?: string | null;
     excerpt?: string | null;
     metaTitle?: string | null;
     metaDescription?: string | null;
     coverImageUrl?: string | null;
     gallery?: unknown | null;
+    faqItems?: unknown | null;
     quoteFormSchema?: unknown | null;
     optionConfig?: unknown | null;
     variantStock?: unknown | null;
@@ -46,6 +53,7 @@ type ProductFormProps = {
     priceHTCents?: number;
     vatRate?: number;
     defaultDiscountRate?: number | null;
+    defaultDiscountAmountCents?: number | null;
     isActive?: boolean;
     isListedInCatalog?: boolean;
   };
@@ -59,11 +67,18 @@ type GalleryItem = {
   isPrimary: boolean;
 };
 
+type FaqItem = {
+  id: string;
+  question: string;
+  answer: string;
+};
+
 type OptionValue = {
   id: string;
   label: string;
   enabled: boolean;
   swatch?: string | null;
+  priceAdjustment: string;
 };
 
 type OptionGroup = {
@@ -79,10 +94,12 @@ type OptionConfigState = {
 };
 
 type OptionKind = "colors" | "sizes";
+type DiscountType = "none" | "percentage" | "fixed";
 
 type VariantStockMap = Record<string, string>;
 
 const VARIANT_SEPARATOR = "::";
+const SHORT_DESCRIPTION_HTML_LIMIT = 600;
 
 function buildVariantKey(colorId?: string | null, sizeId?: string | null) {
   return `${colorId ?? ""}${VARIANT_SEPARATOR}${sizeId ?? ""}`;
@@ -94,7 +111,7 @@ function normalizeGalleryItems(
 ): GalleryItem[] {
   const entries: GalleryItem[] = [];
   if (Array.isArray(gallery)) {
-    gallery.forEach((entry, index) => {
+    gallery.forEach((entry) => {
       if (typeof entry === "string") {
         const src = entry.trim();
         if (!src) return;
@@ -150,94 +167,71 @@ function normalizeGalleryItems(
   return entries;
 }
 
-function normalizeOptionValues(value: unknown, fallbackPrefix: string): OptionValue[] {
-  if (!Array.isArray(value)) return [];
-  return value.reduce<OptionValue[]>((entries, entry, index) => {
-      if (!entry || typeof entry !== "object") return entries;
-      const record = entry as Record<string, unknown>;
-      const label =
-        typeof record.label === "string"
-          ? record.label
-          : typeof record.title === "string"
-            ? record.title
-            : typeof record.name === "string"
-              ? record.name
-              : "";
-      const trimmedLabel = label.trim();
-      const rawId =
-        typeof record.id === "string"
-          ? record.id
-          : typeof record.value === "string"
-            ? record.value
-            : "";
-      const resolvedId = rawId.trim() || slugify(trimmedLabel || `${fallbackPrefix}-${index + 1}`);
-      entries.push({
-        id: resolvedId,
-        label: trimmedLabel || resolvedId,
-        enabled: record.enabled !== false,
-        swatch:
-          typeof record.swatch === "string"
-            ? record.swatch
-            : null,
-      } satisfies OptionValue);
-      return entries;
-    }, []);
+function normalizeFaqItems(value: unknown): FaqItem[] {
+  return normalizeProductFaqItems(value).map((item, index) => ({
+    id: generateId(`faq-${index + 1}`),
+    question: item.question,
+    answer: item.answer,
+  }));
 }
 
-function normalizeOptionGroups(value: unknown): OptionGroup[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((entry, index) => {
-      if (!entry || typeof entry !== "object") return null;
-      const record = entry as Record<string, unknown>;
-      const name =
-        typeof record.name === "string"
-          ? record.name
-          : typeof record.label === "string"
-            ? record.label
-            : typeof record.title === "string"
-              ? record.title
-              : "";
-      const trimmedName = name.trim();
-      const rawId =
-        typeof record.id === "string"
-          ? record.id
-          : typeof record.key === "string"
-            ? record.key
-            : "";
-      const resolvedId =
-        rawId.trim() || slugify(trimmedName || `option-${index + 1}`);
-      const valuesSource = Array.isArray(record.values)
-        ? record.values
-        : Array.isArray(record.options)
-          ? record.options
-          : [];
-      return {
-        id: resolvedId,
-        name: trimmedName || `Option ${index + 1}`,
-        values: normalizeOptionValues(valuesSource, resolvedId || `option-${index + 1}`),
-      } satisfies OptionGroup;
+function cleanUploadedImageLabel(fileName: string) {
+  return fileName
+    .replace(/\.[a-z0-9]+$/i, "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildDraftImageAlt(options: {
+  fileName?: string | null;
+  name?: string | null;
+  category?: string | null;
+  index?: number;
+}) {
+  const fileLabel = options.fileName
+    ? cleanUploadedImageLabel(options.fileName)
+    : "";
+
+  return (
+    fileLabel ||
+    buildProductImageAlt({
+      name: options.name,
+      category: options.category,
+      index: options.index,
     })
-    .filter((entry): entry is OptionGroup => Boolean(entry?.id));
+  );
 }
 
-function normalizeOptionConfig(value: unknown): OptionConfigState {
-  if (!value || typeof value !== "object") {
-    return { colors: [], sizes: [], options: [] };
-  }
-  const record = value as Record<string, unknown>;
+function normalizeOptionConfig(
+  value: unknown,
+  currencyCode: CurrencyCode,
+): OptionConfigState {
+  const record = normalizeProductOptionConfig(value);
+  const toStateValue = (entry: {
+    id: string;
+    label: string;
+    enabled: boolean;
+    swatch?: string | null;
+    priceAdjustmentCents?: number | null;
+  }): OptionValue => ({
+    id: entry.id,
+    label: entry.label,
+    enabled: entry.enabled,
+    swatch: entry.swatch ?? null,
+    priceAdjustment:
+      entry.priceAdjustmentCents != null
+        ? String(fromCents(entry.priceAdjustmentCents, currencyCode))
+        : "",
+  });
   return {
-    colors: normalizeOptionValues(record.colors, "color"),
-    sizes: normalizeOptionValues(record.sizes, "size"),
-    options: normalizeOptionGroups(
-      Array.isArray(record.options)
-        ? record.options
-        : Array.isArray(record.customOptions)
-          ? record.customOptions
-          : Array.isArray(record.custom)
-            ? record.custom
-            : [],
-    ),
+    colors: record.colors.map(toStateValue),
+    sizes: record.sizes.map(toStateValue),
+    options: record.options.map((group) => ({
+      id: group.id,
+      name: group.name,
+      values: group.values.map(toStateValue),
+    })),
   };
 }
 
@@ -261,6 +255,17 @@ function normalizeVariantStockMap(value: unknown): VariantStockMap {
     acc[key] = String(Math.max(0, Math.floor(stockValue)));
     return acc;
   }, {});
+}
+
+function parseMoneyInputToCents(
+  value: string,
+  currencyCode: CurrencyCode,
+) {
+  const normalized = value.trim().replace(",", ".");
+  if (!normalized.length) return null;
+  const amount = Number(normalized);
+  if (!Number.isFinite(amount)) return null;
+  return toCents(amount, currencyCode);
 }
 
 async function optimizeImage(file: File): Promise<GalleryItem> {
@@ -314,6 +319,13 @@ export function ProductForm({
     submitProductFormAction,
     INITIAL_PRODUCT_FORM_STATE,
   );
+  const [productName, setProductName] = useState(defaultValues?.name ?? "");
+  const [productCategory, setProductCategory] = useState(
+    defaultValues?.category ?? "",
+  );
+  const [publicSlugValue, setPublicSlugValue] = useState(
+    defaultValues?.publicSlug ?? "",
+  );
 
   useEffect(() => {
     if (formState.status === "success") {
@@ -341,13 +353,36 @@ export function ProductForm({
       defaultValues?.coverImageUrl ?? null,
     ),
   );
+  const [faqItems, setFaqItems] = useState<FaqItem[]>(() =>
+    normalizeFaqItems(defaultValues?.faqItems),
+  );
   const [photoUrl, setPhotoUrl] = useState("");
   const [optionConfig, setOptionConfig] = useState<OptionConfigState>(() =>
-    normalizeOptionConfig(defaultValues?.optionConfig),
+    normalizeOptionConfig(defaultValues?.optionConfig, currencyCode),
   );
   const [variantStock, setVariantStock] = useState<VariantStockMap>(() =>
     normalizeVariantStockMap(defaultValues?.variantStock),
   );
+  const [discountType, setDiscountType] = useState<DiscountType>(() => {
+    if (defaultValues?.defaultDiscountAmountCents != null) {
+      return "fixed";
+    }
+    if (defaultValues?.defaultDiscountRate != null) {
+      return "percentage";
+    }
+    return "none";
+  });
+  const [discountValue, setDiscountValue] = useState(() => {
+    if (defaultValues?.defaultDiscountAmountCents != null) {
+      return String(
+        fromCents(defaultValues.defaultDiscountAmountCents, currencyCode),
+      );
+    }
+    if (defaultValues?.defaultDiscountRate != null) {
+      return String(defaultValues.defaultDiscountRate);
+    }
+    return "";
+  });
 
   useEffect(() => {
     if (!optionConfig.colors.length && !optionConfig.sizes.length) {
@@ -387,6 +422,11 @@ export function ProductForm({
     defaultValues?.quoteFormSchema != null
       ? JSON.stringify(defaultValues.quoteFormSchema, null, 2)
       : "";
+  const suggestedSlug = useMemo(
+    () => slugify(productName) || slugify(productCategory),
+    [productCategory, productName],
+  );
+  const resolvedSlugPreview = publicSlugValue.trim() || suggestedSlug;
 
   const galleryPayload = useMemo(() => {
     if (!galleryItems.length) return "";
@@ -399,6 +439,17 @@ export function ProductForm({
     }));
     return JSON.stringify(payload);
   }, [galleryItems]);
+
+  const faqItemsPayload = useMemo(() => {
+    const payload = faqItems
+      .map((item) => ({
+        question: item.question.trim(),
+        answer: item.answer.trim(),
+      }))
+      .filter((item) => item.question.length > 0 && item.answer.length > 0);
+    if (!payload.length) return "";
+    return JSON.stringify(payload);
+  }, [faqItems]);
 
   const coverImageUrlValue = useMemo(() => {
     const primary = galleryItems.find((item) => item.isPrimary);
@@ -413,8 +464,26 @@ export function ProductForm({
     ) {
       return "";
     }
-    return JSON.stringify(optionConfig);
-  }, [optionConfig]);
+    const serializeValue = (value: OptionValue) => ({
+      id: value.id,
+      label: value.label,
+      enabled: value.enabled,
+      swatch: value.swatch ?? null,
+      priceAdjustmentCents: parseMoneyInputToCents(
+        value.priceAdjustment,
+        currencyCode,
+      ),
+    });
+    return JSON.stringify({
+      colors: optionConfig.colors.map(serializeValue),
+      sizes: optionConfig.sizes.map(serializeValue),
+      options: optionConfig.options.map((group) => ({
+        id: group.id,
+        name: group.name,
+        values: group.values.map(serializeValue),
+      })),
+    });
+  }, [optionConfig, currencyCode]);
 
   const variantStockPayload = useMemo(() => {
     const entries = Object.entries(variantStock)
@@ -443,7 +512,15 @@ export function ProductForm({
     for (const file of Array.from(fileList)) {
       try {
         const processed = await optimizeImage(file);
-        uploads.push(processed);
+        uploads.push({
+          ...processed,
+          alt: buildDraftImageAlt({
+            fileName: file.name,
+            name: productName,
+            category: productCategory,
+            index: galleryItems.length + uploads.length,
+          }),
+        });
       } catch (error) {
         console.error("[product-form] upload failed", error);
       }
@@ -467,7 +544,11 @@ export function ProductForm({
         {
           id: generateId("photo"),
           src: trimmed,
-          alt: "",
+          alt: buildDraftImageAlt({
+            name: productName,
+            category: productCategory,
+            index: prev.length,
+          }),
           isPrimary: prev.length === 0,
         },
       ];
@@ -482,6 +563,14 @@ export function ProductForm({
         ...item,
         isPrimary: item.id === targetId,
       })),
+    );
+  }
+
+  function updatePhotoAlt(targetId: string, alt: string) {
+    setGalleryItems((prev) =>
+      prev.map((item) =>
+        item.id === targetId ? { ...item, alt } : item,
+      ),
     );
   }
 
@@ -508,6 +597,49 @@ export function ProductForm({
       }
       return next;
     });
+  }
+
+  function addFaqItem() {
+    setFaqItems((prev) => {
+      if (prev.length >= 8) return prev;
+      return [
+        ...prev,
+        {
+          id: generateId("faq"),
+          question: "",
+          answer: "",
+        },
+      ];
+    });
+  }
+
+  function updateFaqItem(
+    targetId: string,
+    changes: Partial<Pick<FaqItem, "question" | "answer">>,
+  ) {
+    setFaqItems((prev) =>
+      prev.map((item) =>
+        item.id === targetId ? { ...item, ...changes } : item,
+      ),
+    );
+  }
+
+  function moveFaqItem(index: number, direction: "up" | "down") {
+    setFaqItems((prev) => {
+      const swapIndex = direction === "up" ? index - 1 : index + 1;
+      if (swapIndex < 0 || swapIndex >= prev.length) {
+        return prev;
+      }
+      const next = [...prev];
+      const current = next[index];
+      next[index] = next[swapIndex];
+      next[swapIndex] = current;
+      return next;
+    });
+  }
+
+  function removeFaqItem(targetId: string) {
+    setFaqItems((prev) => prev.filter((item) => item.id !== targetId));
   }
 
   function updateOption(kind: OptionKind, id: string, changes: Partial<OptionValue>) {
@@ -554,6 +686,7 @@ export function ProductForm({
         label: baseLabel,
         enabled: true,
         swatch: kind === "colors" ? "#111827" : undefined,
+        priceAdjustment: "",
       };
       return {
         ...prev,
@@ -679,6 +812,7 @@ export function ProductForm({
         id: candidate,
         label: baseLabel,
         enabled: true,
+        priceAdjustment: "",
       };
       return {
         ...prev,
@@ -696,6 +830,7 @@ export function ProductForm({
       <input type="hidden" name="redirectTo" value={target} />
       <input type="hidden" name="productId" value={defaultValues?.id ?? ""} />
       <input type="hidden" name="gallery" value={galleryPayload} />
+      <input type="hidden" name="faqItems" value={faqItemsPayload} />
       <input type="hidden" name="coverImageUrl" value={coverImageUrlValue} />
       <input type="hidden" name="optionConfig" value={optionConfigPayload} />
       <input type="hidden" name="variantStock" value={variantStockPayload} />
@@ -729,7 +864,8 @@ export function ProductForm({
           <Input
             id="name"
             name="name"
-            defaultValue={defaultValues?.name ?? ""}
+            value={productName}
+            onChange={(event) => setProductName(event.target.value)}
             required
             aria-invalid={Boolean(fieldErrors.name) || undefined}
             data-invalid={fieldErrors.name ? "true" : undefined}
@@ -771,8 +907,10 @@ export function ProductForm({
           <Input
             id="publicSlug"
             name="publicSlug"
-            defaultValue={defaultValues?.publicSlug ?? ""}
-            placeholder="ex: audit-croissance"
+            value={publicSlugValue}
+            onChange={(event) => setPublicSlugValue(event.target.value)}
+            placeholder={suggestedSlug || "ex: audit-croissance"}
+            maxLength={80}
             aria-invalid={Boolean(fieldErrors.publicSlug) || undefined}
             data-invalid={fieldErrors.publicSlug ? "true" : undefined}
           />
@@ -781,9 +919,25 @@ export function ProductForm({
               {fieldErrors.publicSlug}
             </p>
           ) : null}
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">
-            Laissez vide pour générer le slug depuis le SKU à la création.
-          </p>
+          <div className="space-y-1 text-xs text-zinc-500 dark:text-zinc-400">
+            <p>
+              Laissez vide pour générer un slug depuis le nom du produit.
+            </p>
+            {resolvedSlugPreview ? (
+              <p>
+                URL estimée : <span className="font-mono">/produit/{resolvedSlugPreview}</span>
+              </p>
+            ) : null}
+            {suggestedSlug && publicSlugValue.trim() !== suggestedSlug ? (
+              <button
+                type="button"
+                className="font-medium text-blue-600 transition hover:underline dark:text-blue-400"
+                onClick={() => setPublicSlugValue(suggestedSlug)}
+              >
+                Utiliser la suggestion SEO : {suggestedSlug}
+              </button>
+            ) : null}
+          </div>
         </div>
       </div>
 
@@ -807,6 +961,7 @@ export function ProductForm({
           id="excerpt"
           name="excerpt"
           rows={3}
+          maxLength={280}
           defaultValue={defaultValues?.excerpt ?? ""}
           aria-invalid={Boolean(fieldErrors.excerpt) || undefined}
           data-invalid={fieldErrors.excerpt ? "true" : undefined}
@@ -816,6 +971,34 @@ export function ProductForm({
             {fieldErrors.excerpt}
           </p>
         ) : null}
+        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+          Résumé court utile pour les aperçus catalogue et les extraits SEO.
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        <label htmlFor="shortDescriptionHtml" className="label">
+          Description courte (HTML)
+        </label>
+        <Textarea
+          id="shortDescriptionHtml"
+          name="shortDescriptionHtml"
+          rows={4}
+          maxLength={SHORT_DESCRIPTION_HTML_LIMIT}
+          defaultValue={defaultValues?.shortDescriptionHtml ?? ""}
+          className="font-mono text-xs"
+          aria-invalid={Boolean(fieldErrors.shortDescriptionHtml) || undefined}
+          data-invalid={fieldErrors.shortDescriptionHtml ? "true" : undefined}
+        />
+        {fieldErrors.shortDescriptionHtml ? (
+          <p className="text-xs text-red-600 dark:text-red-400">
+            {fieldErrors.shortDescriptionHtml}
+          </p>
+        ) : null}
+        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+          Résumé concis utilisé sur la fiche produit. HTML autorisé,
+          {` ${SHORT_DESCRIPTION_HTML_LIMIT} caractères max.`}
+        </p>
       </div>
 
       <div className="space-y-2">
@@ -849,6 +1032,7 @@ export function ProductForm({
           <Input
             id="metaTitle"
             name="metaTitle"
+            maxLength={160}
             defaultValue={defaultValues?.metaTitle ?? ""}
             aria-invalid={Boolean(fieldErrors.metaTitle) || undefined}
             data-invalid={fieldErrors.metaTitle ? "true" : undefined}
@@ -858,6 +1042,9 @@ export function ProductForm({
               {fieldErrors.metaTitle}
             </p>
           ) : null}
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            Recommandé : 50 à 65 caractères avec le nom du produit et le terme clé principal.
+          </p>
         </div>
         <div className="min-w-0 space-y-2">
           <label htmlFor="metaDescription" className="label">
@@ -867,6 +1054,7 @@ export function ProductForm({
             id="metaDescription"
             name="metaDescription"
             rows={3}
+            maxLength={260}
             defaultValue={defaultValues?.metaDescription ?? ""}
             aria-invalid={Boolean(fieldErrors.metaDescription) || undefined}
             data-invalid={fieldErrors.metaDescription ? "true" : undefined}
@@ -876,7 +1064,118 @@ export function ProductForm({
               {fieldErrors.metaDescription}
             </p>
           ) : null}
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            Recommandé : 140 à 160 caractères, avec bénéfice produit et contexte local si pertinent.
+          </p>
         </div>
+      </div>
+
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+              FAQ produit
+            </h3>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              Ajoutez des réponses utiles pour les clients et les résultats enrichis.
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="secondary"
+            className="min-h-8 px-2 py-1 text-xs"
+            onClick={addFaqItem}
+            disabled={faqItems.length >= 8}
+          >
+            Ajouter une question
+          </Button>
+        </div>
+        {faqItems.length ? (
+          <div className="space-y-3">
+            {faqItems.map((item, index) => (
+              <div
+                key={item.id}
+                className="space-y-3 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500 dark:text-zinc-400">
+                    FAQ {index + 1}
+                  </p>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="min-h-8 px-2 py-1 text-xs"
+                      onClick={() => moveFaqItem(index, "up")}
+                      disabled={index === 0}
+                    >
+                      ↑
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="min-h-8 px-2 py-1 text-xs"
+                      onClick={() => moveFaqItem(index, "down")}
+                      disabled={index === faqItems.length - 1}
+                    >
+                      ↓
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="min-h-8 px-2 py-1 text-xs text-red-600 dark:text-red-400"
+                      onClick={() => removeFaqItem(item.id)}
+                    >
+                      Retirer
+                    </Button>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="label" htmlFor={`faq-question-${item.id}`}>
+                    Question
+                  </label>
+                  <Input
+                    id={`faq-question-${item.id}`}
+                    value={item.question}
+                    maxLength={180}
+                    onChange={(event) =>
+                      updateFaqItem(item.id, {
+                        question: event.target.value,
+                      })
+                    }
+                    placeholder="Ex: Quels sont les délais de livraison en Tunisie ?"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="label" htmlFor={`faq-answer-${item.id}`}>
+                    Réponse
+                  </label>
+                  <Textarea
+                    id={`faq-answer-${item.id}`}
+                    rows={3}
+                    maxLength={1200}
+                    value={item.answer}
+                    onChange={(event) =>
+                      updateFaqItem(item.id, {
+                        answer: event.target.value,
+                      })
+                    }
+                    placeholder="Réponse claire, utile et rédigée pour les clients."
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            Aucune FAQ produit configurée pour le moment.
+          </p>
+        )}
+        {fieldErrors.faqItems ? (
+          <p className="text-xs text-red-600 dark:text-red-400">
+            {fieldErrors.faqItems}
+          </p>
+        ) : null}
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
@@ -887,7 +1186,8 @@ export function ProductForm({
           <Input
             id="category"
             name="category"
-            defaultValue={defaultValues?.category ?? ""}
+            value={productCategory}
+            onChange={(event) => setProductCategory(event.target.value)}
           />
         </div>
         <div className="min-w-0 space-y-2">
@@ -1013,9 +1313,38 @@ export function ProductForm({
                   <div className="aspect-square overflow-hidden rounded-xl bg-zinc-100 dark:bg-zinc-900">
                     <img
                       src={item.src}
-                      alt={item.alt || `Photo ${index + 1}`}
+                      alt={buildProductImageAlt({
+                        explicitAlt: item.alt,
+                        name: productName,
+                        category: productCategory,
+                        index,
+                      })}
                       className="h-full w-full object-cover"
                     />
+                  </div>
+                  <div className="space-y-1">
+                    <label
+                      htmlFor={`gallery-alt-${item.id}`}
+                      className="text-xs font-medium text-zinc-600 dark:text-zinc-300"
+                    >
+                      Texte alternatif
+                    </label>
+                    <Input
+                      id={`gallery-alt-${item.id}`}
+                      value={item.alt}
+                      maxLength={160}
+                      onChange={(event) =>
+                        updatePhotoAlt(item.id, event.target.value)
+                      }
+                      placeholder={buildProductImageAlt({
+                        name: productName,
+                        category: productCategory,
+                        index,
+                      })}
+                    />
+                    <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                      Décrivez l’image avec le nom du produit, sans bourrage de mots-clés.
+                    </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2 text-xs">
                     <Button
@@ -1248,9 +1577,15 @@ export function ProductForm({
         </div>
         <div className="space-y-3 rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
           <div className="flex items-center justify-between">
-            <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-              Options personnalisées
-            </p>
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                Options personnalisées
+              </p>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                Chaque valeur peut ajuster le prix de base. Utilisez un montant
+                négatif pour diminuer le prix.
+              </p>
+            </div>
             <Button
               type="button"
               variant="secondary"
@@ -1322,6 +1657,19 @@ export function ProductForm({
                               })
                             }
                             className="min-w-[140px] flex-1"
+                          />
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={option.priceAdjustment}
+                            onChange={(event) =>
+                              updateOptionGroupValue(group.id, option.id, {
+                                priceAdjustment: event.target.value,
+                              })
+                            }
+                            placeholder={`0.00 ${currencyCode}`}
+                            className="w-full sm:w-40"
+                            aria-label={`Ajustement prix pour ${option.label}`}
                           />
                           <label className="flex items-center gap-1 text-xs text-zinc-600 dark:text-zinc-300">
                             <input
@@ -1516,7 +1864,7 @@ export function ProductForm({
         ) : null}
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-4">
         <div className="min-w-0 space-y-2">
           <label htmlFor="priceHT" className="label">
             {`Prix HT (${currencyCode})`}
@@ -1564,30 +1912,54 @@ export function ProductForm({
           ) : null}
         </div>
         <div className="min-w-0 space-y-2">
-          <label htmlFor="defaultDiscountRate" className="label">
-            Remise par défaut (%)
+          <label htmlFor="defaultDiscountType" className="label">
+            Type de remise
+          </label>
+          <select
+            id="defaultDiscountType"
+            name="defaultDiscountType"
+            className="input"
+            value={discountType}
+            onChange={(event) => {
+              const nextType = event.target.value as DiscountType;
+              setDiscountType(nextType);
+              if (nextType === "none") {
+                setDiscountValue("");
+              }
+            }}
+          >
+            <option value="none">Aucune</option>
+            <option value="percentage">Pourcentage (%)</option>
+            <option value="fixed">Montant fixe</option>
+          </select>
+        </div>
+        <div className="min-w-0 space-y-2">
+          <label htmlFor="defaultDiscountValue" className="label">
+            Valeur de remise
           </label>
           <Input
-            id="defaultDiscountRate"
-            name="defaultDiscountRate"
+            id="defaultDiscountValue"
+            name="defaultDiscountValue"
             type="number"
             min="0"
-            step="0.5"
-            defaultValue={
-              defaultValues?.defaultDiscountRate != null
-                ? defaultValues.defaultDiscountRate
-                : ""
+            step="0.01"
+            value={discountValue}
+            onChange={(event) => setDiscountValue(event.target.value)}
+            disabled={discountType === "none"}
+            placeholder={
+              discountType === "fixed" ? `0.00 ${currencyCode}` : "0"
             }
-            aria-invalid={Boolean(fieldErrors.defaultDiscountRate) || undefined}
-            data-invalid={
-              fieldErrors.defaultDiscountRate ? "true" : undefined
-            }
+            aria-invalid={Boolean(fieldErrors.defaultDiscount) || undefined}
+            data-invalid={fieldErrors.defaultDiscount ? "true" : undefined}
           />
-          {fieldErrors.defaultDiscountRate ? (
+          {fieldErrors.defaultDiscount ? (
             <p className="text-xs text-red-600 dark:text-red-400">
-              {fieldErrors.defaultDiscountRate}
+              {fieldErrors.defaultDiscount}
             </p>
           ) : null}
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            Choisissez une remise en pourcentage ou un montant fixe.
+          </p>
         </div>
       </div>
 

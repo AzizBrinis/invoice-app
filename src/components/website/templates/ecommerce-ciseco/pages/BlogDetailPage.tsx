@@ -10,6 +10,8 @@ import { ExtraSections } from "../components/builder/ExtraSections";
 import { Footer } from "../components/layout/Footer";
 import { Navbar } from "../components/layout/Navbar";
 import { PageShell } from "../components/layout/PageShell";
+import { useCisecoI18n } from "../i18n";
+import { formatCisecoDate } from "../locale";
 
 type BlogDetailPageProps = {
   theme: ThemeTokens;
@@ -145,6 +147,7 @@ export function BlogDetailPage({
   baseLink,
   builder,
 }: BlogDetailPageProps) {
+  const { t } = useCisecoI18n();
   const container = clsx("mx-auto px-6 sm:px-8", theme.containerClass);
   const blogHref = (slug: string) => baseLink(`/blog/${slug}`);
   const hasBuilder = Boolean(builder);
@@ -239,14 +242,16 @@ export function BlogDetailPage({
               data-builder-section={heroSection?.id}
             >
               <span className="inline-flex rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-600">
-                {heroSection?.eyebrow ?? "Marketing"}
+                {t(heroSection?.eyebrow ?? "Marketing")}
               </span>
               <h1 className="text-2xl font-semibold text-slate-900 sm:text-3xl lg:text-4xl">
-                {heroSection?.title ?? "Graduation Dresses: A Style Guide"}
+                {t(heroSection?.title ?? "Graduation Dresses: A Style Guide")}
               </h1>
               <p className="text-sm text-slate-500 sm:text-base">
-                {heroSubtitle ??
-                  "Illo sint voluptates. Error voluptates culpa eligendi. Hic vel totam vitae illo. Non aliquid explicabo necessitatibus unde. Sed consequatur dolorem quisquam commodi dolores."}
+                {t(
+                  heroSubtitle ??
+                    "Illo sint voluptates. Error voluptates culpa eligendi. Hic vel totam vitae illo. Non aliquid explicabo necessitatibus unde. Sed consequatur dolorem quisquam commodi dolores.",
+                )}
               </p>
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <AuthorMeta author={ARTICLE_AUTHOR} />
@@ -255,7 +260,7 @@ export function BlogDetailPage({
                     <a
                       key={item.id}
                       href="#"
-                      aria-label={item.label}
+                      aria-label={t(item.label)}
                       className={clsx(
                         "flex h-9 w-9 items-center justify-center rounded-full border border-black/5 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md",
                         item.className,
@@ -278,7 +283,7 @@ export function BlogDetailPage({
               <div className="relative aspect-[16/9] w-full overflow-hidden rounded-[32px] bg-slate-100 shadow-sm">
                 <img
                   src={heroImage?.src ?? ARTICLE_IMAGE}
-                  alt={heroImage?.alt ?? "Directional signposts"}
+                  alt={t(heroImage?.alt ?? "Directional signposts")}
                   className="h-full w-full object-cover"
                 />
               </div>
@@ -292,15 +297,15 @@ export function BlogDetailPage({
             data-builder-section={bodySection?.id}
           >
             <article className="mx-auto max-w-3xl space-y-6 text-sm text-slate-600">
-              {bodyIntro ? <p>{bodyIntro}</p> : null}
+              {bodyIntro ? <p>{t(bodyIntro)}</p> : null}
               {bodyBlocks.map((item) => (
                 <div key={item.id} className="space-y-3">
                   {item.title ? (
                     <h2 className="text-base font-semibold text-slate-900">
-                      {item.title}
+                      {t(item.title)}
                     </h2>
                   ) : null}
-                  {item.description ? <p>{item.description}</p> : null}
+                  {item.description ? <p>{t(item.description)}</p> : null}
                 </div>
               ))}
               <div className="flex flex-wrap gap-2 border-t border-black/5 pt-4 text-xs text-slate-500">
@@ -309,7 +314,7 @@ export function BlogDetailPage({
                     key={tag}
                     className="rounded-full border border-slate-200 px-3 py-1 font-medium text-slate-500"
                   >
-                    {tag}
+                    {t(tag)}
                   </span>
                 ))}
               </div>
@@ -326,19 +331,19 @@ export function BlogDetailPage({
         <section className={clsx(container, "mt-8 sm:mt-10")}>
           <div className="mx-auto max-w-3xl space-y-4">
             <h3 className="text-base font-semibold text-slate-900">
-              Comments (14)
+              {t("Comments")} (14)
             </h3>
             <div className="rounded-2xl border border-black/5 bg-white p-4">
               <textarea
                 className="h-32 w-full resize-none text-sm text-slate-600 outline-none placeholder:text-slate-400"
-                placeholder="Write a comment..."
+                placeholder={t("Write a comment...")}
               />
             </div>
             <button
               type="button"
               className="rounded-full bg-slate-900 px-5 py-2 text-xs font-semibold text-white"
             >
-              Submit the comment
+              {t("Submit the comment")}
             </button>
           </div>
         </section>
@@ -350,7 +355,7 @@ export function BlogDetailPage({
           >
             <div className="space-y-6">
               <h3 className="text-lg font-semibold text-slate-900">
-                {relatedSection?.title ?? "Related posts"}
+                {t(relatedSection?.title ?? "Related posts")}
               </h3>
               <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
                 {relatedPosts.map((post) => (
@@ -368,7 +373,7 @@ export function BlogDetailPage({
           />
         ) : null}
       </main>
-      <Footer theme={theme} companyName={companyName} />
+      <Footer theme={theme} companyName={companyName} homeHref={homeHref} />
     </PageShell>
   );
 }
@@ -384,6 +389,7 @@ function AuthorMeta({
   variant = "default",
   showReadTime = true,
 }: AuthorMetaProps) {
+  const { t, locale } = useCisecoI18n();
   const isCompact = variant === "compact";
 
   return (
@@ -406,13 +412,13 @@ function AuthorMeta({
       <span className="text-slate-300" aria-hidden="true">
         &middot;
       </span>
-      <span>{author.date}</span>
+      <span>{formatCisecoDate(locale, author.date)}</span>
       {showReadTime && (
         <>
           <span className="text-slate-300" aria-hidden="true">
             &middot;
           </span>
-          <span>{author.readTime}</span>
+          <span>{t(author.readTime)}</span>
         </>
       )}
     </div>
@@ -424,6 +430,8 @@ type AuthorBioProps = {
 };
 
 function AuthorBio({ author }: AuthorBioProps) {
+  const { t } = useCisecoI18n();
+
   return (
     <div className="flex flex-col gap-4 rounded-3xl border border-black/5 bg-white p-5 shadow-sm sm:flex-row sm:items-center">
       <img
@@ -435,8 +443,9 @@ function AuthorBio({ author }: AuthorBioProps) {
       <div className="space-y-2">
         <p className="text-sm font-semibold text-slate-900">{author.name}</p>
         <p className="text-sm text-slate-500">
-          Scott is an editorial designer and copywriter with over 10 years of
-          experience. He loves crafting unique and human-centered experiences.
+          {t(
+            "Scott is an editorial designer and copywriter with over 10 years of experience. He loves crafting unique and human-centered experiences.",
+          )}
         </p>
       </div>
     </div>
@@ -449,6 +458,8 @@ type RelatedPostCardProps = {
 };
 
 function RelatedPostCard({ post, href }: RelatedPostCardProps) {
+  const { t } = useCisecoI18n();
+
   return (
     <a href={href} className="group block">
       <article className="space-y-3 transition hover:-translate-y-1">
@@ -462,9 +473,9 @@ function RelatedPostCard({ post, href }: RelatedPostCardProps) {
         </div>
         <div className="space-y-2">
           <h4 className="text-sm font-semibold text-slate-900 transition group-hover:text-slate-950">
-            {post.title}
+            {t(post.title)}
           </h4>
-          <p className="text-xs text-slate-500">{post.excerpt}</p>
+          <p className="text-xs text-slate-500">{t(post.excerpt)}</p>
           <AuthorMeta author={post.author} variant="compact" showReadTime={false} />
         </div>
       </article>

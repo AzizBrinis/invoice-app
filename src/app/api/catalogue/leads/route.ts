@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { recordWebsiteLead } from "@/server/website";
 import { getAppHostnames } from "@/lib/env";
+import { createCisecoRequestTranslator } from "@/lib/website/ciseco-request-locale";
 
 const APP_HOSTS = new Set(getAppHostnames());
 
@@ -16,6 +17,7 @@ function formDataToObject(formData: FormData) {
 }
 
 export async function POST(request: NextRequest) {
+  const { t } = createCisecoRequestTranslator(request);
   try {
     const contentType = request.headers.get("content-type") ?? "";
     let payload: Record<string, unknown>;
@@ -70,15 +72,12 @@ export async function POST(request: NextRequest) {
       status: record.status,
       message:
         record.status === "preview-only"
-          ? "Mode prévisualisation : aucune donnée enregistrée."
-          : record.thanks ??
-            "Merci ! Votre demande a bien été transmise à l'équipe.",
+          ? t("Preview mode: no data is saved.")
+          : t(record.thanks ?? "Thank you! Your request has been forwarded to the team."),
     });
   } catch (error) {
     const message =
-      error instanceof Error
-        ? error.message
-        : "Impossible d'enregistrer la demande.";
+      error instanceof Error ? t(error.message) : t("Unable to save the request.");
     return NextResponse.json(
       { error: message },
       {

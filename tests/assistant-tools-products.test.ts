@@ -60,11 +60,13 @@ describe("assistant create_product tool", () => {
       saleMode: overrides.saleMode ?? ProductSaleMode.INSTANT,
       description: overrides.description ?? null,
       descriptionHtml: overrides.descriptionHtml ?? null,
+      shortDescriptionHtml: overrides.shortDescriptionHtml ?? null,
       excerpt: overrides.excerpt ?? null,
       metaTitle: overrides.metaTitle ?? null,
       metaDescription: overrides.metaDescription ?? null,
       coverImageUrl: overrides.coverImageUrl ?? null,
       gallery: overrides.gallery ?? null,
+      faqItems: overrides.faqItems ?? null,
       quoteFormSchema: overrides.quoteFormSchema ?? null,
       optionConfig: overrides.optionConfig ?? null,
       variantStock: overrides.variantStock ?? null,
@@ -75,6 +77,8 @@ describe("assistant create_product tool", () => {
       priceTTCCents: overrides.priceTTCCents ?? Math.round(priceHTCents * 1.19),
       vatRate: overrides.vatRate ?? baseInput.vatRate,
       defaultDiscountRate: overrides.defaultDiscountRate ?? null,
+      defaultDiscountAmountCents:
+        overrides.defaultDiscountAmountCents ?? null,
       isActive: overrides.isActive ?? true,
       isListedInCatalog: overrides.isListedInCatalog ?? true,
       id: overrides.id,
@@ -98,12 +102,15 @@ describe("assistant create_product tool", () => {
       description: overrides.description ?? input.description ?? null,
       descriptionHtml:
         overrides.descriptionHtml ?? input.descriptionHtml ?? null,
+      shortDescriptionHtml:
+        overrides.shortDescriptionHtml ?? input.shortDescriptionHtml ?? null,
       excerpt: overrides.excerpt ?? input.excerpt ?? null,
       metaTitle: overrides.metaTitle ?? input.metaTitle ?? null,
       metaDescription:
         overrides.metaDescription ?? input.metaDescription ?? null,
       coverImageUrl: overrides.coverImageUrl ?? input.coverImageUrl ?? null,
       gallery: toJsonValue(overrides.gallery ?? input.gallery),
+      faqItems: toJsonValue(overrides.faqItems ?? input.faqItems),
       quoteFormSchema:
         toJsonValue(overrides.quoteFormSchema ?? input.quoteFormSchema),
       optionConfig: toJsonValue(overrides.optionConfig ?? input.optionConfig),
@@ -116,6 +123,10 @@ describe("assistant create_product tool", () => {
       vatRate: overrides.vatRate ?? input.vatRate,
       defaultDiscountRate:
         overrides.defaultDiscountRate ?? input.defaultDiscountRate ?? null,
+      defaultDiscountAmountCents:
+        overrides.defaultDiscountAmountCents ??
+        input.defaultDiscountAmountCents ??
+        null,
       isActive: overrides.isActive ?? input.isActive,
       isListedInCatalog:
         overrides.isListedInCatalog ?? input.isListedInCatalog,

@@ -1,46 +1,45 @@
-import type {
-  OrderSuccessAddress,
-  OrderSuccessPayment,
-} from "../../types";
+import clsx from "clsx";
+
+type InfoBlock = {
+  title: string;
+  badge?: string | null;
+  lines: string[];
+};
 
 type InfoBlocksProps = {
-  shipping: OrderSuccessAddress;
-  payment: OrderSuccessPayment;
+  shipping: InfoBlock;
+  payment: InfoBlock;
 };
 
 export function InfoBlocks({ shipping, payment }: InfoBlocksProps) {
   return (
     <div className="mt-8 grid gap-8 sm:grid-cols-2">
-      <div className="space-y-3">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-          Shipping address
-        </p>
-        <div className="space-y-1 text-sm text-slate-600">
-          <p className="font-semibold uppercase text-slate-900">
-            {shipping.name}
-          </p>
-          {shipping.lines.map((line) => (
-            <p key={line} className="uppercase">
-              {line}
-            </p>
-          ))}
-        </div>
-      </div>
-      <div className="space-y-3">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-          Payment information
-        </p>
-        <div className="space-y-2 text-sm text-slate-600">
-          <span className="inline-flex w-fit items-center rounded-md bg-blue-600 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-white">
-            {payment.brand}
+      <InfoCard block={shipping} />
+      <InfoCard block={payment} />
+    </div>
+  );
+}
+
+function InfoCard({ block }: { block: InfoBlock }) {
+  return (
+    <div className="space-y-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+        {block.title}
+      </p>
+      <div className="space-y-2 text-sm text-slate-600">
+        {block.badge ? (
+          <span className="inline-flex w-fit items-center rounded-full bg-slate-900 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-white">
+            {block.badge}
           </span>
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-            Ending with {payment.last4}
+        ) : null}
+        {block.lines.map((line, index) => (
+          <p
+            key={`${block.title}-${index}-${line}`}
+            className={clsx(index === 0 && !block.badge ? "font-semibold text-slate-900" : "")}
+          >
+            {line}
           </p>
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-            Expires {payment.expires}
-          </p>
-        </div>
+        ))}
       </div>
     </div>
   );

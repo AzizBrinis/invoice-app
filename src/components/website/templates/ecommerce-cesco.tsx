@@ -13,9 +13,12 @@ import {
 } from "@/components/website/cart/cart-context";
 import { LeadCaptureForm } from "@/components/website/lead-form";
 import { QuoteRequestForm } from "@/components/website/quote-request-form";
-import { calculateLineTotals } from "@/lib/documents";
 import { formatCurrency } from "@/lib/formatters";
 import { fromCents } from "@/lib/money";
+import {
+  computeAdjustedUnitPriceTTCCents,
+  resolveProductDiscount,
+} from "@/lib/product-pricing";
 import { slugify } from "@/lib/slug";
 import { WEBSITE_MEDIA_PLACEHOLDERS } from "@/lib/website/placeholders";
 import type {
@@ -57,7 +60,9 @@ type CheckoutPaymentMethod = "card" | "bank_transfer" | "cash_on_delivery";
 
 type CatalogCard = CartProduct & {
   excerpt: string;
+  productExcerpt?: string | null;
   description: string;
+  shortDescriptionHtml?: string | null;
   gallery: string[];
   quoteFormSchema: unknown | null;
   category: string | null;
@@ -1112,17 +1117,17 @@ function resolveUnitAmountCents(options: {
   priceTTCCents: number | null;
   priceHTCents: number | null;
   vatRate: number | null;
+  discountRate?: number | null;
+  discountAmountCents?: number | null;
 }) {
-  if (options.saleMode !== "INSTANT") return null;
-  if (options.priceTTCCents != null) return options.priceTTCCents;
-  if (options.priceHTCents == null || options.vatRate == null) return null;
-  return calculateLineTotals({
-    quantity: 1,
-    unitPriceHTCents: options.priceHTCents,
+  return computeAdjustedUnitPriceTTCCents({
+    saleMode: options.saleMode,
+    priceTTCCents: options.priceTTCCents,
+    priceHTCents: options.priceHTCents,
     vatRate: options.vatRate,
-    discountRate: null,
-    discountAmountCents: null,
-  }).totalTTCCents;
+    discountRate: options.discountRate ?? null,
+    discountAmountCents: options.discountAmountCents ?? null,
+  });
 }
 
 const ORDER_CONFIRMATION_PREFIX = "catalogue-order";
@@ -1283,23 +1288,20 @@ function buildServiceCards(options: {
       product.gallery,
       index,
     );
-    const excerpt =
-      product.excerpt ??
-      product.description ??
-      COPY.misc.serviceExcerpt;
+    const productExcerpt = product.excerpt?.trim() || null;
+    const excerpt = productExcerpt ?? COPY.misc.serviceExcerpt;
     const unitPriceHTCents =
       product.saleMode === "INSTANT" ? product.priceHTCents : null;
     const vatRate = product.saleMode === "INSTANT" ? product.vatRate : null;
+    const discount = resolveProductDiscount(product);
     const unitAmountCents = resolveUnitAmountCents({
       saleMode: product.saleMode,
       priceTTCCents: product.priceTTCCents ?? null,
       priceHTCents: unitPriceHTCents,
       vatRate,
+      discountRate: discount.discountRate,
+      discountAmountCents: discount.discountAmountCents,
     });
-    const discountRate =
-      product.saleMode === "INSTANT"
-        ? product.defaultDiscountRate ?? null
-        : null;
     const category = product.category?.trim() ?? null;
     const categorySlug = category ? slugify(category) || null : null;
     const rating = Math.max(4.2, 4.9 - index * 0.08);
@@ -1307,7 +1309,9 @@ function buildServiceCards(options: {
       id: product.id,
       title: product.name,
       excerpt,
-      description: product.description ?? excerpt,
+      productExcerpt,
+      description: product.description ?? "",
+      shortDescriptionHtml: product.shortDescriptionHtml ?? null,
       tag: category ?? "Collection",
       category,
       categorySlug,
@@ -1322,7 +1326,8 @@ function buildServiceCards(options: {
       unitAmountCents,
       unitPriceHTCents,
       vatRate,
-      discountRate,
+      discountRate: discount.discountRate,
+      discountAmountCents: discount.discountAmountCents,
       currencyCode: options.currencyCode,
       slug: resolveProductSlug(product),
       image: gallery[0],
@@ -3550,9 +3555,12 @@ function ProductPage({
   }
 
   const current = card;
-  const summary = current.excerpt || current.description;
+  const summaryHtml = current.shortDescriptionHtml?.trim() || null;
+  const summary = summaryHtml
+    ? null
+    : current.productExcerpt?.trim() || null;
   const details =
-    current.description && current.description !== summary
+    current.description && current.description !== (summary ?? "")
       ? current.description
       : null;
   const gallery = current.gallery.length ? current.gallery : [current.image];
@@ -3576,7 +3584,14 @@ function ProductPage({
             <h1 className="text-4xl font-semibold text-slate-950 sm:text-5xl">
               {current.title}
             </h1>
-            <p className="text-base text-slate-600">{summary}</p>
+            {summaryHtml ? (
+              <div
+                className="text-base leading-7 text-slate-600 [&_a]:text-[var(--site-accent)] [&_a]:underline [&_strong]:font-semibold"
+                dangerouslySetInnerHTML={{ __html: summaryHtml }}
+              />
+            ) : summary ? (
+              <p className="text-base text-slate-600">{summary}</p>
+            ) : null}
             {details ? (
               <p className="text-sm text-slate-500">{details}</p>
             ) : null}

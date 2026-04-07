@@ -1,5 +1,6 @@
 import type { WebsiteBuilderSection } from "@/lib/website/builder";
 import type { HomeProduct, HomeProductStatus, ThemeTokens } from "../../types";
+import { useCisecoI18n } from "../../i18n";
 import { Section } from "../layout/Section";
 import { ProductCard, ProductCardSkeleton } from "../shared/ProductCard";
 import { Reveal } from "../shared/Reveal";
@@ -10,7 +11,10 @@ type BestSellersSectionProps = {
   products: HomeProduct[];
   status: HomeProductStatus;
   baseLink: (target: string) => string;
-  onAddToCart: (product: HomeProduct) => void;
+  onAddToCart: (product: HomeProduct) => boolean;
+  isWishlisted: (productId: string) => boolean;
+  pendingIds: Set<string>;
+  onToggleWishlist: (productId: string) => Promise<boolean>;
   emptyMessage: string;
   errorMessage: string;
 };
@@ -22,9 +26,13 @@ export function BestSellersSection({
   status,
   baseLink,
   onAddToCart,
+  isWishlisted,
+  pendingIds,
+  onToggleWishlist,
   emptyMessage,
   errorMessage,
 }: BestSellersSectionProps) {
+  const { t } = useCisecoI18n();
   const items =
     products.length > 4
       ? products.slice(4, 8)
@@ -44,14 +52,14 @@ export function BestSellersSection({
     >
       <div className="space-y-4">
         <div className="space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-900">
-            {eyebrow}
+          <p className="ciseco-home-eyebrow">
+            {t(eyebrow)}
           </p>
-          <h2 className="text-[30px] font-semibold leading-tight text-slate-900 sm:text-[34px]">
-            {title}
+          <h2 className="ciseco-home-title max-w-3xl text-[34px] sm:text-[42px]">
+            {t(title)}
           </h2>
-          <p className="text-sm text-slate-500">
-            {subtitle}
+          <p className="ciseco-home-subtitle max-w-2xl">
+            {t(subtitle)}
           </p>
         </div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -77,6 +85,9 @@ export function BestSellersSection({
                     <ProductCard
                       product={card}
                       href={productHref(card.slug)}
+                      isWishlisted={isWishlisted(card.id)}
+                      isWishlistBusy={pendingIds.has(card.id)}
+                      onToggleWishlist={() => onToggleWishlist(card.id)}
                       onAddToCart={() => onAddToCart(card)}
                     />
                   </Reveal>

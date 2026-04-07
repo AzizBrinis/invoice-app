@@ -4,6 +4,7 @@ import type { ThemeTokens } from "../../types";
 import { FeatureIcon } from "../shared/Icons";
 import { Reveal } from "../shared/Reveal";
 import { Section } from "../layout/Section";
+import { useCisecoI18n } from "../../i18n";
 
 type FeatureRowProps = {
   theme: ThemeTokens;
@@ -11,6 +12,7 @@ type FeatureRowProps = {
 };
 
 export function FeatureRow({ theme, section }: FeatureRowProps) {
+  const { t } = useCisecoI18n();
   const items =
     section?.items?.length
       ? section.items.map((item, index) => {
@@ -41,8 +43,8 @@ export function FeatureRow({ theme, section }: FeatureRowProps) {
               <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-[#f3f5fb] text-[var(--site-accent)]">
                 <FeatureIcon name={item.icon} />
               </div>
-              <p className="mt-3 text-sm font-semibold text-slate-900">{item.title}</p>
-              <p className="text-xs text-slate-500">{item.subtitle}</p>
+              <p className="mt-3 ciseco-card-title text-[15px] text-slate-900">{t(item.title)}</p>
+              <p className="text-[13px] leading-6 text-slate-500">{t(item.subtitle)}</p>
             </div>
           </Reveal>
         ))}

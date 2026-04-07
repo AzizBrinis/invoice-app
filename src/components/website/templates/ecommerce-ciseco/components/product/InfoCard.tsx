@@ -1,5 +1,6 @@
 import clsx from "clsx";
 import type { ProductInfoCard } from "../../types";
+import { useCisecoI18n } from "../../i18n";
 import { InfoIcon } from "../shared/Icons";
 
 const infoToneClasses: Record<ProductInfoCard["tone"], string> = {
@@ -21,6 +22,7 @@ type InfoCardProps = {
 };
 
 export function InfoCard({ item }: InfoCardProps) {
+  const { t } = useCisecoI18n();
   return (
     <div
       className={clsx(
@@ -37,8 +39,8 @@ export function InfoCard({ item }: InfoCardProps) {
         <InfoIcon name={item.icon} />
       </div>
       <div className="space-y-1">
-        <p className="text-sm font-semibold text-slate-900">{item.title}</p>
-        <p>{item.description}</p>
+        <p className="text-sm font-semibold text-slate-900">{t(item.title)}</p>
+        <p>{t(item.description)}</p>
       </div>
     </div>
   );
