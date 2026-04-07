@@ -34,6 +34,7 @@ import {
 } from "../../utils";
 import { ExtraSections } from "../builder/ExtraSections";
 import { Section } from "../layout/Section";
+import { CatalogImage } from "../shared/CatalogImage";
 import { WishlistHeartIcon } from "../shared/Icons";
 import { ProductCard } from "../shared/ProductCard";
 import { RatingStars } from "../shared/RatingStars";
@@ -313,6 +314,7 @@ export function ProductDetailPage({
     redirectOnAction: true,
     slug: catalogSlug,
     loginHref: baseLink("/login"),
+    loadStrategy: "idle",
   });
   const resolvedStatus: ProductDetailStatus =
     status === "ready" && (!product || !cartProduct) ? "not-found" : status;
@@ -891,14 +893,14 @@ export function ProductDetailPage({
             />
           )}
         </button>
-        <div className="aspect-square w-full">
+        <div className="relative aspect-square w-full">
           {mainImage ? (
-            <img
+            <CatalogImage
               src={mainImage.src}
               alt={mainImage.alt}
               className="h-full w-full object-contain"
-              loading="eager"
-              decoding="async"
+              sizes="(min-width: 1024px) 42vw, 92vw"
+              priority
             />
           ) : null}
         </div>
@@ -910,11 +912,12 @@ export function ProductDetailPage({
               key={image.id}
               className="group overflow-hidden rounded-3xl border border-black/5 bg-white p-3 shadow-sm transition hover:-translate-y-1 hover:shadow-lg"
             >
-              <div className="aspect-square w-full">
-                <img
+              <div className="relative aspect-square w-full">
+                <CatalogImage
                   src={image.src}
                   alt={image.alt}
                   className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.03]"
+                  sizes="(min-width: 1024px) 18vw, 44vw"
                   loading="lazy"
                 />
               </div>

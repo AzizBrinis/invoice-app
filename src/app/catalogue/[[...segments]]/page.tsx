@@ -1,23 +1,20 @@
 import type { Metadata } from "next";
-import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
-import { getCatalogViewerForTenant } from "@/lib/client-auth";
 import { CatalogPage } from "@/components/website/catalog-page";
 import {
-  CISECO_LOCALE_COOKIE_NAME,
   resolveCisecoLocale,
 } from "@/components/website/templates/ecommerce-ciseco/locale";
 import {
   getCatalogPayloadByDomain,
   getCatalogPayloadBySlug,
+  type CatalogPayload,
+  type CatalogProduct,
   normalizeCatalogDomainInput,
   normalizeCatalogPathInput,
   normalizeCatalogSlugInput,
-  resolveCatalogWebsite,
   resolveCatalogMetadata,
   resolveCatalogMetadataTarget,
   resolveCatalogStructuredData,
-  type CatalogPayload,
 } from "@/server/website";
 
 type CataloguePageParams = { segments?: string[] };
@@ -45,6 +42,43 @@ function stripSlugPrefix(path: string | null, slug: string) {
     return next || "/";
   }
   return path;
+}
+
+function trimCatalogProductForListing(product: CatalogProduct): CatalogProduct {
+  return {
+    ...product,
+    description: null,
+    descriptionHtml: null,
+    shortDescriptionHtml: null,
+    excerpt: null,
+    metaTitle: null,
+    metaDescription: null,
+    gallery: Array.isArray(product.gallery)
+      ? product.gallery.slice(0, 3)
+      : product.gallery,
+    faqItems: null,
+    quoteFormSchema: null,
+    optionConfig: null,
+    variantStock: null,
+  };
+}
+
+function trimPayloadForInitialRoute(
+  payload: CatalogPayload,
+  path?: string | null,
+): CatalogPayload {
+  const target = resolveCatalogMetadataTarget(path);
+  if (target.kind === "product") {
+    return payload;
+  }
+
+  return {
+    ...payload,
+    products: {
+      featured: payload.products.featured.map(trimCatalogProductForListing),
+      all: payload.products.all.map(trimCatalogProductForListing),
+    },
+  };
 }
 
 async function resolvePayload(
@@ -147,28 +181,13 @@ export default async function CatalogueCatchAllPage({
     notFound();
   }
   const resolvedSearchParams = (await searchParams) ?? {};
-  const cookieStore = await cookies();
   const langParamRaw = resolvedSearchParams.lang;
   const langParam = Array.isArray(langParamRaw) ? langParamRaw[0] : langParamRaw;
-  const persistedLocale = cookieStore.get(CISECO_LOCALE_COOKIE_NAME)?.value;
-  const website = await resolveCatalogWebsite({
-    slug: resolved.payload.website.slug,
-    preview: false,
-  });
-  const viewer = website
-    ? await getCatalogViewerForTenant(website.userId)
-    : {
-        authStatus: "unauthenticated" as const,
-        profile: null,
-      };
+  const payload = trimPayloadForInitialRoute(resolved.payload, resolved.path);
   const structuredData = resolveCatalogStructuredData({
-    payload: resolved.payload as CatalogPayload,
+    payload,
     path: resolved.path,
   });
-  const payload = {
-    ...(resolved.payload as CatalogPayload),
-    viewer,
-  } satisfies CatalogPayload;
   return (
     <>
       {structuredData.map((entry, index) => (
@@ -184,7 +203,7 @@ export default async function CatalogueCatchAllPage({
         data={payload}
         mode="public"
         path={resolved.path}
-        initialLocale={resolveCisecoLocale(langParam, persistedLocale)}
+        initialLocale={resolveCisecoLocale(langParam)}
       />
     </>
   );

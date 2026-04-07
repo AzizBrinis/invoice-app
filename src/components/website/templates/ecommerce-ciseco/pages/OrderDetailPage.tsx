@@ -93,6 +93,7 @@ export function OrderDetailPage({
 }: OrderDetailPageProps) {
   const { profile, status: profileStatus } = useAccountProfile({
     redirectOnUnauthorized: true,
+    loadStrategy: "mount",
   });
   const headerDetails = useMemo(() => {
     const parts = [profile.email, profile.address].filter(

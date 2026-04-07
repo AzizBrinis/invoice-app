@@ -8,6 +8,7 @@ import type { ThemeTokens } from "../../types";
 import { resolveBuilderMedia } from "../../builder-helpers";
 import { useCisecoI18n } from "../../i18n";
 import { Section } from "../layout/Section";
+import { CatalogImage } from "../shared/CatalogImage";
 
 type TestimonialsSectionProps = {
   theme: ThemeTokens;
@@ -93,12 +94,10 @@ export function TestimonialsSection({
           </div>
           <div className="pointer-events-none hidden sm:block">
             {avatars.map((avatar, index) => (
-              <img
+              <div
                 key={`${avatar}-${index}`}
-                src={avatar}
-                alt=""
                 className={clsx(
-                  "absolute h-10 w-10 rounded-full border-4 border-white object-cover shadow-sm",
+                  "absolute h-10 w-10 overflow-hidden rounded-full border-4 border-white shadow-sm",
                   index === 0 && "-left-2 top-8",
                   index === 1 && "left-10 -bottom-2",
                   index === 2 && "right-12 -bottom-3",
@@ -106,7 +105,16 @@ export function TestimonialsSection({
                   index === 4 && "left-20 -top-2",
                   index === 5 && "right-24 -top-3",
                 )}
-              />
+              >
+                <CatalogImage
+                  src={avatar}
+                  alt=""
+                  className="h-full w-full object-cover"
+                  width={40}
+                  height={40}
+                  loading="lazy"
+                />
+              </div>
             ))}
           </div>
         </div>

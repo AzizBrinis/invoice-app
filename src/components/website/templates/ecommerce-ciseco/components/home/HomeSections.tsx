@@ -55,6 +55,7 @@ export function HomeSections({
     redirectOnAction: true,
     slug: catalogSlug,
     loginHref: baseLink("/login"),
+    loadStrategy: "idle",
   });
   const handleAddToCart = useCallback(
     (product: HomeProduct) => {

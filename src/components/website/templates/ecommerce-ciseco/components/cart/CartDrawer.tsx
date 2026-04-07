@@ -11,6 +11,7 @@ import { formatCurrency } from "@/lib/formatters";
 import { fromCents } from "@/lib/money";
 import { WEBSITE_MEDIA_PLACEHOLDERS } from "@/lib/website/placeholders";
 import { useCisecoI18n } from "../../i18n";
+import { CatalogImage } from "../shared/CatalogImage";
 
 type CartDrawerProps = {
   open: boolean;
@@ -57,11 +58,13 @@ function CartDrawerItem({ item }: { item: CartLine }) {
 
   return (
     <div className="grid grid-cols-[64px_minmax(0,1fr)_auto] gap-3 py-5 sm:grid-cols-[72px_minmax(0,1fr)_auto] sm:gap-4">
-      <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl bg-slate-100 p-2 sm:h-20 sm:w-20">
-        <img
+      <div className="relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl bg-slate-100 p-2 sm:h-20 sm:w-20">
+        <CatalogImage
           src={imageSrc}
           alt={title}
           className="h-full w-full object-cover"
+          sizes="80px"
+          fill
           loading="lazy"
         />
       </div>

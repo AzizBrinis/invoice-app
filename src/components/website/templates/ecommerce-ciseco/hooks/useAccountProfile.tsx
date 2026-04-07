@@ -18,7 +18,12 @@ import {
 import { useCisecoI18n } from "../i18n";
 import { useCisecoLocation, useCisecoNavigation } from "../navigation";
 
-type ProfileStatus = "loading" | "ready" | "error" | "unauthenticated";
+type ProfileStatus =
+  | "idle"
+  | "loading"
+  | "ready"
+  | "error"
+  | "unauthenticated";
 
 type AccountProfileContextValue = {
   profile: ClientProfile;
@@ -38,6 +43,7 @@ type AccountProfileProviderProps = {
 
 type UseAccountProfileOptions = {
   redirectOnUnauthorized?: boolean;
+  loadStrategy?: "manual" | "idle" | "mount";
 };
 
 const AccountProfileContext =
@@ -76,7 +82,11 @@ export function AccountProfileProvider({
     normalizeProfile(initialViewer?.profile),
   );
   const [status, setStatus] = useState<ProfileStatus>(() =>
-    initialViewer?.authStatus === "authenticated" ? "ready" : "loading",
+    initialViewer?.authStatus === "authenticated"
+      ? "ready"
+      : initialViewer
+        ? "unauthenticated"
+        : "idle",
   );
   const [authStatus, setAuthStatus] = useState<
     CatalogViewerState["authStatus"]
@@ -84,6 +94,7 @@ export function AccountProfileProvider({
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const authStatusRef = useRef<CatalogViewerState["authStatus"]>(authStatus);
+  const isRefreshingRef = useRef(false);
 
   useEffect(() => {
     authStatusRef.current = authStatus;
@@ -104,10 +115,18 @@ export function AccountProfileProvider({
   }, []);
 
   const refreshProfile = useCallback(() => {
+    if (isRefreshingRef.current) {
+      return;
+    }
+    isRefreshingRef.current = true;
     setRefreshKey((current) => current + 1);
   }, []);
 
   useEffect(() => {
+    if (refreshKey === 0) {
+      return;
+    }
+
     let active = true;
     const preserveAuthenticatedState =
       authStatusRef.current === "authenticated";
@@ -157,12 +176,15 @@ export function AccountProfileProvider({
         if (!preserveAuthenticatedState) {
           setStatus("error");
         }
+      } finally {
+        isRefreshingRef.current = false;
       }
     };
 
     void loadProfile();
     return () => {
       active = false;
+      isRefreshingRef.current = false;
     };
   }, [accountQuery, applyAuthenticatedProfile, clearProfile, pathname, refreshKey, t]);
 
@@ -201,7 +223,11 @@ export function useAccountProfile(
 ) {
   const context = useContext(AccountProfileContext);
   const { navigate } = useCisecoNavigation();
-  const { redirectOnUnauthorized = true } = options;
+  const {
+    redirectOnUnauthorized = true,
+    loadStrategy = "manual",
+  } = options;
+  const hasRequestedLoadRef = useRef(false);
 
   if (!context) {
     throw new Error(
@@ -210,12 +236,45 @@ export function useAccountProfile(
   }
 
   useEffect(() => {
-    if (!redirectOnUnauthorized || context.authStatus !== "unauthenticated") {
+    if (!redirectOnUnauthorized || context.status !== "unauthenticated") {
       return;
     }
 
     navigate(context.loginHref);
-  }, [context.authStatus, context.loginHref, navigate, redirectOnUnauthorized]);
+  }, [context.loginHref, context.status, navigate, redirectOnUnauthorized]);
+
+  useEffect(() => {
+    if (loadStrategy === "manual" || hasRequestedLoadRef.current) {
+      return;
+    }
+
+    hasRequestedLoadRef.current = true;
+    if (loadStrategy === "mount") {
+      context.refreshProfile();
+      return;
+    }
+
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    if (typeof window.requestIdleCallback === "function") {
+      const requestId = window.requestIdleCallback(
+        () => context.refreshProfile(),
+        { timeout: 1200 },
+      );
+      return () => {
+        window.cancelIdleCallback?.(requestId);
+      };
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      context.refreshProfile();
+    }, 700);
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [context, loadStrategy]);
 
   return context;
 }

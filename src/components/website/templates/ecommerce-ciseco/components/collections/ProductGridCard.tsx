@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useCart, type CartProduct } from "@/components/website/cart/cart-context";
 import { WEBSITE_MEDIA_PLACEHOLDERS } from "@/lib/website/placeholders";
 import { useCisecoI18n } from "../../i18n";
+import { CatalogImage } from "../shared/CatalogImage";
 import { StarIcon, WishlistHeartIcon } from "../shared/Icons";
 
 export type CollectionProduct = {
@@ -55,11 +56,12 @@ export function ProductGridCard({ product }: ProductGridCardProps) {
           className="block rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/15"
         >
           <div className="relative overflow-hidden rounded-2xl bg-slate-50 p-6">
-            <div className="aspect-square">
-              <img
+            <div className="relative aspect-square">
+              <CatalogImage
                 src={imageSrc}
                 alt={t(product.name)}
                 className="h-full w-full object-contain"
+                sizes="(min-width: 1024px) 21vw, (min-width: 640px) 44vw, 92vw"
                 loading="lazy"
               />
             </div>

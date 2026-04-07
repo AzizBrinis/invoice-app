@@ -16,6 +16,16 @@ const CATALOG_CACHE_HEADERS = [
 
 const nextConfig: NextConfig = {
   typedRoutes: true,
+  images: {
+    formats: ["image/avif", "image/webp"],
+    minimumCacheTTL: 60 * 60 * 24 * 7,
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "images.unsplash.com",
+      },
+    ],
+  },
   experimental: {
     serverActions: {
       bodySizeLimit: "100mb",

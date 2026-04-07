@@ -5,6 +5,7 @@ import type { MouseEvent } from "react";
 import type { ProductCardData } from "../../types";
 import { WishlistHeartIcon } from "./Icons";
 import { useCisecoI18n } from "../../i18n";
+import { CatalogImage } from "./CatalogImage";
 
 type ProductCardProps = {
   product: ProductCardData;
@@ -75,11 +76,16 @@ export function ProductCard({
           className="block"
           aria-label={`${t("View details")} ${productName}`}
         >
-          <div className="aspect-square overflow-hidden">
-            <img
+          <div className="relative aspect-square overflow-hidden">
+            <CatalogImage
               src={product.image}
               alt={productName}
               className="h-full w-full object-cover transition duration-500 ease-out group-hover:scale-[1.05]"
+              sizes={
+                isCompact
+                  ? "(min-width: 1024px) 16vw, (min-width: 640px) 24vw, 42vw"
+                  : "(min-width: 1024px) 22vw, (min-width: 640px) 44vw, 92vw"
+              }
               loading="lazy"
             />
           </div>

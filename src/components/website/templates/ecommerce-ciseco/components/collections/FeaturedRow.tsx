@@ -2,6 +2,7 @@ import clsx from "clsx";
 import { WEBSITE_MEDIA_PLACEHOLDERS } from "@/lib/website/placeholders";
 import type { ThemeTokens } from "../../types";
 import { useCisecoI18n } from "../../i18n";
+import { CatalogImage } from "../shared/CatalogImage";
 import { StarIcon } from "../shared/Icons";
 
 export type FeaturedProduct = {
@@ -72,11 +73,12 @@ function FeaturedCard({ item }: { item: FeaturedProduct }) {
   return (
     <article className="rounded-3xl border border-black/5 bg-white p-4 shadow-sm">
       <div className="rounded-2xl bg-slate-50 p-6">
-        <div className="aspect-square">
-          <img
+        <div className="relative aspect-square">
+          <CatalogImage
             src={imageSrc}
             alt={t(item.name)}
             className="h-full w-full object-contain"
+            sizes="(min-width: 1024px) 21vw, (min-width: 640px) 44vw, 92vw"
             loading="lazy"
           />
         </div>
@@ -85,12 +87,14 @@ function FeaturedCard({ item }: { item: FeaturedProduct }) {
         {thumbnails.map((thumb, index) => (
           <div
             key={`${item.id}-thumb-${index}`}
-            className="h-12 w-12 overflow-hidden rounded-xl bg-slate-50 ring-1 ring-black/5"
+            className="relative h-12 w-12 overflow-hidden rounded-xl bg-slate-50 ring-1 ring-black/5"
           >
-            <img
+            <CatalogImage
               src={thumb}
               alt={`${t(item.name)} ${t("thumbnail")} ${index + 1}`}
               className="h-full w-full object-cover"
+              width={48}
+              height={48}
               loading="lazy"
             />
           </div>

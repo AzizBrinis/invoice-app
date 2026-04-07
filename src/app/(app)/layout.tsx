@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
+import localFont from "next/font/local";
 import { requireUser } from "@/lib/auth";
 import {
   canAccessAppSection,
@@ -9,6 +11,29 @@ import { getSettings } from "@/server/settings";
 import { SidebarNav, type NavItem } from "@/components/layout/sidebar-nav";
 import { Topbar } from "@/components/layout/topbar";
 import { AssistantLauncher } from "@/components/assistant/assistant-launcher";
+import {
+  ThemeProvider,
+  type Theme,
+} from "@/components/theme/theme-provider";
+import { ToastProvider } from "@/components/ui/toast-provider";
+
+const geistMono = localFont({
+  variable: "--font-geist-mono",
+  display: "swap",
+  preload: false,
+  src: [
+    {
+      path: "../fonts/geist-mono/GeistMono-400.ttf",
+      weight: "400",
+      style: "normal",
+    },
+    {
+      path: "../fonts/geist-mono/GeistMono-500.ttf",
+      weight: "500",
+      style: "normal",
+    },
+  ],
+});
 
 export const dynamic = "force-dynamic";
 
@@ -137,6 +162,11 @@ export default async function AppLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const cookieStore = await cookies();
+  const themeCookie = cookieStore.get("theme")?.value;
+  const isTheme = (value: string | undefined): value is Theme =>
+    value === "light" || value === "dark" || value === "system";
+  const initialTheme: Theme = isTheme(themeCookie) ? themeCookie : "system";
   const user = await requireUser();
   const tenantId = user.activeTenantId ?? user.tenantId ?? user.id;
   const navSource = isClientPaymentsAccount(user)
@@ -154,26 +184,30 @@ export default async function AppLayout({
     : "Espace d'administration";
 
   return (
-    <div className="min-h-screen bg-zinc-100 transition-colors dark:bg-zinc-950 lg:h-screen lg:overflow-hidden">
-      <div className="flex min-h-screen min-w-0 lg:h-full">
-        <SidebarNav items={navItems} />
-        <div className="flex min-h-screen min-w-0 flex-1 flex-col lg:h-full lg:min-h-0 lg:overflow-hidden">
-          <Topbar
-            items={navItems}
-            companyName={settings.companyName}
-            workspaceLabel={workspaceLabel}
-            user={{ name: user.name, email: user.email }}
-          />
-          <main className="flex-1 min-w-0 px-4 py-6 sm:px-6 lg:min-h-0 lg:overflow-y-auto lg:px-8">
-            <div className="mx-auto w-full max-w-7xl space-y-6 overflow-x-scroll min-w-0">
-              {children}
+    <ThemeProvider initialTheme={initialTheme}>
+      <ToastProvider>
+        <div className={`${geistMono.variable} min-h-screen bg-zinc-100 transition-colors dark:bg-zinc-950 lg:h-screen lg:overflow-hidden`}>
+          <div className="flex min-h-screen min-w-0 lg:h-full">
+            <SidebarNav items={navItems} />
+            <div className="flex min-h-screen min-w-0 flex-1 flex-col lg:h-full lg:min-h-0 lg:overflow-hidden">
+              <Topbar
+                items={navItems}
+                companyName={settings.companyName}
+                workspaceLabel={workspaceLabel}
+                user={{ name: user.name, email: user.email }}
+              />
+              <main className="flex-1 min-w-0 px-4 py-6 sm:px-6 lg:min-h-0 lg:overflow-y-auto lg:px-8">
+                <div className="mx-auto w-full max-w-7xl space-y-6 overflow-x-scroll min-w-0">
+                  {children}
+                </div>
+                {canAccessAppSection(user, "assistant") ? (
+                  <AssistantLauncher />
+                ) : null}
+              </main>
             </div>
-            {canAccessAppSection(user, "assistant") ? (
-              <AssistantLauncher />
-            ) : null}
-          </main>
+          </div>
         </div>
-      </div>
-    </div>
+      </ToastProvider>
+    </ThemeProvider>
   );
 }

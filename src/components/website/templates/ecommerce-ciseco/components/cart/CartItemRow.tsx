@@ -8,6 +8,7 @@ import { formatCurrency } from "@/lib/formatters";
 import { fromCents } from "@/lib/money";
 import { WEBSITE_MEDIA_PLACEHOLDERS } from "@/lib/website/placeholders";
 import { useCisecoI18n } from "../../i18n";
+import { CatalogImage } from "../shared/CatalogImage";
 
 type CartItemRowProps = {
   item: CartLine;
@@ -51,11 +52,13 @@ export function CartItemRow({ item }: CartItemRowProps) {
   return (
     <div className="flex flex-col gap-4 py-6 sm:flex-row sm:items-start sm:gap-6">
       <div className="flex flex-1 items-start gap-4">
-        <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-slate-100 p-3 shadow-sm sm:h-28 sm:w-28">
-          <img
+        <div className="relative flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-slate-100 p-3 shadow-sm sm:h-28 sm:w-28">
+          <CatalogImage
             src={imageSrc}
             alt={title}
             className="h-full w-full object-cover"
+            sizes="112px"
+            fill
             loading="lazy"
           />
         </div>

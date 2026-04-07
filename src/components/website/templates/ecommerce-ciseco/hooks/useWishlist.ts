@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCisecoI18n } from "../i18n";
 import { useCisecoLocation, useCisecoNavigation } from "../navigation";
 
@@ -32,6 +32,7 @@ type UseWishlistOptions = {
   redirectOnAction?: boolean;
   slug?: string | null;
   loginHref?: string;
+  loadStrategy?: "manual" | "idle" | "mount";
 };
 
 type WishlistState = {
@@ -52,6 +53,7 @@ export function useWishlist(options: UseWishlistOptions = {}): WishlistState {
     redirectOnAction = true,
     slug: explicitSlug,
     loginHref: explicitLoginHref,
+    loadStrategy = "mount",
   } = options;
   const { pathname, searchParams } = useCisecoLocation();
   const { navigate } = useCisecoNavigation();
@@ -81,6 +83,7 @@ export function useWishlist(options: UseWishlistOptions = {}): WishlistState {
   const [error, setError] = useState<string | null>(null);
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
   const [optimisticIds, setOptimisticIds] = useState<Set<string>>(new Set());
+  const hasRequestedLoadRef = useRef(false);
 
   const redirectToLogin = useCallback(() => {
     navigate(loginHref);
@@ -142,8 +145,36 @@ export function useWishlist(options: UseWishlistOptions = {}): WishlistState {
   }, [query, redirectOnLoad, redirectToLogin, t]);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    if (loadStrategy === "manual" || hasRequestedLoadRef.current) {
+      return;
+    }
+
+    hasRequestedLoadRef.current = true;
+    if (loadStrategy === "mount") {
+      void refresh();
+      return;
+    }
+
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    if (typeof window.requestIdleCallback === "function") {
+      const requestId = window.requestIdleCallback(() => {
+        void refresh();
+      }, { timeout: 1500 });
+      return () => {
+        window.cancelIdleCallback?.(requestId);
+      };
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      void refresh();
+    }, 900);
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [loadStrategy, refresh]);
 
   const updateWishlist = useCallback(
     async (productId: string, method: "POST" | "DELETE") => {

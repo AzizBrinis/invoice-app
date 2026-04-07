@@ -3,6 +3,7 @@ import type { HomeProduct, HomeProductStatus, ThemeTokens } from "../../types";
 import { useCisecoI18n } from "../../i18n";
 import { Section } from "../layout/Section";
 import { Reveal } from "../shared/Reveal";
+import { CatalogImage } from "../shared/CatalogImage";
 
 type FeaturedProductsSectionProps = {
   theme: ThemeTokens;
@@ -81,10 +82,11 @@ export function FeaturedProductsSection({
                       className="group overflow-hidden rounded-2xl bg-white shadow-sm"
                     >
                       <div className="relative aspect-[4/3] overflow-hidden bg-slate-100">
-                        <img
+                        <CatalogImage
                           src={card.image}
                           alt={t(card.name)}
                           className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.03]"
+                          sizes="(min-width: 1024px) 29vw, (min-width: 640px) 46vw, 92vw"
                           loading="lazy"
                         />
                       </div>
@@ -113,11 +115,12 @@ export function FeaturedProductsSection({
                 className="overflow-hidden rounded-xl border border-black/5 bg-white"
                 aria-label={`${t("Open")} ${t(card.name)}`}
               >
-                <div className="aspect-square overflow-hidden bg-slate-100">
-                  <img
+                <div className="relative aspect-square overflow-hidden bg-slate-100">
+                  <CatalogImage
                     src={card.image}
                     alt={t(card.name)}
                     className="h-full w-full object-cover"
+                    sizes="(min-width: 1024px) 9vw, (min-width: 640px) 22vw, 30vw"
                     loading="lazy"
                   />
                 </div>

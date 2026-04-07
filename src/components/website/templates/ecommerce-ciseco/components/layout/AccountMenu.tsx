@@ -59,6 +59,7 @@ export function AccountMenu() {
 
   const { profile, authStatus, clearProfile, loginHref } = useAccountProfile({
     redirectOnUnauthorized: false,
+    loadStrategy: "idle",
   });
 
   const displayName = profile.name?.trim() || DEFAULT_NAME;

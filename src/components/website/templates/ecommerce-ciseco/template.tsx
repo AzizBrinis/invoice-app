@@ -117,6 +117,15 @@ export function EcommerceCisecoHomeTemplate({
     () => data.website.cmsPages.map((entry) => entry.path),
     [data.website.cmsPages],
   );
+  const productPaths = useMemo(
+    () =>
+      cartCatalog.map((product) => normalizePath(`/produit/${product.slug}`)),
+    [cartCatalog],
+  );
+  const serverRoutedPaths = useMemo(
+    () => Array.from(new Set([...cmsPaths, ...productPaths])),
+    [cmsPaths, productPaths],
+  );
 
   return (
     <CisecoNavigationProvider
@@ -124,7 +133,7 @@ export function EcommerceCisecoHomeTemplate({
       slug={data.website.slug}
       initialHref={initialHref}
       initialPath={path}
-      serverRoutedPaths={cmsPaths}
+      serverRoutedPaths={serverRoutedPaths}
     >
       <CisecoLocaleProvider initialLocale={locale}>
         <CisecoCmsPagesProvider links={data.website.cmsPages}>

@@ -70,6 +70,7 @@ export function AccountPage({
     applyAuthenticatedProfile,
   } = useAccountProfile({
     redirectOnUnauthorized: true,
+    loadStrategy: "mount",
   });
   const slug = useMemo(() => {
     if (!pathname) return null;

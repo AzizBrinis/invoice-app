@@ -245,6 +245,7 @@ export function CisecoNavigationProvider({
   const router = useRouter();
   const fallbackLogicalPath = normalizePath(initialPath);
   const settleTimeoutRef = useRef<number | null>(null);
+  const prefetchedHrefsRef = useRef<Set<string>>(new Set());
   const [isNavigating, setIsNavigating] = useState(false);
   const [state, setState] = useState(() =>
     resolveCisecoNavigationState({
@@ -327,6 +328,11 @@ export function CisecoNavigationProvider({
         slug,
         fallbackLogicalPath: state.logicalPath,
       });
+      const prefetchKey = nextState.href;
+      if (prefetchedHrefsRef.current.has(prefetchKey)) {
+        return;
+      }
+      prefetchedHrefsRef.current.add(prefetchKey);
 
       if (nextState.isOwned) {
         if (

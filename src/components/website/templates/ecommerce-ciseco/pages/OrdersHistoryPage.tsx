@@ -99,6 +99,7 @@ export function OrdersHistoryPage({
   const { t } = useCisecoI18n();
   const { profile, status: profileStatus } = useAccountProfile({
     redirectOnUnauthorized: true,
+    loadStrategy: "mount",
   });
   const headerDetails = useMemo(() => {
     const parts = [profile.email, profile.address].filter(

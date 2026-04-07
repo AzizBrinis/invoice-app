@@ -202,6 +202,7 @@ function CheckoutContent({
     loginHref,
   } = useAccountProfile({
     redirectOnUnauthorized: false,
+    loadStrategy: "mount",
   });
   const [status, setStatus] = useState<CheckoutStatus>("idle");
   const [error, setError] = useState<string | null>(null);

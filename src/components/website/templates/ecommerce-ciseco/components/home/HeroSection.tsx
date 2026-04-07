@@ -411,6 +411,7 @@ export function HeroSection({
   );
   const [activeIndex, setActiveIndex] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
+  const [autoplayReady, setAutoplayReady] = useState(false);
 
   const safeActiveIndex = activeIndex >= slides.length ? 0 : activeIndex;
   const showControls = slides.length > 1;
@@ -424,7 +425,41 @@ export function HeroSection({
   const isDarkContentSlide = activeContentStyle?.tone === "dark";
 
   useEffect(() => {
-    if (slides.length <= 1 || isPaused) {
+    if (!showControls) {
+      return;
+    }
+
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const prefersReducedMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    if (prefersReducedMotion) {
+      return;
+    }
+
+    if (typeof window.requestIdleCallback === "function") {
+      const requestId = window.requestIdleCallback(
+        () => setAutoplayReady(true),
+        { timeout: 1500 },
+      );
+      return () => {
+        window.cancelIdleCallback?.(requestId);
+      };
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setAutoplayReady(true);
+    }, 900);
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [showControls]);
+
+  useEffect(() => {
+    if (!autoplayReady || slides.length <= 1 || isPaused) {
       return;
     }
     const timer = window.setTimeout(() => {
@@ -434,7 +469,7 @@ export function HeroSection({
       });
     }, autoSlideIntervalMs);
     return () => window.clearTimeout(timer);
-  }, [autoSlideIntervalMs, isPaused, safeActiveIndex, slides.length]);
+  }, [autoSlideIntervalMs, autoplayReady, isPaused, safeActiveIndex, slides.length]);
 
   if (!slides.length) {
     return null;
@@ -501,7 +536,7 @@ export function HeroSection({
                         src={slide.imageSrc}
                         alt={t(slide.imageAlt)}
                         fill
-                        sizes="100vw"
+                        sizes="(min-width: 1280px) 1240px, 100vw"
                         className="object-cover object-center"
                         priority={index === 0}
                         unoptimized={slide.imageSrc.startsWith("data:")}

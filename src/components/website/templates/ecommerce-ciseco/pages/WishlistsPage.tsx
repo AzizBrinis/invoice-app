@@ -122,9 +122,11 @@ export function WishlistsPage({
     redirectOnAction: true,
     slug: catalogSlug,
     loginHref,
+    loadStrategy: "mount",
   });
   const { profile, status: profileStatus } = useAccountProfile({
     redirectOnUnauthorized: true,
+    loadStrategy: "mount",
   });
   const displayItems = useMemo(() => {
     return items.map((item, index) => {
