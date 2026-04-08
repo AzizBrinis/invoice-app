@@ -1,7 +1,21 @@
 import NextImage from "next/image";
 import type { ImgHTMLAttributes } from "react";
 
-const OPTIMIZED_REMOTE_HOSTS = new Set(["images.unsplash.com"]);
+function resolveOptimizedRemoteHosts() {
+  const hosts = new Set(["images.unsplash.com"]);
+  const configuredStorageUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  if (!configuredStorageUrl) {
+    return hosts;
+  }
+  try {
+    hosts.add(new URL(configuredStorageUrl).hostname);
+  } catch {
+    return hosts;
+  }
+  return hosts;
+}
+
+const OPTIMIZED_REMOTE_HOSTS = resolveOptimizedRemoteHosts();
 
 type CatalogImageProps = {
   src: string;
@@ -15,6 +29,18 @@ type CatalogImageProps = {
   height?: number;
   decoding?: ImgHTMLAttributes<HTMLImageElement>["decoding"];
 };
+
+function shouldBypassImageOptimization(src: string) {
+  if (src.startsWith("data:")) {
+    return true;
+  }
+
+  if (src.startsWith("/api/catalogue/products/")) {
+    return true;
+  }
+
+  return /\.svg(?:$|[?#])/i.test(src);
+}
 
 function canUseNextImage(src: string) {
   if (src.startsWith("/") || src.startsWith("data:")) {
@@ -42,6 +68,7 @@ export function CatalogImage({
   decoding = "async",
 }: CatalogImageProps) {
   const normalizedSrc = src.trim();
+  const unoptimized = shouldBypassImageOptimization(normalizedSrc);
   if (!normalizedSrc) {
     return null;
   }
@@ -56,7 +83,7 @@ export function CatalogImage({
         priority={priority}
         loading={priority ? undefined : loading}
         fetchPriority={priority ? "high" : undefined}
-        unoptimized={normalizedSrc.startsWith("data:")}
+        unoptimized={unoptimized}
         {...(fill ? { fill: true } : { width, height })}
       />
     );

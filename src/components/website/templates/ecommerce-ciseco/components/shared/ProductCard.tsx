@@ -101,8 +101,8 @@ export function ProductCard({
           disabled={!onToggleWishlist || isWishlistBusy}
           aria-label={
             isWishlisted
-              ? `${t("Remove")} ${productName} ${t("Wishlist")}`
-              : `${t("Wishlist")} ${productName}`
+              ? `${t("Remove from wishlist")} ${productName}`
+              : `${t("Add to wishlist")} ${productName}`
           }
           aria-pressed={isWishlisted}
           aria-busy={isWishlistBusy}
@@ -184,6 +184,7 @@ export function ProductCard({
         <div className="relative z-20 mt-3.5 flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
           <a
             href={productHref}
+            aria-label={`${t("View details")} ${productName}`}
             className="inline-flex min-h-10 w-full items-center justify-center gap-1.5 rounded-full border border-black/10 bg-white/80 px-4 py-2.5 text-[13px] font-semibold text-slate-600 shadow-[0_12px_24px_-24px_rgba(15,23,42,0.42)] transition-[transform,color,box-shadow,border-color,background-color] duration-200 hover:-translate-y-0.5 hover:border-black/15 hover:bg-white hover:text-slate-950 hover:shadow-[0_18px_28px_-24px_rgba(15,23,42,0.42)] lg:min-h-0 lg:w-auto lg:justify-start lg:border-0 lg:bg-transparent lg:px-0 lg:py-0 lg:shadow-none"
           >
             <span>{t("View details")}</span>

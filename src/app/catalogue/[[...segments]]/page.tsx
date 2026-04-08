@@ -14,6 +14,7 @@ import {
   normalizeCatalogSlugInput,
   resolveCatalogMetadata,
   resolveCatalogMetadataTarget,
+  resolveCatalogProductListingImageSource,
   resolveCatalogStructuredData,
 } from "@/server/website";
 
@@ -44,7 +45,10 @@ function stripSlugPrefix(path: string | null, slug: string) {
   return path;
 }
 
-function trimCatalogProductForListing(product: CatalogProduct): CatalogProduct {
+function trimCatalogProductForListing(
+  product: CatalogProduct,
+  payload: CatalogPayload,
+): CatalogProduct {
   return {
     ...product,
     description: null,
@@ -53,9 +57,11 @@ function trimCatalogProductForListing(product: CatalogProduct): CatalogProduct {
     excerpt: null,
     metaTitle: null,
     metaDescription: null,
-    gallery: Array.isArray(product.gallery)
-      ? product.gallery.slice(0, 3)
-      : product.gallery,
+    coverImageUrl: resolveCatalogProductListingImageSource(
+      product,
+      payload.website,
+    ),
+    gallery: null,
     faqItems: null,
     quoteFormSchema: null,
     optionConfig: null,
@@ -74,9 +80,23 @@ function trimPayloadForInitialRoute(
 
   return {
     ...payload,
+    website:
+      payload.website.templateKey === "ecommerce-ciseco-home"
+        ? {
+            ...payload.website,
+            contact: {
+              ...payload.website.contact,
+              logoData: null,
+            },
+          }
+        : payload.website,
     products: {
-      featured: payload.products.featured.map(trimCatalogProductForListing),
-      all: payload.products.all.map(trimCatalogProductForListing),
+      featured: payload.products.featured.map((product) =>
+        trimCatalogProductForListing(product, payload),
+      ),
+      all: payload.products.all.map((product) =>
+        trimCatalogProductForListing(product, payload),
+      ),
     },
   };
 }

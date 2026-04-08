@@ -5,6 +5,7 @@ import type {
   WebsiteBuilderSection,
 } from "@/lib/website/builder";
 import type { HomeProduct, HomeProductStatus, ThemeTokens } from "../../types";
+import { useAccountProfile } from "../../hooks/useAccountProfile";
 import { useCisecoI18n } from "../../i18n";
 import { useWishlist } from "../../hooks/useWishlist";
 import { toCartProduct } from "../../utils";
@@ -49,13 +50,17 @@ export function HomeSections({
   hasBuilder,
 }: HomeSectionsProps) {
   const { t } = useCisecoI18n();
+  const { authStatus } = useAccountProfile({
+    redirectOnUnauthorized: false,
+    loadStrategy: "manual",
+  });
   const { addItem } = useCart();
   const { isWishlisted, toggleWishlist, pendingIds } = useWishlist({
     redirectOnLoad: false,
     redirectOnAction: true,
     slug: catalogSlug,
     loginHref: baseLink("/login"),
-    loadStrategy: "idle",
+    loadStrategy: authStatus === "authenticated" ? "idle" : "manual",
   });
   const handleAddToCart = useCallback(
     (product: HomeProduct) => {

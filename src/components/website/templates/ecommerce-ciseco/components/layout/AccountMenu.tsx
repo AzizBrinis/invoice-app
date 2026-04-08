@@ -57,9 +57,9 @@ export function AccountMenu() {
   const menuRef = useRef<HTMLDivElement>(null);
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
 
-  const { profile, authStatus, clearProfile, loginHref } = useAccountProfile({
+  const { profile, authStatus, clearProfile, loginHref, refreshProfile } = useAccountProfile({
     redirectOnUnauthorized: false,
-    loadStrategy: "idle",
+    loadStrategy: "manual",
   });
 
   const displayName = profile.name?.trim() || DEFAULT_NAME;
@@ -189,7 +189,15 @@ export function AccountMenu() {
   }, [open, isMobile]);
 
   const closeMenu = () => setOpen(false);
-  const toggleMenu = () => setOpen((prev) => !prev);
+  const toggleMenu = () => {
+    setOpen((prev) => {
+      const next = !prev;
+      if (next && authStatus === "authenticated") {
+        refreshProfile();
+      }
+      return next;
+    });
+  };
 
   const menuItemsPrimary: MenuItem[] = isAuthenticated
     ? [
@@ -318,8 +326,8 @@ export function AccountMenu() {
         aria-expanded={open}
         aria-controls="account-menu"
         aria-haspopup="menu"
-        aria-label={t("Account")}
-        className="flex h-10 w-10 items-center justify-center rounded-full border border-black/10 bg-white text-slate-700 transition hover:border-black/20 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-200"
+        aria-label={t("Account menu")}
+        className="flex h-11 w-11 items-center justify-center rounded-full border border-black/10 bg-white text-slate-700 transition hover:border-black/20 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-200"
       >
         <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
           <circle

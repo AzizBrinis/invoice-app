@@ -43,6 +43,7 @@ import { InfoCard } from "./InfoCard";
 import { KidsOfferBanner } from "./KidsOfferBanner";
 import { ReviewCard } from "./ReviewCard";
 import { useWishlist } from "../../hooks/useWishlist";
+import { useAccountProfile } from "../../hooks/useAccountProfile";
 import { useCisecoI18n } from "../../i18n";
 
 type ProductDetailStatus = "loading" | "error" | "not-found" | "ready";
@@ -305,6 +306,10 @@ export function ProductDetailPage({
   mediaLibrary = [],
 }: ProductDetailPageProps) {
   const { t, localizeHref } = useCisecoI18n();
+  const { authStatus } = useAccountProfile({
+    redirectOnUnauthorized: false,
+    loadStrategy: "manual",
+  });
   const translateTemplateSource = useCallback(
     (value: string | null | undefined) => (value ? t(value) : value),
     [t],
@@ -314,7 +319,7 @@ export function ProductDetailPage({
     redirectOnAction: true,
     slug: catalogSlug,
     loginHref: baseLink("/login"),
-    loadStrategy: "idle",
+    loadStrategy: authStatus === "authenticated" ? "idle" : "manual",
   });
   const resolvedStatus: ProductDetailStatus =
     status === "ready" && (!product || !cartProduct) ? "not-found" : status;

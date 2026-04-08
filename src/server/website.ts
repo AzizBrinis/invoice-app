@@ -487,6 +487,13 @@ export type CatalogPayload = {
   viewer?: CatalogViewerState;
 };
 
+type CatalogGalleryEntry = {
+  src: string;
+  alt?: string | null;
+  isPrimary?: boolean;
+  position?: number | null;
+};
+
 export type WebsiteBuilderState = {
   config: WebsiteBuilderConfig;
   history: WebsiteBuilderVersionEntry[];
@@ -551,6 +558,90 @@ const websiteCmsPageAdminSelect =
     createdAt: true,
     updatedAt: true,
   });
+
+function normalizeCatalogGalleryEntries(
+  value: Prisma.JsonValue | null | undefined,
+): CatalogGalleryEntry[] {
+  if (!Array.isArray(value)) return [];
+  const entries: CatalogGalleryEntry[] = [];
+  value.forEach((entry, index) => {
+    if (typeof entry === "string") {
+      const src = entry.trim();
+      if (!src) return;
+      entries.push({ src, position: index });
+      return;
+    }
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      return;
+    }
+    const src =
+      typeof entry.src === "string"
+        ? entry.src.trim()
+        : typeof entry.url === "string"
+          ? entry.url.trim()
+          : "";
+    if (!src) return;
+    entries.push({
+      src,
+      alt: typeof entry.alt === "string" ? entry.alt : null,
+      isPrimary: typeof entry.isPrimary === "boolean" ? entry.isPrimary : undefined,
+      position: typeof entry.position === "number" ? entry.position : index,
+    });
+  });
+  return entries.sort((left, right) => {
+    const leftPos = left.position ?? 0;
+    const rightPos = right.position ?? 0;
+    if (leftPos === rightPos) return 0;
+    return leftPos - rightPos;
+  });
+}
+
+function resolveCatalogListingImageCandidate(
+  product: Pick<CatalogProduct, "coverImageUrl" | "gallery">,
+) {
+  const galleryEntries = normalizeCatalogGalleryEntries(product.gallery);
+  const primaryEntry = galleryEntries.find((entry) => entry.isPrimary);
+  const coverImage = product.coverImageUrl?.trim();
+  return (
+    [primaryEntry?.src, coverImage, galleryEntries[0]?.src].find(
+      (entry): entry is string => Boolean(entry && entry.trim().length > 0),
+    ) ?? null
+  );
+}
+
+export function isInlineCatalogImageSource(value: string | null | undefined) {
+  const trimmed = value?.trim();
+  return Boolean(trimmed && /^data:image\//i.test(trimmed));
+}
+
+export function resolveCatalogProductListingImageDataUrl(
+  product: Pick<CatalogProduct, "coverImageUrl" | "gallery">,
+) {
+  const candidate = resolveCatalogListingImageCandidate(product);
+  return isInlineCatalogImageSource(candidate) ? candidate : null;
+}
+
+export function buildCatalogProductListingImagePath(options: {
+  productId: string;
+  website: Pick<CatalogWebsiteSummary, "slug">;
+}) {
+  return `/api/catalogue/products/${encodeURIComponent(options.productId)}/listing-image/${encodeURIComponent(options.website.slug)}`;
+}
+
+export function resolveCatalogProductListingImageSource(
+  product: Pick<CatalogProduct, "id" | "coverImageUrl" | "gallery">,
+  website: Pick<CatalogWebsiteSummary, "slug">,
+) {
+  const candidate = resolveCatalogListingImageCandidate(product);
+  if (!candidate) return null;
+  if (isInlineCatalogImageSource(candidate)) {
+    return buildCatalogProductListingImagePath({
+      productId: product.id,
+      website,
+    });
+  }
+  return candidate;
+}
 
 const websiteCmsPageLinkSelect =
   Prisma.validator<Prisma.WebsiteCmsPageSelect>()({

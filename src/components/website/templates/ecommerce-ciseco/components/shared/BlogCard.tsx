@@ -1,5 +1,6 @@
 import type { BlogPost } from "../../types";
 import { useCisecoI18n } from "../../i18n";
+import { CatalogImage } from "./CatalogImage";
 
 type BlogCardProps = {
   post: BlogPost;
@@ -21,11 +22,13 @@ export function BlogCard({ post, variant = "large" }: BlogCardProps) {
         className="group flex items-center gap-3 rounded-[24px] border border-black/5 bg-white/95 p-3 shadow-[0_18px_44px_-34px_rgba(15,23,42,0.42)] transition-[transform,box-shadow,border-color] duration-300 hover:-translate-y-0.5 hover:border-black/10 hover:shadow-[0_24px_52px_-32px_rgba(15,23,42,0.42)]"
       >
         <div className="relative h-20 w-20 flex-shrink-0 overflow-hidden rounded-xl bg-slate-100">
-          <img
+          <CatalogImage
             src={post.image}
             alt={title}
             className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.04]"
+            sizes="80px"
             loading="lazy"
+            fill
           />
         </div>
         <div className="space-y-1.5">
@@ -49,11 +52,13 @@ export function BlogCard({ post, variant = "large" }: BlogCardProps) {
       className="group flex h-full flex-col overflow-hidden rounded-[28px] border border-black/5 bg-white/95 shadow-[0_22px_54px_-38px_rgba(15,23,42,0.46)] transition-[transform,box-shadow,border-color] duration-300 hover:-translate-y-1 hover:border-black/10 hover:shadow-[0_28px_60px_-34px_rgba(15,23,42,0.45)]"
     >
       <div className="relative aspect-[4/3] w-full overflow-hidden bg-slate-100">
-        <img
+        <CatalogImage
           src={post.image}
           alt={title}
           className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.03]"
+          sizes="(min-width: 1024px) 31vw, (min-width: 640px) 46vw, 94vw"
           loading="lazy"
+          fill
         />
       </div>
       <div className="flex flex-1 flex-col gap-2.5 p-5 sm:p-6">

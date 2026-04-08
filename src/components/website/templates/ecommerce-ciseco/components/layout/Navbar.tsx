@@ -180,7 +180,7 @@ export function Navbar({ theme, companyName, homeHref = "#" }: NavbarProps) {
         <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-3 lg:flex-none">
           <button
             type="button"
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-black/10 text-slate-700 sm:h-10 sm:w-10 lg:hidden"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-black/10 text-slate-700 lg:hidden"
             aria-label={mobileMenuOpen ? t("Close menu") : t("Open menu")}
             aria-controls="ciseco-mobile-nav"
             aria-expanded={mobileMenuOpen}
@@ -234,7 +234,7 @@ export function Navbar({ theme, companyName, homeHref = "#" }: NavbarProps) {
           <button
             ref={searchTriggerRef}
             type="button"
-            className="hidden h-10 w-10 items-center justify-center rounded-full border border-black/10 text-slate-700 transition hover:border-black/20 hover:text-slate-900 sm:flex"
+            className="hidden h-11 w-11 items-center justify-center rounded-full border border-black/10 text-slate-700 transition hover:border-black/20 hover:text-slate-900 sm:flex"
             aria-label={t("Search")}
             aria-controls="ciseco-search-panel"
             aria-expanded={searchOpen}
@@ -260,7 +260,7 @@ export function Navbar({ theme, companyName, homeHref = "#" }: NavbarProps) {
           <AccountMenu />
           <button
             type="button"
-            className="relative flex h-9 items-center gap-1.5 rounded-full border border-black/10 bg-white px-2.5 text-[11px] font-semibold text-slate-700 transition hover:border-black/20 hover:text-slate-900 sm:h-10 sm:gap-2 sm:px-3 sm:text-xs"
+            className="relative flex min-h-11 items-center gap-1.5 rounded-full border border-black/10 bg-white px-3 text-[11px] font-semibold text-slate-700 transition hover:border-black/20 hover:text-slate-900 sm:gap-2 sm:text-xs"
             aria-label={t("Cart")}
             aria-controls="cart-drawer"
             aria-expanded={cartOpen}

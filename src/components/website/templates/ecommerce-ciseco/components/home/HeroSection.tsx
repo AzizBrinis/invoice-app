@@ -1,3 +1,5 @@
+"use client";
+
 import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import NextImage from "next/image";
