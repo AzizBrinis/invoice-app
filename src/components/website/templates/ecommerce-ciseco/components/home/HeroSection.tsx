@@ -414,10 +414,17 @@ export function HeroSection({
   const [activeIndex, setActiveIndex] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
   const [autoplayReady, setAutoplayReady] = useState(false);
+  const [slidesReady, setSlidesReady] = useState(false);
 
   const safeActiveIndex = activeIndex >= slides.length ? 0 : activeIndex;
   const showControls = slides.length > 1;
   const activeSlide = slides[safeActiveIndex] ?? slides[0];
+  const renderedSlides =
+    slidesReady || slides.length <= 1
+      ? slides
+      : activeSlide
+        ? [activeSlide]
+        : slides;
   const activeContentStyle =
     sliderMode === "content"
       ? CONTENT_BACKGROUND_STYLES[
@@ -461,7 +468,34 @@ export function HeroSection({
   }, [showControls]);
 
   useEffect(() => {
-    if (!autoplayReady || slides.length <= 1 || isPaused) {
+    if (!showControls) {
+      return;
+    }
+
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    if (typeof window.requestIdleCallback === "function") {
+      const requestId = window.requestIdleCallback(
+        () => setSlidesReady(true),
+        { timeout: 1800 },
+      );
+      return () => {
+        window.cancelIdleCallback?.(requestId);
+      };
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setSlidesReady(true);
+    }, 1200);
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [showControls]);
+
+  useEffect(() => {
+    if (!slidesReady || !autoplayReady || slides.length <= 1 || isPaused) {
       return;
     }
     const timer = window.setTimeout(() => {
@@ -471,11 +505,26 @@ export function HeroSection({
       });
     }, autoSlideIntervalMs);
     return () => window.clearTimeout(timer);
-  }, [autoSlideIntervalMs, autoplayReady, isPaused, safeActiveIndex, slides.length]);
+  }, [autoSlideIntervalMs, autoplayReady, isPaused, safeActiveIndex, slides.length, slidesReady]);
 
   if (!slides.length) {
     return null;
   }
+
+  const activateSlide = (index: number) => {
+    setSlidesReady(true);
+    setActiveIndex(index);
+  };
+
+  const showPreviousSlide = () => {
+    setSlidesReady(true);
+    setActiveIndex((current) => (current === 0 ? slides.length - 1 : current - 1));
+  };
+
+  const showNextSlide = () => {
+    setSlidesReady(true);
+    setActiveIndex((current) => (current + 1) % slides.length);
+  };
 
   const frameClass =
     sliderMode === "image"
@@ -517,7 +566,8 @@ export function HeroSection({
         onBlurCapture={() => setIsPaused(false)}
       >
         <div className={clsx("relative w-full", heightClass)}>
-          {slides.map((slide, index) => {
+          {renderedSlides.map((slide) => {
+            const index = slides.findIndex((entry) => entry.id === slide.id);
             const isActive = index === safeActiveIndex;
             const contentStyle = CONTENT_BACKGROUND_STYLES[slide.contentBackground];
             const isDarkSurface = contentStyle.tone === "dark";
@@ -685,7 +735,7 @@ export function HeroSection({
                     key={slide.id}
                     type="button"
                     aria-label={`${t("Go to slide")} ${index + 1}`}
-                    onClick={() => setActiveIndex(index)}
+                    onClick={() => activateSlide(index)}
                     className={clsx(
                       "h-2.5 rounded-full transition-all",
                       index === safeActiveIndex
@@ -717,11 +767,7 @@ export function HeroSection({
                     "inline-flex h-9 w-9 items-center justify-center rounded-full border transition sm:h-10 sm:w-10",
                     controlShellClass,
                   )}
-                  onClick={() =>
-                    setActiveIndex((current) =>
-                      current === 0 ? slides.length - 1 : current - 1,
-                    )
-                  }
+                  onClick={showPreviousSlide}
                 >
                   <ArrowIcon direction="left" />
                 </button>
@@ -732,9 +778,7 @@ export function HeroSection({
                     "inline-flex h-9 w-9 items-center justify-center rounded-full border transition sm:h-10 sm:w-10",
                     controlShellClass,
                   )}
-                  onClick={() =>
-                    setActiveIndex((current) => (current + 1) % slides.length)
-                  }
+                  onClick={showNextSlide}
                 >
                   <ArrowIcon direction="right" />
                 </button>

@@ -51,6 +51,8 @@ export function TestimonialsSection({
       id="testimonials"
       className="py-10 sm:py-12"
       builderSectionId={section?.id}
+      deferRendering
+      containIntrinsicSize="1px 720px"
     >
       <div className="space-y-6">
         <div className="space-y-2 text-center">

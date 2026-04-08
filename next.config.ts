@@ -60,6 +60,12 @@ const CATALOG_CACHE_HEADERS = [
     value: "SAMEORIGIN",
   },
 ];
+const IMMUTABLE_ASSET_HEADERS = [
+  {
+    key: "Cache-Control",
+    value: "public, max-age=31536000, immutable",
+  },
+];
 
 const nextConfig: NextConfig = {
   typedRoutes: true,
@@ -82,6 +88,10 @@ const nextConfig: NextConfig = {
       {
         source: "/catalogue/:path*",
         headers: CATALOG_CACHE_HEADERS,
+      },
+      {
+        source: "/images/placeholders/:path*",
+        headers: IMMUTABLE_ASSET_HEADERS,
       },
     ];
   },

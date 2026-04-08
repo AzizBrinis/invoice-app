@@ -14,8 +14,6 @@ import {
   buildCisecoHrefWithQuery,
   resolveCisecoNavigationHref,
 } from "../../utils";
-import { AccountMenu } from "./AccountMenu";
-import { LocaleCurrencyMenu } from "./LocaleCurrencyMenu";
 import { useCisecoI18n } from "../../i18n";
 import { useCisecoLocation, useCisecoNavigation } from "../../navigation";
 
@@ -25,6 +23,13 @@ const CartDrawer = dynamic(
     ssr: false,
     loading: () => null,
   },
+);
+const AccountMenu = dynamic(
+  () => import("./AccountMenu").then((mod) => mod.AccountMenu),
+);
+const LocaleCurrencyMenu = dynamic(
+  () =>
+    import("./LocaleCurrencyMenu").then((mod) => mod.LocaleCurrencyMenu),
 );
 
 type NavbarProps = {

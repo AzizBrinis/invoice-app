@@ -10,6 +10,41 @@ import { PageShell } from "../components/layout/PageShell";
 import { buildHomeProducts } from "../utils";
 import { PRODUCT_CARDS } from "../data/home";
 
+function resolveVisibleSectionDescriptors(builder?: WebsiteBuilderPageConfig | null) {
+  return (builder?.sections ?? []).filter((section) => section.visible !== false);
+}
+
+function resolveHomeProductLimit(
+  sections: ReturnType<typeof resolveVisibleSectionDescriptors>,
+) {
+  let limit = 0;
+
+  for (const section of sections) {
+    const identifiers = [section.layout, section.type];
+    if (identifiers.includes("favorites")) {
+      return null;
+    }
+    if (identifiers.includes("best-sellers")) {
+      limit = Math.max(limit, 8);
+    }
+    if (identifiers.includes("new-arrivals") || identifiers.includes("products")) {
+      limit = Math.max(limit, 4);
+    }
+  }
+
+  return limit;
+}
+
+function resolveFeaturedProductLimit(
+  sections: ReturnType<typeof resolveVisibleSectionDescriptors>,
+) {
+  return sections.some((section) =>
+    [section.layout, section.type].includes("featured"),
+  )
+    ? 9
+    : 0;
+}
+
 type HomePageProps = {
   theme: ThemeTokens;
   inlineStyles: CSSProperties;
@@ -45,6 +80,32 @@ export function HomePage({
   const featuredSource = useMemo(
     () => (Array.isArray(products?.featured) ? products.featured : []),
     [products],
+  );
+  const visibleSections = useMemo(
+    () => resolveVisibleSectionDescriptors(builder),
+    [builder],
+  );
+  const homeProductLimit = useMemo(
+    () => (builder ? resolveHomeProductLimit(visibleSections) : null),
+    [builder, visibleSections],
+  );
+  const featuredProductLimit = useMemo(
+    () => (builder ? resolveFeaturedProductLimit(visibleSections) : null),
+    [builder, visibleSections],
+  );
+  const homeProductSource = useMemo(
+    () =>
+      homeProductLimit == null
+        ? productSource
+        : productSource.slice(0, homeProductLimit),
+    [homeProductLimit, productSource],
+  );
+  const featuredProductSource = useMemo(
+    () =>
+      featuredProductLimit == null
+        ? featuredSource
+        : featuredSource.slice(0, featuredProductLimit),
+    [featuredProductLimit, featuredSource],
   );
   const status: HomeProductStatus = !products
     ? "loading"
@@ -84,22 +145,22 @@ export function HomePage({
   const homeProducts = useMemo(
     () => {
       const mapped = buildHomeProducts({
-        products: productSource,
+        products: homeProductSource,
         showPrices,
       });
       return normalizeProductCount(mapped.length ? mapped : fallbackProducts, 12);
     },
-    [fallbackProducts, normalizeProductCount, productSource, showPrices],
+    [fallbackProducts, homeProductSource, normalizeProductCount, showPrices],
   );
   const featuredProducts = useMemo(
     () => {
       const mapped = buildHomeProducts({
-        products: featuredSource,
+        products: featuredProductSource,
         showPrices,
       });
       return normalizeProductCount(mapped.length ? mapped : fallbackProducts, 8);
     },
-    [fallbackProducts, featuredSource, normalizeProductCount, showPrices],
+    [fallbackProducts, featuredProductSource, normalizeProductCount, showPrices],
   );
   return (
     <PageShell inlineStyles={inlineStyles}>

@@ -685,6 +685,47 @@ export function buildHomeProducts(options: {
   });
 }
 
+export function buildCartCatalogProducts(options: {
+  products: CatalogPayload["products"]["all"];
+  showPrices: boolean;
+}): CartProduct[] {
+  if (!options.products.length) return [];
+  return options.products.map((product, index) => {
+    const unitPriceHTCents =
+      product.saleMode === "INSTANT" ? product.priceHTCents : null;
+    const vatRate = product.saleMode === "INSTANT" ? product.vatRate : null;
+    const discount = resolveProductDiscount(product);
+    const unitAmountCents = resolveUnitAmountCents({
+      saleMode: product.saleMode,
+      priceTTCCents: product.priceTTCCents ?? null,
+      priceHTCents: unitPriceHTCents,
+      vatRate,
+      discountRate: discount.discountRate,
+      discountAmountCents: discount.discountAmountCents,
+    });
+
+    return {
+      id: product.id,
+      title: product.name,
+      price: formatCisecoPrice({
+        saleMode: product.saleMode,
+        showPrices: options.showPrices,
+        amountCents: unitAmountCents,
+      }),
+      unitAmountCents,
+      unitPriceHTCents,
+      vatRate,
+      discountRate: discount.discountRate,
+      discountAmountCents: discount.discountAmountCents,
+      currencyCode: CISECO_CURRENCY_CODE,
+      image: resolveProductImage(product, index),
+      tag: formatCisecoLabel(product.category, "General"),
+      slug: resolveProductSlug(product),
+      saleMode: product.saleMode,
+    };
+  });
+}
+
 export function toCartProduct(product: HomeProduct): CartProduct {
   return {
     id: product.id,

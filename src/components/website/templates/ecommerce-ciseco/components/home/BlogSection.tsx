@@ -54,6 +54,8 @@ export function BlogSection({
       id="blog"
       className="py-6 sm:py-7 lg:py-8"
       builderSectionId={section?.id}
+      deferRendering
+      containIntrinsicSize="1px 1120px"
     >
       <div className="space-y-4">
         <div className="space-y-2">

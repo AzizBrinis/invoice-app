@@ -35,6 +35,8 @@ export function FeatureRow({ theme, section }: FeatureRowProps) {
       id="features"
       className="py-6"
       builderSectionId={section?.id}
+      deferRendering
+      containIntrinsicSize="1px 360px"
     >
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {items.map((item, index) => (

@@ -98,6 +98,10 @@ export function Footer({
         "border-t border-black/5 bg-white",
         spacing === "compact" ? null : "mt-8",
       )}
+      style={{
+        contentVisibility: "auto",
+        containIntrinsicSize: "1px 720px",
+      }}
     >
       <div
         className={clsx(

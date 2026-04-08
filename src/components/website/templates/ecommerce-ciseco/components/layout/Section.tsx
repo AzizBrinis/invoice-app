@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import type { ThemeTokens } from "../../types";
 
 type SectionProps = {
@@ -7,6 +7,8 @@ type SectionProps = {
   id?: string;
   className?: string;
   builderSectionId?: string;
+  deferRendering?: boolean;
+  containIntrinsicSize?: string;
   children: ReactNode;
 };
 
@@ -15,13 +17,23 @@ export function Section({
   id,
   className,
   builderSectionId,
+  deferRendering = false,
+  containIntrinsicSize,
   children,
 }: SectionProps) {
+  const sectionStyle: CSSProperties | undefined = deferRendering
+    ? {
+        contentVisibility: "auto",
+        containIntrinsicSize: containIntrinsicSize ?? "1px 900px",
+      }
+    : undefined;
+
   return (
     <section
       id={id}
       data-builder-section={builderSectionId}
       className={clsx(theme.sectionSpacing, className)}
+      style={sectionStyle}
     >
       <div
         className={clsx(

@@ -20,10 +20,10 @@ import { CisecoCmsPagesProvider } from "./cms-context";
 import { HomePage } from "./pages/HomePage";
 import { buildCisecoInlineStyles, buildCisecoTheme, type TemplateProps, type TemplateStyleVars } from "./template-shared";
 import {
+  buildCartCatalogProducts,
   buildHomeProducts,
   normalizePath,
   resolvePage,
-  toCartProduct,
 } from "./utils";
 
 const loadAboutPage = () =>
@@ -110,10 +110,10 @@ export function EcommerceCisecoHomeTemplateClient({
   );
   const cartCatalog = useMemo(
     () =>
-      buildHomeProducts({
+      buildCartCatalogProducts({
         products: productSource,
         showPrices: data.website.showPrices,
-      }).map(toCartProduct),
+      }),
     [productSource, data.website.showPrices],
   );
   const cmsPaths = useMemo(

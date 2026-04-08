@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { unstable_cache, revalidateTag } from "next/cache";
 import { cache } from "react";
 import { z, ZodError } from "zod";
@@ -624,8 +625,13 @@ export function resolveCatalogProductListingImageDataUrl(
 export function buildCatalogProductListingImagePath(options: {
   productId: string;
   website: Pick<CatalogWebsiteSummary, "slug">;
+  version?: string | null;
 }) {
-  return `/api/catalogue/products/${encodeURIComponent(options.productId)}/listing-image/${encodeURIComponent(options.website.slug)}`;
+  const pathname = `/api/catalogue/products/${encodeURIComponent(options.productId)}/listing-image/${encodeURIComponent(options.website.slug)}`;
+  if (!options.version) {
+    return pathname;
+  }
+  return `${pathname}?v=${encodeURIComponent(options.version)}`;
 }
 
 export function resolveCatalogProductListingImageSource(
@@ -635,9 +641,11 @@ export function resolveCatalogProductListingImageSource(
   const candidate = resolveCatalogListingImageCandidate(product);
   if (!candidate) return null;
   if (isInlineCatalogImageSource(candidate)) {
+    const version = createHash("sha1").update(candidate).digest("hex").slice(0, 12);
     return buildCatalogProductListingImagePath({
       productId: product.id,
       website,
+      version,
     });
   }
   return candidate;

@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
+import sharp from "sharp";
 import { getAppHostnames } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
 import {
@@ -16,8 +17,11 @@ const APP_HOSTNAMES = new Set(
     .map((entry) => normalizeCatalogDomainInput(entry))
     .filter((entry): entry is string => Boolean(entry)),
 );
-const LISTING_IMAGE_CACHE_CONTROL =
-  "public, max-age=3600, stale-while-revalidate=86400";
+const LISTING_IMAGE_CACHE_CONTROL = "public, max-age=31536000, immutable";
+const LISTING_IMAGE_WIDTHS = [160, 240, 320, 480, 640, 768, 960, 1200];
+const DEFAULT_LISTING_IMAGE_QUALITY = 72;
+const MIN_LISTING_IMAGE_QUALITY = 45;
+const MAX_LISTING_IMAGE_QUALITY = 85;
 
 function resolveDomainAndSlug(
   request: NextRequest,
@@ -62,6 +66,124 @@ function decodeInlineImageDataUrl(source: string) {
   } catch {
     return null;
   }
+}
+
+function resolveRequestedWidth(request: NextRequest) {
+  const widthParam = request.nextUrl.searchParams.get("w");
+  if (!widthParam) {
+    return null;
+  }
+  const parsed = Number.parseInt(widthParam, 10);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+  return LISTING_IMAGE_WIDTHS.includes(parsed) ? parsed : null;
+}
+
+function resolveRequestedQuality(request: NextRequest) {
+  const qualityParam = request.nextUrl.searchParams.get("q");
+  if (!qualityParam) {
+    return DEFAULT_LISTING_IMAGE_QUALITY;
+  }
+  const parsed = Number.parseInt(qualityParam, 10);
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_LISTING_IMAGE_QUALITY;
+  }
+  return Math.max(
+    MIN_LISTING_IMAGE_QUALITY,
+    Math.min(MAX_LISTING_IMAGE_QUALITY, parsed),
+  );
+}
+
+function resolvePreferredRasterFormat(
+  request: NextRequest,
+  contentType: string,
+) {
+  const normalizedContentType = contentType.toLowerCase();
+  if (normalizedContentType.startsWith("image/svg")) {
+    return null;
+  }
+
+  const accept = request.headers.get("accept")?.toLowerCase() ?? "";
+  if (accept.includes("image/avif")) {
+    return "avif" as const;
+  }
+  if (accept.includes("image/webp")) {
+    return "webp" as const;
+  }
+  if (normalizedContentType.startsWith("image/png")) {
+    return "png" as const;
+  }
+  if (normalizedContentType.startsWith("image/jpeg")) {
+    return "jpeg" as const;
+  }
+  return "webp" as const;
+}
+
+async function transformListingImage(options: {
+  body: Buffer;
+  contentType: string;
+  preferredFormat: "avif" | "webp" | "png" | "jpeg" | null;
+  requestedWidth: number | null;
+  quality: number;
+}) {
+  if (
+    !options.requestedWidth &&
+    (!options.preferredFormat ||
+      options.contentType.toLowerCase() === `image/${options.preferredFormat}`)
+  ) {
+    return {
+      body: options.body,
+      contentType: options.contentType,
+    };
+  }
+
+  if (options.contentType.toLowerCase().startsWith("image/svg")) {
+    return {
+      body: options.body,
+      contentType: options.contentType,
+    };
+  }
+
+  const metadata = await sharp(options.body).metadata();
+  const pipeline = sharp(options.body, {
+    limitInputPixels: false,
+  });
+
+  if (
+    options.requestedWidth &&
+    metadata.width &&
+    options.requestedWidth < metadata.width
+  ) {
+    pipeline.resize({
+      width: options.requestedWidth,
+      withoutEnlargement: true,
+    });
+  }
+
+  if (options.preferredFormat === "avif") {
+    return {
+      body: await pipeline.avif({ quality: options.quality }).toBuffer(),
+      contentType: "image/avif",
+    };
+  }
+  if (options.preferredFormat === "png") {
+    return {
+      body: await pipeline.png({ compressionLevel: 9 }).toBuffer(),
+      contentType: "image/png",
+    };
+  }
+  if (options.preferredFormat === "jpeg") {
+    return {
+      body: await pipeline.jpeg({ quality: options.quality }).toBuffer(),
+      contentType: "image/jpeg",
+    };
+  }
+
+  return {
+    body: await pipeline.webp({ quality: options.quality }).toBuffer(),
+    contentType: "image/webp",
+  };
 }
 
 export async function GET(
@@ -113,12 +235,21 @@ export async function GET(
     return new NextResponse("Not found", { status: 404 });
   }
 
-  return new NextResponse(decoded.body, {
+  const transformed = await transformListingImage({
+    body: decoded.body,
+    contentType: decoded.contentType,
+    preferredFormat: resolvePreferredRasterFormat(request, decoded.contentType),
+    requestedWidth: resolveRequestedWidth(request),
+    quality: resolveRequestedQuality(request),
+  });
+
+  return new NextResponse(new Uint8Array(transformed.body), {
     headers: {
       "Cache-Control": LISTING_IMAGE_CACHE_CONTROL,
       "Content-Disposition": "inline",
-      "Content-Length": String(decoded.body.byteLength),
-      "Content-Type": decoded.contentType,
+      "Content-Length": String(transformed.body.byteLength),
+      "Content-Type": transformed.contentType,
+      Vary: "Accept",
     },
   });
 }
