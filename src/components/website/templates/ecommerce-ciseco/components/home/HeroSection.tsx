@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
-import NextImage from "next/image";
 import { Button } from "@/components/ui/button";
 import {
   clampHomeHeroSliderInterval,
@@ -20,6 +19,7 @@ import { HOME_HERO_SLIDES } from "../../data/home";
 import { resolveCisecoNavigationHref } from "../../utils";
 import { useCisecoI18n } from "../../i18n";
 import { Section } from "../layout/Section";
+import { CatalogImage } from "../shared/CatalogImage";
 
 type HeroSectionProps = {
   theme: ThemeTokens;
@@ -534,14 +534,13 @@ export function HeroSection({
                 {sliderMode === "image" ? (
                   <div className={clsx("relative flex items-end", heightClass)}>
                     {slide.imageSrc ? (
-                      <NextImage
+                      <CatalogImage
                         src={slide.imageSrc}
                         alt={t(slide.imageAlt)}
+                        className="object-cover object-center"
                         fill
                         sizes="(min-width: 1280px) 1240px, 100vw"
-                        className="object-cover object-center"
                         priority={index === 0}
-                        unoptimized={slide.imageSrc.startsWith("data:")}
                       />
                     ) : (
                       <div className="absolute inset-0 bg-[linear-gradient(135deg,#111827_0%,#0f172a_45%,#1e293b_100%)]" />

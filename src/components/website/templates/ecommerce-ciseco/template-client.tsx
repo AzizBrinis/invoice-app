@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useMemo } from "react";
 import { CartProvider } from "@/components/website/cart/cart-context";
 import type { CatalogPayload } from "@/server/website";
@@ -16,26 +17,7 @@ import {
 } from "./navigation";
 import { AccountProfileProvider } from "./hooks/useAccountProfile";
 import { CisecoCmsPagesProvider } from "./cms-context";
-import { AboutPage } from "./pages/AboutPage";
-import { AccountPage } from "./pages/AccountPage";
-import { BlogDetailPage } from "./pages/BlogDetailPage";
-import { BlogPage } from "./pages/BlogPage";
-import { CartPage } from "./pages/CartPage";
-import { ChangePasswordPage } from "./pages/ChangePasswordPage";
-import { CheckoutPage } from "./pages/CheckoutPage";
-import { CollectionsPage } from "./pages/CollectionsPage";
-import { ContactPage } from "./pages/ContactPage";
-import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
 import { HomePage } from "./pages/HomePage";
-import { LoginPage } from "./pages/LoginPage";
-import { OrderDetailPage } from "./pages/OrderDetailPage";
-import { OrderSuccessPage } from "./pages/OrderSuccessPage";
-import { OrdersHistoryPage } from "./pages/OrdersHistoryPage";
-import { ProductPage } from "./pages/ProductPage";
-import { SearchPage } from "./pages/SearchPage";
-import { SignupPage } from "./pages/SignupPage";
-import { WishlistsPage } from "./pages/WishlistsPage";
-import { CmsPage } from "./pages/CmsPage";
 import { buildCisecoInlineStyles, buildCisecoTheme, type TemplateProps, type TemplateStyleVars } from "./template-shared";
 import {
   buildHomeProducts,
@@ -43,6 +25,65 @@ import {
   resolvePage,
   toCartProduct,
 } from "./utils";
+
+const loadAboutPage = () =>
+  import("./pages/AboutPage").then((mod) => mod.AboutPage);
+const loadAccountPage = () =>
+  import("./pages/AccountPage").then((mod) => mod.AccountPage);
+const loadBlogDetailPage = () =>
+  import("./pages/BlogDetailPage").then((mod) => mod.BlogDetailPage);
+const loadBlogPage = () =>
+  import("./pages/BlogPage").then((mod) => mod.BlogPage);
+const loadCartPage = () =>
+  import("./pages/CartPage").then((mod) => mod.CartPage);
+const loadChangePasswordPage = () =>
+  import("./pages/ChangePasswordPage").then((mod) => mod.ChangePasswordPage);
+const loadCheckoutPage = () =>
+  import("./pages/CheckoutPage").then((mod) => mod.CheckoutPage);
+const loadCmsPage = () =>
+  import("./pages/CmsPage").then((mod) => mod.CmsPage);
+const loadCollectionsPage = () =>
+  import("./pages/CollectionsPage").then((mod) => mod.CollectionsPage);
+const loadContactPage = () =>
+  import("./pages/ContactPage").then((mod) => mod.ContactPage);
+const loadForgotPasswordPage = () =>
+  import("./pages/ForgotPasswordPage").then((mod) => mod.ForgotPasswordPage);
+const loadLoginPage = () =>
+  import("./pages/LoginPage").then((mod) => mod.LoginPage);
+const loadOrderDetailPage = () =>
+  import("./pages/OrderDetailPage").then((mod) => mod.OrderDetailPage);
+const loadOrderSuccessPage = () =>
+  import("./pages/OrderSuccessPage").then((mod) => mod.OrderSuccessPage);
+const loadOrdersHistoryPage = () =>
+  import("./pages/OrdersHistoryPage").then((mod) => mod.OrdersHistoryPage);
+const loadProductPage = () =>
+  import("./pages/ProductPage").then((mod) => mod.ProductPage);
+const loadSearchPage = () =>
+  import("./pages/SearchPage").then((mod) => mod.SearchPage);
+const loadSignupPage = () =>
+  import("./pages/SignupPage").then((mod) => mod.SignupPage);
+const loadWishlistsPage = () =>
+  import("./pages/WishlistsPage").then((mod) => mod.WishlistsPage);
+
+const AboutPage = dynamic(loadAboutPage);
+const AccountPage = dynamic(loadAccountPage);
+const BlogDetailPage = dynamic(loadBlogDetailPage);
+const BlogPage = dynamic(loadBlogPage);
+const CartPage = dynamic(loadCartPage);
+const ChangePasswordPage = dynamic(loadChangePasswordPage);
+const CheckoutPage = dynamic(loadCheckoutPage);
+const CmsPage = dynamic(loadCmsPage);
+const CollectionsPage = dynamic(loadCollectionsPage);
+const ContactPage = dynamic(loadContactPage);
+const ForgotPasswordPage = dynamic(loadForgotPasswordPage);
+const LoginPage = dynamic(loadLoginPage);
+const OrderDetailPage = dynamic(loadOrderDetailPage);
+const OrderSuccessPage = dynamic(loadOrderSuccessPage);
+const OrdersHistoryPage = dynamic(loadOrdersHistoryPage);
+const ProductPage = dynamic(loadProductPage);
+const SearchPage = dynamic(loadSearchPage);
+const SignupPage = dynamic(loadSignupPage);
+const WishlistsPage = dynamic(loadWishlistsPage);
 
 export function EcommerceCisecoHomeTemplateClient({
   data,
@@ -85,8 +126,75 @@ export function EcommerceCisecoHomeTemplateClient({
     [cartCatalog],
   );
   const serverRoutedPaths = useMemo(
-    () => Array.from(new Set(["/", ...cmsPaths, ...productPaths])),
+    () => Array.from(new Set([...cmsPaths, ...productPaths])),
     [cmsPaths, productPaths],
+  );
+  const prefetchLocalPage = useMemo(
+    () => (logicalPath: string) => {
+      const resolvedPage = resolvePage(logicalPath, { cmsPaths });
+      switch (resolvedPage.page) {
+        case "product":
+          void loadProductPage();
+          return;
+        case "cart":
+          void loadCartPage();
+          return;
+        case "checkout":
+          void loadCheckoutPage();
+          return;
+        case "order-success":
+          void loadOrderSuccessPage();
+          return;
+        case "login":
+          void loadLoginPage();
+          return;
+        case "signup":
+          void loadSignupPage();
+          return;
+        case "forgot-password":
+          void loadForgotPasswordPage();
+          return;
+        case "account":
+          void loadAccountPage();
+          return;
+        case "account-change-password":
+          void loadChangePasswordPage();
+          return;
+        case "account-wishlists":
+          void loadWishlistsPage();
+          return;
+        case "account-orders-history":
+          void loadOrdersHistoryPage();
+          return;
+        case "account-order-detail":
+          void loadOrderDetailPage();
+          return;
+        case "collections":
+          void loadCollectionsPage();
+          return;
+        case "blog":
+          void loadBlogPage();
+          return;
+        case "blog-detail":
+          void loadBlogDetailPage();
+          return;
+        case "search":
+          void loadSearchPage();
+          return;
+        case "about":
+          void loadAboutPage();
+          return;
+        case "contact":
+          void loadContactPage();
+          return;
+        case "cms":
+          void loadCmsPage();
+          return;
+        default:
+          return;
+      }
+    },
+    [cmsPaths],
   );
 
   return (
@@ -96,6 +204,7 @@ export function EcommerceCisecoHomeTemplateClient({
       initialHref={initialHref}
       initialPath={path}
       serverRoutedPaths={serverRoutedPaths}
+      onPrefetchRoute={prefetchLocalPage}
     >
       <CisecoLocaleProvider initialLocale={locale}>
         <CisecoCmsPagesProvider links={data.website.cmsPages}>
