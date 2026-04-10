@@ -12,10 +12,11 @@ Le script `scripts/run-vercel-build.cjs` saute automatiquement l’étape _migra
 
 | Variable | Description |
 | --- | --- |
-| `DATABASE_URL` | Chaîne PostgreSQL via pooler/pgbouncer (ex. `aws-1-...pooler.supabase.com:6543` avec `?sslmode=require&pgbouncer=true`). Utilisée par l’application en production. |
-| `DIRECT_URL` | Connexion directe (ex. `db.<ref>.supabase.co:5432`). Utilisée par Prisma pour les opérations nécessitant une session complète (migrations, `db push`, etc.). |
+| `DATABASE_URL` | Chaîne PostgreSQL principale. Si elle pointe vers le transaction pooler Supabase (`aws-1-...pooler.supabase.com:6543` avec `?pgbouncer=true`), le runtime Prisma rebascule automatiquement vers `DIRECT_URL` tant que `PRISMA_ACCELERATE_URL` n’est pas défini. |
+| `DIRECT_URL` | Connexion session pooler/directe utilisée par Prisma pour les migrations, les scripts et comme fallback runtime stable (ex. `aws-1-...pooler.supabase.com:5432`). |
 | `SHADOW_DATABASE_URL` | Base de shadow utilisée par `prisma migrate dev`. Vous pouvez la garder identique à `DIRECT_URL` avec `schema=shadow`. |
 | `PRISMA_ACCELERATE_URL` | URL Data Proxy/Accelerate (format `prisma://accelerate.prisma-data.net/?api_key=...`). Active la mise en cache/connection pooling côté Prisma pour Vercel. |
+| `PRISMA_RUNTIME_URL_MODE` | (Optionnel) `auto` (défaut), `database` ou `direct` pour forcer le choix de l’URL Prisma à l’exécution. |
 | `SESSION_COOKIE_SECRET`, `EMAIL_TRACKING_SECRET` | Longs secrets aléatoires. |
 | `SESSION_COOKIE_NAME`, `SESSION_DURATION_HOURS` | Valeurs conformes à votre politique de session. |
 | `SMTP_*` | Paramètres SMTP (production ≠ développement). |
@@ -45,10 +46,11 @@ Pour `VERCEL_TOKEN`, créez un token personnel depuis **Account Settings → Tok
 
 L’endpoint `db.<ref>.supabase.co` est uniquement IPv6. Les plateformes IPv4-only (Vercel, GitHub Actions, Render, Retool, etc.) ne peuvent donc pas l’atteindre tant que vous n’avez pas souscrit à l’option IPv4 de Supabase. Pour que les builds Vercel s’exécutent quand même :
 
-1. Réglez `DATABASE_URL` sur le **transaction pooler** Supabase (`aws-1-...pooler.supabase.com:6543` avec `pgbouncer=true`).  
-2. Réglez `DIRECT_URL` et `SHADOW_DATABASE_URL` sur le **session pooler** (`aws-1-...pooler.supabase.com:5432` sans `pgbouncer=true`). Ce host est IPv4 et compatible avec `prisma migrate deploy`.  
-3. Gardez ces valeurs identiques sur Vercel, GitHub Actions et en local, ou surchargez-les via `.env.local` si nécessaire.  
-4. Si vous préférez utiliser l’endpoint “direct” natif, déclenchez `npm run prisma:deploy` depuis une machine/CI connectée en IPv6 (VPN, VPS, Supabase SQL Editor…) avant de lancer un déploiement Vercel.
+1. Réglez `DIRECT_URL` et `SHADOW_DATABASE_URL` sur le **session pooler** (`aws-1-...pooler.supabase.com:5432` sans `pgbouncer=true`). Ce host est IPv4 et compatible avec `prisma migrate deploy`.  
+2. Réglez `DATABASE_URL` soit sur ce même session pooler, soit sur le **transaction pooler** Supabase (`aws-1-...pooler.supabase.com:6543` avec `pgbouncer=true`) si vous voulez garder la configuration historique. Sans `PRISMA_ACCELERATE_URL`, l’application utilisera automatiquement `DIRECT_URL` au runtime lorsque `DATABASE_URL` cible `:6543`.  
+3. Ajoutez `PRISMA_ACCELERATE_URL` sur Vercel si vous voulez du connection pooling côté Prisma pour les fonctions serverless.  
+4. Gardez ces valeurs identiques sur Vercel, GitHub Actions et en local, ou surchargez-les via `.env.local` si nécessaire.  
+5. Si vous préférez utiliser l’endpoint “direct” natif, déclenchez `npm run prisma:deploy` depuis une machine/CI connectée en IPv6 (VPN, VPS, Supabase SQL Editor…) avant de lancer un déploiement Vercel.
 
 ### Contrôle fin des migrations pendant le build
 

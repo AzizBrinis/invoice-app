@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { CatalogPage } from "@/components/website/catalog-page";
+import { slugify } from "@/lib/slug";
 import {
   resolveCisecoLocale,
 } from "@/components/website/templates/ecommerce-ciseco/locale";
 import {
+  externalizeCatalogProductInlineImages,
   getCatalogPayloadByDomain,
   getCatalogPayloadBySlug,
   type CatalogPayload,
@@ -12,9 +14,9 @@ import {
   normalizeCatalogDomainInput,
   normalizeCatalogPathInput,
   normalizeCatalogSlugInput,
-  resolveCatalogMetadata,
   resolveCatalogMetadataTarget,
   resolveCatalogProductListingImageSource,
+  resolveCatalogSeo,
   resolveCatalogStructuredData,
 } from "@/server/website";
 
@@ -24,9 +26,23 @@ type CataloguePageProps = {
   params: Promise<CataloguePageParams>;
   searchParams?: Promise<CataloguePageSearchParams>;
 };
+type ResolvedCataloguePayload = {
+  payload: CatalogPayload | null;
+  path: string | null;
+};
+type ResolvedCataloguePayloadCacheEntry = {
+  expiresAt: number;
+  promise: Promise<ResolvedCataloguePayload>;
+};
 
 export const revalidate = 30;
 export const dynamicParams = true;
+
+const RESOLVED_PAYLOAD_CACHE_TTL_MS = 2_000;
+const resolvedPayloadCache = new Map<
+  string,
+  ResolvedCataloguePayloadCacheEntry
+>();
 
 function serializeStructuredData(value: Record<string, unknown>) {
   return JSON.stringify(value).replace(/</g, "\\u003c");
@@ -47,7 +63,7 @@ function stripSlugPrefix(path: string | null, slug: string) {
 
 function trimCatalogProductForListing(
   product: CatalogProduct,
-  payload: CatalogPayload,
+  website: CatalogPayload["website"],
 ): CatalogProduct {
   return {
     ...product,
@@ -59,7 +75,7 @@ function trimCatalogProductForListing(
     metaDescription: null,
     coverImageUrl: resolveCatalogProductListingImageSource(
       product,
-      payload.website,
+      website,
     ),
     gallery: null,
     faqItems: null,
@@ -69,39 +85,81 @@ function trimCatalogProductForListing(
   };
 }
 
+function trimWebsiteForInitialRoute(
+  payload: CatalogPayload,
+): CatalogPayload["website"] {
+  if (payload.website.templateKey !== "ecommerce-ciseco-home") {
+    return payload.website;
+  }
+  return {
+    ...payload.website,
+    contact: {
+      ...payload.website.contact,
+      logoData: null,
+    },
+  };
+}
+
+function resolveCatalogProductRouteSlug(
+  product: Pick<CatalogProduct, "id" | "name" | "publicSlug" | "sku">,
+) {
+  if (product.publicSlug && product.publicSlug.trim().length > 0) {
+    return product.publicSlug;
+  }
+  const base = product.sku || product.name || product.id;
+  return slugify(base) || product.id.slice(0, 8);
+}
+
 function trimPayloadForInitialRoute(
   payload: CatalogPayload,
   path?: string | null,
 ): CatalogPayload {
   const target = resolveCatalogMetadataTarget(path);
+  const website = trimWebsiteForInitialRoute(payload);
   if (target.kind === "product") {
-    return payload;
+    return {
+      ...payload,
+      website,
+      products: {
+        featured: payload.products.featured.map((product) =>
+          trimCatalogProductForListing(product, website),
+        ),
+        all: payload.products.all.map((product) =>
+          resolveCatalogProductRouteSlug(product) === target.slug
+            ? externalizeCatalogProductInlineImages(product, website)
+            : trimCatalogProductForListing(product, website),
+        ),
+      },
+    };
   }
 
   return {
     ...payload,
-    website:
-      payload.website.templateKey === "ecommerce-ciseco-home"
-        ? {
-            ...payload.website,
-            contact: {
-              ...payload.website.contact,
-              logoData: null,
-            },
-          }
-        : payload.website,
+    website,
     products: {
       featured: payload.products.featured.map((product) =>
-        trimCatalogProductForListing(product, payload),
+        trimCatalogProductForListing(product, website),
       ),
       all: payload.products.all.map((product) =>
-        trimCatalogProductForListing(product, payload),
+        trimCatalogProductForListing(product, website),
       ),
     },
   };
 }
 
 async function resolvePayload(
+  rawParams: Promise<CataloguePageParams>,
+  rawSearchParams?: Promise<CataloguePageSearchParams>,
+) {
+  const inputs = await resolvePayloadInputs(rawParams, rawSearchParams);
+  return readResolvedPayloadFromCache(
+    inputs.domain,
+    inputs.slug,
+    inputs.path,
+  );
+}
+
+async function resolvePayloadInputs(
   rawParams: Promise<CataloguePageParams>,
   rawSearchParams?: Promise<CataloguePageSearchParams>,
 ) {
@@ -131,6 +189,68 @@ async function resolvePayload(
     normalizeCatalogPathInput(derivedPath) ??
     null;
 
+  return {
+    domain,
+    slug,
+    path: resolvedPath,
+  };
+}
+
+function buildResolvedPayloadCacheKey(
+  domain: string | null,
+  slug: string | null,
+  resolvedPath: string | null,
+) {
+  return `${domain ?? ""}::${slug ?? ""}::${resolvedPath ?? ""}`;
+}
+
+function pruneResolvedPayloadCache(now: number) {
+  for (const [key, entry] of resolvedPayloadCache.entries()) {
+    if (entry.expiresAt <= now) {
+      resolvedPayloadCache.delete(key);
+    }
+  }
+}
+
+function readResolvedPayloadFromCache(
+  domain: string | null,
+  slug: string | null,
+  resolvedPath: string | null,
+) {
+  const now = Date.now();
+  pruneResolvedPayloadCache(now);
+
+  const cacheKey = buildResolvedPayloadCacheKey(
+    domain,
+    slug,
+    resolvedPath,
+  );
+  const cached = resolvedPayloadCache.get(cacheKey);
+  if (cached && cached.expiresAt > now) {
+    return cached.promise;
+  }
+
+  const promise = loadResolvedPayload(domain, slug, resolvedPath);
+  resolvedPayloadCache.set(cacheKey, {
+    expiresAt: now + RESOLVED_PAYLOAD_CACHE_TTL_MS,
+    promise,
+  });
+
+  promise.catch(() => {
+    const current = resolvedPayloadCache.get(cacheKey);
+    if (current?.promise === promise) {
+      resolvedPayloadCache.delete(cacheKey);
+    }
+  });
+
+  return promise;
+}
+
+async function loadResolvedPayload(
+  domain: string | null,
+  slug: string | null,
+  resolvedPath: string | null,
+): Promise<ResolvedCataloguePayload> {
   if (domain) {
     const payload = await getCatalogPayloadByDomain(domain, resolvedPath);
     if (!payload) {
@@ -146,6 +266,7 @@ async function resolvePayload(
   if (!slug) {
     return { payload: null, path: resolvedPath };
   }
+
   const payload = await getCatalogPayloadBySlug(slug, { path: resolvedPath });
   return { payload, path: resolvedPath };
 }
@@ -154,41 +275,54 @@ export async function generateMetadata({
   params,
   searchParams,
 }: CataloguePageProps): Promise<Metadata> {
+  const resolvedSearchParams = (await searchParams) ?? {};
+  const langParamRaw = resolvedSearchParams.lang;
+  const langParam = Array.isArray(langParamRaw) ? langParamRaw[0] : langParamRaw;
   const resolved = await resolvePayload(params, searchParams);
   if (!resolved.payload) {
     return {};
   }
-  const meta = resolveCatalogMetadata({
-    payload: resolved.payload,
+  const payload = trimPayloadForInitialRoute(resolved.payload, resolved.path);
+  const seo = resolveCatalogSeo({
+    payload,
     path: resolved.path,
+    locale: resolveCisecoLocale(langParam),
+    searchParams: resolvedSearchParams,
   });
-  const metaTarget = resolveCatalogMetadataTarget(resolved.path);
-  const shouldNoIndex =
-    metaTarget.kind === "cart" ||
-    metaTarget.kind === "checkout" ||
-    metaTarget.kind === "confirmation";
+  const meta = seo.metadata;
   return {
     title: meta.title,
     description: meta.description,
     keywords: meta.keywords ?? undefined,
     alternates: {
       canonical: meta.canonicalUrl,
+      languages: seo.alternatesLanguages ?? undefined,
     },
-    robots: shouldNoIndex ? { index: false, follow: false } : undefined,
+    robots: seo.robots ?? undefined,
     openGraph: {
       title: meta.title,
       description: meta.description,
       url: meta.canonicalUrl,
-      siteName: resolved.payload.website.contact.companyName,
-      type: "website",
+      siteName: payload.website.contact.companyName,
+      type: seo.openGraphType,
+      locale: seo.openGraphLocale ?? undefined,
+      alternateLocale:
+        seo.openGraphAlternateLocales.length > 0
+          ? seo.openGraphAlternateLocales
+          : undefined,
       images: meta.socialImageUrl ? [meta.socialImageUrl] : undefined,
     },
     twitter: {
-      card: "summary_large_image",
+      card: meta.socialImageUrl ? "summary_large_image" : "summary",
       title: meta.title,
       description: meta.description,
       images: meta.socialImageUrl ? [meta.socialImageUrl] : undefined,
     },
+    other: seo.contentLanguage
+      ? {
+          "content-language": seo.contentLanguage,
+        }
+      : undefined,
   };
 }
 
@@ -203,10 +337,13 @@ export default async function CatalogueCatchAllPage({
   const resolvedSearchParams = (await searchParams) ?? {};
   const langParamRaw = resolvedSearchParams.lang;
   const langParam = Array.isArray(langParamRaw) ? langParamRaw[0] : langParamRaw;
+  const locale = resolveCisecoLocale(langParam);
   const payload = trimPayloadForInitialRoute(resolved.payload, resolved.path);
   const structuredData = resolveCatalogStructuredData({
     payload,
     path: resolved.path,
+    locale,
+    searchParams: resolvedSearchParams,
   });
   return (
     <>
@@ -223,7 +360,7 @@ export default async function CatalogueCatchAllPage({
         data={payload}
         mode="public"
         path={resolved.path}
-        initialLocale={resolveCisecoLocale(langParam)}
+        initialLocale={locale}
       />
     </>
   );

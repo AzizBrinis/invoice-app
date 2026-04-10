@@ -20,6 +20,42 @@ function isAppHost(host: string | null, normalizedHost: string | null) {
   return false;
 }
 
+const APP_HOST_DISALLOWS = [
+  "/api/",
+  "/preview",
+  "/connexion",
+  "/inscription",
+  "/tableau-de-bord",
+  "/assistant",
+  "/clients",
+  "/services",
+  "/factures",
+  "/devis",
+  "/paiements",
+  "/parametres",
+  "/site-web",
+  "/produits",
+  "/collaborateurs",
+  "/messagerie",
+] as const;
+
+const CATALOGUE_HOST_DISALLOWS = [
+  "/api/",
+  "/preview",
+  "/login",
+  "/signup",
+  "/forgot-password",
+  "/account",
+  "/cart",
+  "/checkout",
+  "/order-success",
+  "/search",
+  "/panier",
+  "/paiement",
+  "/confirmation",
+  "/recherche",
+] as const;
+
 export default async function robots(): Promise<MetadataRoute.Robots> {
   const requestHeaders = await headers();
   const host = requestHeaders.get("host")?.toLowerCase() ?? null;
@@ -35,12 +71,23 @@ export default async function robots(): Promise<MetadataRoute.Robots> {
     }
   }
 
+  const resolvedHost = (() => {
+    try {
+      return new URL(baseUrl).host;
+    } catch {
+      return undefined;
+    }
+  })();
+
   return {
     rules: {
       userAgent: "*",
-      allow: "/",
+      allow: appHost ? ["/catalogue", "/catalogue/"] : "/",
+      disallow: appHost
+        ? [...APP_HOST_DISALLOWS]
+        : [...CATALOGUE_HOST_DISALLOWS],
     },
     sitemap: `${baseUrl}/sitemap.xml`,
-    host: baseUrl,
+    host: resolvedHost,
   };
 }

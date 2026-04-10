@@ -15,6 +15,14 @@ const OPTIMIZED_REMOTE_SOURCES: Array<{
     protocol: "https" as const,
     hostname: "images.unsplash.com",
   },
+  {
+    protocol: "https" as const,
+    hostname: "m.media-amazon.com",
+  },
+  {
+    protocol: "https" as const,
+    hostname: "images-na.ssl-images-amazon.com",
+  },
 ];
 const configuredStorageUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
 if (configuredStorageUrl) {
@@ -69,6 +77,7 @@ const IMMUTABLE_ASSET_HEADERS = [
 
 const nextConfig: NextConfig = {
   typedRoutes: true,
+  serverExternalPackages: ["imapflow"],
   images: {
     formats: ["image/avif", "image/webp"],
     minimumCacheTTL: 60 * 60 * 24 * 7,

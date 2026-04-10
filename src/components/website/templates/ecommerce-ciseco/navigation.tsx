@@ -154,6 +154,27 @@ export function resolveCisecoNavigationState({
   };
 }
 
+export function resolveAuthoritativeCisecoNavigationState(options: {
+  localState: CisecoNavigationState;
+  incomingState: CisecoNavigationState;
+  browserHref?: string | null;
+}) {
+  const browserHref = options.browserHref?.trim();
+  if (!browserHref) {
+    return options.localState;
+  }
+
+  if (options.localState.href === browserHref) {
+    return options.localState;
+  }
+
+  if (options.incomingState.href === browserHref) {
+    return options.incomingState;
+  }
+
+  return options.localState;
+}
+
 export function shouldUseServerNavigationForOwnedPath(
   logicalPath: string,
   serverRoutedPaths?: readonly string[],
@@ -233,6 +254,23 @@ function scrollToHash(hash: string) {
   window.scrollTo({ top: 0, left: 0, behavior: "auto" });
 }
 
+function performDocumentNavigation(
+  href: string,
+  options: Pick<CisecoNavigationOptions, "replace"> = {},
+) {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  if (options.replace) {
+    window.location.replace(href);
+  } else {
+    window.location.assign(href);
+  }
+
+  return true;
+}
+
 export function CisecoNavigationProvider({
   mode,
   slug,
@@ -249,11 +287,34 @@ export function CisecoNavigationProvider({
   const [isNavigating, setIsNavigating] = useState(false);
   const [state, setState] = useState(() =>
     resolveCisecoNavigationState({
-      href: initialHref,
+      href:
+        typeof window !== "undefined" ? window.location.href : initialHref,
       mode,
       slug,
       fallbackLogicalPath,
     }),
+  );
+  const incomingState = useMemo(
+    () =>
+      resolveCisecoNavigationState({
+        href: initialHref,
+        mode,
+        slug,
+        fallbackLogicalPath,
+      }),
+    [fallbackLogicalPath, initialHref, mode, slug],
+  );
+  const activeState = useMemo(
+    () =>
+      resolveAuthoritativeCisecoNavigationState({
+        localState: state,
+        incomingState,
+        browserHref:
+          typeof window === "undefined"
+            ? incomingState.href
+            : `${window.location.pathname}${window.location.search}${window.location.hash}`,
+      }),
+    [incomingState, state],
   );
 
   const clearNavigationState = useCallback(() => {
@@ -315,7 +376,7 @@ export function CisecoNavigationProvider({
         return;
       }
 
-      const currentUrl = getCurrentBrowserUrl(state.href);
+      const currentUrl = getCurrentBrowserUrl(activeState.href);
       const nextUrl = new URL(candidate, currentUrl);
 
       if (nextUrl.origin !== currentUrl.origin) {
@@ -326,7 +387,7 @@ export function CisecoNavigationProvider({
         href: nextUrl.toString(),
         mode,
         slug,
-        fallbackLogicalPath: state.logicalPath,
+        fallbackLogicalPath: activeState.logicalPath,
       });
       const prefetchKey = nextState.href;
       if (prefetchedHrefsRef.current.has(prefetchKey)) {
@@ -364,8 +425,8 @@ export function CisecoNavigationProvider({
       onPrefetchRoute,
       router,
       slug,
-      state.href,
-      state.logicalPath,
+      activeState.href,
+      activeState.logicalPath,
     ],
   );
 
@@ -376,7 +437,7 @@ export function CisecoNavigationProvider({
         return false;
       }
 
-      const currentUrl = getCurrentBrowserUrl(state.href);
+      const currentUrl = getCurrentBrowserUrl(activeState.href);
       const nextUrl = new URL(candidate, currentUrl);
 
       if (nextUrl.origin !== currentUrl.origin) {
@@ -391,7 +452,7 @@ export function CisecoNavigationProvider({
         href: nextUrl.toString(),
         mode,
         slug,
-        fallbackLogicalPath: state.logicalPath,
+        fallbackLogicalPath: activeState.logicalPath,
       });
 
       if (nextState.isOwned) {
@@ -434,22 +495,7 @@ export function CisecoNavigationProvider({
           )
         ) {
           setIsNavigating(true);
-          const relativeHref = `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`;
-          try {
-            if (options.replace) {
-              router.replace(relativeHref as Route, {
-                scroll: options.scroll,
-              });
-            } else {
-              router.push(relativeHref as Route, {
-                scroll: options.scroll,
-              });
-            }
-          } catch {
-            window.location.assign(nextUrl.toString());
-          }
-          clearNavigationState();
-          return true;
+          return performDocumentNavigation(nextUrl.toString(), options);
         }
 
         setIsNavigating(true);
@@ -495,8 +541,8 @@ export function CisecoNavigationProvider({
       onPrefetchRoute,
       router,
       slug,
-      state.href,
-      state.logicalPath,
+      activeState.href,
+      activeState.logicalPath,
     ],
   );
 
@@ -508,12 +554,12 @@ export function CisecoNavigationProvider({
 
   const value = useMemo<CisecoNavigationContextValue>(
     () => ({
-      pathname: state.pathname,
-      search: state.search,
-      hash: state.hash,
-      href: state.href,
-      logicalPath: state.logicalPath,
-      searchParams: state.searchParams,
+      pathname: activeState.pathname,
+      search: activeState.search,
+      hash: activeState.hash,
+      href: activeState.href,
+      logicalPath: activeState.logicalPath,
+      searchParams: activeState.searchParams,
       isNavigating,
       navigate,
       replace,
@@ -524,12 +570,12 @@ export function CisecoNavigationProvider({
       navigate,
       prefetch,
       replace,
-      state.hash,
-      state.href,
-      state.logicalPath,
-      state.pathname,
-      state.search,
-      state.searchParams,
+      activeState.hash,
+      activeState.href,
+      activeState.logicalPath,
+      activeState.pathname,
+      activeState.search,
+      activeState.searchParams,
     ],
   );
 

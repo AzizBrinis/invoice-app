@@ -15,9 +15,15 @@ import type { CatalogPayload } from "@/server/website";
 import {
   getCatalogPayloadByDomain,
   getCatalogPayloadBySlug,
-  resolveCatalogMetadata,
+  resolveCatalogSeo,
 } from "@/server/website";
-import { generateMetadata } from "@/app/catalogue/[[...segments]]/page";
+import CatalogueCatchAllPage, {
+  generateMetadata,
+} from "@/app/catalogue/[[...segments]]/page";
+
+vi.mock("@/components/website/catalog-page", () => ({
+  CatalogPage: () => null,
+}));
 
 const describeWithDb = process.env.TEST_DATABASE_URL ? describe : describe.skip;
 
@@ -44,13 +50,13 @@ vi.mock("@/server/website", async () => {
     ...actual,
     getCatalogPayloadByDomain: vi.fn(),
     getCatalogPayloadBySlug: vi.fn(),
-    resolveCatalogMetadata: vi.fn(),
+    resolveCatalogSeo: vi.fn(),
   };
 });
 
 const getCatalogPayloadByDomainMock = vi.mocked(getCatalogPayloadByDomain);
 const getCatalogPayloadBySlugMock = vi.mocked(getCatalogPayloadBySlug);
-const resolveCatalogMetadataMock = vi.mocked(resolveCatalogMetadata);
+const resolveCatalogSeoMock = vi.mocked(resolveCatalogSeo);
 
 describeWithDb("quote requests", () => {
   let user: User;
@@ -208,12 +214,21 @@ describe("catalog routing", () => {
     } as unknown as CatalogPayload;
 
     getCatalogPayloadByDomainMock.mockResolvedValue(payload);
-    resolveCatalogMetadataMock.mockReturnValue({
-      title: "Catalog Title",
-      description: "Catalog Description",
-      canonicalUrl: "https://example.com/catalog",
-      socialImageUrl: null,
-      keywords: null,
+    resolveCatalogSeoMock.mockReturnValue({
+      metadata: {
+        title: "Catalog Title",
+        description: "Catalog Description",
+        canonicalUrl: "https://example.com/catalog",
+        socialImageUrl: null,
+        keywords: null,
+      },
+      alternatesLanguages: null,
+      robots: null,
+      openGraphType: "website",
+      locale: "fr",
+      openGraphLocale: "fr_FR",
+      openGraphAlternateLocales: ["en_US"],
+      contentLanguage: "fr",
     });
 
     const metadata = await generateMetadata({
@@ -229,12 +244,71 @@ describe("catalog routing", () => {
       "/checkout",
     );
     expect(getCatalogPayloadBySlugMock).not.toHaveBeenCalled();
-    expect(resolveCatalogMetadataMock).toHaveBeenCalledWith({
+    expect(resolveCatalogSeoMock).toHaveBeenCalledWith({
       payload,
       path: "/checkout",
+      locale: "fr",
+      searchParams: {
+        domain: "shop.example.com",
+        path: "/checkout",
+      },
     });
     expect(metadata.title).toBe("Catalog Title");
     expect(metadata.alternates?.canonical).toBe("https://example.com/catalog");
     expect(metadata.openGraph?.siteName).toBe("Test Co");
+  });
+
+  it("reuses the same payload fetch for metadata and page rendering", async () => {
+    const slug = `site-${Date.now()}`;
+    const payload = {
+      website: {
+        slug,
+        templateKey: "dev-agency",
+        contact: {
+          companyName: "Test Co",
+          logoData: null,
+        },
+      },
+      products: {
+        featured: [],
+        all: [],
+      },
+      currentCmsPage: null,
+    } as unknown as CatalogPayload;
+
+    getCatalogPayloadBySlugMock.mockResolvedValue(payload);
+    resolveCatalogSeoMock.mockReturnValue({
+      metadata: {
+        title: "Catalog Title",
+        description: "Catalog Description",
+        canonicalUrl: "https://example.com/catalog",
+        socialImageUrl: null,
+        keywords: null,
+      },
+      alternatesLanguages: null,
+      robots: null,
+      openGraphType: "website",
+      locale: "fr",
+      openGraphLocale: "fr_FR",
+      openGraphAlternateLocales: ["en_US"],
+      contentLanguage: "fr",
+    });
+
+    const params = Promise.resolve({ segments: [slug] });
+    const searchParams = Promise.resolve({});
+
+    await generateMetadata({
+      params,
+      searchParams,
+    });
+    await CatalogueCatchAllPage({
+      params,
+      searchParams,
+    });
+
+    expect(getCatalogPayloadBySlugMock).toHaveBeenCalledTimes(1);
+    expect(getCatalogPayloadBySlugMock).toHaveBeenCalledWith(slug, {
+      path: null,
+    });
   });
 });

@@ -6,7 +6,7 @@
    npm install
    ```
 
-2. Copiez `.env.example` vers `.env` et renseignez les secrets requis (PostgreSQL, SMTP, cookies, URLs). Si vous déployez sur Vercel, ajoutez également `PRISMA_ACCELERATE_URL` (clé Prisma Accelerate/Data Proxy) pour que les fonctions serverless réutilisent des connexions persistantes au lieu d'ouvrir un socket PostgreSQL à chaque requête.
+2. Copiez `.env.example` vers `.env` et renseignez les secrets requis (PostgreSQL, SMTP, cookies, URLs). Si vous déployez sur Vercel, ajoutez également `PRISMA_ACCELERATE_URL` (clé Prisma Accelerate/Data Proxy) pour que les fonctions serverless réutilisent des connexions persistantes au lieu d'ouvrir un socket PostgreSQL à chaque requête. Sans Accelerate, le runtime Prisma bascule automatiquement vers `DIRECT_URL` quand `DATABASE_URL` cible le transaction pooler Supabase `:6543`, car ce mode sature plus facilement avec Next.js/Prisma.
 
 3. Lancez le serveur de développement :
 

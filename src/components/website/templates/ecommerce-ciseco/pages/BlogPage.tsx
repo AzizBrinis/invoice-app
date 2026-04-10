@@ -8,6 +8,7 @@ import {
 } from "../builder-helpers";
 import { ExtraSections } from "../components/builder/ExtraSections";
 import { Reveal } from "../components/shared/Reveal";
+import { CatalogImage } from "../components/shared/CatalogImage";
 import { Footer } from "../components/layout/Footer";
 import { Navbar } from "../components/layout/Navbar";
 import { PageShell } from "../components/layout/PageShell";
@@ -377,11 +378,13 @@ export function BlogPage({
                           href={blogHref(post.slug)}
                           className="group relative block aspect-[4/3] w-full overflow-hidden rounded-3xl bg-slate-100 shadow-sm transition hover:-translate-y-1 hover:shadow-lg"
                         >
-                          <img
+                          <CatalogImage
                             src={post.image}
                             alt={post.title}
                             className="h-full w-full object-cover transition duration-500 ease-out group-hover:scale-[1.04]"
+                            sizes="160px"
                             loading="lazy"
+                            fill
                           />
                         </a>
                       ))}
@@ -475,16 +478,19 @@ function FeaturedPost({ post, href }: PostProps) {
     <a href={href} className="group block">
       <article className="space-y-4 transition hover:-translate-y-1">
         <div className="relative aspect-[4/3] w-full overflow-hidden rounded-[28px] bg-slate-100 shadow-sm transition-shadow duration-300 group-hover:shadow-lg">
-          <img
+          <CatalogImage
             src={post.image}
             alt={t(post.title)}
             className="h-full w-full object-cover transition duration-500 ease-out group-hover:scale-[1.04]"
+            sizes="(min-width: 1024px) 58vw, 92vw"
+            priority
+            fill
           />
         </div>
         <div className="space-y-2">
-          <h1 className="text-xl font-semibold text-slate-900 transition group-hover:text-slate-950 sm:text-2xl">
+          <h2 className="text-xl font-semibold text-slate-900 transition group-hover:text-slate-950 sm:text-2xl">
             {t(post.title)}
-          </h1>
+          </h2>
           <p className="text-sm text-slate-500">{t(post.excerpt)}</p>
           <AuthorRow author={post.author} />
         </div>
@@ -507,11 +513,13 @@ function MiniPost({ post, href }: PostProps) {
             <p className="text-xs text-slate-500">{t(post.excerpt)}</p>
           </div>
           <div className="relative h-16 w-20 flex-shrink-0 overflow-hidden rounded-2xl bg-slate-100 lg:hidden">
-            <img
+            <CatalogImage
               src={post.image}
               alt={t(post.title)}
               className="h-full w-full object-cover transition duration-500 ease-out group-hover:scale-[1.05]"
+              sizes="80px"
               loading="lazy"
+              fill
             />
           </div>
         </div>
@@ -528,11 +536,13 @@ function ArticleCard({ post, href }: PostProps) {
     <a href={href} className="group block">
       <article className="space-y-3 transition hover:-translate-y-1">
         <div className="relative aspect-[4/3] w-full overflow-hidden rounded-3xl bg-slate-100 shadow-sm transition-shadow duration-300 group-hover:shadow-lg">
-          <img
+          <CatalogImage
             src={post.image}
             alt={t(post.title)}
             className="h-full w-full object-cover transition duration-500 ease-out group-hover:scale-[1.04]"
+            sizes="(min-width: 1024px) 31vw, (min-width: 640px) 46vw, 92vw"
             loading="lazy"
+            fill
           />
         </div>
         <div className="space-y-2">
@@ -554,6 +564,7 @@ type AuthorRowProps = {
 
 function AuthorRow({ author, compact }: AuthorRowProps) {
   const { locale } = useCisecoI18n();
+  const avatarSize = compact ? 20 : 24;
 
   return (
     <div
@@ -562,13 +573,16 @@ function AuthorRow({ author, compact }: AuthorRowProps) {
         compact ? "text-[11px]" : "text-xs",
       )}
     >
-      <img
+      <CatalogImage
         src={author.avatar}
         alt={author.name}
         className={clsx(
           "rounded-full object-cover",
           compact ? "h-5 w-5" : "h-6 w-6",
         )}
+        width={avatarSize}
+        height={avatarSize}
+        sizes={`${avatarSize}px`}
         loading="lazy"
       />
       <span className="font-semibold text-slate-700">{author.name}</span>
@@ -698,10 +712,13 @@ function PromoBanner({
       <span className="pointer-events-none absolute bottom-8 right-20 h-2 w-2 rounded-full bg-amber-400" />
       <div className="grid items-center gap-8 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
         <div className="relative mx-auto w-full max-w-[280px] sm:max-w-none">
-          <img
+          <CatalogImage
             src={image ?? BLOG_IMAGES.kids}
             alt={t("Kid with skateboard")}
             className="h-full w-full object-contain"
+            width={560}
+            height={560}
+            sizes="(min-width: 640px) 42vw, 280px"
             loading="lazy"
           />
         </div>

@@ -423,7 +423,7 @@ export function ProductDetailPage({
     (variantOptions.colors.length > 0 || variantOptions.sizes.length > 0);
   const categorySlug = product?.category ? slugify(product.category) : "";
   const categoryHref = categorySlug
-    ? localizeHref(baseLink(`/categories/${categorySlug}`))
+    ? localizeHref(baseLink(`/collections/${categorySlug}`))
     : localizeHref(baseLink("/collections"));
 
   const resolvedColors = useMemo(() => {
@@ -717,7 +717,7 @@ export function ProductDetailPage({
     compact?: boolean;
   }) =>
     clsx(
-      "inline-flex max-w-full items-center justify-center gap-x-1.5 gap-y-0.5 whitespace-normal rounded-full border px-4 py-2.5 text-center text-sm font-semibold leading-tight shadow-[0_14px_28px_-26px_rgba(15,23,42,0.45)] transition-[transform,border-color,background-color,box-shadow,color,opacity] duration-200",
+      "inline-flex max-w-full items-center justify-center gap-x-1.5 gap-y-0.5 whitespace-normal rounded-full border px-4 py-2.5 text-center text-sm font-semibold leading-tight shadow-[0_14px_28px_-26px_rgba(15,23,42,0.45)] transition-transform duration-200",
       compact ? "min-h-10 min-w-[3.5rem]" : "min-h-11",
       isActive && !isDisabled
         ? "border-slate-900 bg-slate-900 text-white shadow-[0_18px_34px_-24px_rgba(15,23,42,0.65)]"
@@ -874,10 +874,10 @@ export function ProductDetailPage({
           aria-pressed={isCurrentWishlisted}
           aria-busy={isCurrentWishlistBusy}
           className={clsx(
-            "absolute left-4 top-4 z-20 flex h-12 w-12 items-center justify-center rounded-full border border-white/85 bg-white/92 text-xs shadow-[0_18px_34px_-24px_rgba(15,23,42,0.75)] backdrop-blur-md transition-[transform,color,background-color,box-shadow,border-color] duration-300 hover:-translate-y-0.5 active:scale-95",
+            "absolute left-4 top-4 z-20 flex h-12 w-12 items-center justify-center rounded-full border border-white/85 bg-white/92 text-xs shadow-[0_18px_34px_-24px_rgba(15,23,42,0.75)] backdrop-blur-md transition-transform duration-300 hover:-translate-y-0.5 active:scale-95",
             isCurrentWishlisted
               ? "border-rose-200/80 bg-rose-50 text-rose-600 shadow-[0_18px_34px_-24px_rgba(244,63,94,0.65)]"
-              : "text-slate-500 hover:border-rose-100 hover:bg-white hover:text-rose-500",
+              : "text-slate-600 hover:border-rose-100 hover:bg-white hover:text-rose-500",
             isCurrentWishlistBusy ? "cursor-wait opacity-80" : null,
           )}
         >
@@ -972,7 +972,7 @@ export function ProductDetailPage({
                     {displayPriceLabel}
                   </span>
                   {selectedPriceAdjustmentLabel ? (
-                    <span className="text-[13px] font-medium text-slate-500">
+                    <span className="text-[13px] font-medium text-slate-600">
                       {selectedPriceAdjustmentLabel}
                     </span>
                   ) : null}
@@ -1033,7 +1033,7 @@ export function ProductDetailPage({
         {hasColors ? (
           <div className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-600">
                 {t("Color")}
               </p>
               {activeColorOption?.label ? (
@@ -1054,7 +1054,7 @@ export function ProductDetailPage({
                     aria-pressed={isActive}
                     disabled={isDisabled}
                     className={clsx(
-                      "flex h-11 w-11 items-center justify-center rounded-full border bg-white shadow-[0_14px_28px_-24px_rgba(15,23,42,0.42)] transition-[transform,border-color,box-shadow,opacity] duration-200 hover:-translate-y-0.5",
+                      "flex h-11 w-11 items-center justify-center rounded-full border bg-white shadow-[0_14px_28px_-24px_rgba(15,23,42,0.42)] transition-transform duration-200 hover:-translate-y-0.5",
                       isActive && !isDisabled
                         ? "border-slate-900 ring-2 ring-slate-900/15 shadow-[0_18px_34px_-22px_rgba(15,23,42,0.5)]"
                         : "border-black/10 hover:border-slate-400",
@@ -1078,7 +1078,7 @@ export function ProductDetailPage({
         {hasSizes ? (
           <div className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-600">
                 {t("Size")}
               </p>
               <div className="flex flex-wrap items-center gap-3">
@@ -1131,7 +1131,7 @@ export function ProductDetailPage({
               return (
                 <div key={group.id} className="space-y-2.5">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-600">
                       {group.name}
                     </p>
                     {selectedValue ? (
@@ -1174,7 +1174,7 @@ export function ProductDetailPage({
                                   "text-[11px] font-medium",
                                   isActive && !isDisabled
                                     ? "text-white/75"
-                                    : "text-slate-500",
+                                    : "text-slate-600",
                                 )}
                               >
                                 {priceAdjustmentLabel}
@@ -1194,7 +1194,7 @@ export function ProductDetailPage({
           <div className="flex items-center justify-between rounded-full border border-black/10 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm sm:w-32">
             <button
               type="button"
-              className="flex h-6 w-6 items-center justify-center rounded-full text-slate-500 transition hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40"
+              className="flex h-6 w-6 items-center justify-center rounded-full text-slate-600 transition hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40"
               disabled={quantity <= 1}
               onClick={() =>
                 setQuantity((value) => Math.max(1, value - 1))
@@ -1206,7 +1206,7 @@ export function ProductDetailPage({
             <span>{quantity}</span>
             <button
               type="button"
-              className="flex h-6 w-6 items-center justify-center rounded-full text-slate-500 transition hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40"
+              className="flex h-6 w-6 items-center justify-center rounded-full text-slate-600 transition hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40"
               disabled={!canIncreaseQuantity}
               onClick={() =>
                 setQuantity((value) => {
@@ -1327,7 +1327,7 @@ export function ProductDetailPage({
         <div className="space-y-6">
           <nav
             aria-label={t("Breadcrumb")}
-            className="text-xs text-slate-500"
+            className="text-xs text-slate-600"
           >
             <ol className="flex flex-wrap items-center gap-2">
               <li>
@@ -1485,7 +1485,7 @@ export function ProductDetailPage({
           <div className="flex items-center gap-3 text-lg font-semibold text-slate-900">
             <RatingStars rating={rating} starClassName="h-5 w-5" />
             <span>{rating.toFixed(1)}</span>
-            <span className="text-sm font-medium text-slate-500">
+            <span className="text-sm font-medium text-slate-600">
               {countLabel}
             </span>
           </div>

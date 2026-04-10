@@ -297,8 +297,8 @@ function buildFeaturedProducts(
     name: product.name,
     subtitle: product.subtitle,
     price: product.price,
-    rating: product.rating,
-    reviewCount: product.reviewCount,
+    rating: product.rating ?? 0,
+    reviewCount: product.reviewCount ?? 0,
     image: product.image,
     thumbnails: [
       product.image,

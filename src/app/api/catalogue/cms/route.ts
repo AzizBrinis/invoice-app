@@ -35,7 +35,10 @@ export async function GET(request: NextRequest) {
 
     const normalizedPath = normalizeWebsiteCmsPagePath(query.path);
     if (!normalizedPath) {
-      throw new Error("Invalid path.");
+      return NextResponse.json(
+        { error: t("Invalid path.") },
+        { status: 400 },
+      );
     }
 
     const host = request.headers.get("host")?.toLowerCase() ?? "";
@@ -52,7 +55,10 @@ export async function GET(request: NextRequest) {
       preview: query.mode === "preview",
     });
     if (!website) {
-      throw new Error("Site unavailable.");
+      return NextResponse.json(
+        { error: t("Site unavailable.") },
+        { status: 404 },
+      );
     }
 
     const page = await prisma.websiteCmsPage.findFirst({
@@ -68,7 +74,10 @@ export async function GET(request: NextRequest) {
       },
     });
     if (!page) {
-      throw new Error("Page not found.");
+      return NextResponse.json(
+        { error: t("Page not found.") },
+        { status: 404 },
+      );
     }
 
     const rendered = renderWebsiteCmsPageContent(page.content);

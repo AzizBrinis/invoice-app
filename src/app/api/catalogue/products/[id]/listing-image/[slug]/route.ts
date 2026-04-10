@@ -225,7 +225,10 @@ export async function GET(
     return new NextResponse("Not found", { status: 404 });
   }
 
-  const inlineImage = resolveCatalogProductListingImageDataUrl(product);
+  const inlineImage = resolveCatalogProductListingImageDataUrl(
+    product,
+    request.nextUrl.searchParams.get("slot"),
+  );
   if (!inlineImage) {
     return new NextResponse("Not found", { status: 404 });
   }

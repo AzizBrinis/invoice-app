@@ -274,12 +274,15 @@ const FRENCH_TRANSLATIONS: Record<string, string> = {
   "Featured of the week": "Sélection de la semaine",
   thumbnail: "miniature",
   Categories: "Catégories",
+  "All collections": "Toutes les collections",
   Colors: "Couleurs",
   Sizes: "Tailles",
   "Price range": "Plage de prix",
   "Min price": "Prix min",
   "Max price": "Prix max",
   "Sort by": "Trier par",
+  "Showing filtered products": "Produits filtrés affichés",
+  "Refine the catalog view": "Affinez la vue du catalogue",
   "Earn free money with": "Économisez avec",
   With: "Avec",
   "you will get free shipping & savings combo.":
@@ -472,6 +475,7 @@ const FRENCH_TRANSLATIONS: Record<string, string> = {
   "Best Rating": "Meilleure note",
   "Price Low - High": "Prix croissant",
   "Price High - Low": "Prix décroissant",
+  "Name (A-Z)": "Nom (A-Z)",
   "New Arrivals": "Nouvelles arrivées",
   Backpacks: "Sacs à dos",
   "Travel Bags": "Sacs de voyage",
@@ -676,6 +680,9 @@ const FRENCH_TRANSLATIONS: Record<string, string> = {
   "Order placed on": "Commande passée le",
   "No products match this collection yet.":
     "Aucun produit ne correspond encore à cette collection.",
+  "Customize this page": "Personnaliser cette page",
+  "Out of stock": "Rupture de stock",
+  "In stock": "Disponible",
   "No products found yet.": "Aucun produit trouvé pour le moment.",
   "2500": "2500",
 };

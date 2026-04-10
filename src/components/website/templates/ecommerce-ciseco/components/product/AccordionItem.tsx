@@ -1,4 +1,3 @@
-import clsx from "clsx";
 import type { ReactNode } from "react";
 import { useCisecoI18n } from "../../i18n";
 
@@ -28,18 +27,16 @@ export function AccordionItem({
         aria-controls={`accordion-${id}`}
       >
         <span>{t(title)}</span>
-        <span className="flex h-7 w-7 items-center justify-center rounded-full border border-black/10 text-xs text-slate-500">
+        <span className="flex h-7 w-7 items-center justify-center rounded-full border border-black/10 text-xs text-slate-600">
           {isOpen ? "-" : "+"}
         </span>
       </button>
       <div
         id={`accordion-${id}`}
-        className={clsx(
-          "overflow-hidden px-4 text-xs text-slate-600 transition-[max-height,opacity] duration-300",
-          isOpen ? "max-h-[32rem] pb-4 opacity-100" : "max-h-0 pb-0 opacity-0",
-        )}
+        hidden={!isOpen}
+        className="px-4 pb-4 text-xs text-slate-600"
       >
-        {children}
+        {isOpen ? children : null}
       </div>
     </div>
   );

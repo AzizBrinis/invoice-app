@@ -66,7 +66,7 @@ export function ProductCard({
   return (
     <article
       className={clsx(
-        "group relative flex h-full flex-col overflow-hidden rounded-[28px] border border-black/5 bg-white/95 p-3.5 shadow-[0_20px_50px_-38px_rgba(15,23,42,0.55)] transition-[transform,box-shadow,border-color] duration-300 hover:-translate-y-1 hover:border-black/10 hover:shadow-[0_28px_60px_-36px_rgba(15,23,42,0.48)] sm:p-3",
+        "group relative flex h-full flex-col overflow-hidden rounded-[28px] border border-black/5 bg-white/95 p-3.5 shadow-[0_20px_50px_-38px_rgba(15,23,42,0.55)] transition-transform duration-300 hover:-translate-y-1 hover:border-black/10 hover:shadow-[0_28px_60px_-36px_rgba(15,23,42,0.48)] sm:p-3",
         isCompact && "rounded-[24px] p-2.5",
       )}
     >
@@ -107,10 +107,10 @@ export function ProductCard({
           aria-pressed={isWishlisted}
           aria-busy={isWishlistBusy}
           className={clsx(
-            "absolute right-3 top-3 z-20 flex h-11 w-11 items-center justify-center rounded-full border border-white/85 bg-white/92 text-xs shadow-[0_16px_32px_-24px_rgba(15,23,42,0.75)] backdrop-blur-md transition-[transform,color,background-color,box-shadow,border-color] duration-300 hover:-translate-y-0.5 active:scale-95 sm:h-10 sm:w-10",
+            "absolute right-3 top-3 z-20 flex h-11 w-11 items-center justify-center rounded-full border border-white/85 bg-white/92 text-xs shadow-[0_16px_32px_-24px_rgba(15,23,42,0.75)] backdrop-blur-md transition-transform duration-300 hover:-translate-y-0.5 active:scale-95 sm:h-10 sm:w-10",
             isWishlisted
               ? "border-rose-200/80 bg-rose-50 text-rose-600 shadow-[0_18px_34px_-24px_rgba(244,63,94,0.65)]"
-              : "text-slate-500 hover:border-rose-100 hover:bg-white hover:text-rose-500",
+              : "text-slate-600 hover:border-rose-100 hover:bg-white hover:text-rose-500",
             isWishlistBusy ? "cursor-wait opacity-80" : null,
           )}
         >
@@ -158,7 +158,7 @@ export function ProductCard({
           </a>
         </h3>
 
-        <div className="mt-auto flex flex-wrap items-center justify-between gap-3 pt-3 text-[11px] text-slate-500">
+        <div className="mt-auto flex flex-wrap items-center justify-between gap-3 pt-3 text-[11px] text-slate-600">
           <div className="flex items-center gap-1.5 rounded-full bg-slate-100/80 px-2.5 py-1 font-medium text-slate-600">
             <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 text-amber-500">
               <path
@@ -185,7 +185,7 @@ export function ProductCard({
           <a
             href={productHref}
             aria-label={`${t("View details")} ${productName}`}
-            className="inline-flex min-h-10 w-full items-center justify-center gap-1.5 rounded-full border border-black/10 bg-white/80 px-4 py-2.5 text-[13px] font-semibold text-slate-600 shadow-[0_12px_24px_-24px_rgba(15,23,42,0.42)] transition-[transform,color,box-shadow,border-color,background-color] duration-200 hover:-translate-y-0.5 hover:border-black/15 hover:bg-white hover:text-slate-950 hover:shadow-[0_18px_28px_-24px_rgba(15,23,42,0.42)] lg:min-h-0 lg:w-auto lg:justify-start lg:border-0 lg:bg-transparent lg:px-0 lg:py-0 lg:shadow-none"
+            className="inline-flex min-h-10 w-full items-center justify-center gap-1.5 rounded-full border border-black/10 bg-white/80 px-4 py-2.5 text-[13px] font-semibold text-slate-600 shadow-[0_12px_24px_-24px_rgba(15,23,42,0.42)] transition-transform duration-200 hover:-translate-y-0.5 hover:border-black/15 hover:bg-white hover:text-slate-950 hover:shadow-[0_18px_28px_-24px_rgba(15,23,42,0.42)] lg:min-h-0 lg:w-auto lg:justify-start lg:border-0 lg:bg-transparent lg:px-0 lg:py-0 lg:shadow-none"
           >
             <span>{t("View details")}</span>
             <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" strokeWidth={1.9} />
@@ -195,7 +195,7 @@ export function ProductCard({
               type="button"
               onClick={handleAddToCartClick}
               className={clsx(
-                "inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-full px-4 py-3 text-[13px] font-semibold leading-none tracking-[0.005em] shadow-[0_16px_28px_-20px_rgba(15,23,42,0.85)] transition-[transform,box-shadow,background-color,color] duration-200 hover:-translate-y-0.5 hover:shadow-[0_22px_36px_-20px_rgba(15,23,42,0.75)] active:translate-y-0 lg:min-h-10 lg:w-auto lg:px-3.5 lg:py-2 lg:text-[12px] xl:px-4 xl:text-[13px]",
+                "inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-full px-4 py-3 text-[13px] font-semibold leading-none tracking-[0.005em] shadow-[0_16px_28px_-20px_rgba(15,23,42,0.85)] transition-transform duration-200 hover:-translate-y-0.5 hover:shadow-[0_22px_36px_-20px_rgba(15,23,42,0.75)] active:translate-y-0 lg:min-h-10 lg:w-auto lg:px-3.5 lg:py-2 lg:text-[12px] xl:px-4 xl:text-[13px]",
                 showCartFeedback
                   ? "bg-emerald-50 text-emerald-700 shadow-[0_16px_28px_-22px_rgba(16,185,129,0.55)]"
                   : "bg-slate-950 text-white",

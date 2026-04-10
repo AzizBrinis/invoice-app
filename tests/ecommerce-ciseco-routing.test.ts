@@ -10,6 +10,7 @@ import {
 } from "@/components/website/templates/ecommerce-ciseco/utils";
 import {
   isOwnedCisecoPathname,
+  resolveAuthoritativeCisecoNavigationState,
   resolveCisecoLogicalPath,
   resolveCisecoNavigationState,
   shouldUseServerNavigationForOwnedPath,
@@ -189,7 +190,40 @@ describe("ciseco collection routing", () => {
     });
   });
 
-  it("routes CMS paths through server navigation instead of local template state", () => {
+  it("prefers the committed server route when local state is stale after navigation", () => {
+    const localState = resolveCisecoNavigationState({
+      href: "/catalogue/acme/collections/summer-edit?lang=en",
+      mode: "public",
+      slug: "acme",
+    });
+    const incomingState = resolveCisecoNavigationState({
+      href: "/catalogue/acme/produit/linen-chair?lang=en",
+      mode: "public",
+      slug: "acme",
+    });
+
+    expect(
+      resolveAuthoritativeCisecoNavigationState({
+        localState,
+        incomingState,
+        browserHref: incomingState.href,
+      }),
+    ).toMatchObject({
+      pathname: "/catalogue/acme/produit/linen-chair",
+      logicalPath: "/produit/linen-chair",
+      isOwned: true,
+    });
+
+    expect(
+      resolveAuthoritativeCisecoNavigationState({
+        localState,
+        incomingState,
+        browserHref: localState.href,
+      }),
+    ).toEqual(localState);
+  });
+
+  it("matches explicitly configured server-routed paths", () => {
     expect(
       shouldUseServerNavigationForOwnedPath("/delivery", [
         "/delivery",

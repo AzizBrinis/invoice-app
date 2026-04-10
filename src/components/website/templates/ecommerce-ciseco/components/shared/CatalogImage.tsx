@@ -2,7 +2,11 @@ import NextImage from "next/image";
 import type { ImgHTMLAttributes } from "react";
 
 function resolveOptimizedRemoteHosts() {
-  const hosts = new Set(["images.unsplash.com"]);
+  const hosts = new Set([
+    "images.unsplash.com",
+    "m.media-amazon.com",
+    "images-na.ssl-images-amazon.com",
+  ]);
   const configuredStorageUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
   if (!configuredStorageUrl) {
     return hosts;
@@ -131,6 +135,7 @@ export function CatalogImage({
         priority={priority}
         loading={priority ? undefined : loading}
         fetchPriority={priority ? "high" : undefined}
+        decoding={decoding}
         unoptimized={unoptimized}
         {...(fill ? { fill: true } : { width, height })}
       />
@@ -141,10 +146,11 @@ export function CatalogImage({
     <img
       src={normalizedSrc}
       alt={alt}
-      className={className}
+      className={`${fill ? "absolute inset-0 h-full w-full " : ""}${className ?? ""}`.trim()}
       loading={priority ? "eager" : loading}
       fetchPriority={priority ? "high" : "auto"}
       decoding={decoding}
+      {...(fill ? {} : { width, height })}
     />
   );
 }

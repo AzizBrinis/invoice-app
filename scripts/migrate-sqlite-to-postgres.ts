@@ -3,12 +3,16 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { Prisma, PrismaClient } from "@prisma/client";
+import { resolvePrismaScriptDatabaseUrl } from "../src/lib/prisma-config";
 
 const sqliteUrl = process.env.SQLITE_URL ?? "file:./prisma/dev.db";
 const sourceUrl = normalizeSqliteUrl(sqliteUrl);
 const sqliteFilePath = extractSqlitePath(sourceUrl);
 const targetUrl =
-  process.env.POSTGRES_URL ?? process.env.DATABASE_URL ?? "";
+  process.env.POSTGRES_URL ??
+  resolvePrismaScriptDatabaseUrl(process.env, {
+    applicationName: "invoices-app:migrate",
+  });
 
 if (!targetUrl) {
   throw new Error(

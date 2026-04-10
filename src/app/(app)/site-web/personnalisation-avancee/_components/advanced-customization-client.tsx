@@ -68,6 +68,7 @@ type AdvancedCustomizationClientProps = {
   };
   signupSettings: SignupSettingsInput;
   catalog: CatalogPayload;
+  initialPageKey?: CisecoPageKey | null;
 };
 
 type Device = "desktop" | "tablet" | "mobile";
@@ -495,22 +496,28 @@ export function AdvancedCustomizationClient({
   links,
   signupSettings: initialSignupSettings,
   catalog,
+  initialPageKey,
 }: AdvancedCustomizationClientProps) {
-  const initialConfig = normalizeEditorBuilderConfig(
-    builder.config,
-    catalog.website.templateKey,
+  const initialConfig = useMemo(
+    () =>
+      normalizeEditorBuilderConfig(
+        builder.config,
+        catalog.website.templateKey,
+      ),
+    [builder.config, catalog.website.templateKey],
   );
   const [config, setConfig] = useState<WebsiteBuilderConfig>(() => initialConfig);
   const [history, setHistory] = useState(builder.history);
+  const defaultPageKey = initialPageKey ?? DEFAULT_CISECO_PAGE_KEY;
   const [selectedSectionId, setSelectedSectionId] = useState<string>(() => {
     const pageConfig = resolveCisecoBuilderPageConfig(
       initialConfig,
-      DEFAULT_CISECO_PAGE_KEY,
+      defaultPageKey,
     );
     return pageConfig?.sections[0]?.id ?? initialConfig.sections[0]?.id ?? "";
   });
   const [selectedPageKey, setSelectedPageKey] = useState<CisecoPageKey>(
-    DEFAULT_CISECO_PAGE_KEY,
+    defaultPageKey,
   );
   const [builderStatus, setBuilderStatus] = useState<
     "idle" | "saving" | "saved" | "error"
@@ -590,6 +597,18 @@ export function AdvancedCustomizationClient({
         ? "saving"
         : "saved";
   const combinedError = builderError ?? contactError ?? signupError;
+
+  useEffect(() => {
+    if (!initialPageKey) {
+      return;
+    }
+
+    setSelectedPageKey(initialPageKey);
+    const pageConfig = resolveCisecoBuilderPageConfig(initialConfig, initialPageKey);
+    setSelectedSectionId(
+      pageConfig?.sections[0]?.id ?? initialConfig.sections[0]?.id ?? "",
+    );
+  }, [initialConfig, initialPageKey]);
 
   const markBuilderDirty = () => {
     setBuilderStatus("saving");

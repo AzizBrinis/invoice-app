@@ -41,3 +41,16 @@ export type CisecoPageKey = (typeof CISECO_PAGE_DEFINITIONS)[number]["key"];
 export function getCisecoPageDefinition(key: CisecoPageKey) {
   return CISECO_PAGE_DEFINITIONS.find((entry) => entry.key === key);
 }
+
+export function resolveCisecoPageKey(
+  value?: string | null,
+): CisecoPageKey | null {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  return CISECO_PAGE_DEFINITIONS.some((entry) => entry.key === trimmed)
+    ? (trimmed as CisecoPageKey)
+    : null;
+}

@@ -13,8 +13,17 @@ import { DEFAULT_CLIENT_PAYMENT_METHODS } from "../src/lib/client-payment-method
 import { DEFAULT_TAX_CONFIGURATION } from "../src/lib/taxes";
 import { getDefaultCurrencyCode } from "../src/lib/currency";
 import { DEFAULT_SAVED_RESPONSES } from "../src/lib/messaging/default-responses";
+import { resolvePrismaScriptDatabaseUrl } from "../src/lib/prisma-config";
 
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({
+  datasources: {
+    db: {
+      url: resolvePrismaScriptDatabaseUrl(process.env, {
+        applicationName: "invoices-app:seed",
+      }),
+    },
+  },
+});
 const SEED_CURRENCY = getDefaultCurrencyCode();
 
 const APPLY_FODEC_SEED =

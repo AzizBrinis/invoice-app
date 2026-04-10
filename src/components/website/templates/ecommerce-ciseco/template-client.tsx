@@ -9,7 +9,6 @@ import { CisecoLocaleProvider } from "./i18n";
 import {
   appendCisecoLocaleToHref,
   DEFAULT_CISECO_LOCALE,
-  type CisecoLocale,
 } from "./locale";
 import {
   CisecoNavigationProvider,
@@ -21,7 +20,6 @@ import { HomePage } from "./pages/HomePage";
 import { buildCisecoInlineStyles, buildCisecoTheme, type TemplateProps, type TemplateStyleVars } from "./template-shared";
 import {
   buildCartCatalogProducts,
-  buildHomeProducts,
   normalizePath,
   resolvePage,
 } from "./utils";
@@ -120,15 +118,6 @@ export function EcommerceCisecoHomeTemplateClient({
     () => data.website.cmsPages.map((entry) => entry.path),
     [data.website.cmsPages],
   );
-  const productPaths = useMemo(
-    () =>
-      cartCatalog.map((product) => normalizePath(`/produit/${product.slug}`)),
-    [cartCatalog],
-  );
-  const serverRoutedPaths = useMemo(
-    () => Array.from(new Set([...cmsPaths, ...productPaths])),
-    [cmsPaths, productPaths],
-  );
   const prefetchLocalPage = useMemo(
     () => (logicalPath: string) => {
       const resolvedPage = resolvePage(logicalPath, { cmsPaths });
@@ -203,7 +192,6 @@ export function EcommerceCisecoHomeTemplateClient({
       slug={data.website.slug}
       initialHref={initialHref}
       initialPath={path}
-      serverRoutedPaths={serverRoutedPaths}
       onPrefetchRoute={prefetchLocalPage}
     >
       <CisecoLocaleProvider initialLocale={locale}>
@@ -254,12 +242,14 @@ function TemplateContent({
 }: TemplateContentProps) {
   const { logicalPath } = useCisecoLocation();
   const currentPath = logicalPath || path || "/";
+  const serverPath = normalizePath(path);
   const page = resolvePage(currentPath, { cmsPaths });
   const pageBuilder = resolveCisecoPageConfig(data.website.builder, page.page);
 
   if (page.page === "product") {
     return (
       <ProductPage
+        key={page.productSlug}
         theme={theme}
         inlineStyles={inlineStyles}
         companyName={companyName}
@@ -269,6 +259,9 @@ function TemplateContent({
         products={data.products}
         showPrices={data.website.showPrices}
         productSlug={page.productSlug}
+        requiresClientProductData={
+          mode === "public" && serverPath !== normalizePath(currentPath)
+        }
         builder={pageBuilder}
       />
     );
@@ -422,10 +415,17 @@ function TemplateContent({
         inlineStyles={inlineStyles}
         companyName={companyName}
         homeHref={homeHref}
+        baseLink={baseLink}
+        catalogSlug={data.website.slug}
         products={data.products}
         showPrices={data.website.showPrices}
         collectionSlug={page.collectionSlug}
         builder={pageBuilder}
+        customizeHref={
+          mode === "preview"
+            ? "/site-web/personnalisation-avancee?page=collections"
+            : undefined
+        }
       />
     );
   }
@@ -497,14 +497,21 @@ function TemplateContent({
       />
     );
   }
-  if (page.page === "cms" && data.currentCmsPage) {
+  if (page.page === "cms") {
     return (
       <CmsPage
+        key={page.cmsPath}
         theme={theme}
         inlineStyles={inlineStyles}
         companyName={companyName}
         homeHref={homeHref}
-        page={data.currentCmsPage}
+        catalogSlug={data.website.slug}
+        mode={mode}
+        pagePath={page.cmsPath}
+        page={data.currentCmsPage?.path === page.cmsPath ? data.currentCmsPage : null}
+        requiresClientPageData={
+          serverPath !== page.cmsPath
+        }
       />
     );
   }

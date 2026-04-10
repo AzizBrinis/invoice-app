@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import type { CatalogPayload } from "@/server/website";
 import type { WebsiteBuilderPageConfig } from "@/lib/website/builder";
@@ -22,10 +22,68 @@ type ProductPageProps = {
   products: CatalogPayload["products"] | null;
   showPrices: boolean;
   productSlug?: string;
+  requiresClientProductData?: boolean;
   builder?: WebsiteBuilderPageConfig | null;
 };
 
 type ProductDetailStatus = "loading" | "error" | "ready" | "not-found";
+
+const productDetailCache = new Map<
+  string,
+  CatalogPayload["products"]["all"][number] | null
+>();
+const productDetailRequestCache = new Map<
+  string,
+  Promise<CatalogPayload["products"]["all"][number] | null>
+>();
+
+async function loadProductDetail(options: {
+  catalogSlug: string;
+  productSlug: string;
+}) {
+  const cacheKey = `${options.catalogSlug}:${options.productSlug}`;
+  const cached = productDetailCache.get(cacheKey);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const inflight = productDetailRequestCache.get(cacheKey);
+  if (inflight) {
+    return inflight;
+  }
+
+  const request = fetch(
+    `/api/catalogue/products?slug=${encodeURIComponent(options.catalogSlug)}&product=${encodeURIComponent(options.productSlug)}`,
+    {
+      method: "GET",
+      cache: "no-store",
+    },
+  )
+    .then(async (response) => {
+      const result = (await response.json()) as {
+        product?: CatalogPayload["products"]["all"][number] | null;
+      };
+
+      if (response.status === 404) {
+        productDetailCache.set(cacheKey, null);
+        return null;
+      }
+
+      if (!response.ok) {
+        throw new Error("Unable to load product details.");
+      }
+
+      const product = result.product ?? null;
+      productDetailCache.set(cacheKey, product);
+      return product;
+    })
+    .finally(() => {
+      productDetailRequestCache.delete(cacheKey);
+    });
+
+  productDetailRequestCache.set(cacheKey, request);
+  return request;
+}
 
 // Smoke test checklist:
 // - Product detail renders real data for the tenant slug.
@@ -43,6 +101,7 @@ export function ProductPage({
   products,
   showPrices,
   productSlug,
+  requiresClientProductData = false,
   builder,
 }: ProductPageProps) {
   const { t } = useCisecoI18n();
@@ -71,16 +130,83 @@ export function ProductPage({
     if (!productSlug) return null;
     return homeProducts.find((product) => product.slug === productSlug) ?? null;
   }, [homeProducts, productSlug]);
-  const activeProduct = useMemo(() => {
+  const listProduct = useMemo(() => {
     if (!activeHomeProduct) return null;
     return (
       productSource.find((product) => product.id === activeHomeProduct.id) ?? null
     );
   }, [activeHomeProduct, productSource]);
+  const detailCacheKey = productSlug ? `${catalogSlug}:${productSlug}` : null;
+  const [clientProduct, setClientProduct] = useState<
+    CatalogPayload["products"]["all"][number] | null
+  >(() => {
+    if (!requiresClientProductData || !detailCacheKey) {
+      return null;
+    }
+    return productDetailCache.get(detailCacheKey) ?? null;
+  });
+  const [clientStatus, setClientStatus] = useState<
+    "idle" | "loading" | "ready" | "error"
+  >(() =>
+    !requiresClientProductData || !detailCacheKey
+      ? "idle"
+      : productDetailCache.has(detailCacheKey)
+        ? "ready"
+        : "loading",
+  );
+
+  useEffect(() => {
+    if (
+      !requiresClientProductData ||
+      !productSlug ||
+      !detailCacheKey ||
+      productDetailCache.has(detailCacheKey)
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+
+    void loadProductDetail({
+      catalogSlug,
+      productSlug,
+    })
+      .then((product) => {
+        if (cancelled) {
+          return;
+        }
+        setClientProduct(product);
+        setClientStatus("ready");
+      })
+      .catch(() => {
+        if (cancelled) {
+          return;
+        }
+        setClientProduct(null);
+        setClientStatus("error");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [catalogSlug, detailCacheKey, productSlug, requiresClientProductData]);
+
+  const activeProduct =
+    requiresClientProductData
+      ? clientStatus === "ready"
+        ? clientProduct
+        : null
+      : listProduct;
+  const relationSourceProduct =
+    activeProduct ?? (requiresClientProductData ? null : listProduct);
   const resolvedStatus: ProductDetailStatus =
-    status === "ready" && (!activeProduct || !activeHomeProduct)
-      ? "not-found"
-      : status;
+    status === "error" || clientStatus === "error"
+      ? "error"
+      : requiresClientProductData && clientStatus === "loading"
+        ? "loading"
+        : status === "ready" && (!relationSourceProduct || !activeHomeProduct)
+          ? "not-found"
+          : status;
 
   useEffect(() => {
     if (resolvedStatus === "error") {
@@ -91,23 +217,23 @@ export function ProductPage({
   }, [productSlug, resolvedStatus]);
 
   const relatedProducts = useMemo<HomeProduct[]>(() => {
-    if (!activeProduct) return [];
-    const category = activeProduct.category?.trim().toLowerCase() ?? "";
+    if (!relationSourceProduct) return [];
+    const category = relationSourceProduct.category?.trim().toLowerCase() ?? "";
     const byCategory = category
       ? productSource.filter(
           (product) =>
-            product.id !== activeProduct.id &&
+            product.id !== relationSourceProduct.id &&
             product.category?.trim().toLowerCase() === category,
         )
       : [];
     const featured = featuredSource.filter(
-      (product) => product.id !== activeProduct.id,
+      (product) => product.id !== relationSourceProduct.id,
     );
     const fallback = byCategory.length
       ? byCategory
-      : featured.length
-        ? featured
-        : productSource.filter((product) => product.id !== activeProduct.id).slice(-4);
+        : featured.length
+          ? featured
+        : productSource.filter((product) => product.id !== relationSourceProduct.id).slice(-4);
     const homeMap = new Map(homeProducts.map((product) => [product.id, product]));
     const entries: HomeProduct[] = [];
     fallback.slice(0, 4).forEach((product) => {
@@ -119,10 +245,10 @@ export function ProductPage({
         colors: variantColors.length
           ? variantColors.map((color) => color.swatch)
           : home.colors,
-      });
+        });
     });
     return entries;
-  }, [activeProduct, featuredSource, homeProducts, productSource]);
+  }, [featuredSource, homeProducts, productSource, relationSourceProduct]);
   const sections = builder?.sections ?? [];
   const mediaLibrary = builder?.mediaLibrary ?? [];
   const heroSection = resolveBuilderSection(sections, "hero");

@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import type { CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import type { CatalogWebsiteCmsPage } from "@/server/website";
 import type { ThemeTokens } from "../types";
 import { Reveal } from "../components/shared/Reveal";
@@ -14,21 +14,261 @@ type CmsPageProps = {
   inlineStyles: CSSProperties;
   companyName: string;
   homeHref: string;
-  page: CatalogWebsiteCmsPage;
+  catalogSlug: string;
+  mode: "public" | "preview";
+  pagePath: string;
+  page: CatalogWebsiteCmsPage | null;
+  requiresClientPageData?: boolean;
 };
+
+type CmsPageStatus = "loading" | "error" | "ready" | "not-found";
+
+const cmsPageCache = new Map<string, CatalogWebsiteCmsPage | null>();
+const cmsPageRequestCache = new Map<
+  string,
+  Promise<CatalogWebsiteCmsPage | null>
+>();
+
+async function loadCmsPage(options: {
+  catalogSlug: string;
+  mode: "public" | "preview";
+  pagePath: string;
+}) {
+  const cacheKey = `${options.mode}:${options.catalogSlug}:${options.pagePath}`;
+  const cached = cmsPageCache.get(cacheKey);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const inflight = cmsPageRequestCache.get(cacheKey);
+  if (inflight) {
+    return inflight;
+  }
+
+  const request = fetch(
+    `/api/catalogue/cms?slug=${encodeURIComponent(options.catalogSlug)}&mode=${encodeURIComponent(options.mode)}&path=${encodeURIComponent(options.pagePath)}`,
+    {
+      method: "GET",
+      cache: "no-store",
+    },
+  )
+    .then(async (response) => {
+      const result = (await response.json()) as {
+        page?: CatalogWebsiteCmsPage | null;
+      };
+
+      if (response.status === 404) {
+        cmsPageCache.set(cacheKey, null);
+        return null;
+      }
+
+      if (!response.ok) {
+        throw new Error("Unable to load page.");
+      }
+
+      const page = result.page ?? null;
+      cmsPageCache.set(cacheKey, page);
+      return page;
+    })
+    .finally(() => {
+      cmsPageRequestCache.delete(cacheKey);
+    });
+
+  cmsPageRequestCache.set(cacheKey, request);
+  return request;
+}
+
+function CmsPageSkeleton({
+  theme,
+  inlineStyles,
+  companyName,
+  homeHref,
+}: Pick<CmsPageProps, "theme" | "inlineStyles" | "companyName" | "homeHref">) {
+  return (
+    <PageShell inlineStyles={inlineStyles}>
+      <Navbar theme={theme} companyName={companyName} homeHref={homeHref} />
+      <main className="pb-14 sm:pb-16">
+        <div className={clsx("mx-auto px-4 pt-8 sm:px-6 sm:pt-10 lg:px-8", theme.containerClass)}>
+          <section className="overflow-hidden rounded-[32px] border border-black/5 bg-white px-6 py-8 shadow-[0_24px_80px_-52px_rgba(15,23,42,0.45)] sm:px-8 sm:py-10 lg:px-12 lg:py-12">
+            <div className="max-w-3xl space-y-4">
+              <div className="h-3 w-28 animate-pulse rounded-full bg-slate-100" />
+              <div className="h-11 w-72 animate-pulse rounded-full bg-slate-200" />
+              <div className="h-5 w-full max-w-2xl animate-pulse rounded-full bg-slate-100" />
+            </div>
+          </section>
+        </div>
+        <div className={clsx("mx-auto mt-8 grid gap-6 px-4 sm:px-6 lg:mt-10 lg:grid-cols-[minmax(0,1fr)_300px] lg:items-start lg:px-8", theme.containerClass)}>
+          <div className="min-w-0 lg:order-1">
+            <article className="overflow-hidden rounded-[30px] border border-black/5 bg-white shadow-[0_20px_70px_-50px_rgba(15,23,42,0.42)]">
+              <div className="border-b border-black/5 px-6 py-4 sm:px-10">
+                <div className="h-3 w-28 animate-pulse rounded-full bg-slate-100" />
+              </div>
+              <div className="space-y-4 px-6 py-8 sm:px-10 sm:py-10 lg:px-12">
+                {Array.from({ length: 7 }).map((_, index) => (
+                  <div
+                    key={`cms-skeleton-line-${index + 1}`}
+                    className={clsx(
+                      "h-4 animate-pulse rounded-full bg-slate-100",
+                      index % 3 === 0 ? "w-full" : index % 3 === 1 ? "w-11/12" : "w-4/5",
+                    )}
+                  />
+                ))}
+              </div>
+            </article>
+          </div>
+          <div className="space-y-4 lg:order-2">
+            <div className="rounded-[28px] border border-black/5 bg-white p-5 shadow-[0_16px_50px_-44px_rgba(15,23,42,0.45)]">
+              <div className="h-3 w-36 animate-pulse rounded-full bg-slate-100" />
+              <div className="mt-4 space-y-3">
+                {Array.from({ length: 4 }).map((_, index) => (
+                  <div
+                    key={`cms-skeleton-nav-${index + 1}`}
+                    className="h-10 animate-pulse rounded-2xl bg-slate-100"
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+      <Footer theme={theme} companyName={companyName} homeHref={homeHref} />
+    </PageShell>
+  );
+}
+
+function CmsPageMessage({
+  theme,
+  inlineStyles,
+  companyName,
+  homeHref,
+  title,
+  description,
+}: Pick<CmsPageProps, "theme" | "inlineStyles" | "companyName" | "homeHref"> & {
+  title: string;
+  description: string;
+}) {
+  return (
+    <PageShell inlineStyles={inlineStyles}>
+      <Navbar theme={theme} companyName={companyName} homeHref={homeHref} />
+      <main className="pb-14 pt-10 sm:pb-16 sm:pt-14">
+        <div className={clsx("mx-auto px-4 sm:px-6 lg:px-8", theme.containerClass)}>
+          <section className="mx-auto max-w-2xl rounded-[32px] border border-black/5 bg-white px-6 py-10 text-center shadow-[0_24px_80px_-52px_rgba(15,23,42,0.45)] sm:px-8">
+            <h1 className="font-[family:var(--ciseco-font-display)] text-3xl font-semibold tracking-[-0.035em] text-slate-950 sm:text-4xl">
+              {title}
+            </h1>
+            <p className="mt-4 text-base leading-8 text-slate-600">
+              {description}
+            </p>
+          </section>
+        </div>
+      </main>
+      <Footer theme={theme} companyName={companyName} homeHref={homeHref} />
+    </PageShell>
+  );
+}
 
 export function CmsPage({
   theme,
   inlineStyles,
   companyName,
   homeHref,
+  catalogSlug,
+  mode,
+  pagePath,
   page,
+  requiresClientPageData = false,
 }: CmsPageProps) {
   const { localizeHref, t } = useCisecoI18n();
+  const cacheKey = `${mode}:${catalogSlug}:${pagePath}`;
+  const initialPage = page?.path === pagePath ? page : cmsPageCache.get(cacheKey) ?? null;
+  const [clientPage, setClientPage] = useState<CatalogWebsiteCmsPage | null>(
+    () => initialPage,
+  );
+  const [status, setStatus] = useState<CmsPageStatus>(() => {
+    if (initialPage) return "ready";
+    if (cmsPageCache.has(cacheKey)) return "not-found";
+    return requiresClientPageData ? "loading" : "not-found";
+  });
+
+  useEffect(() => {
+    if (page?.path === pagePath) {
+      cmsPageCache.set(cacheKey, page);
+      return;
+    }
+
+    if (!requiresClientPageData || cmsPageCache.has(cacheKey)) {
+      return;
+    }
+
+    let cancelled = false;
+
+    void loadCmsPage({
+      catalogSlug,
+      mode,
+      pagePath,
+    })
+      .then((nextPage) => {
+        if (cancelled) {
+          return;
+        }
+        setClientPage(nextPage);
+        setStatus(nextPage ? "ready" : "not-found");
+      })
+      .catch(() => {
+        if (cancelled) {
+          return;
+        }
+        setClientPage(null);
+        setStatus("error");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cacheKey, catalogSlug, mode, page, pagePath, requiresClientPageData]);
+
+  const resolvedPage = page?.path === pagePath ? page : clientPage;
   const contactHref = resolveCisecoNavigationHref({
     href: "/contact",
     homeHref,
   });
+
+  if (status === "loading") {
+    return (
+      <CmsPageSkeleton
+        theme={theme}
+        inlineStyles={inlineStyles}
+        companyName={companyName}
+        homeHref={homeHref}
+      />
+    );
+  }
+
+  if (status === "error") {
+    return (
+      <CmsPageMessage
+        theme={theme}
+        inlineStyles={inlineStyles}
+        companyName={companyName}
+        homeHref={homeHref}
+        title={t("Something went wrong")}
+        description={t("We could not load this page right now. Please try again.")}
+      />
+    );
+  }
+
+  if (!resolvedPage) {
+    return (
+      <CmsPageMessage
+        theme={theme}
+        inlineStyles={inlineStyles}
+        companyName={companyName}
+        homeHref={homeHref}
+        title={t("Page not found")}
+        description={t("We could not find this page for the current catalog.")}
+      />
+    );
+  }
 
   return (
     <PageShell inlineStyles={inlineStyles}>
@@ -60,11 +300,11 @@ export function CmsPage({
                     {t("Content page")}
                   </p>
                   <h1 className="font-[family:var(--ciseco-font-display)] text-3xl font-semibold tracking-[-0.035em] text-slate-950 sm:text-4xl lg:text-[3.35rem] lg:leading-[1.02]">
-                    {page.title}
+                    {resolvedPage.title}
                   </h1>
-                  {page.excerpt ? (
+                  {resolvedPage.excerpt ? (
                     <p className="max-w-2xl text-base leading-8 text-slate-600 sm:text-lg">
-                      {page.excerpt}
+                      {resolvedPage.excerpt}
                     </p>
                   ) : null}
                 </div>
@@ -76,13 +316,13 @@ export function CmsPage({
         <div className={clsx("mx-auto mt-8 grid gap-6 px-4 sm:px-6 lg:mt-10 lg:grid-cols-[minmax(0,1fr)_300px] lg:items-start lg:px-8", theme.containerClass)}>
           <Reveal delay={120} className="lg:order-2 lg:sticky lg:top-24">
             <div className="space-y-4">
-              {page.headings.length ? (
+              {resolvedPage.headings.length ? (
                 <aside className="rounded-[28px] border border-black/5 bg-white p-5 shadow-[0_16px_50px_-44px_rgba(15,23,42,0.45)]">
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
                     {t("Table of contents")}
                   </p>
                   <nav className="mt-4 space-y-2">
-                    {page.headings.map((heading) => (
+                    {resolvedPage.headings.map((heading) => (
                       <a
                         key={heading.id}
                         href={`#${heading.id}`}
@@ -146,7 +386,7 @@ export function CmsPage({
                     "[&_ul]:my-6 [&_ul]:space-y-3 [&_ul]:pl-5",
                     "[&_li]:pl-1",
                   )}
-                  dangerouslySetInnerHTML={{ __html: page.contentHtml }}
+                  dangerouslySetInnerHTML={{ __html: resolvedPage.contentHtml }}
                 />
               </div>
             </article>
