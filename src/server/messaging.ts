@@ -69,6 +69,12 @@ const AUTO_REPLY_BOOTSTRAP_LOOKBACK = 150;
 const AUTO_REPLY_FETCH_LIMIT = 200;
 const SPAM_ANALYSIS_CONCURRENCY = 4;
 const AUTO_REPLY_METADATA_CONCURRENCY = 4;
+const DEFAULT_SMTP_CONNECTION_TIMEOUT_MS = 15_000;
+const DEFAULT_SMTP_GREETING_TIMEOUT_MS = 10_000;
+const DEFAULT_SMTP_SOCKET_TIMEOUT_MS = 60_000;
+const DEFAULT_IMAP_CONNECTION_TIMEOUT_MS = 15_000;
+const DEFAULT_IMAP_GREETING_TIMEOUT_MS = 10_000;
+const DEFAULT_IMAP_SOCKET_TIMEOUT_MS = 120_000;
 
 type AutoReplyProcessMode = "process" | "skip";
 
@@ -79,6 +85,62 @@ type AutoReplyProcessResult = {
   lastSeenUid: number;
   bootstrapped: boolean;
 };
+
+function readPositiveIntegerEnv(name: string, fallback: number): number {
+  const raw = process.env[name]?.trim();
+  if (!raw) {
+    return fallback;
+  }
+  const value = Number.parseInt(raw, 10);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function getSmtpTransportTimeouts() {
+  return {
+    connectionTimeout: readPositiveIntegerEnv(
+      "SMTP_CONNECTION_TIMEOUT_MS",
+      DEFAULT_SMTP_CONNECTION_TIMEOUT_MS,
+    ),
+    greetingTimeout: readPositiveIntegerEnv(
+      "SMTP_GREETING_TIMEOUT_MS",
+      DEFAULT_SMTP_GREETING_TIMEOUT_MS,
+    ),
+    socketTimeout: readPositiveIntegerEnv(
+      "SMTP_SOCKET_TIMEOUT_MS",
+      DEFAULT_SMTP_SOCKET_TIMEOUT_MS,
+    ),
+  };
+}
+
+function getImapClientTimeouts() {
+  return {
+    connectionTimeout: readPositiveIntegerEnv(
+      "IMAP_CONNECTION_TIMEOUT_MS",
+      DEFAULT_IMAP_CONNECTION_TIMEOUT_MS,
+    ),
+    greetingTimeout: readPositiveIntegerEnv(
+      "IMAP_GREETING_TIMEOUT_MS",
+      DEFAULT_IMAP_GREETING_TIMEOUT_MS,
+    ),
+    socketTimeout: readPositiveIntegerEnv(
+      "IMAP_SOCKET_TIMEOUT_MS",
+      DEFAULT_IMAP_SOCKET_TIMEOUT_MS,
+    ),
+  };
+}
+
+function createSmtpTransport(config: SmtpConnectionConfig): Transporter {
+  return nodemailer.createTransport({
+    host: config.host,
+    port: config.port,
+    secure: config.secure,
+    auth: {
+      user: config.user,
+      pass: config.password,
+    },
+    ...getSmtpTransportTimeouts(),
+  });
+}
 
 async function runConcurrentBatches<T>(
   items: readonly T[],
@@ -1533,6 +1595,7 @@ export async function withImapClient<T>(
       user: config.user,
       pass: config.password,
     },
+    ...getImapClientTimeouts(),
     logger: false,
   });
 
@@ -2505,15 +2568,7 @@ async function processAutoReplies(params: {
     }
   }
 
-  const transporter = nodemailer.createTransport({
-    host: smtp.host,
-    port: smtp.port,
-    secure: smtp.secure,
-    auth: {
-      user: smtp.user,
-      pass: smtp.password,
-    },
-  });
+  const transporter = createSmtpTransport(smtp);
 
   for (const entry of metadataEntries) {
     const replyType: MessagingAutoReplyType = vacationActive
@@ -3997,15 +4052,7 @@ export async function sendEmailMessageForUser(
     );
   }
 
-  const transporter = nodemailer.createTransport({
-    host: credentials.smtp.host,
-    port: credentials.smtp.port,
-    secure: credentials.smtp.secure,
-    auth: {
-      user: credentials.smtp.user,
-      pass: credentials.smtp.password,
-    },
-  });
+  const transporter = createSmtpTransport(credentials.smtp);
 
   const fromAddress = credentials.smtp.fromEmail ?? credentials.smtp.user;
   const messageDomain = fromAddress.includes("@")
@@ -4225,14 +4272,12 @@ export async function testImapConnection(
 export async function testSmtpConnection(
   config: SmtpConnectionConfig,
 ): Promise<void> {
-  const transporter = nodemailer.createTransport({
+  const transporter = createSmtpTransport({
     host: ensureNonEmpty(config.host, "Serveur SMTP"),
     port: ensurePort(config.port, "SMTP"),
     secure: config.secure,
-    auth: {
-      user: ensureNonEmpty(config.user, "Identifiant SMTP"),
-      pass: ensureNonEmpty(config.password, "Mot de passe SMTP"),
-    },
+    user: ensureNonEmpty(config.user, "Identifiant SMTP"),
+    password: ensureNonEmpty(config.password, "Mot de passe SMTP"),
   });
 
   try {

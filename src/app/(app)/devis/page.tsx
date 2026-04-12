@@ -15,7 +15,6 @@ import { Button } from "@/components/ui/button";
 import { QuoteStatus } from "@/lib/db/prisma";
 import { QuotesPageSkeleton } from "@/components/skeletons";
 import { ExportButton } from "@/components/export-button";
-import { Alert } from "@/components/ui/alert";
 import {
   FlashMessages,
   type FlashMessage,
@@ -238,7 +237,9 @@ async function DevisPageContent({
             Export CSV
           </ExportButton>
           <Button asChild>
-            <Link href="/devis/nouveau">Nouveau devis</Link>
+            <Link href="/devis/nouveau" prefetch={false}>
+              Nouveau devis
+            </Link>
           </Button>
         </div>
       </div>
@@ -409,6 +410,7 @@ function QuotePaginationLink({
   return (
     <Link
       href={`/devis?${params.toString()}`}
+      prefetch={false}
       className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-800"
     >
       {label}

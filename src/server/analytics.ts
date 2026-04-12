@@ -4,17 +4,13 @@ import { requireUser } from "@/lib/auth";
 import { endOfMonth, startOfMonth, subMonths } from "date-fns";
 import { formatInTimeZone, fromZonedTime, toZonedTime } from "date-fns-tz";
 import { invoiceStatsTag } from "@/server/invoices";
-import { Prisma, type InvoiceStatus } from "@/lib/db/prisma-server";
+import { Prisma } from "@/lib/db/prisma-server";
+import { shouldUseServerDataCache } from "@/lib/server-data-cache";
 
 const TUNIS_TIMEZONE = "Africa/Tunis";
 const DASHBOARD_REVALIDATE_SECONDS = 30;
 const REVENUE_HISTORY_MONTHS = 6;
-const REVENUE_STATUSES: InvoiceStatus[] = [
-  "PAYEE",
-  "PARTIELLE",
-  "ENVOYEE",
-  "RETARD",
-];
+const SHOULD_USE_DASHBOARD_CACHE = shouldUseServerDataCache();
 const ALL_CURRENCY_KEY = "__ALL__";
 const RECENT_ITEMS_LIMIT = 5;
 
@@ -62,6 +58,10 @@ export async function getDashboardPayload(currency?: string) {
   const user = await requireUser();
   const tenantId = resolveTenantId(user);
   const currencyKey = currency ?? ALL_CURRENCY_KEY;
+
+  if (!SHOULD_USE_DASHBOARD_CACHE) {
+    return computeDashboardPayload(tenantId, currency);
+  }
 
   const cached = unstable_cache(
     async () => computeDashboardPayload(tenantId, currency),

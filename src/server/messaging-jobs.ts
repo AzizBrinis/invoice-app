@@ -221,16 +221,17 @@ const defaultMessagingJobsRuntime: MessagingJobsRuntime = {
     }));
   },
   async findUsersWithLocalSyncData() {
-    const [stateUsers, messageUsers] = await Promise.all([
-      prisma.messagingMailboxLocalSyncState.findMany({
-        select: { userId: true },
-        distinct: ["userId"],
-      }),
-      prisma.messagingLocalMessage.findMany({
-        select: { userId: true },
-        distinct: ["userId"],
-      }),
-    ]);
+    // The serverless runtime uses a single pooled Postgres connection. Keep
+    // these maintenance scans sequential so cron scheduling cannot block while
+    // waiting for a second connection from the pooler.
+    const stateUsers = await prisma.messagingMailboxLocalSyncState.findMany({
+      select: { userId: true },
+      distinct: ["userId"],
+    });
+    const messageUsers = await prisma.messagingLocalMessage.findMany({
+      select: { userId: true },
+      distinct: ["userId"],
+    });
 
     return Array.from(
       new Set([

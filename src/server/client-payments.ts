@@ -11,6 +11,7 @@ import type { PaymentServicePickerOption } from "@/lib/client-payment-picker-typ
 import { getClientTenantId } from "@/server/clients";
 import { getSettings } from "@/server/settings";
 import { nextReceiptNumber } from "@/server/sequences";
+import { shouldUseServerDataCache } from "@/lib/server-data-cache";
 
 const TUNIS_TIMEZONE = "Africa/Tunis";
 const RECENT_PAYMENTS_LIMIT = 5;
@@ -19,7 +20,7 @@ const MAX_PAYMENT_PAGE_SIZE = 100;
 const DEFAULT_SERVICE_PAGE_SIZE = 12;
 const MAX_SERVICE_PAGE_SIZE = 50;
 const CLIENT_PAYMENT_CACHE_REVALIDATE_SECONDS = 30;
-const isTestEnv = process.env.NODE_ENV === "test";
+const SHOULD_USE_CLIENT_PAYMENT_CACHE = shouldUseServerDataCache();
 
 const clientServiceSchema = z.object({
   id: z.string().optional(),
@@ -284,7 +285,7 @@ export const clientPaymentDetailTag = (tenantId: string, paymentId: string) =>
   `client-payments:detail:${tenantId}:${paymentId}`;
 
 export function revalidatePaymentServiceCatalog(tenantId: string) {
-  if (isTestEnv) {
+  if (!SHOULD_USE_CLIENT_PAYMENT_CACHE) {
     return;
   }
 
@@ -299,7 +300,7 @@ export function revalidateClientPaymentData(
     includeDashboard?: boolean;
   } = {},
 ) {
-  if (isTestEnv) {
+  if (!SHOULD_USE_CLIENT_PAYMENT_CACHE) {
     return;
   }
 
@@ -709,7 +710,7 @@ export async function getClientPayment(paymentId: string, userId?: string) {
   const tenantId = await resolveTenantId(userId);
   const runQuery = () => getClientPaymentById(paymentId, tenantId, prisma);
 
-  if (isTestEnv) {
+  if (!SHOULD_USE_CLIENT_PAYMENT_CACHE) {
     return runQuery();
   }
 
@@ -754,7 +755,7 @@ export async function listPaymentServices(
       select: paymentServiceSelect,
     });
 
-  if (isTestEnv) {
+  if (!SHOULD_USE_CLIENT_PAYMENT_CACHE) {
     return runQuery();
   }
 
@@ -797,7 +798,7 @@ export async function searchPaymentServicePickerOptions(
       select: paymentServicePickerSelect,
     });
 
-  if (isTestEnv) {
+  if (!SHOULD_USE_CLIENT_PAYMENT_CACHE) {
     return runQuery();
   }
 
@@ -881,7 +882,7 @@ export async function listPaymentServicesPage(
     };
   };
 
-  if (isTestEnv) {
+  if (!SHOULD_USE_CLIENT_PAYMENT_CACHE) {
     return runQuery();
   }
 
@@ -1140,7 +1141,7 @@ export async function listClientPaymentsPage(
     };
   };
 
-  if (isTestEnv) {
+  if (!SHOULD_USE_CLIENT_PAYMENT_CACHE) {
     return runQuery();
   }
 
@@ -1534,7 +1535,7 @@ export async function getClientPaymentPeriodSummary(
     };
   };
 
-  if (isTestEnv) {
+  if (!SHOULD_USE_CLIENT_PAYMENT_CACHE) {
     return runQuery();
   }
 
@@ -1629,7 +1630,7 @@ export async function getClientPaymentDashboardSummary(
     };
   };
 
-  if (isTestEnv) {
+  if (!SHOULD_USE_CLIENT_PAYMENT_CACHE) {
     return runQuery();
   }
 

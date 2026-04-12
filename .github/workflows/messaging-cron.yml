@@ -5,10 +5,14 @@ on:
     - cron: '*/5 * * * *'
   workflow_dispatch:
 
+concurrency:
+  group: messaging-email-automation
+  cancel-in-progress: false
+
 jobs:
   ping-cron-endpoint:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - name: Call messaging email cron endpoint
         env:
@@ -40,6 +44,8 @@ jobs:
           response_file="$(mktemp)"
           http_status=""
           if ! http_status="$(curl --silent --show-error --location --max-redirs 3 \
+            --connect-timeout 15 \
+            --max-time 240 \
             --write-out "%{http_code}" \
             --output "$response_file" \
             -X POST \

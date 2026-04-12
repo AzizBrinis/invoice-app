@@ -358,6 +358,7 @@ function QuoteActions({
             pathname: `/devis/${quote.id}/modifier`,
             ...(preservedQuery ? { query: preservedQuery } : {}),
           }}
+          prefetch={false}
         >
           Éditer
         </Link>
@@ -387,13 +388,13 @@ function QuoteActions({
           layout === "card" ? "justify-center" : "",
         )}
       >
-        <Link
+        <a
           href={`/api/devis/${quote.id}/pdf`}
           target="_blank"
           rel="noreferrer noopener"
         >
           PDF
-        </Link>
+        </a>
       </Button>
       <form
         action={convertAction.bind(null, quote.id)}

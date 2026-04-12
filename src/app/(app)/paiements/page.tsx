@@ -149,7 +149,9 @@ export default async function PaymentsPage({
             Export Excel
           </ExportButton>
           <Button asChild variant="ghost">
-            <PrefetchLink href="/clients">Voir les clients</PrefetchLink>
+            <PrefetchLink href="/clients" prefetch={false}>
+              Voir les clients
+            </PrefetchLink>
           </Button>
         </div>
       </div>
@@ -210,7 +212,9 @@ export default async function PaymentsPage({
           </Button>
           {filters.search || filters.clientId || filters.dateFromValue || filters.dateToValue ? (
             <Button asChild variant="ghost">
-              <PrefetchLink href={resetHref}>Réinitialiser</PrefetchLink>
+              <PrefetchLink href={resetHref} prefetch={false}>
+                Réinitialiser
+              </PrefetchLink>
             </Button>
           ) : null}
         </div>

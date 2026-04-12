@@ -14,7 +14,6 @@ import {
 } from "@/lib/messaging/placeholders";
 import { DEFAULT_SAVED_RESPONSES } from "@/lib/messaging/default-responses";
 import {
-  sendEmailMessage,
   sendEmailMessageForUser,
   getMessagingSettingsSummary,
   type EmailAttachment,
@@ -436,7 +435,7 @@ export async function sendQuoteEmail(params: {
     },
   ];
 
-  await sendEmailMessage({
+  await sendEmailMessageForUser(userId, {
     to: [params.to],
     subject,
     text: textBody,
@@ -544,7 +543,7 @@ export async function sendInvoiceEmail(params: {
     },
   ];
 
-  await sendEmailMessage({
+  await sendEmailMessageForUser(userId, {
     to: [params.to],
     subject,
     text: textBody,

@@ -8,7 +8,6 @@ import {
   useTransition,
   type FormEvent,
 } from "react";
-import Link from "next/link";
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -380,7 +379,9 @@ export function PaymentsWorkspaceShell(props: PaymentsWorkspaceShellProps) {
                 </>
               ) : null}
               <Button asChild variant="ghost">
-                <PrefetchLink href="/services">Catalogue des services</PrefetchLink>
+                <PrefetchLink href="/services" prefetch={false}>
+                  Catalogue des services
+                </PrefetchLink>
               </Button>
             </div>
           </div>
@@ -557,7 +558,10 @@ export function PaymentsWorkspaceShell(props: PaymentsWorkspaceShellProps) {
           </div>
           {props.filters.clientId && props.selectedClient ? (
             <Button asChild variant="ghost">
-              <PrefetchLink href={`/clients/${props.selectedClient.id}` as Route}>
+              <PrefetchLink
+                href={`/clients/${props.selectedClient.id}` as Route}
+                prefetch={false}
+              >
                 Ouvrir le client
               </PrefetchLink>
             </Button>
@@ -632,7 +636,9 @@ export function PaymentsWorkspaceShell(props: PaymentsWorkspaceShellProps) {
                   <div className="flex flex-col gap-2 sm:flex-row">
                     {isPaymentReady ? (
                       <Button asChild>
-                        <PrefetchLink href={paymentDetailHref}>Details</PrefetchLink>
+                        <PrefetchLink href={paymentDetailHref} prefetch={false}>
+                          Details
+                        </PrefetchLink>
                       </Button>
                     ) : (
                       <Button type="button" disabled>
@@ -642,12 +648,13 @@ export function PaymentsWorkspaceShell(props: PaymentsWorkspaceShellProps) {
                     {props.canManageReceipts ? (
                       isPaymentReady ? (
                         <Button asChild variant="ghost">
-                          <Link
+                          <a
                             href={`/api/clients/payments/${payment.id}/receipt` as Route}
                             target="_blank"
+                            rel="noreferrer noopener"
                           >
                             Recu PDF
-                          </Link>
+                          </a>
                         </Button>
                       ) : (
                         <Button type="button" variant="ghost" disabled>

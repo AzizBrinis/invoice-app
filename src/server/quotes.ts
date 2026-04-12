@@ -15,6 +15,7 @@ import {
   normalizeTaxConfiguration,
   type TaxConfiguration,
 } from "@/lib/taxes";
+import { shouldUseServerDataCache } from "@/lib/server-data-cache";
 
 const quoteLineInputSchema = z.object({
   id: z.string().optional(),
@@ -82,7 +83,7 @@ export type QuoteFilters = {
 const DEFAULT_PAGE_SIZE = 10;
 const QUOTE_LIST_REVALIDATE_SECONDS = 30;
 const QUOTE_FORM_CACHE_SECONDS = 60;
-const isTestEnv = process.env.NODE_ENV === "test";
+const SHOULD_USE_QUOTE_CACHE = shouldUseServerDataCache();
 
 const QUOTE_SORT_CONFIG = {
   "issue-desc": [
@@ -188,14 +189,14 @@ function deserializeFilters(filters: NormalizedQuoteFilters): QuoteFilters {
 }
 
 function revalidateQuotes(userId: string) {
-  if (isTestEnv) {
+  if (!SHOULD_USE_QUOTE_CACHE) {
     return;
   }
   revalidateTag(quoteListTag(userId), "max");
 }
 
 export function revalidateQuoteFilterClients(userId: string) {
-  if (isTestEnv) {
+  if (!SHOULD_USE_QUOTE_CACHE) {
     return;
   }
   revalidateTag(quoteFilterClientsTag(userId), "max");
@@ -209,7 +210,7 @@ export async function getQuoteFilterClients(userId: string) {
       select: quoteFilterClientsSelect,
     });
 
-  if (isTestEnv) {
+  if (!SHOULD_USE_QUOTE_CACHE) {
     return runQuery();
   }
 
@@ -239,7 +240,7 @@ export async function getQuoteFormProducts(userId: string) {
       select: quoteProductSelect,
     });
 
-  if (isTestEnv) {
+  if (!SHOULD_USE_QUOTE_CACHE) {
     return runQuery();
   }
 
@@ -292,7 +293,7 @@ export async function searchQuoteProducts(
 export async function getQuoteFormSettings(userId: string) {
   const runQuery = () => getSettings(userId);
 
-  if (isTestEnv) {
+  if (!SHOULD_USE_QUOTE_CACHE) {
     return runQuery();
   }
 
@@ -427,7 +428,7 @@ export async function listQuotes(filters: QuoteFilters = {}, userId?: string) {
   const resolvedUserId = userId ?? (await requireUser()).id;
   const normalizedFilters = normalizeQuoteFilters(filters);
 
-  if (isTestEnv) {
+  if (!SHOULD_USE_QUOTE_CACHE) {
     return fetchQuotesFromDb(resolvedUserId, normalizedFilters);
   }
 

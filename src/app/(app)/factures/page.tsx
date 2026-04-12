@@ -207,7 +207,9 @@ async function FacturesPageContent({
             Export paiements
           </ExportButton>
           <Button asChild>
-            <Link href="/factures/nouveau">Nouvelle facture</Link>
+            <Link href="/factures/nouveau" prefetch={false}>
+              Nouvelle facture
+            </Link>
           </Button>
         </div>
       </div>
@@ -318,23 +320,34 @@ async function FacturesPageContent({
                       variant="secondary"
                       className="px-2 py-1 text-xs"
                     >
-                      <Link href={`/factures/${invoice.id}`}>Détails</Link>
+                      <Link href={`/factures/${invoice.id}`} prefetch={false}>
+                        Détails
+                      </Link>
                     </Button>
                     <Button
                       asChild
                       variant="secondary"
                       className="px-2 py-1 text-xs"
                     >
-                      <Link href={`/factures/${invoice.id}/modifier`}>Éditer</Link>
+                      <Link
+                        href={`/factures/${invoice.id}/modifier`}
+                        prefetch={false}
+                      >
+                        Éditer
+                      </Link>
                     </Button>
                     <Button
                       asChild
                       variant="ghost"
                       className="px-2 py-1 text-xs text-blue-600 dark:text-blue-400"
                     >
-                      <Link href={`/api/factures/${invoice.id}/pdf`} target="_blank">
+                      <a
+                        href={`/api/factures/${invoice.id}/pdf`}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                      >
                         PDF
-                      </Link>
+                      </a>
                     </Button>
                     <form action={changeInvoiceStatusAction.bind(null, invoice.id, InvoiceStatus.PAYEE)}>
                     <FormSubmitButton
@@ -420,23 +433,34 @@ async function FacturesPageContent({
                 variant="secondary"
                 className="w-full min-[520px]:w-auto justify-center text-sm"
               >
-                <Link href={`/factures/${invoice.id}`}>Détails</Link>
+                <Link href={`/factures/${invoice.id}`} prefetch={false}>
+                  Détails
+                </Link>
               </Button>
               <Button
                 asChild
                 variant="secondary"
                 className="w-full min-[520px]:w-auto justify-center text-sm"
               >
-                <Link href={`/factures/${invoice.id}/modifier`}>Éditer</Link>
+                <Link
+                  href={`/factures/${invoice.id}/modifier`}
+                  prefetch={false}
+                >
+                  Éditer
+                </Link>
               </Button>
               <Button
                 asChild
                 variant="ghost"
                 className="w-full min-[520px]:w-auto justify-center text-sm text-blue-600 dark:text-blue-400"
               >
-                <Link href={`/api/factures/${invoice.id}/pdf`} target="_blank">
+                <a
+                  href={`/api/factures/${invoice.id}/pdf`}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                >
                   PDF
-                </Link>
+                </a>
               </Button>
             </div>
             <div className="flex flex-col gap-2 min-[520px]:flex-row">
@@ -609,6 +633,7 @@ function InvoicePaginationLink({
   return (
     <Link
       href={`/factures?${params.toString()}`}
+      prefetch={false}
       className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-100 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-800"
     >
       {label}

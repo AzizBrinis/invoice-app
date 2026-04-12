@@ -6,6 +6,9 @@ import { parseClientPaymentFilters } from "@/lib/client-payment-filters";
 import { getClientTenantId } from "@/server/clients";
 import { generateClientPaymentsReportPdfForUser } from "@/server/pdf";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 export async function GET(request: Request) {
   try {
     const user = await getCurrentUser();
@@ -34,6 +37,7 @@ export async function GET(request: Request) {
         "Content-Type": "application/pdf",
         "Content-Disposition":
           'attachment; filename="rapport-paiements-clients.pdf"',
+        "Cache-Control": "no-store",
       },
     });
   } catch (error) {

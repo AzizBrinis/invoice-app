@@ -203,16 +203,22 @@ export default async function FactureDetailPage({
             variant="secondary"
             className="w-full justify-center sm:w-auto"
           >
-            <Link href={`/factures/${invoice.id}/modifier`}>Modifier</Link>
+            <Link href={`/factures/${invoice.id}/modifier`} prefetch={false}>
+              Modifier
+            </Link>
           </Button>
           <Button
             asChild
             variant="ghost"
             className="w-full justify-center text-blue-600 dark:text-blue-400 sm:w-auto"
           >
-            <Link href={`/api/factures/${invoice.id}/pdf`} target="_blank">
+            <a
+              href={`/api/factures/${invoice.id}/pdf`}
+              target="_blank"
+              rel="noreferrer noopener"
+            >
               Télécharger PDF
-            </Link>
+            </a>
           </Button>
         </div>
       </div>

@@ -7,6 +7,9 @@ import { AuthorizationError } from "@/lib/errors";
 type PageParams = { id: string };
 type RouteContext = { params: Promise<PageParams> };
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 export async function GET(
   _request: Request,
   { params }: RouteContext,
@@ -29,6 +32,7 @@ export async function GET(
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `inline; filename="devis-${resolvedParams.id}.pdf"`,
+        "Cache-Control": "no-store",
       },
     });
   } catch (error) {

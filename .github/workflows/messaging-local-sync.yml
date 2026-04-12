@@ -44,6 +44,8 @@ jobs:
           response_file="$(mktemp)"
           http_status=""
           if ! http_status="$(curl --silent --show-error --location --max-redirs 3 \
+            --connect-timeout 15 \
+            --max-time 240 \
             --write-out "%{http_code}" \
             --output "$response_file" \
             -X POST \

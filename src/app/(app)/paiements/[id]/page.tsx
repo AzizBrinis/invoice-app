@@ -1,4 +1,3 @@
-import Link from "next/link";
 import nextDynamic from "next/dynamic";
 import type { Route } from "next";
 import { notFound } from "next/navigation";
@@ -103,6 +102,7 @@ export default async function PaymentDetailPage({
         <div className="space-y-3">
           <PrefetchLink
             href={listHref}
+            prefetch={false}
             className="inline-flex text-sm font-medium text-blue-600 hover:underline dark:text-blue-400"
           >
             Retour aux paiements
@@ -135,18 +135,22 @@ export default async function PaymentDetailPage({
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap lg:justify-end">
           <Button asChild variant="secondary">
-            <PrefetchLink href={`/clients/${payment.client.id}` as Route}>
+            <PrefetchLink
+              href={`/clients/${payment.client.id}` as Route}
+              prefetch={false}
+            >
               Dossier client
             </PrefetchLink>
           </Button>
           {canManageReceipts ? (
             <Button asChild variant="ghost">
-              <Link
+              <a
                 href={`/api/clients/payments/${payment.id}/receipt` as Route}
                 target="_blank"
+                rel="noreferrer noopener"
               >
                 Télécharger le reçu
-              </Link>
+              </a>
             </Button>
           ) : null}
         </div>
@@ -264,7 +268,10 @@ export default async function PaymentDetailPage({
               </p>
               <div className="mt-4">
                 <Button asChild variant="secondary">
-                  <PrefetchLink href={`/clients/${payment.client.id}` as Route}>
+                  <PrefetchLink
+                    href={`/clients/${payment.client.id}` as Route}
+                    prefetch={false}
+                  >
                     Ouvrir le client
                   </PrefetchLink>
                 </Button>
@@ -332,12 +339,13 @@ export default async function PaymentDetailPage({
 
               <div className="flex flex-wrap gap-2">
                 <Button asChild variant="secondary">
-                  <Link
+                  <a
                     href={`/api/clients/payments/${payment.id}/receipt` as Route}
                     target="_blank"
+                    rel="noreferrer noopener"
                   >
                     Télécharger le reçu
-                  </Link>
+                  </a>
                 </Button>
               </div>
 

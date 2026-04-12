@@ -20,7 +20,9 @@ Le build ne modifie jamais le schéma de base de données. Toute évolution SQL 
 | `DB_APPLICATION_NAME` | (Optionnel) Nom injecté dans la connexion PostgreSQL pour l’observabilité côté Supabase. |
 | `SESSION_COOKIE_SECRET`, `EMAIL_TRACKING_SECRET` | Longs secrets aléatoires. |
 | `SESSION_COOKIE_NAME`, `SESSION_DURATION_HOURS` | Valeurs conformes à votre politique de session. |
-| `SMTP_*` | Paramètres SMTP (production ≠ développement). |
+| `SMTP_*` | Paramètres SMTP (production ≠ développement). Les timeouts `SMTP_CONNECTION_TIMEOUT_MS`, `SMTP_GREETING_TIMEOUT_MS` et `SMTP_SOCKET_TIMEOUT_MS` bornent les jobs Cron. |
+| `MESSAGING_LOCAL_SYNC_SERVER_ENABLED` | Active la synchronisation locale IMAP côté serveur (`true` par défaut). |
+| `IMAP_CONNECTION_TIMEOUT_MS`, `IMAP_GREETING_TIMEOUT_MS`, `IMAP_SOCKET_TIMEOUT_MS` | Timeouts IMAP utilisés par la boîte mail et la synchronisation locale. |
 | `APP_URL`, `NEXT_PUBLIC_APP_URL` | URL publique principale (ex. `https://app.mondomaine.com`). |
 | `APP_HOSTNAMES` | Liste des hostnames autorisés pour l’interface (séparés par des virgules). |
 | `CATALOG_EDGE_DOMAIN` | Cible CNAME utilisée pour les domaines personnalisés du site/catalogue. |
@@ -52,7 +54,8 @@ Configuration recommandée :
 
 ### Planification Messagerie
 
-- Le workflow `.github/workflows/messaging-cron.yml` s’exécute toutes les 5 minutes et déclenche un `POST` sur `/api/cron/messaging`.
+- Le workflow `.github/workflows/messaging-cron.yml` s’exécute toutes les 5 minutes et déclenche un `POST` sur `/api/cron/messaging?scope=email`.
+- Le workflow `.github/workflows/messaging-local-sync.yml` s’exécute toutes les 5 minutes et déclenche un `POST` sur `/api/cron/messaging?scope=local-sync`.
 - Dans votre dépôt GitHub, ajoutez :
   - `CRON_ENDPOINT` → `https://votre-app.vercel.app/api/cron/messaging`
   - `CRON_SECRET_TOKEN` → même valeur que sur Vercel

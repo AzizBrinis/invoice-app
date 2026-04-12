@@ -73,15 +73,16 @@ Vitest n’utilise plus la base production : créez une base PostgreSQL locale (
 
 Le fichier `tests/setup-test-env.ts` charge automatiquement `.env.test` et redirige toutes les connexions vers la base déclarée. Sans `TEST_DATABASE_URL`, la suite échoue immédiatement pour éviter toute connexion accidentelle à la production.
 
-#### Messagerie toujours active (auto-réponses + envois planifiés)
+#### Messagerie toujours active (auto-réponses + envois planifiés + sync locale)
 
-Les réponses automatiques (SLA 24h et mode vacances) et les e-mails planifiés passent désormais par une file de jobs persistante (`BackgroundJob`). Le workflow GitHub Actions `.github/workflows/messaging-cron.yml` (gratuit) appelle `/api/cron/messaging` toutes les 5 minutes, ce qui :
+Les réponses automatiques (SLA 24h et mode vacances), les e-mails planifiés et la synchronisation locale IMAP passent par une file de jobs persistante (`BackgroundJob`). Deux workflows GitHub Actions gratuits appellent `/api/cron/messaging` toutes les 5 minutes :
 
-- alimente la file (`messaging.dispatchScheduledEmails`, `messaging.syncInboxAutoReplies`);
+- `.github/workflows/messaging-cron.yml` avec `scope=email` alimente les jobs `messaging.dispatchScheduledEmails`, `messaging.syncInboxAutoReplies` et les envois de documents;
+- `.github/workflows/messaging-local-sync.yml` avec `scope=local-sync` alimente les jobs `messaging.localSync*`;
 - exécute les jobs en appliquant l’exponential backoff + la déduplication (un job par utilisateur et par créneau);
 - expose les métriques via `/api/jobs/metrics` (voir Observability ci-dessous).
 
-En local, aucun Cron externe n’existe : appelez simplement `curl http://localhost:3000/api/cron/messaging` pendant que `npm run dev` tourne (le token n’est pas requis si `CRON_SECRET_TOKEN` n’est pas défini). En production, définissez `CRON_SECRET_TOKEN`, exposez `CRON_ENDPOINT=https://invoice-app.../api/cron/messaging` en secret GitHub et laissez GitHub Actions (ou n’importe quel scheduler HTTP gratuit, type UptimeRobot) frapper l’URL avec `Authorization: Bearer <token>`.
+En local, aucun Cron externe n’existe : appelez simplement `curl "http://localhost:3000/api/cron/messaging?scope=email"` ou `curl "http://localhost:3000/api/cron/messaging?scope=local-sync"` pendant que `npm run dev` tourne (le token n’est pas requis si `CRON_SECRET_TOKEN` n’est pas défini). En production, définissez `CRON_SECRET_TOKEN`, exposez `CRON_ENDPOINT=https://invoice-app.../api/cron/messaging` en secret GitHub et laissez les workflows GitHub Actions frapper l’URL avec `Authorization: Bearer <token>`.
 
 #### Observabilité & alertes jobs
 

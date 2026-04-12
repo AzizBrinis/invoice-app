@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import chromium from "@sparticuz/chromium";
-import puppeteer, { type Browser, type Viewport } from "puppeteer";
+import puppeteer, { type Browser, type Page, type Viewport } from "puppeteer";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { getSettings } from "@/server/settings";
@@ -75,6 +75,9 @@ let browserPromise: Promise<Browser> | null = null;
 let cachedCss: string | null = null;
 
 const basePuppeteerArgs = ["--allow-file-access-from-files"];
+const PDF_CONTENT_TIMEOUT_MS = 15_000;
+const PDF_ASSET_SETTLE_TIMEOUT_MS = 5_000;
+const PDF_PRINT_TIMEOUT_MS = 45_000;
 const serverlessViewport: Viewport = {
   width: 1920,
   height: 1080,
@@ -164,20 +167,88 @@ async function renderPdfFromHtml(
 ) {
   const browser = await getBrowser();
   const page = await browser.newPage();
-  await page.setContent(html, { waitUntil: "networkidle0" });
-  const pdfBuffer = await page.pdf({
-    format: "A4",
-    landscape: options.landscape ?? false,
-    printBackground: true,
-    margin: {
-      top: "0",
-      right: "0",
-      bottom: "0",
-      left: "0",
-    },
-  });
-  await page.close();
-  return Buffer.from(pdfBuffer);
+  try {
+    page.setDefaultTimeout(PDF_CONTENT_TIMEOUT_MS);
+    page.setDefaultNavigationTimeout(PDF_CONTENT_TIMEOUT_MS);
+    await page.setContent(html, {
+      waitUntil: "domcontentloaded",
+      timeout: PDF_CONTENT_TIMEOUT_MS,
+    });
+    await settlePdfAssets(page);
+    const pdfBuffer = await withTimeout(
+      page.pdf({
+        format: "A4",
+        landscape: options.landscape ?? false,
+        printBackground: true,
+        margin: {
+          top: "0",
+          right: "0",
+          bottom: "0",
+          left: "0",
+        },
+      }),
+      PDF_PRINT_TIMEOUT_MS,
+      "PDF rendering timed out",
+    );
+    return Buffer.from(pdfBuffer);
+  } finally {
+    await page.close().catch(() => undefined);
+  }
+}
+
+async function settlePdfAssets(page: Page) {
+  await page.evaluate(async (timeoutMs) => {
+    const waitForTimeout = () =>
+      new Promise<void>((resolve) => {
+        window.setTimeout(resolve, timeoutMs);
+      });
+
+    const imageElements = Array.from(document.images);
+    await Promise.race([
+      Promise.all(
+        imageElements.map((image) => {
+          if (image.complete) {
+            return Promise.resolve();
+          }
+          return new Promise<void>((resolve) => {
+            image.addEventListener("load", () => resolve(), { once: true });
+            image.addEventListener("error", () => resolve(), { once: true });
+          });
+        }),
+      ),
+      waitForTimeout(),
+    ]);
+
+    for (const image of imageElements) {
+      if (!image.complete) {
+        image.removeAttribute("src");
+      }
+    }
+
+    if (document.fonts?.ready) {
+      await Promise.race([document.fonts.ready.then(() => undefined), waitForTimeout()]);
+    }
+  }, PDF_ASSET_SETTLE_TIMEOUT_MS);
+}
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  message: string,
+) {
+  let timeout: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
 }
 
 function getCssContent() {

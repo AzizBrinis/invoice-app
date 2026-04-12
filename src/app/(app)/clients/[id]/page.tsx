@@ -157,6 +157,7 @@ export default async function ClientPage({
         <div className="space-y-3">
           <PrefetchLink
             href="/clients"
+            prefetch={false}
             className="inline-flex text-sm font-medium text-blue-600 hover:underline dark:text-blue-400"
           >
             Retour aux clients
@@ -184,21 +185,29 @@ export default async function ClientPage({
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap lg:justify-end">
           {canManageClients ? (
             <Button asChild variant="secondary">
-              <PrefetchLink href={`/clients/${client.id}/modifier` as Route}>
+              <PrefetchLink
+                href={`/clients/${client.id}/modifier` as Route}
+                prefetch={false}
+              >
                 Modifier le client
               </PrefetchLink>
             </Button>
           ) : null}
           {canOpenPaymentsSection ? (
             <Button asChild variant="ghost">
-              <PrefetchLink href={`/paiements?client=${client.id}` as Route}>
+              <PrefetchLink
+                href={`/paiements?client=${client.id}` as Route}
+                prefetch={false}
+              >
                 Paiements du client
               </PrefetchLink>
             </Button>
           ) : null}
           {canOpenCollaboratorsSection ? (
             <Button asChild variant="ghost">
-              <PrefetchLink href="/collaborateurs">Collaborateurs</PrefetchLink>
+              <PrefetchLink href="/collaborateurs" prefetch={false}>
+                Collaborateurs
+              </PrefetchLink>
             </Button>
           ) : null}
         </div>
@@ -329,7 +338,10 @@ export default async function ClientPage({
                 </p>
                 <div className="mt-4">
                   <Button asChild variant="secondary">
-                    <PrefetchLink href={`/paiements?client=${client.id}` as Route}>
+                    <PrefetchLink
+                      href={`/paiements?client=${client.id}` as Route}
+                      prefetch={false}
+                    >
                       Ouvrir la section
                     </PrefetchLink>
                   </Button>
@@ -348,7 +360,9 @@ export default async function ClientPage({
                 </p>
                 <div className="mt-4">
                   <Button asChild variant="secondary">
-                    <PrefetchLink href="/services">Ouvrir le catalogue</PrefetchLink>
+                    <PrefetchLink href="/services" prefetch={false}>
+                      Ouvrir le catalogue
+                    </PrefetchLink>
                   </Button>
                 </div>
               </div>
@@ -365,7 +379,9 @@ export default async function ClientPage({
                 </p>
                 <div className="mt-4">
                   <Button asChild variant="secondary">
-                    <PrefetchLink href="/collaborateurs">Ouvrir la section</PrefetchLink>
+                    <PrefetchLink href="/collaborateurs" prefetch={false}>
+                      Ouvrir la section
+                    </PrefetchLink>
                   </Button>
                 </div>
               </div>
@@ -386,7 +402,10 @@ export default async function ClientPage({
           </div>
           {canOpenPaymentsSection ? (
             <Button asChild variant="secondary">
-              <PrefetchLink href={`/paiements?client=${client.id}` as Route}>
+              <PrefetchLink
+                href={`/paiements?client=${client.id}` as Route}
+                prefetch={false}
+              >
                 Gérer dans Paiements
               </PrefetchLink>
             </Button>

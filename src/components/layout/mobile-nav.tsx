@@ -206,6 +206,7 @@ export function MobileNav({ items }: { items: NavItem[] }) {
                           >
                             <PrefetchLink
                               href={item.href}
+                              prefetch={false}
                               onClick={closeDrawer}
                               className="flex flex-1 items-center gap-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-zinc-950"
                             >
@@ -257,6 +258,7 @@ export function MobileNav({ items }: { items: NavItem[] }) {
                                   <PrefetchLink
                                     key={child.href}
                                     href={child.href}
+                                    prefetch={false}
                                     onClick={closeDrawer}
                                     tabIndex={childTabIndex}
                                     className={clsx(

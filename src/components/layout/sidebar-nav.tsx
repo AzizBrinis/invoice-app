@@ -93,6 +93,7 @@ export function SidebarNav({ items }: { items: NavItem[] }) {
               >
                 <PrefetchLink
                   href={item.href}
+                  prefetch={false}
                   className="flex flex-1 items-center gap-3"
                 >
                   <Icon aria-hidden="true" className="h-4 w-4" />
@@ -137,6 +138,7 @@ export function SidebarNav({ items }: { items: NavItem[] }) {
                       <li key={child.href}>
                         <PrefetchLink
                           href={child.href}
+                          prefetch={false}
                           className={clsx(
                             "block rounded-md px-3 py-2 text-sm transition",
                             childActive

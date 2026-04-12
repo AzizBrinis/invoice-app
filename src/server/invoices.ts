@@ -18,6 +18,7 @@ import {
 } from "@/lib/db/prisma-server";
 import { z } from "zod";
 import { nextInvoiceNumber } from "@/server/sequences";
+import { shouldUseServerDataCache } from "@/lib/server-data-cache";
 
 const invoiceLineSchema = z.object({
   id: z.string().optional(),
@@ -86,7 +87,7 @@ export type InvoiceFilters = {
 const DEFAULT_PAGE_SIZE = 10;
 const MAX_PAGE_SIZE = 50;
 const INVOICE_CACHE_REVALIDATE_SECONDS = 45;
-const SHOULD_USE_INVOICE_CACHE = process.env.NODE_ENV !== "test";
+const SHOULD_USE_INVOICE_CACHE = shouldUseServerDataCache();
 
 export const invoiceListTag = (tenantId: string) =>
   `invoices:list:${tenantId}`;
