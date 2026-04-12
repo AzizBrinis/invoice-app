@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { requireUser } from "@/lib/auth";
+import { requireAppSectionAccess } from "@/lib/authorization";
 import {
   getQuote,
   getQuoteFilterClients,
   getQuoteFormSettings,
+  getQuoteTenantId,
 } from "@/server/quotes";
 import { QuoteEditor } from "@/app/(app)/devis/quote-editor";
 import { updateQuoteAction, sendQuoteEmailAction } from "@/app/(app)/devis/actions";
@@ -34,8 +35,11 @@ export default async function EditDevisPage({
   const resolvedParams = await params;
   const resolvedSearchParams: SearchParams = (await searchParams) ?? {};
 
-  const user = await requireUser();
-  const quote = await getQuote(resolvedParams.id, user.id);
+  const user = await requireAppSectionAccess("quotes", {
+    redirectOnFailure: true,
+  });
+  const tenantId = getQuoteTenantId(user);
+  const quote = await getQuote(resolvedParams.id, tenantId);
 
   if (!quote) {
     notFound();
@@ -63,9 +67,9 @@ export default async function EditDevisPage({
   }
 
   const [clients, settings, messagingSummary] = await Promise.all([
-    getQuoteFilterClients(user.id),
-    getQuoteFormSettings(user.id),
-    getMessagingSettingsSummary(user.id),
+    getQuoteFilterClients(tenantId),
+    getQuoteFormSettings(tenantId),
+    getMessagingSettingsSummary(tenantId),
   ]);
 
   const emailDisabled = !messagingSummary.smtpConfigured;

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireUser } from "@/lib/auth";
+import { requireAppSectionAccess } from "@/lib/authorization";
 import { QuoteEditor } from "@/app/(app)/devis/quote-editor";
 import { createQuoteAction } from "@/app/(app)/devis/actions";
 import { SUPPORTED_CURRENCIES, type CurrencyCode } from "@/lib/currency";
@@ -7,15 +7,19 @@ import { normalizeTaxConfiguration } from "@/lib/taxes";
 import {
   getQuoteFilterClients,
   getQuoteFormSettings,
+  getQuoteTenantId,
 } from "@/server/quotes";
 
 export const dynamic = "force-dynamic";
 
 export default async function NouveauDevisPage() {
-  const user = await requireUser();
+  const user = await requireAppSectionAccess("quotes", {
+    redirectOnFailure: true,
+  });
+  const tenantId = getQuoteTenantId(user);
   const [clients, settings] = await Promise.all([
-    getQuoteFilterClients(user.id),
-    getQuoteFormSettings(user.id),
+    getQuoteFilterClients(tenantId),
+    getQuoteFormSettings(tenantId),
   ]);
 
   return (

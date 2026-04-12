@@ -27,6 +27,7 @@ import {
   deleteClientPaymentAction,
   sendClientPaymentReceiptEmailAction,
 } from "@/app/(app)/paiements/actions";
+import { ReceiptPdfButton } from "@/app/(app)/paiements/_components/receipt-pdf-button";
 
 const DocumentEmailForm = nextDynamic(
   () =>
@@ -143,15 +144,11 @@ export default async function PaymentDetailPage({
             </PrefetchLink>
           </Button>
           {canManageReceipts ? (
-            <Button asChild variant="ghost">
-              <a
-                href={`/api/clients/payments/${payment.id}/receipt` as Route}
-                target="_blank"
-                rel="noreferrer noopener"
-              >
-                Télécharger le reçu
-              </a>
-            </Button>
+            <ReceiptPdfButton
+              paymentId={payment.id}
+              label="Télécharger le reçu"
+              variant="ghost"
+            />
           ) : null}
         </div>
       </section>
@@ -338,15 +335,11 @@ export default async function PaymentDetailPage({
               </div>
 
               <div className="flex flex-wrap gap-2">
-                <Button asChild variant="secondary">
-                  <a
-                    href={`/api/clients/payments/${payment.id}/receipt` as Route}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                  >
-                    Télécharger le reçu
-                  </a>
-                </Button>
+                <ReceiptPdfButton
+                  paymentId={payment.id}
+                  label="Télécharger le reçu"
+                  variant="secondary"
+                />
               </div>
 
               <DocumentEmailForm

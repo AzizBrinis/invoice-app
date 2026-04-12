@@ -50,6 +50,7 @@ import {
   AsyncClientPicker,
   PaymentServiceMultiPicker,
 } from "@/app/(app)/paiements/_components/async-payment-pickers";
+import { ReceiptPdfButton } from "@/app/(app)/paiements/_components/receipt-pdf-button";
 
 type PaymentsWorkspaceShellProps = {
   canManagePayments: boolean;
@@ -647,15 +648,11 @@ export function PaymentsWorkspaceShell(props: PaymentsWorkspaceShellProps) {
                     )}
                     {props.canManageReceipts ? (
                       isPaymentReady ? (
-                        <Button asChild variant="ghost">
-                          <a
-                            href={`/api/clients/payments/${payment.id}/receipt` as Route}
-                            target="_blank"
-                            rel="noreferrer noopener"
-                          >
-                            Recu PDF
-                          </a>
-                        </Button>
+                        <ReceiptPdfButton
+                          paymentId={payment.id}
+                          label="Recu PDF"
+                          variant="ghost"
+                        />
                       ) : (
                         <Button type="button" variant="ghost" disabled>
                           <PendingActionContent label="Recu PDF" />

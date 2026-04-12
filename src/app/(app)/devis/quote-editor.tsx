@@ -73,6 +73,7 @@ const STATUS_OPTIONS: Array<{ value: QuoteStatus; label: string }> = [
 ];
 
 const productCache = new Map<string, QuoteEditorProduct>();
+const PRODUCT_SEARCH_TIMEOUT_MS = 8000;
 
 function normalizeCurrencyCode(
   value: string | null | undefined,
@@ -1121,6 +1122,7 @@ function ProductSearchInput({
   const [options, setOptions] = useState<QuoteEditorProduct[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
   const fetchController = useRef<AbortController | null>(null);
   const fetchSeq = useRef(0);
@@ -1140,7 +1142,13 @@ function ProductSearchInput({
       fetchController.current = controller;
       fetchSeq.current += 1;
       const currentSeq = fetchSeq.current;
+      let timedOut = false;
+      const timeout = window.setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, PRODUCT_SEARCH_TIMEOUT_MS);
       setLoading(true);
+      setErrorMessage(null);
       try {
         const params = new URLSearchParams();
         if (term) {
@@ -1152,7 +1160,12 @@ function ProductSearchInput({
           signal: controller.signal,
         });
         if (!response.ok) {
-          throw new Error("Échec de la recherche produit");
+          const body = (await response.json().catch(() => null)) as {
+            message?: string;
+          } | null;
+          throw new Error(
+            body?.message ?? "Impossible de rechercher les produits.",
+          );
         }
         const data = (await response.json()) as { items?: QuoteEditorProduct[] };
         if (currentSeq === fetchSeq.current) {
@@ -1161,10 +1174,22 @@ function ProductSearchInput({
           setOptions(items);
         }
       } catch (error) {
-        if ((error as Error).name !== "AbortError") {
+        const isAbort = (error as Error).name === "AbortError";
+        if (currentSeq === fetchSeq.current && (!isAbort || timedOut)) {
+          setOptions([]);
+          setErrorMessage(
+            timedOut
+              ? "La recherche prend trop de temps. Réessayez dans un instant."
+              : error instanceof Error
+                ? error.message
+                : "Impossible de rechercher les produits.",
+          );
+        }
+        if (!isAbort) {
           console.error("[ProductSearchInput] fetch failed", error);
         }
       } finally {
+        window.clearTimeout(timeout);
         if (currentSeq === fetchSeq.current) {
           setLoading(false);
         }
@@ -1186,12 +1211,17 @@ function ProductSearchInput({
 
   useEffect(() => {
     if (!open) {
+      fetchController.current?.abort();
+      setLoading(false);
       return;
     }
     const handle = window.setTimeout(() => {
       fetchProducts(query);
     }, 250);
-    return () => window.clearTimeout(handle);
+    return () => {
+      window.clearTimeout(handle);
+      fetchController.current?.abort();
+    };
   }, [open, query, fetchProducts]);
 
   const updateDropdownRect = useCallback(() => {
@@ -1263,12 +1293,11 @@ function ProductSearchInput({
         }}
         onFocus={() => {
           setOpen(true);
-          if (!options.length) {
-            fetchProducts(query);
-          }
         }}
         placeholder="Rechercher un produit"
         autoComplete="off"
+        aria-busy={loading}
+        aria-describedby={`product-search-status-${lineKey}`}
       />
       {query ? (
         <button
@@ -1283,7 +1312,9 @@ function ProductSearchInput({
         ? createPortal(
             <div
               ref={dropdownRef}
+              id={`product-search-status-${lineKey}`}
               className="max-h-64 min-w-[220px] overflow-auto rounded-md border border-zinc-200 bg-white p-2 shadow-lg focus:outline-none dark:border-zinc-700 dark:bg-zinc-900"
+              role="listbox"
               style={{
                 position: "absolute",
                 top: dropdownRect.top,
@@ -1296,6 +1327,10 @@ function ProductSearchInput({
                 <div className="flex justify-center py-4">
                   <Spinner size="sm" label="Recherche..." />
                 </div>
+              ) : errorMessage ? (
+                <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-200">
+                  {errorMessage}
+                </div>
               ) : options.length > 0 ? (
                 <div className="space-y-1">
                   {options.map((product) => (
@@ -1303,6 +1338,8 @@ function ProductSearchInput({
                       key={product.id}
                       type="button"
                       className="w-full rounded-md px-2 py-1 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                      role="option"
+                      aria-selected={selectedProductId === product.id}
                       onClick={() => handleSelect(product)}
                     >
                       <div className="font-medium">{product.name}</div>
@@ -1314,7 +1351,9 @@ function ProductSearchInput({
                 </div>
               ) : (
                 <p className="px-2 py-3 text-center text-sm text-zinc-500 dark:text-zinc-400">
-                  Aucun produit trouvé.
+                  {query.trim()
+                    ? `Aucun produit trouvé pour "${query.trim()}".`
+                    : "Aucun produit actif disponible."}
                 </p>
               )}
               <div className="mt-2 border-t border-dashed border-zinc-200 pt-2 dark:border-zinc-700">

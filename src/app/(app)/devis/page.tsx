@@ -1,7 +1,12 @@
 import { Suspense } from "react";
 import Link from "next/link";
-import { requireUser } from "@/lib/auth";
-import { listQuotes, getQuoteFilterClients, DEFAULT_QUOTE_SORT } from "@/server/quotes";
+import { requireAppSectionAccess } from "@/lib/authorization";
+import {
+  listQuotes,
+  getQuoteFilterClients,
+  getQuoteTenantId,
+  DEFAULT_QUOTE_SORT,
+} from "@/server/quotes";
 import type { QuoteSort } from "@/server/quotes";
 import {
   changeQuoteStatusAction,
@@ -103,7 +108,10 @@ export default function DevisPage({
 async function DevisPageContent({
   searchParams,
 }: DevisPageProps) {
-  const user = await requireUser();
+  const user = await requireAppSectionAccess("quotes", {
+    redirectOnFailure: true,
+  });
+  const tenantId = getQuoteTenantId(user);
   const resolvedSearchParams: SearchParams = (await searchParams) ?? {};
 
   const search = Array.isArray(resolvedSearchParams?.recherche)
@@ -168,8 +176,8 @@ async function DevisPageContent({
       issueDateTo: issueToDate,
       page,
       sort: sortParam,
-    }, user.id),
-    getQuoteFilterClients(user.id),
+    }, tenantId),
+    getQuoteFilterClients(tenantId),
   ]);
 
   const searchQuery = new URLSearchParams();

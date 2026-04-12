@@ -3,7 +3,7 @@ import { AccountPermission } from "@/lib/db/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { ensureHasAccountPermission } from "@/lib/authorization";
 import { AuthorizationError } from "@/lib/errors";
-import { generateClientPaymentReceiptPdf } from "@/server/pdf";
+import { generateClientPaymentReceiptPdfFromSnapshot } from "@/server/pdf";
 import { getClientPaymentReceipt } from "@/server/client-payments";
 
 type PageParams = { id: string };
@@ -32,8 +32,12 @@ export async function GET(
     );
 
     const resolvedParams = await params;
-    const { snapshot } = await getClientPaymentReceipt(resolvedParams.id);
-    const buffer = await generateClientPaymentReceiptPdf(resolvedParams.id);
+    const tenantId = user.activeTenantId ?? user.tenantId ?? user.id;
+    const { snapshot } = await getClientPaymentReceipt(
+      resolvedParams.id,
+      tenantId,
+    );
+    const buffer = await generateClientPaymentReceiptPdfFromSnapshot(snapshot);
 
     return new NextResponse(buffer, {
       status: 200,
@@ -50,6 +54,7 @@ export async function GET(
         { status: 403 },
       );
     }
+    console.error("[client-payment-receipt] generation failed", error);
     return NextResponse.json(
       { message: (error as Error).message ?? "Erreur de génération du reçu" },
       { status: 500 },

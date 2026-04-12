@@ -1583,13 +1583,19 @@ export async function generateClientPaymentReceiptPdf(paymentId: string) {
   return generateClientPaymentReceiptPdfForUser(userId, paymentId);
 }
 
+export async function generateClientPaymentReceiptPdfFromSnapshot(
+  snapshot: ReceiptSnapshot,
+) {
+  const html = buildClientPaymentReceiptHtml(snapshot);
+  return renderPdfFromHtml(html);
+}
+
 export async function generateClientPaymentReceiptPdfForUser(
   userId: string,
   paymentId: string,
 ) {
   const { snapshot } = await getClientPaymentReceipt(paymentId, userId);
-  const html = buildClientPaymentReceiptHtml(snapshot);
-  return renderPdfFromHtml(html);
+  return generateClientPaymentReceiptPdfFromSnapshot(snapshot);
 }
 
 function getClientPaymentsReportCss() {

@@ -7,6 +7,8 @@ type NumberingOverrides = {
   resetAnnually?: boolean;
 };
 
+type SequenceDatabaseClient = Pick<typeof prisma, "numberingSequence">;
+
 function formatNumber(
   prefix: string,
   year: number,
@@ -24,6 +26,7 @@ async function nextNumber(
   type: "DEVIS" | "FACTURE" | "RECU",
   providedUserId?: string,
   overrides?: NumberingOverrides,
+  db?: SequenceDatabaseClient,
 ) {
   const userId = providedUserId ?? (await requireUser()).id;
 
@@ -47,8 +50,8 @@ async function nextNumber(
   const resolvedResetAnnually = Boolean(resetAnnually);
   const year = resolvedResetAnnually ? new Date().getFullYear() : 0;
 
-  const number = await prisma.$transaction(async (tx) => {
-    const existing = await tx.numberingSequence.findFirst({
+  const reserveNumber = async (sequenceDb: SequenceDatabaseClient) => {
+    const existing = await sequenceDb.numberingSequence.findFirst({
       where: {
         userId,
         type,
@@ -57,7 +60,7 @@ async function nextNumber(
     });
 
     if (!existing) {
-      const created = await tx.numberingSequence.create({
+      const created = await sequenceDb.numberingSequence.create({
         data: {
           userId,
           type,
@@ -75,7 +78,7 @@ async function nextNumber(
       );
     }
 
-    const updated = await tx.numberingSequence.update({
+    const updated = await sequenceDb.numberingSequence.update({
       where: { id: existing.id },
       data: {
         prefix: resolvedPrefix,
@@ -89,7 +92,11 @@ async function nextNumber(
       updated.counter,
       resolvedResetAnnually,
     );
-  });
+  };
+
+  const number = db
+    ? await reserveNumber(db)
+    : await prisma.$transaction((tx) => reserveNumber(tx));
 
   return number;
 }
@@ -137,4 +144,20 @@ export async function nextReceiptNumber(
     prefix: settings?.receiptNumberPrefix ?? "REC",
     resetAnnually: settings?.resetNumberingAnnually,
   });
+}
+
+export async function nextReceiptNumberWithDatabaseClient(
+  userId: string,
+  settings: ReceiptNumberingSettings,
+  db: SequenceDatabaseClient,
+) {
+  return nextNumber(
+    "RECU",
+    userId,
+    {
+      prefix: settings.receiptNumberPrefix ?? "REC",
+      resetAnnually: settings.resetNumberingAnnually,
+    },
+    db,
+  );
 }

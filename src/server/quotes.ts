@@ -2,6 +2,7 @@ import { unstable_cache, revalidateTag } from "next/cache";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { QuoteStatus, Prisma, InvoiceStatus } from "@/lib/db/prisma-server";
+import { executeStatement } from "@/lib/db/postgres";
 import { z } from "zod";
 import {
   calculateDocumentTotals,
@@ -10,6 +11,7 @@ import {
 } from "@/lib/documents";
 import { nextQuoteNumber, nextInvoiceNumber } from "@/server/sequences";
 import { getSettings } from "@/server/settings";
+import { getClientTenantId } from "@/server/clients";
 import {
   DEFAULT_TAX_CONFIGURATION,
   normalizeTaxConfiguration,
@@ -127,6 +129,25 @@ type NormalizedQuoteFilters = {
   pageSize: number;
   sort: QuoteSort;
 };
+
+type QuoteTenantAwareUser = {
+  id: string;
+  activeTenantId?: string | null;
+  tenantId?: string | null;
+};
+
+export function getQuoteTenantId(user: QuoteTenantAwareUser) {
+  return getClientTenantId(user);
+}
+
+async function resolveQuoteTenantId(providedUserId?: string) {
+  if (providedUserId) {
+    return providedUserId;
+  }
+
+  const user = await requireUser();
+  return getQuoteTenantId(user);
+}
 
 const quoteListTag = (userId: string) => `quotes:list:${userId}`;
 export const quoteFilterClientsTag = (userId: string) =>
@@ -266,28 +287,44 @@ export async function searchQuoteProducts(
   search?: string | null,
   take: number = 20,
 ) {
-  const limit = Math.min(50, Math.max(1, take));
+  const limit = Math.min(50, Math.max(1, Math.trunc(take) || 20));
   const query = search?.trim();
-  return prisma.product.findMany({
-    where: {
-      userId,
-      isActive: true,
-      ...(query
-        ? {
-            OR: [
-              { name: { contains: query, mode: "insensitive" } },
-              { sku: { contains: query, mode: "insensitive" } },
-            ],
-          }
-        : {}),
-    },
-    orderBy: [
-      { name: "asc" },
-      { id: "asc" },
-    ],
-    take: limit,
-    select: quoteProductSelect,
-  });
+
+  const values: unknown[] = [userId];
+  let searchClause = "";
+  let rankingSql = "";
+
+  if (query) {
+    values.push(`%${query}%`, `${query}%`);
+    searchClause = `AND ("name" ILIKE $2 OR "sku" ILIKE $2)`;
+    rankingSql = `CASE
+      WHEN "sku" ILIKE $3 THEN 0
+      WHEN "name" ILIKE $3 THEN 1
+      ELSE 2
+    END,`;
+  }
+
+  values.push(limit);
+  const limitPlaceholder = `$${values.length}`;
+  const rows = await executeStatement(
+    `SELECT
+      "id",
+      "name",
+      "priceHTCents",
+      "vatRate",
+      "unit",
+      "defaultDiscountRate",
+      "defaultDiscountAmountCents"
+    FROM public."Product"
+    WHERE "userId" = $1
+      AND "isActive" = TRUE
+      ${searchClause}
+    ORDER BY ${rankingSql} "name" ASC, "id" ASC
+    LIMIT ${limitPlaceholder}`,
+    values,
+  );
+
+  return rows as Array<Prisma.ProductGetPayload<{ select: typeof quoteProductSelect }>>;
 }
 
 export async function getQuoteFormSettings(userId: string) {
@@ -425,7 +462,7 @@ async function fetchQuotesFromDb(userId: string, filters: NormalizedQuoteFilters
 }
 
 export async function listQuotes(filters: QuoteFilters = {}, userId?: string) {
-  const resolvedUserId = userId ?? (await requireUser()).id;
+  const resolvedUserId = await resolveQuoteTenantId(userId);
   const normalizedFilters = normalizeQuoteFilters(filters);
 
   if (!SHOULD_USE_QUOTE_CACHE) {
@@ -570,7 +607,7 @@ function mapLineData(
 }
 
 export async function getQuote(id: string, providedUserId?: string) {
-  const userId = providedUserId ?? (await requireUser()).id;
+  const userId = await resolveQuoteTenantId(providedUserId);
 
   const baseQuotePromise = prisma.quote.findFirst({
     where: { id, userId },
@@ -598,7 +635,7 @@ export async function getQuote(id: string, providedUserId?: string) {
 }
 
 export async function createQuote(input: QuoteInput) {
-  const { id: userId } = await requireUser();
+  const userId = await resolveQuoteTenantId();
   return createQuoteForUser(userId, input);
 }
 
@@ -675,7 +712,7 @@ export async function createQuoteFromOrder(
   orderId: string,
   providedUserId?: string,
 ) {
-  const userId = providedUserId ?? (await requireUser()).id;
+  const userId = await resolveQuoteTenantId(providedUserId);
   const order = await prisma.order.findFirst({
     where: { id: orderId, userId },
     include: {
@@ -751,7 +788,7 @@ export async function createQuoteFromOrder(
 }
 
 export async function updateQuote(id: string, input: QuoteInput) {
-  const { id: userId } = await requireUser();
+  const userId = await resolveQuoteTenantId();
   const existing = await prisma.quote.findFirst({
     where: { id, userId },
   });
@@ -825,7 +862,7 @@ export async function updateQuote(id: string, input: QuoteInput) {
 }
 
 export async function changeQuoteStatus(id: string, status: QuoteStatus) {
-  const { id: userId } = await requireUser();
+  const userId = await resolveQuoteTenantId();
   const existing = await prisma.quote.findFirst({
     where: { id, userId },
   });
@@ -850,7 +887,7 @@ export async function changeQuotesStatusBulk(
   if (uniqueIds.length === 0) {
     return 0;
   }
-  const { id: userId } = await requireUser();
+  const userId = await resolveQuoteTenantId();
   const result = await prisma.quote.updateMany({
     where: {
       id: { in: uniqueIds },
@@ -863,7 +900,7 @@ export async function changeQuotesStatusBulk(
 }
 
 export async function deleteQuote(id: string) {
-  const { id: userId } = await requireUser();
+  const userId = await resolveQuoteTenantId();
   const existing = await prisma.quote.findFirst({
     where: { id, userId },
   });
@@ -883,7 +920,7 @@ export async function deleteQuotesBulk(ids: string[]) {
   if (uniqueIds.length === 0) {
     return 0;
   }
-  const { id: userId } = await requireUser();
+  const userId = await resolveQuoteTenantId();
   const result = await prisma.quote.deleteMany({
     where: {
       id: { in: uniqueIds },
@@ -895,7 +932,7 @@ export async function deleteQuotesBulk(ids: string[]) {
 }
 
 export async function duplicateQuote(id: string) {
-  const { id: userId } = await requireUser();
+  const userId = await resolveQuoteTenantId();
   const existing = await prisma.quote.findFirst({
     where: { id, userId },
     include: {
@@ -966,7 +1003,7 @@ export async function duplicateQuote(id: string) {
 }
 
 export async function convertQuoteToInvoice(id: string) {
-  const { id: userId } = await requireUser();
+  const userId = await resolveQuoteTenantId();
   return convertQuoteToInvoiceForUser(userId, id);
 }
 

@@ -13,6 +13,7 @@ import {
   convertQuoteToInvoice,
   deleteQuotesBulk,
   changeQuotesStatusBulk,
+  getQuoteTenantId,
 } from "@/server/quotes";
 import { QuoteStatus } from "@/lib/db/prisma";
 import { getMessagingSettingsSummary } from "@/server/messaging";
@@ -213,7 +214,8 @@ export async function sendQuoteEmailAction(
 ): Promise<DocumentEmailActionResult> {
   try {
     const user = await requireQuotesUser();
-    const messagingSummary = await getMessagingSettingsSummary(user.id);
+    const tenantId = getQuoteTenantId(user);
+    const messagingSummary = await getMessagingSettingsSummary(tenantId);
     const email = input.email?.trim() ?? "";
     const subject = input.subject?.trim();
 
@@ -235,7 +237,7 @@ export async function sendQuoteEmailAction(
     }
 
     const queueResult = await queueQuoteEmailJob({
-      userId: user.id,
+      userId: tenantId,
       quoteId: id,
       to: email,
       subject,

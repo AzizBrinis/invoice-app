@@ -9,8 +9,8 @@ import { refreshTagForMutation } from "@/lib/cache-invalidation";
 import { toCents } from "@/lib/money";
 import type { PaymentServicePickerOption } from "@/lib/client-payment-picker-types";
 import { getClientTenantId } from "@/server/clients";
-import { getSettings } from "@/server/settings";
-import { nextReceiptNumber } from "@/server/sequences";
+import { getSettingsWithDatabaseClient } from "@/server/settings";
+import { nextReceiptNumberWithDatabaseClient } from "@/server/sequences";
 import { shouldUseServerDataCache } from "@/lib/server-data-cache";
 
 const TUNIS_TIMEZONE = "Africa/Tunis";
@@ -615,7 +615,7 @@ function buildPaymentServiceWhere(
 
 function buildReceiptSnapshot(
   payment: ClientPaymentDetailRecord,
-  settings: Awaited<ReturnType<typeof getSettings>>,
+  settings: Awaited<ReturnType<typeof getSettingsWithDatabaseClient>>,
   receiptNumber: string,
   issuedAt: Date,
 ) {
@@ -1271,13 +1271,17 @@ export async function issueClientPaymentReceipt(
       return payment;
     }
 
-    const settings = await getSettings(tenantId);
+    const settings = await getSettingsWithDatabaseClient(tenantId, tx);
     const issuedAt = payment.receiptIssuedAt ?? new Date();
     const receiptNumber =
       payment.receiptNumber ??
-      (await nextReceiptNumber(tenantId, {
-        resetNumberingAnnually: settings.resetNumberingAnnually,
-      }));
+      (await nextReceiptNumberWithDatabaseClient(
+        tenantId,
+        {
+          resetNumberingAnnually: settings.resetNumberingAnnually,
+        },
+        tx,
+      ));
 
     const receiptSnapshot = buildReceiptSnapshot(
       payment,

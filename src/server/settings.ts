@@ -136,8 +136,13 @@ export function revalidateSettings(tenantId: string) {
   refreshTagForMutation(settingsTag(tenantId));
 }
 
-async function fetchSettings(userId: string) {
-  return prisma.companySettings.findUnique({
+type SettingsDatabaseClient = Pick<typeof prisma, "companySettings">;
+
+async function fetchSettings(
+  userId: string,
+  db: SettingsDatabaseClient = prisma,
+) {
+  return db.companySettings.findUnique({
     where: { userId },
     include: settingsInclude,
   });
@@ -173,14 +178,17 @@ async function resolveUserId(userId?: string) {
   return user.id;
 }
 
-async function readOrInitializeSettings(resolvedUserId: string) {
-  const settings = await fetchSettings(resolvedUserId);
+async function readOrInitializeSettings(
+  resolvedUserId: string,
+  db: SettingsDatabaseClient = prisma,
+) {
+  const settings = await fetchSettings(resolvedUserId, db);
 
   if (settings) {
     return normalizeSettings(settings);
   }
 
-  await prisma.companySettings.createMany({
+  await db.companySettings.createMany({
     data: {
       userId: resolvedUserId,
       companyName: "Nouvelle société",
@@ -200,7 +208,7 @@ async function readOrInitializeSettings(resolvedUserId: string) {
     skipDuplicates: true,
   });
 
-  const ensuredSettings = await fetchSettings(resolvedUserId);
+  const ensuredSettings = await fetchSettings(resolvedUserId, db);
   if (!ensuredSettings) {
     throw new Error("Unable to initialize default company settings.");
   }
@@ -228,6 +236,13 @@ const readSettingsByUserId = cache(async (resolvedUserId: string) => {
 export async function getSettings(userId?: string) {
   const resolvedUserId = await resolveUserId(userId);
   return readSettingsByUserId(resolvedUserId);
+}
+
+export async function getSettingsWithDatabaseClient(
+  userId: string,
+  db: SettingsDatabaseClient,
+) {
+  return readOrInitializeSettings(userId, db);
 }
 
 export async function updateSettings(input: SettingsInput, userId?: string) {
