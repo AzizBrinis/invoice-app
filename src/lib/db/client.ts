@@ -77,7 +77,11 @@ function toQueryArgs(value: unknown): QueryArgs {
 }
 
 function toQueryArgRows(value: unknown): QueryArgs[] {
-  return Array.isArray(value) ? value.filter(isPlainObject) : [];
+  if (Array.isArray(value)) {
+    return value.filter(isPlainObject);
+  }
+
+  return isPlainObject(value) ? [value] : [];
 }
 
 function toNumberOrUndefined(value: unknown) {

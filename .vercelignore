@@ -1,0 +1,7 @@
+backups/
+.vercel/.env*.local
+.next/
+.git/
+node_modules/
+dev_doc/
+tsconfig.tsbuildinfo
