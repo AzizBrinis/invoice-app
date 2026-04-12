@@ -10,7 +10,7 @@ vi.mock("@/lib/auth", () => ({
   requireUser: requireUserMock,
 }));
 
-vi.mock("@/lib/prisma", () => ({
+vi.mock("@/lib/db", () => ({
   prisma: {
     $transaction: transactionMock,
     client: {

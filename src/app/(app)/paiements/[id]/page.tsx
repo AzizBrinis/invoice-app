@@ -2,7 +2,7 @@ import Link from "next/link";
 import nextDynamic from "next/dynamic";
 import type { Route } from "next";
 import { notFound } from "next/navigation";
-import { AccountPermission } from "@prisma/client";
+import { AccountPermission } from "@/lib/db/prisma";
 import {
   hasAccountPermission,
   requireAppSectionAccess,

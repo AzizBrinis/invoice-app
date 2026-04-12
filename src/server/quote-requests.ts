@@ -1,11 +1,11 @@
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import {
   ClientSource,
   Prisma,
   QuoteRequestStatus,
   QuoteStatus,
-} from "@prisma/client";
+} from "@/lib/db/prisma-server";
 import { z } from "zod";
 import { resolveClientForContact } from "@/server/clients";
 import { queueQuoteRequestEmailJob } from "@/server/order-email-jobs";

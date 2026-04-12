@@ -35,10 +35,6 @@ if (!process.env.DIRECT_URL && process.env.DATABASE_URL) {
   process.env.DIRECT_URL = process.env.DATABASE_URL;
 }
 
-if (!process.env.SHADOW_DATABASE_URL && process.env.DATABASE_URL) {
-  process.env.SHADOW_DATABASE_URL = process.env.DATABASE_URL;
-}
-
 if (!process.env.NODE_ENV) {
   env.NODE_ENV = "test";
 }

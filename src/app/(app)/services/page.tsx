@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AccountPermission } from "@prisma/client";
+import { AccountPermission } from "@/lib/db/prisma";
 import {
   hasAccountPermission,
   requireAppSectionAccess,

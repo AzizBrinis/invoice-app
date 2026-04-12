@@ -3,7 +3,7 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import sharp from "sharp";
 import { getAppHostnames } from "@/lib/env";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db";
 import {
   normalizeCatalogDomainInput,
   normalizeCatalogSlugInput,

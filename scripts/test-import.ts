@@ -1,2 +1,3 @@
-import { prisma } from "@/lib/prisma";
-console.log("prisma loaded", typeof prisma !== "undefined");
+import { db } from "@/lib/db";
+
+console.log("database loaded", typeof db !== "undefined");

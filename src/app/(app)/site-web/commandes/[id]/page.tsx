@@ -4,7 +4,7 @@ import {
   OrderPaymentProofStatus,
   OrderPaymentStatus,
   OrderStatus,
-} from "@prisma/client";
+} from "@/lib/db/prisma";
 import { getOrder } from "@/server/orders";
 import {
   approveOrderPaymentProofAction,

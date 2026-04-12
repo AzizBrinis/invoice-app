@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { endOfMonth, startOfMonth, subDays } from "date-fns";
 
-let prisma: (typeof import("@/lib/prisma"))["prisma"];
+let prisma: (typeof import("@/lib/db"))["prisma"];
 let createClient: typeof import("@/server/clients")["createClient"];
 let deleteClient: typeof import("@/server/clients")["deleteClient"];
 let createClientPayment: typeof import("@/server/client-payments")["createClientPayment"];
@@ -27,7 +27,7 @@ const describeClientPayments = process.env.TEST_DATABASE_URL
 
 describeClientPayments("client payment domain", () => {
   beforeAll(async () => {
-    const prismaModule = await import("@/lib/prisma");
+    const prismaModule = await import("@/lib/db");
     const clientsModule = await import("@/server/clients");
     const clientPaymentsModule = await import("@/server/client-payments");
     const excelModule = await import("@/server/excel");

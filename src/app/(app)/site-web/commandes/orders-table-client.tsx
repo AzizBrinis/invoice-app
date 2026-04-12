@@ -7,7 +7,7 @@ import type {
   OrderPaymentProofStatus,
   OrderPaymentStatus,
   OrderStatus,
-} from "@prisma/client";
+} from "@/lib/db/prisma";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatCurrency, formatDate } from "@/lib/formatters";

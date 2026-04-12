@@ -1,4 +1,4 @@
-import { AccountPermission } from "@prisma/client";
+import { AccountPermission } from "@/lib/db/prisma";
 import { requireAccountPermission } from "@/lib/authorization";
 import { ClientForm } from "@/app/(app)/clients/client-form";
 import { createClientFormAction } from "@/app/(app)/clients/actions";

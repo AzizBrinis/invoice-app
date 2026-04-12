@@ -1,7 +1,7 @@
-import { DocumentType, EmailStatus, Prisma } from "@prisma/client";
+import { DocumentType, EmailStatus, Prisma } from "@/lib/db/prisma-server";
 import type { BackgroundJobHandlers } from "@/server/background-jobs";
 import { enqueueJob, processJobQueue } from "@/server/background-jobs";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db";
 import {
   sendClientPaymentReceiptEmail,
   sendInvoiceEmail,

@@ -14,7 +14,7 @@ import {
   deleteQuotesBulk,
   changeQuotesStatusBulk,
 } from "@/server/quotes";
-import { QuoteStatus } from "@prisma/client";
+import { QuoteStatus } from "@/lib/db/prisma";
 import { getMessagingSettingsSummary } from "@/server/messaging";
 import { queueQuoteEmailJob } from "@/server/document-email-jobs";
 import { requireAppSectionAccess } from "@/lib/authorization";

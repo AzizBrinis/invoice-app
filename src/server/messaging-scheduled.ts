@@ -1,5 +1,5 @@
-import { Prisma, MessagingScheduledStatus } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+import { Prisma, MessagingScheduledStatus } from "@/lib/db/prisma-server";
+import { prisma } from "@/lib/db";
 import {
   resolveUserId,
   sendEmailMessageForUser,
@@ -20,6 +20,10 @@ function assertLegacyWorkerFlagDisabled() {
 assertLegacyWorkerFlagDisabled();
 
 const DISPATCH_BATCH_SIZE = 10;
+const DEFAULT_SCHEDULED_EMAIL_HISTORY_RETENTION_DAYS = 30;
+const SCHEDULED_EMAIL_MAINTENANCE_INTERVAL_MS = 6 * 60 * 60 * 1000;
+
+let lastScheduledEmailMaintenanceAt = 0;
 
 type JsonArray = Prisma.JsonArray;
 
@@ -193,7 +197,83 @@ export async function cancelScheduledEmail(options: {
 }
 
 export async function runScheduledEmailDispatchCycle(): Promise<void> {
+  await maintainScheduledEmailHistory();
   await dispatchDueScheduledEmails();
+}
+
+function parsePositiveInteger(
+  value: string | undefined,
+  fallback: number,
+) {
+  const parsed = Number.parseInt(value ?? "", 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return parsed;
+}
+
+function getScheduledEmailHistoryRetentionDays() {
+  return parsePositiveInteger(
+    process.env.MESSAGING_SCHEDULED_HISTORY_RETENTION_DAYS,
+    DEFAULT_SCHEDULED_EMAIL_HISTORY_RETENTION_DAYS,
+  );
+}
+
+async function maintainScheduledEmailHistory(now: Date = new Date()) {
+  if (
+    now.getTime() - lastScheduledEmailMaintenanceAt <
+    SCHEDULED_EMAIL_MAINTENANCE_INTERVAL_MS
+  ) {
+    return;
+  }
+
+  lastScheduledEmailMaintenanceAt = now.getTime();
+
+  try {
+    const cutoff = new Date(
+      now.getTime() -
+        getScheduledEmailHistoryRetentionDays() * 24 * 60 * 60 * 1000,
+    );
+
+    await prisma.messagingScheduledEmail.deleteMany({
+      where: {
+        status: {
+          in: [
+            MessagingScheduledStatus.SENT,
+            MessagingScheduledStatus.CANCELLED,
+          ],
+        },
+        OR: [
+          {
+            sentAt: {
+              lt: cutoff,
+            },
+          },
+          {
+            canceledAt: {
+              lt: cutoff,
+            },
+          },
+          {
+            AND: [
+              { sentAt: null },
+              { canceledAt: null },
+              {
+                createdAt: {
+                  lt: cutoff,
+                },
+              },
+            ],
+          },
+        ],
+      },
+    });
+  } catch (error) {
+    console.warn(
+      "Impossible d'exécuter la maintenance des e-mails planifiés",
+      error,
+    );
+  }
 }
 
 async function dispatchDueScheduledEmails(): Promise<void> {

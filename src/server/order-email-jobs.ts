@@ -1,4 +1,4 @@
-import { Prisma } from "@prisma/client";
+import { Prisma } from "@/lib/db/prisma-server";
 import type { BackgroundJobHandlers } from "@/server/background-jobs";
 import { enqueueJob, processJobQueue } from "@/server/background-jobs";
 import {

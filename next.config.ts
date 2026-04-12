@@ -1,7 +1,6 @@
 import type { NextConfig } from "next";
 
 const tracingIncludes = [
-  "./node_modules/.prisma/client",
   "./node_modules/@sparticuz/chromium",
 ];
 

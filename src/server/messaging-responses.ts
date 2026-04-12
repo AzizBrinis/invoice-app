@@ -1,6 +1,6 @@
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
-import { SavedResponseFormat as PrismaSavedResponseFormat } from "@prisma/client";
+import { SavedResponseFormat as PrismaSavedResponseFormat } from "@/lib/db/prisma";
 import type { SavedResponse, SavedResponseFormat } from "@/lib/messaging/saved-responses";
 import {
   DEFAULT_SAVED_RESPONSES,

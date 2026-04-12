@@ -4,7 +4,7 @@ import {
   requireAppSectionAccess,
 } from "@/lib/authorization";
 import { getSettings } from "@/server/settings";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { updateSettingsAction } from "@/app/(app)/parametres/actions";

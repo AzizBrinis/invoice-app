@@ -3,14 +3,14 @@
 import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { useRouter } from "next/navigation";
-import type { Client, Product } from "@prisma/client";
+import type { Client, Product } from "@/lib/db/prisma";
 import { calculateDocumentTotals, calculateLineTotals } from "@/lib/documents";
 import { toCents, fromCents } from "@/lib/money";
 import { formatCurrency } from "@/lib/formatters";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { InvoiceStatus } from "@prisma/client";
+import { InvoiceStatus } from "@/lib/db/prisma";
 import {
   CURRENCY_CODES,
   type CurrencyInfo,

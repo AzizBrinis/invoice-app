@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db";
 import { getDashboardMetrics } from "@/server/analytics";
-import { InvoiceStatus, type User } from "@prisma/client";
+import { InvoiceStatus, type User } from "@/lib/db/prisma";
 
 const describeWithDb = process.env.TEST_DATABASE_URL ? describe : describe.skip;
 

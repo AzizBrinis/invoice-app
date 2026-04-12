@@ -13,7 +13,7 @@ describePdf("PDF generation", () => {
   it("produces a PDF buffer for an invoice", async () => {
     const [{ generateInvoicePdf }, { prisma }] = await Promise.all([
       import("@/server/pdf"),
-      import("@/lib/prisma"),
+      import("@/lib/db"),
     ]);
     const client = await prisma.client.findFirst();
     if (!client) {
@@ -70,7 +70,7 @@ describePdf("PDF generation", () => {
       { createClientPayment, createClientService },
     ] = await Promise.all([
       import("@/server/pdf"),
-      import("@/lib/prisma"),
+      import("@/lib/db"),
       import("@/server/clients"),
       import("@/server/client-payments"),
     ]);

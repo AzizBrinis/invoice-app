@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
-import { ClientSource, Prisma } from "@prisma/client";
+import { prisma } from "@/lib/db";
+import { ClientSource, Prisma } from "@/lib/db/prisma-server";
 import { hashClientPassword } from "@/lib/client-auth";
 import { revalidateClientFilters } from "@/server/clients";
 import { revalidateQuoteFilterClients } from "@/server/quotes";

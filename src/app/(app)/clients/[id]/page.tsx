@@ -1,6 +1,6 @@
 import type { Route } from "next";
 import { notFound, redirect } from "next/navigation";
-import { AccountPermission } from "@prisma/client";
+import { AccountPermission } from "@/lib/db/prisma";
 import { getClient } from "@/server/clients";
 import {
   getClientPaymentPeriodSummary,

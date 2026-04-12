@@ -1,9 +1,9 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { WebsiteDomainStatus, WebsiteThemeMode } from "@prisma/client";
+import { WebsiteDomainStatus, WebsiteThemeMode } from "@/lib/db/prisma";
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/prisma", () => ({
+vi.mock("@/lib/db", () => ({
   prisma: {},
 }));
 

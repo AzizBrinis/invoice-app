@@ -10,14 +10,14 @@ import {
   useLayoutEffect,
 } from "react";
 import { useFormStatus } from "react-dom";
-import type { Quote, QuoteLine, QuoteStatus } from "@prisma/client";
+import type { Quote, QuoteLine, QuoteStatus } from "@/lib/db/prisma";
 import { calculateDocumentTotals, calculateLineTotals } from "@/lib/documents";
 import { fromCents, toCents } from "@/lib/money";
 import { formatCurrency } from "@/lib/formatters";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import type { Client, Product } from "@prisma/client";
+import type { Client, Product } from "@/lib/db/prisma";
 import { Spinner } from "@/components/ui/spinner";
 import { createPortal } from "react-dom";
 import {

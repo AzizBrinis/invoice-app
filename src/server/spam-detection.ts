@@ -1,11 +1,11 @@
-import { Prisma } from "@prisma/client";
+import { Prisma } from "@/lib/db/prisma-server";
 import { simpleParser, type ParsedMail } from "mailparser";
 import type {
   ImapFlow,
   MessageAddressObject,
   MessageEnvelopeObject,
 } from "imapflow";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 
 export type SpamMailbox = "inbox" | "sent" | "drafts" | "trash" | "spam";

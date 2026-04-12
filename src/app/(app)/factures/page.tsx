@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import { fromCents } from "@/lib/money";
-import { InvoiceStatus } from "@prisma/client";
+import { InvoiceStatus } from "@/lib/db/prisma";
 import { InvoicesPageSkeleton } from "@/components/skeletons";
 import { ExportButton } from "@/components/export-button";
 import { FormSubmitButton } from "@/components/ui/form-submit-button";

@@ -1,12 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db";
 import { createOrder, markOrderPaid } from "@/server/orders";
 import {
   OrderPaymentStatus,
   OrderStatus,
   ProductSaleMode,
   type User,
-} from "@prisma/client";
+} from "@/lib/db/prisma";
 import { ZodError } from "zod";
 
 const describeWithDb = process.env.TEST_DATABASE_URL ? describe : describe.skip;

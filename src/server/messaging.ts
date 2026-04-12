@@ -18,8 +18,8 @@ import type {
   MessagingAutoReplyType,
   MessagingRecipientType,
   MessagingInboxSyncState,
-} from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+} from "@/lib/db/prisma";
+import { prisma } from "@/lib/db";
 import { getSessionTokenFromCookie, requireUser } from "@/lib/auth";
 import { decryptSecret, encryptSecret } from "@/server/secure-credentials";
 import { analyzeAndHandleSpam } from "@/server/spam-detection";

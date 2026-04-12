@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { __testables as readModeTestables } from "@/server/messaging-read-mode";
-import { MessagingLocalSyncStatus } from "@prisma/client";
+import { MessagingLocalSyncStatus } from "@/lib/db/prisma";
 import type {
   Mailbox,
   MailboxPageResult,

@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import chromium from "@sparticuz/chromium";
 import puppeteer, { type Browser, type Viewport } from "puppeteer";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { getSettings } from "@/server/settings";
 import {
@@ -26,7 +26,7 @@ import type {
   InvoiceStatus,
   QuoteStatus,
   Client,
-} from "@prisma/client";
+} from "@/lib/db/prisma";
 
 type DocumentType = "invoice" | "quote";
 type ReceiptSnapshot = Awaited<

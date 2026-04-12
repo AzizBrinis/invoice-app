@@ -3,8 +3,8 @@ import {
   MessagingLocalBodyState as PrismaMessagingLocalBodyState,
   MessagingLocalSyncStatus as PrismaMessagingLocalSyncStatus,
   MessagingMailboxName as PrismaMessagingMailboxName,
-} from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+} from "@/lib/db/prisma-server";
+import { prisma } from "@/lib/db";
 import type { ImapFlow, MessageEnvelopeObject } from "imapflow";
 import {
   fetchRawMessages,
@@ -2254,20 +2254,22 @@ export async function purgeMessagingLocalSyncData(params: {
       }
     : undefined;
 
-  const [deletedMessages, deletedStates] = await prisma.$transaction([
-    prisma.messagingLocalMessage.deleteMany({
-      where: {
-        userId: resolvedUserId,
-        ...mailboxFilter,
-      },
-    }),
-    prisma.messagingMailboxLocalSyncState.deleteMany({
-      where: {
-        userId: resolvedUserId,
-        ...mailboxFilter,
-      },
-    }),
-  ]);
+  const [deletedMessages, deletedStates] = await prisma.$transaction(async (tx) =>
+    Promise.all([
+      tx.messagingLocalMessage.deleteMany({
+        where: {
+          userId: resolvedUserId,
+          ...mailboxFilter,
+        },
+      }),
+      tx.messagingMailboxLocalSyncState.deleteMany({
+        where: {
+          userId: resolvedUserId,
+          ...mailboxFilter,
+        },
+      }),
+    ]),
+  );
 
   return {
     userId: resolvedUserId,

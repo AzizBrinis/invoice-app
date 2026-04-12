@@ -9,7 +9,7 @@ import {
   type FormEvent,
 } from "react";
 import { useRouter } from "next/navigation";
-import { AccountMembershipRole, AccountPermission } from "@prisma/client";
+import { AccountMembershipRole, AccountPermission } from "@/lib/db/prisma";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";

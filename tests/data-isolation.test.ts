@@ -7,7 +7,7 @@ import {
   it,
   vi,
 } from "vitest";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db";
 import {
   exportClientsCsv,
   exportInvoicesCsv,
@@ -21,7 +21,7 @@ import {
   QuoteStatus,
   type User,
   Prisma,
-} from "@prisma/client";
+} from "@/lib/db/prisma-server";
 import { DEFAULT_TAX_CONFIGURATION } from "@/lib/taxes";
 
 const describeWithDb = process.env.TEST_DATABASE_URL ? describe : describe.skip;

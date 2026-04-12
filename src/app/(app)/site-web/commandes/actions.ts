@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import type { Route } from "next";
 import { isRedirectError } from "@/lib/next";
-import { OrderPaymentProofStatus } from "@prisma/client";
+import { OrderPaymentProofStatus } from "@/lib/db/prisma";
 import {
   cancelOrder,
   markOrderDelivered,

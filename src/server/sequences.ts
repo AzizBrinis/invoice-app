@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db";
 import { getSettings } from "@/server/settings";
 import { requireUser } from "@/lib/auth";
 

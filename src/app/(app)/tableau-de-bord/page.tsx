@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import nextDynamic from "next/dynamic";
 import { endOfMonth, startOfMonth } from "date-fns";
-import { AccountPermission } from "@prisma/client";
+import { AccountPermission } from "@/lib/db/prisma";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import { fromCents } from "@/lib/money";
 import {

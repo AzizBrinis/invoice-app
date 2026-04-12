@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { WebsiteDomainStatus } from "@prisma/client";
+import { WebsiteDomainStatus } from "@/lib/db/prisma";
 
-vi.mock("@/lib/prisma", () => ({
+vi.mock("@/lib/db", () => ({
   prisma: {},
 }));
 
@@ -156,7 +156,9 @@ describe("catalog metadata - product seo templates", () => {
       name: "Chaise Design",
       sku: "CHAIR-001",
     });
-    expect(structuredData[1]?.offers).toMatchObject({
+    expect(
+      (structuredData[1] as { offers?: unknown } | undefined)?.offers,
+    ).toMatchObject({
       "@type": "Offer",
       priceCurrency: "TND",
       eligibleRegion: {

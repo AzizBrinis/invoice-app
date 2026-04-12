@@ -5,7 +5,7 @@ import {
   AccountType,
   type User,
   type UserRole,
-} from "@prisma/client";
+} from "@/lib/db/prisma";
 import { AuthorizationError } from "@/lib/errors";
 import { requireUser, type AuthenticatedUser } from "@/lib/auth";
 

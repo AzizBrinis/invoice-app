@@ -1,6 +1,6 @@
-import { Prisma } from "@prisma/client";
+import { Prisma } from "@/lib/db/prisma-server";
 import { addMinutes } from "date-fns";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db";
 import type { AssistantPendingConfirmation } from "@/types/assistant";
 
 const PENDING_EXPIRATION_MINUTES = 30;

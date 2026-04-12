@@ -5,8 +5,8 @@ import {
   AccountPermission,
   AccountType,
   Prisma,
-} from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+} from "@/lib/db/prisma-server";
+import { prisma } from "@/lib/db";
 
 const DEFAULT_INVITATION_TTL_DAYS = parseInt(
   process.env.ACCOUNT_INVITATION_TTL_DAYS ?? "14",

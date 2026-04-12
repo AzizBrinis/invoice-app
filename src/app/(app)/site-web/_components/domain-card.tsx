@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useState, useTransition } from "react";
-import type { WebsiteDomainStatus } from "@prisma/client";
+import type { WebsiteDomainStatus } from "@/lib/db/prisma";
 import { Alert } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
 import { FormSubmitButton } from "@/components/ui/form-submit-button";

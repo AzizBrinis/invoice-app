@@ -1,6 +1,6 @@
-import { ClientSource, Prisma } from "@prisma/client";
+import { ClientSource, Prisma } from "@/lib/db/prisma-server";
 import { requireUser } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db";
 import {
   clientSchema,
   getClientTenantId,

@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { MessagingLocalSyncStatus } from "@prisma/client";
+import { MessagingLocalSyncStatus } from "@/lib/db/prisma";
 
-let prisma: (typeof import("@/lib/prisma"))["prisma"];
+let prisma: (typeof import("@/lib/db"))["prisma"];
 let getMessagingLocalSyncPreference: typeof import("@/server/messaging-local-sync")["getMessagingLocalSyncPreference"];
 let getMessagingLocalSyncOverview: typeof import("@/server/messaging-local-sync")["getMessagingLocalSyncOverview"];
 let setMessagingLocalSyncPreference: typeof import("@/server/messaging-local-sync")["setMessagingLocalSyncPreference"];
@@ -28,7 +28,7 @@ const describeMessagingLocalSync = process.env.TEST_DATABASE_URL
 
 describeMessagingLocalSync("messaging local sync foundation", () => {
   beforeAll(async () => {
-    const prismaModule = await import("@/lib/prisma");
+    const prismaModule = await import("@/lib/db");
     const localSyncModule = await import("@/server/messaging-local-sync");
 
     prisma = prismaModule.prisma;

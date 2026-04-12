@@ -14,7 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import { fromCents } from "@/lib/money";
 import { Badge } from "@/components/ui/badge";
-import { InvoiceStatus } from "@prisma/client";
+import { InvoiceStatus } from "@/lib/db/prisma";
 import { FormSubmitButton } from "@/components/ui/form-submit-button";
 import { Alert } from "@/components/ui/alert";
 import {

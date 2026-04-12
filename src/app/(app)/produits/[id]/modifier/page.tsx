@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { ProductForm } from "@/app/(app)/produits/product-form";
 import { getSettings } from "@/server/settings";

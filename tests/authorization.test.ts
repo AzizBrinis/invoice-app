@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ensureCanManageBilling, BILLING_MANAGER_ROLES } from "@/lib/authorization";
 import { AuthorizationError } from "@/lib/errors";
-import { UserRole } from "@prisma/client";
+import { UserRole } from "@/lib/db/prisma";
 import { getClientTenantId } from "@/server/clients";
 
 describe("ensureCanManageBilling", () => {

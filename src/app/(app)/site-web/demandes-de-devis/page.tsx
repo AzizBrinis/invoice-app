@@ -1,4 +1,4 @@
-import type { QuoteRequestStatus } from "@prisma/client";
+import type { QuoteRequestStatus } from "@/lib/db/prisma";
 import { listQuoteRequests } from "@/server/quote-requests";
 import { QuoteRequestsTableClient } from "@/app/(app)/site-web/demandes-de-devis/quote-requests-table-client";
 

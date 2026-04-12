@@ -1,5 +1,5 @@
 import { unstable_cache } from "next/cache";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { calculateDocumentTotals, calculateLineTotals } from "@/lib/documents";
 import { toCents } from "@/lib/money";
@@ -15,7 +15,7 @@ import {
   QuoteStatus,
   Prisma,
   type User,
-} from "@prisma/client";
+} from "@/lib/db/prisma-server";
 import { z } from "zod";
 import { nextInvoiceNumber } from "@/server/sequences";
 

@@ -48,7 +48,7 @@ const prismaMocks = vi.hoisted(() => {
   };
 });
 
-vi.mock("@/lib/prisma", () => ({
+vi.mock("@/lib/db", () => ({
   prisma: {
     spamDetectionLog: {
       findFirst: prismaMocks.spamDetectionLogFindFirst,

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db";
 import {
   convertQuoteRequestToQuote,
   createQuoteRequest,
@@ -10,7 +10,7 @@ import {
   QuoteRequestStatus,
   QuoteStatus,
   type User,
-} from "@prisma/client";
+} from "@/lib/db/prisma";
 import type { CatalogPayload } from "@/server/website";
 import {
   getCatalogPayloadByDomain,

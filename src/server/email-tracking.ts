@@ -9,8 +9,8 @@ import type {
   MessagingEmailRecipient,
   MessagingRecipientType,
   Prisma,
-} from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+} from "@/lib/db/prisma";
+import { prisma } from "@/lib/db";
 import { getAppBaseUrl } from "@/lib/env";
 
 export type RecipientInput = {

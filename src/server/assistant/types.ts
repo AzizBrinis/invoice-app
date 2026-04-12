@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import type { Prisma } from "@/lib/db/prisma-server";
 import type {
   AssistantActionCard,
   AssistantContentBlock,

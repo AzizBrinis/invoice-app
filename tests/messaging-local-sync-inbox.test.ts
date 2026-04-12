@@ -7,10 +7,10 @@ import {
   it,
 } from "vitest";
 import type { ImapFlow } from "imapflow";
-import { MessagingLocalSyncStatus } from "@prisma/client";
+import { MessagingLocalSyncStatus } from "@/lib/db/prisma";
 import type { MessagingCredentials } from "@/server/messaging";
 
-let prisma: (typeof import("@/lib/prisma"))["prisma"];
+let prisma: (typeof import("@/lib/db"))["prisma"];
 let getMessagingMailboxLocalSyncState: typeof import("@/server/messaging-local-sync")["getMessagingMailboxLocalSyncState"];
 let getMessagingLocalMessageByImapIdentity: typeof import("@/server/messaging-local-sync")["getMessagingLocalMessageByImapIdentity"];
 let listMessagingLocalMessages: typeof import("@/server/messaging-local-sync")["listMessagingLocalMessages"];
@@ -241,7 +241,7 @@ function createRuntime(
 
 describeMessagingLocalSyncInbox("messaging local inbox sync", () => {
   beforeAll(async () => {
-    const prismaModule = await import("@/lib/prisma");
+    const prismaModule = await import("@/lib/db");
     const localSyncModule = await import("@/server/messaging-local-sync");
 
     prisma = prismaModule.prisma;

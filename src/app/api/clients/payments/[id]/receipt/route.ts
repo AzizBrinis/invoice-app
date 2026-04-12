@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { AccountPermission } from "@prisma/client";
+import { AccountPermission } from "@/lib/db/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { ensureHasAccountPermission } from "@/lib/authorization";
 import { AuthorizationError } from "@/lib/errors";

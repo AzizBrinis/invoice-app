@@ -1,5 +1,5 @@
-import { DocumentType, EmailStatus } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+import { DocumentType, EmailStatus } from "@/lib/db/prisma";
+import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import {
   generateQuotePdf,

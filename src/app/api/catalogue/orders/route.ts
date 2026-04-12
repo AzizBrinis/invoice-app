@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getAppHostnames } from "@/lib/env";
 import { generateId } from "@/lib/id";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db";
 import { calculateLineTotals } from "@/lib/documents";
 import { createConfirmationToken } from "@/lib/confirmation-token";
 import {

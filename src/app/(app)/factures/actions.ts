@@ -15,11 +15,11 @@ import {
   invoiceDetailTag,
   invoiceStatsTag,
 } from "@/server/invoices";
-import { InvoiceStatus, UserRole } from "@prisma/client";
+import { InvoiceStatus, UserRole } from "@/lib/db/prisma";
 import { isUniqueConstraintViolation } from "@/lib/db-errors";
 import { getMessagingSettingsSummary } from "@/server/messaging";
 import { queueInvoiceEmailJob } from "@/server/document-email-jobs";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db";
 import {
   ensureCanManageBilling,
   BILLING_MANAGER_ROLES,

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import type { QuoteRequestStatus } from "@prisma/client";
+import type { QuoteRequestStatus } from "@/lib/db/prisma";
 import { getQuoteRequest } from "@/server/quote-requests";
 import { convertQuoteRequestAction } from "@/app/(app)/site-web/demandes-de-devis/actions";
 import { Badge } from "@/components/ui/badge";

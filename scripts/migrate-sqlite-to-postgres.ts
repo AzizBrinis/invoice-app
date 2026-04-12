@@ -2,15 +2,15 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
-import { Prisma, PrismaClient } from "@prisma/client";
-import { resolvePrismaScriptDatabaseUrl } from "../src/lib/prisma-config";
+import { Prisma, PrismaClient } from "@/lib/db/prisma-server";
+import { resolveScriptDatabaseUrl } from "../src/lib/db/runtime-config";
 
-const sqliteUrl = process.env.SQLITE_URL ?? "file:./prisma/dev.db";
+const sqliteUrl = process.env.SQLITE_URL ?? "file:./backups/legacy-sqlite/dev.db";
 const sourceUrl = normalizeSqliteUrl(sqliteUrl);
 const sqliteFilePath = extractSqlitePath(sourceUrl);
 const targetUrl =
   process.env.POSTGRES_URL ??
-  resolvePrismaScriptDatabaseUrl(process.env, {
+  resolveScriptDatabaseUrl(process.env, {
     applicationName: "invoices-app:migrate",
   });
 
@@ -40,10 +40,10 @@ function normalizeSqliteUrl(url: string) {
     return url;
   }
 
-  const legacySnapshot = path.resolve("prisma/prisma/dev.db");
+  const legacySnapshot = path.resolve("backups/legacy-sqlite/dev.db");
   if (absolutePath !== legacySnapshot && fs.existsSync(legacySnapshot)) {
     console.warn(
-      `SQLite file ${rawPath} not found. Falling back to legacy snapshot at prisma/prisma/dev.db.`,
+      `SQLite file ${rawPath} not found. Falling back to legacy snapshot at backups/legacy-sqlite/dev.db.`,
     );
     const relativeLegacy = path.relative(process.cwd(), legacySnapshot);
     return `file:${relativeLegacy}`;

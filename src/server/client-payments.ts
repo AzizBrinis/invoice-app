@@ -1,9 +1,9 @@
 import { unstable_cache } from "next/cache";
 import { z } from "zod";
-import { Prisma } from "@prisma/client";
+import { Prisma } from "@/lib/db/prisma-server";
 import { endOfMonth, startOfMonth, subMonths } from "date-fns";
 import { formatInTimeZone, fromZonedTime, toZonedTime } from "date-fns-tz";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { refreshTagForMutation } from "@/lib/cache-invalidation";
 import { toCents } from "@/lib/money";

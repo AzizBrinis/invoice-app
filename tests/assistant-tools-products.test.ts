@@ -1,4 +1,4 @@
-import { Prisma, ProductSaleMode } from "@prisma/client";
+import { Prisma, ProductSaleMode } from "@/lib/db/prisma-server";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { toCents } from "@/lib/money";
 import { getToolByName } from "@/server/assistant/tools";
@@ -9,7 +9,7 @@ vi.mock("@/server/assistant/audit", () => ({
   logAiAudit: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock("@/lib/prisma", () => ({
+vi.mock("@/lib/db", () => ({
   prisma: {},
 }));
 

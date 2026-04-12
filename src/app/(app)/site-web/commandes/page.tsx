@@ -1,5 +1,5 @@
 import { listOrders } from "@/server/orders";
-import type { OrderStatus, OrderPaymentStatus } from "@prisma/client";
+import type { OrderStatus, OrderPaymentStatus } from "@/lib/db/prisma";
 import { OrdersTableClient } from "@/app/(app)/site-web/commandes/orders-table-client";
 
 export const dynamic = "force-dynamic";

@@ -3,7 +3,7 @@ import {
   InvoiceStatus,
   Prisma,
   QuoteStatus,
-} from "@prisma/client";
+} from "@/lib/db/prisma-server";
 import { ZodError } from "zod";
 import { requireUser } from "@/lib/auth";
 import type {
@@ -44,7 +44,7 @@ import {
   evaluateScopeRequest,
   type ScopeHistoryEntry,
 } from "@/server/assistant/scope";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db";
 import { formatCurrency } from "@/lib/formatters";
 import { fromCents } from "@/lib/money";
 import { getSettings } from "@/server/settings";

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { WebsiteDomainStatus, WebsiteThemeMode } from "@prisma/client";
+import { WebsiteDomainStatus, WebsiteThemeMode } from "@/lib/db/prisma";
 
-vi.mock("@/lib/prisma", () => ({
+vi.mock("@/lib/db", () => ({
   prisma: {},
 }));
 

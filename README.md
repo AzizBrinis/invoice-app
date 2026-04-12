@@ -6,7 +6,7 @@
    npm install
    ```
 
-2. Copiez `.env.example` vers `.env` et renseignez les secrets requis (PostgreSQL, SMTP, cookies, URLs). Si vous déployez sur Vercel, ajoutez également `PRISMA_ACCELERATE_URL` (clé Prisma Accelerate/Data Proxy) pour que les fonctions serverless réutilisent des connexions persistantes au lieu d'ouvrir un socket PostgreSQL à chaque requête. Sans Accelerate, le runtime Prisma bascule automatiquement vers `DIRECT_URL` quand `DATABASE_URL` cible le transaction pooler Supabase `:6543`, car ce mode sature plus facilement avec Next.js/Prisma.
+2. Copiez `.env.example` vers `.env` et renseignez les secrets requis (PostgreSQL/Supabase, SMTP, cookies, URLs). Le runtime applicatif utilise directement PostgreSQL via Supabase : `DATABASE_URL` sert au runtime, `DIRECT_URL` reste recommandé pour les scripts/ops, et `DB_RUNTIME_URL_MODE` permet de forcer `database` ou `direct` si nécessaire.
 
 3. Lancez le serveur de développement :
 
@@ -17,7 +17,7 @@
 4. Ouvrez `http://localhost:3000`.
 
 Consultez `DEPLOY.md` pour les instructions de mise en production sur Vercel.
-Le build déclenché par Vercel (`npm run vercel-build`) s’appuie sur `scripts/run-vercel-build.cjs`, qui exécute `prisma generate`, tente `prisma migrate deploy` puis `next build`, en sautant automatiquement l’étape migration si la base est momentanément injoignable (voir le détail dans `DEPLOY.md`).
+Le build déclenché par Vercel (`npm run vercel-build`) lance simplement `next build --webpack` avec la couche SQL directe déjà configurée.
 
 ### Import CSV clients
 
@@ -40,7 +40,6 @@ Si vous n’avez pas accès au cluster Supabase (ou que le réseau est bloqué),
    ```env
    DATABASE_URL="postgresql://postgres:postgres@localhost:6543/invoices?sslmode=disable"
    DIRECT_URL="postgresql://postgres:postgres@localhost:6543/invoices?sslmode=disable"
-   SHADOW_DATABASE_URL="postgresql://postgres:postgres@localhost:6543/postgres?schema=shadow&sslmode=disable"
    TEST_DATABASE_URL="postgresql://postgres:postgres@localhost:6543/invoices_test?sslmode=disable"
    SMTP_HOST="localhost"
    SMTP_PORT="1025"
@@ -50,11 +49,7 @@ Si vous n’avez pas accès au cluster Supabase (ou que le réseau est bloqué),
    ```bash
    docker compose -f docker-compose.dev.yml exec postgres psql -U postgres -c "CREATE DATABASE invoices_test;"
    ```
-3. Appliquez les migrations (et créez la base shadow utilisée par Prisma au passage) :
-   ```bash
-   npm run prisma:migrate
-   ```
-4. (Optionnel) Générez des données de démo :
+3. Assurez-vous que la base locale contient déjà le schéma applicatif courant (restauration d’un dump ou clone de votre base Supabase), puis générez des données de démo si besoin :
    ```bash
    npm run db:seed
    ```
@@ -65,23 +60,18 @@ Arrêtez la pile avec `npm run dev:stack:down` et suivez les logs via `npm run d
 
 Vitest n’utilise plus la base production : créez une base PostgreSQL locale (Docker, Supabase local ou cluster de dev) et exposez-la via `TEST_DATABASE_URL`.
 
-1. Copiez `.env.example` vers `.env.test`, renseignez `TEST_DATABASE_URL`, `DIRECT_URL` et `SHADOW_DATABASE_URL` vers votre instance locale :
+1. Copiez `.env.example` vers `.env.test`, renseignez `TEST_DATABASE_URL` et `DIRECT_URL` vers votre instance locale :
    ```bash
    cp .env.example .env.test
    # Exemple Docker
    docker run --name invoices-db-test -p 6543:5432 -e POSTGRES_PASSWORD=postgres -d postgres:16
    ```
-2. Exécutez les migrations sur cette base :
-   ```bash
-   TEST_DATABASE_URL="postgresql://postgres:postgres@localhost:6543/invoices_test" \
-   npx prisma migrate deploy
-   ```
-3. Lancez les tests :
+2. Vérifiez que la base de test possède déjà le schéma applicatif courant, puis lancez les tests :
    ```bash
    npm test
    ```
 
-Le fichier `tests/setup-test-env.ts` charge automatiquement `.env.test` et remplace la connexion Prisma par la base déclarée. Sans `TEST_DATABASE_URL`, la suite échoue immédiatement pour éviter toute connexion accidentelle à la production.
+Le fichier `tests/setup-test-env.ts` charge automatiquement `.env.test` et redirige toutes les connexions vers la base déclarée. Sans `TEST_DATABASE_URL`, la suite échoue immédiatement pour éviter toute connexion accidentelle à la production.
 
 #### Messagerie toujours active (auto-réponses + envois planifiés)
 
@@ -101,28 +91,23 @@ En local, aucun Cron externe n’existe : appelez simplement `curl http://localh
 
 ### Migration SQLite → Supabase Postgres
 
-Un snapshot SQLite (`prisma/prisma/dev.db`) subsiste pour les anciennes données de démonstration. Pour le migrer vers Supabase :
+Un snapshot SQLite (`backups/legacy-sqlite/dev.db`) subsiste pour les anciennes données de démonstration. Pour le migrer vers Supabase :
 
 1. Exportez vos identifiants Supabase dans l’environnement local :
    ```bash
    export DATABASE_URL="postgresql://"
    export DIRECT_URL="$DATABASE_URL"
-   export SHADOW_DATABASE_URL="$DATABASE_URL&schema=shadow"
    ```
-2. Provisionnez le schéma Postgres (nécessite l’accès réseau) :
+2. Assurez-vous que la base PostgreSQL cible contient déjà le schéma applicatif courant (restauration de backup, clone Supabase, base de staging existante, etc.).
+3. Copiez les données SQLite → Postgres en gardant une sauvegarde du fichier `backups/legacy-sqlite/dev.db` :
    ```bash
-   npx prisma migrate deploy
-   ```
-3. Copiez les données SQLite → Postgres en gardant une sauvegarde du fichier `prisma/prisma/dev.db` :
-   ```bash
-   SQLITE_URL="file:./prisma/prisma/dev.db" \
+   SQLITE_URL="file:./backups/legacy-sqlite/dev.db" \
    POSTGRES_URL="$DATABASE_URL" \
    npm run db:migrate:sqlite-to-postgres
    ```
    Le script (appuyé sur le binaire `sqlite3`) vérifie que la base cible est vide, puis affiche le nombre de lignes copiées par table.
-4. Vérifiez les comptes via Prisma ou `psql` :
+4. Vérifiez les comptes via `psql` :
    ```bash
-   npx prisma db pull  # optionnel pour confirmer la connexion
    psql "$DATABASE_URL" -c '\\dt'
    ```
 

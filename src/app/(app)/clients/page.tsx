@@ -1,4 +1,4 @@
-import { AccountPermission } from "@prisma/client";
+import { AccountPermission } from "@/lib/db/prisma";
 import {
   hasAccountPermission,
   isClientPaymentsAccount,

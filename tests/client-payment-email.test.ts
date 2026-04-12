@@ -18,7 +18,7 @@ vi.mock("@/server/pdf", () => ({
     generateClientPaymentReceiptPdfForUserMock,
 }));
 
-let prisma: (typeof import("@/lib/prisma"))["prisma"];
+let prisma: (typeof import("@/lib/db"))["prisma"];
 let createClient: typeof import("@/server/clients")["createClient"];
 let createClientPayment: typeof import("@/server/client-payments")["createClientPayment"];
 let createClientService: typeof import("@/server/client-payments")["createClientService"];
@@ -70,7 +70,7 @@ describeClientPaymentEmail("client payment receipt email", () => {
   });
 
   beforeAll(async () => {
-    const prismaModule = await import("@/lib/prisma");
+    const prismaModule = await import("@/lib/db");
     const clientsModule = await import("@/server/clients");
     const clientPaymentsModule = await import("@/server/client-payments");
     const emailModule = await import("@/server/email");

@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { generateId } from "@/lib/id";
 import { calculateLineTotals } from "@/lib/documents";
@@ -8,7 +8,7 @@ import {
   OrderPaymentStatus,
   OrderStatus,
   Prisma,
-} from "@prisma/client";
+} from "@/lib/db/prisma-server";
 import { z } from "zod";
 import { resolveClientForContact } from "@/server/clients";
 import {

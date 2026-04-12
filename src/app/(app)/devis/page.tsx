@@ -12,7 +12,7 @@ import {
   bulkChangeQuotesStatusAction,
 } from "@/app/(app)/devis/actions";
 import { Button } from "@/components/ui/button";
-import { QuoteStatus } from "@prisma/client";
+import { QuoteStatus } from "@/lib/db/prisma";
 import { QuotesPageSkeleton } from "@/components/skeletons";
 import { ExportButton } from "@/components/export-button";
 import { Alert } from "@/components/ui/alert";

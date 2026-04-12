@@ -1,7 +1,7 @@
-import { OrderPaymentStatus, WebsiteDomainStatus, type WebsiteConfig } from "@prisma/client";
+import { OrderPaymentStatus, WebsiteDomainStatus, type WebsiteConfig } from "@/lib/db/prisma";
 import { createConfirmationToken } from "@/lib/confirmation-token";
 import { getAppBaseUrl } from "@/lib/env";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import { fromCents } from "@/lib/money";
 import { sanitizeEmailHtml } from "@/lib/email-html";

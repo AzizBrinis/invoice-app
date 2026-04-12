@@ -15,7 +15,7 @@ vi.mock("@/lib/auth", () => ({
   requireUser: vi.fn(),
 }));
 
-vi.mock("@/lib/prisma", () => ({
+vi.mock("@/lib/db", () => ({
   prisma: {
     companySettings: {
       createMany: vi.fn(),

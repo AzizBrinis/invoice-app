@@ -1,7 +1,7 @@
 import { unstable_cache, revalidateTag } from "next/cache";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
-import { QuoteStatus, Prisma, InvoiceStatus } from "@prisma/client";
+import { QuoteStatus, Prisma, InvoiceStatus } from "@/lib/db/prisma-server";
 import { z } from "zod";
 import {
   calculateDocumentTotals,

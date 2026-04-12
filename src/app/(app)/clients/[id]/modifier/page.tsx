@@ -1,4 +1,4 @@
-import { AccountPermission } from "@prisma/client";
+import { AccountPermission } from "@/lib/db/prisma";
 import type { Route } from "next";
 import { notFound } from "next/navigation";
 import { getClient } from "@/server/clients";

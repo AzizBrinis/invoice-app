@@ -9,8 +9,8 @@ import {
   WebsiteDomainStatus,
   WebsiteThemeMode,
   type WebsiteConfig,
-} from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+} from "@/lib/db/prisma-server";
+import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { getAppBaseUrl, getCatalogEdgeDomain } from "@/lib/env";
 import { assertCustomDomainRecords, DomainVerificationError } from "@/lib/domain-verification";

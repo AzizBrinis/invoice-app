@@ -15,7 +15,7 @@ vi.mock("@/server/assistant/audit", () => ({
   logAiAudit: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock("@/lib/prisma", () => ({
+vi.mock("@/lib/db", () => ({
   prisma: {
     product: {
       findMany: mockProductFindMany,

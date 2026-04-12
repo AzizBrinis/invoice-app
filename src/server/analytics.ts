@@ -1,10 +1,10 @@
 import { unstable_cache } from "next/cache";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { endOfMonth, startOfMonth, subMonths } from "date-fns";
 import { formatInTimeZone, fromZonedTime, toZonedTime } from "date-fns-tz";
 import { invoiceStatsTag } from "@/server/invoices";
-import { Prisma, type InvoiceStatus } from "@prisma/client";
+import { Prisma, type InvoiceStatus } from "@/lib/db/prisma-server";
 
 const TUNIS_TIMEZONE = "Africa/Tunis";
 const DASHBOARD_REVALIDATE_SECONDS = 30;

@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from "crypto";
-import { Prisma, OrderPaymentStatus } from "@prisma/client";
+import { Prisma, OrderPaymentStatus } from "@/lib/db/prisma-server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { generateId } from "@/lib/id";
 import { syncOrderPaymentStatus } from "@/server/orders";

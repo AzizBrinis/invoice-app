@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { toCatalogClientProfile } from "@/lib/catalog-viewer";
 import { getAppHostnames } from "@/lib/env";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db";
 import { createCisecoRequestTranslator } from "@/lib/website/ciseco-request-locale";
 import {
   getClientFromSessionToken,

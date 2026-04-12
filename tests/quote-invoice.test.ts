@@ -1,9 +1,9 @@
 import { beforeAll, afterAll, describe, expect, it, vi, beforeEach } from "vitest";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db";
 import { createQuote, convertQuoteToInvoice } from "@/server/quotes";
 import { createInvoice } from "@/server/invoices";
 import { nextQuoteNumber, nextInvoiceNumber } from "@/server/sequences";
-import { QuoteStatus, InvoiceStatus, User } from "@prisma/client";
+import { QuoteStatus, InvoiceStatus, User } from "@/lib/db/prisma";
 
 const describeWithDb = process.env.TEST_DATABASE_URL ? describe : describe.skip;
 

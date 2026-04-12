@@ -1,7 +1,7 @@
 import type { MetadataRoute } from "next";
 import { headers } from "next/headers";
-import { WebsiteDomainStatus } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+import { WebsiteDomainStatus } from "@/lib/db/prisma";
+import { prisma } from "@/lib/db";
 import { getAppHostnames } from "@/lib/env";
 import { slugify } from "@/lib/slug";
 import { builderConfigSchema } from "@/lib/website/builder";

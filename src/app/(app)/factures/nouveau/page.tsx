@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { InvoiceEditor } from "@/app/(app)/factures/invoice-editor";
 import { getSettings } from "@/server/settings";

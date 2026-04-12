@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { createHash, randomBytes } from "crypto";
 import bcrypt from "bcryptjs";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db";
 import {
   toCatalogClientProfile,
   type CatalogClientProfile,

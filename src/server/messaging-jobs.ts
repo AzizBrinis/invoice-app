@@ -4,7 +4,7 @@ import type {
   ProcessJobQueueResult,
 } from "@/server/background-jobs";
 import { enqueueJob, processJobQueue } from "@/server/background-jobs";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db";
 import { runScheduledEmailDispatchCycle } from "@/server/messaging-scheduled";
 import { runAutomatedReplySweepForUser } from "@/server/messaging";
 import {

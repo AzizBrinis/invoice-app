@@ -1,2 +1,0 @@
-ALTER TABLE "ClientService"
-ADD COLUMN "priceCents" INTEGER NOT NULL DEFAULT 0;

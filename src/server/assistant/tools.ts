@@ -5,8 +5,8 @@ import {
   Prisma,
   ProductSaleMode,
   QuoteStatus,
-} from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+} from "@/lib/db/prisma-server";
+import { prisma } from "@/lib/db";
 import { formatCurrency } from "@/lib/formatters";
 import { fromCents, toCents } from "@/lib/money";
 import { getDefaultCurrencyCode } from "@/lib/currency";

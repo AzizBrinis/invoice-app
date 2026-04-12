@@ -1,5 +1,5 @@
-import { Prisma, type AIMessageRole as PrismaMessageRole } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+import { Prisma, type AIMessageRole as PrismaMessageRole } from "@/lib/db/prisma-server";
+import { prisma } from "@/lib/db";
 import type {
   AssistantContentBlock,
   AssistantMessage,

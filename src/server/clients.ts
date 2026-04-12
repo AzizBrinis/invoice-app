@@ -1,8 +1,8 @@
 import { unstable_cache } from "next/cache";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { z } from "zod";
-import { ClientSource, Prisma } from "@prisma/client";
+import { ClientSource, Prisma } from "@/lib/db/prisma-server";
 import type { ClientPickerOption } from "@/lib/client-payment-picker-types";
 import { refreshTagForMutation } from "@/lib/cache-invalidation";
 
@@ -425,13 +425,15 @@ export async function deleteClient(id: string, userId?: string) {
     throw new Error("Client introuvable");
   }
   const [invoiceCount, quoteCount, clientPaymentCount] =
-    await prisma.$transaction([
-    prisma.invoice.count({ where: { clientId: id, userId: resolvedUserId } }),
-    prisma.quote.count({ where: { clientId: id, userId: resolvedUserId } }),
-    prisma.clientPayment.count({
-      where: { clientId: id, userId: resolvedUserId },
-    }),
-  ]);
+    await prisma.$transaction(async (tx) =>
+      Promise.all([
+        tx.invoice.count({ where: { clientId: id, userId: resolvedUserId } }),
+        tx.quote.count({ where: { clientId: id, userId: resolvedUserId } }),
+        tx.clientPayment.count({
+          where: { clientId: id, userId: resolvedUserId },
+        }),
+      ]),
+    );
 
   if (
     invoiceCount > 0 ||

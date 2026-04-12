@@ -1,6 +1,6 @@
 import { unstable_cache, revalidateTag } from "next/cache";
-import { Prisma, ProductSaleMode } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+import { Prisma, ProductSaleMode } from "@/lib/db/prisma-server";
+import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { sanitizeProductHtml } from "@/lib/product-html";
 import { normalizeProductFaqItems } from "@/lib/product-seo";

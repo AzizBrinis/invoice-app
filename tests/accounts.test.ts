@@ -3,9 +3,9 @@ import {
   AccountMembershipRole,
   AccountPermission,
   AccountType,
-} from "@prisma/client";
+} from "@/lib/db/prisma";
 
-let prisma: (typeof import("@/lib/prisma"))["prisma"];
+let prisma: (typeof import("@/lib/db"))["prisma"];
 let acceptAccountInvitation: typeof import("@/server/accounts")["acceptAccountInvitation"];
 let createAccountInvitation: typeof import("@/server/accounts")["createAccountInvitation"];
 let ensureOwnedAccountContext: typeof import("@/server/accounts")["ensureOwnedAccountContext"];
@@ -24,7 +24,7 @@ const describeAccounts = process.env.TEST_DATABASE_URL
 
 describeAccounts("account context foundation", () => {
   beforeAll(async () => {
-    const prismaModule = await import("@/lib/prisma");
+    const prismaModule = await import("@/lib/db");
     const accountsModule = await import("@/server/accounts");
 
     prisma = prismaModule.prisma;

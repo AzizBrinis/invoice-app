@@ -1,5 +1,5 @@
-import { Prisma, BackgroundJobStatus, BackgroundJobEventType, type BackgroundJob } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+import { Prisma, BackgroundJobStatus, BackgroundJobEventType, type BackgroundJob } from "@/lib/db/prisma-server";
+import { prisma } from "@/lib/db";
 
 export type BackgroundJobHandler = (context: {
   job: BackgroundJob;
@@ -39,6 +39,11 @@ export type ProcessJobQueueResult = {
 };
 
 const MAX_LEASE_ATTEMPTS = 5;
+const DEFAULT_STALE_LEASE_MINUTES = 60;
+const DEFAULT_HISTORY_RETENTION_DAYS = 30;
+const JOB_MAINTENANCE_INTERVAL_MS = 6 * 60 * 60 * 1000;
+
+let lastJobMaintenanceAt = 0;
 
 export async function enqueueJob(options: EnqueueJobOptions): Promise<EnqueueJobResult> {
   const payload = options.payload ?? null;
@@ -87,6 +92,8 @@ export async function processJobQueue(options: {
   maxJobs?: number;
   allowedTypes?: readonly string[];
 }): Promise<ProcessJobQueueResult> {
+  await maintainJobQueue();
+
   const handlers = options.handlers;
   const limit = Math.max(1, options.maxJobs ?? 20);
   const details: ProcessJobQueueResult["details"] = [];
@@ -260,6 +267,145 @@ async function leaseNextJob(
   return null;
 }
 
+function parsePositiveInteger(
+  value: string | undefined,
+  fallback: number,
+) {
+  const parsed = Number.parseInt(value ?? "", 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return parsed;
+}
+
+function getStaleLeaseMinutes() {
+  return parsePositiveInteger(
+    process.env.BACKGROUND_JOB_STALE_MINUTES,
+    DEFAULT_STALE_LEASE_MINUTES,
+  );
+}
+
+function getHistoryRetentionDays() {
+  return parsePositiveInteger(
+    process.env.BACKGROUND_JOB_HISTORY_RETENTION_DAYS,
+    DEFAULT_HISTORY_RETENTION_DAYS,
+  );
+}
+
+function isSupersededWhenStale(type: string) {
+  return (
+    type === "messaging.dispatchScheduledEmails" ||
+    type === "messaging.syncInboxAutoReplies" ||
+    type.startsWith("messaging.localSync")
+  );
+}
+
+async function maintainJobQueue(now: Date = new Date()) {
+  if (now.getTime() - lastJobMaintenanceAt < JOB_MAINTENANCE_INTERVAL_MS) {
+    return;
+  }
+
+  lastJobMaintenanceAt = now.getTime();
+
+  try {
+    await recoverStaleRunningJobs(now);
+    await pruneJobHistory(now);
+  } catch (error) {
+    console.warn("Impossible d'exécuter la maintenance de la file de jobs", error);
+  }
+}
+
+async function recoverStaleRunningJobs(now: Date) {
+  const cutoff = new Date(now.getTime() - getStaleLeaseMinutes() * 60 * 1000);
+  const staleJobs = await prisma.backgroundJob.findMany({
+    where: {
+      status: BackgroundJobStatus.RUNNING,
+      lockedAt: {
+        lte: cutoff,
+      },
+    },
+    select: {
+      id: true,
+      type: true,
+      attempts: true,
+      maxAttempts: true,
+      lockedAt: true,
+    },
+  });
+
+  for (const job of staleJobs) {
+    const message = isSupersededWhenStale(job.type)
+      ? "Job périodique abandonné après expiration du lease; un cycle plus récent le remplacera."
+      : "Job récupéré après expiration du lease d'exécution.";
+    const detail = {
+      lockedAt: job.lockedAt?.toISOString() ?? null,
+      reason: "stale-running-recovery",
+      recoveredAt: now.toISOString(),
+    };
+
+    if (isSupersededWhenStale(job.type) || job.attempts >= job.maxAttempts) {
+      await prisma.backgroundJob.update({
+        where: { id: job.id },
+        data: {
+          status: BackgroundJobStatus.FAILED,
+          lastError: message,
+          completedAt: now,
+          lockedAt: null,
+        },
+      });
+      await recordJobEvent(job.id, BackgroundJobEventType.FAILED, {
+        ...detail,
+        message,
+      });
+      continue;
+    }
+
+    await prisma.backgroundJob.update({
+      where: { id: job.id },
+      data: {
+        status: BackgroundJobStatus.PENDING,
+        runAt: now,
+        lastError: message,
+        lockedAt: null,
+      },
+    });
+    await recordJobEvent(job.id, BackgroundJobEventType.RETRY_SCHEDULED, {
+      ...detail,
+      message,
+      runAt: now.toISOString(),
+    });
+  }
+}
+
+async function pruneJobHistory(now: Date) {
+  const cutoff = new Date(
+    now.getTime() - getHistoryRetentionDays() * 24 * 60 * 60 * 1000,
+  );
+
+  await prisma.backgroundJob.deleteMany({
+    where: {
+      status: {
+        in: [
+          BackgroundJobStatus.SUCCEEDED,
+          BackgroundJobStatus.FAILED,
+          BackgroundJobStatus.CANCELLED,
+        ],
+      },
+      completedAt: {
+        lt: cutoff,
+      },
+    },
+  });
+
+  await prisma.backgroundJobEvent.deleteMany({
+    where: {
+      createdAt: {
+        lt: cutoff,
+      },
+    },
+  });
+}
+
 async function handleJobFailure(job: BackgroundJob, error: unknown): Promise<{
   status: "retry" | "failed";
   message: string;
@@ -370,4 +516,6 @@ async function sendJobFailureAlert(job: BackgroundJob, message: string) {
 
 export const __testables = {
   computeBackoffDelay,
+  isSupersededWhenStale,
+  parsePositiveInteger,
 };

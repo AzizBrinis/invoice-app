@@ -6,7 +6,7 @@ import { ZodError } from "zod";
 import {
   AccountMembershipRole,
   AccountPermission,
-} from "@prisma/client";
+} from "@/lib/db/prisma";
 import {
   clientSchema,
   createClient,

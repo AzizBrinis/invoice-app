@@ -1,5 +1,5 @@
-import { Prisma } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+import { Prisma } from "@/lib/db/prisma-server";
+import { prisma } from "@/lib/db";
 
 type AuditParams = {
   userId: string;

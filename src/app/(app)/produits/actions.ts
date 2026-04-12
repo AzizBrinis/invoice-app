@@ -4,11 +4,11 @@ import { randomUUID } from "crypto";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { ZodError } from "zod";
-import { Prisma } from "@prisma/client";
+import { Prisma } from "@/lib/db/prisma-server";
 import { productSchema, createProduct, updateProduct, deleteProduct } from "@/server/products";
 import { buildProductFormValidationState } from "@/server/product-form-errors";
 import { toCents } from "@/lib/money";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db";
 import { getSettings } from "@/server/settings";
 import { requireUser } from "@/lib/auth";
 import { requireAppSectionAccess } from "@/lib/authorization";
@@ -496,9 +496,9 @@ export async function importProductsAction(formData: FormData) {
       throw new Error(message);
     }
 
-    await prisma.$transaction(
-      entries.map((entry) =>
-        prisma.product.upsert({
+    await prisma.$transaction(async (tx) => {
+      for (const entry of entries) {
+        await tx.product.upsert({
           where: {
             userId_sku: {
               userId: user.id,
@@ -512,9 +512,9 @@ export async function importProductsAction(formData: FormData) {
             publicSlug: entry.publicSlug,
             ...entry.data,
           },
-        }),
-      ),
-    );
+        });
+      }
+    });
 
     if (errors.length > 0) {
       console.warn(

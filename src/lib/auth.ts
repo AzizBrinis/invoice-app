@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { randomBytes, createHash } from "crypto";
 import { cache } from "react";
 import bcrypt from "bcryptjs";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/db";
 import { AuthorizationError } from "@/lib/errors";
 import type {
   AccountMembershipRole,
@@ -11,7 +11,7 @@ import type {
   AccountType,
   User,
   UserRole,
-} from "@prisma/client";
+} from "@/lib/db/prisma";
 import {
   extractSignedToken,
   signSessionToken,
