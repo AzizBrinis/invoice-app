@@ -1803,6 +1803,27 @@ async function loadRelationValues(
     return grouped;
   }
 
+  const originalSelect = isPlainObject(args.select) ? args.select : null;
+  const internallySelectedFields: string[] = [];
+  const relatedArgs = originalSelect
+    ? {
+        ...args,
+        select: {
+          ...originalSelect,
+        },
+      }
+    : args;
+
+  if (originalSelect) {
+    const select = relatedArgs.select as Record<string, unknown>;
+    for (const targetField of relation.targetFields) {
+      if (!(targetField in originalSelect)) {
+        select[targetField] = true;
+        internallySelectedFields.push(targetField);
+      }
+    }
+  }
+
   const relationWhere =
     filters.length === 1
       ? filters[0].filter
@@ -1812,7 +1833,7 @@ async function loadRelationValues(
   const relatedRows = await findManyInternal(
     relation.targetModel,
     {
-      ...args,
+      ...relatedArgs,
       where: buildRelatedWhere(relationWhere),
       [INTERNAL_REQUIRED_FIELDS]: relation.targetFields,
     },
@@ -1821,15 +1842,24 @@ async function loadRelationValues(
 
   const grouped = new Map<string, unknown>();
   for (const row of relatedRows) {
+    const rowRecord = row as Record<string, unknown>;
     const key = serializeKey(
-      relation.targetFields.map((fieldName) => (row as Record<string, unknown>)[fieldName]),
+      relation.targetFields.map((fieldName) => rowRecord[fieldName]),
     );
+    const visibleRow =
+      internallySelectedFields.length > 0
+        ? Object.fromEntries(
+            Object.entries(rowRecord).filter(
+              ([fieldName]) => !internallySelectedFields.includes(fieldName),
+            ),
+          )
+        : row;
     if (relation.isList) {
       const existing = (grouped.get(key) as unknown[]) ?? [];
-      existing.push(row);
+      existing.push(visibleRow);
       grouped.set(key, existing);
     } else {
-      grouped.set(key, row);
+      grouped.set(key, visibleRow);
     }
   }
 

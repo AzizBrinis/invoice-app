@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import clsx from "clsx";
 import { DEFAULT_PRIMARY_CTA_LABEL } from "@/lib/website/defaults";
 import { WEBSITE_MEDIA_PLACEHOLDERS } from "@/lib/website/placeholders";
+import { buildPublicWebsiteHref } from "@/lib/website/custom-domain";
 import type {
   WebsiteBuilderConfig,
   WebsiteBuilderMediaAsset,
@@ -1482,9 +1483,13 @@ export function EcommerceTemplate({
   const promos = useMemo(() => buildPromos(promoSection), [promoSection]);
   const newsletter = useMemo(() => buildNewsletterCopy(newsletterSection), [newsletterSection]);
   const baseLink = (target: string) =>
-    mode === "preview"
-      ? `/preview?path=${encodeURIComponent(normalizePath(target))}`
-      : `/catalogue/${data.website.slug}${normalizePath(target)}`;
+    buildPublicWebsiteHref({
+      slug: data.website.slug,
+      targetPath: normalizePath(target),
+      mode,
+      customDomain: data.website.customDomain,
+      domainStatus: data.website.domainStatus,
+    });
   const cartItems = products.slice(0, 3);
   const related = products.slice(1, 5);
   const inlineAccent = { ["--site-accent" as string]: accent };

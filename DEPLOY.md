@@ -34,6 +34,8 @@ Le build ne modifie jamais le schéma de base de données. Toute évolution SQL 
 
 > Astuce : copiez le contenu de `.env.example`, remplacez les placeholders par les valeurs Supabase/Vercel, puis collez-les dans l’onglet _Environment Variables_ de Vercel.
 
+Pour le runbook complet domaine personnalisé, voir [CUSTOM_DOMAIN_SETUP.md](/Users/brinis/Documents/Learning/ai/codex/invoices-app/CUSTOM_DOMAIN_SETUP.md).
+
 ### Supabase et réseaux IPv4
 
 L’endpoint `db.<ref>.supabase.co` est IPv6-only. Les plateformes IPv4-only (Vercel, GitHub Actions, certains runners CI) doivent utiliser les poolers Supabase.

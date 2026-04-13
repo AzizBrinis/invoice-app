@@ -17,6 +17,7 @@ import {
 import { AccountProfileProvider } from "./hooks/useAccountProfile";
 import { CisecoCmsPagesProvider } from "./cms-context";
 import { HomePage } from "./pages/HomePage";
+import { buildPublicWebsiteHref } from "@/lib/website/custom-domain";
 import { buildCisecoInlineStyles, buildCisecoTheme, type TemplateProps, type TemplateStyleVars } from "./template-shared";
 import {
   buildCartCatalogProducts,
@@ -94,9 +95,13 @@ export function EcommerceCisecoHomeTemplateClient({
   const companyName = data.website.contact?.companyName || "Your Brand";
   const locale = initialLocale ?? DEFAULT_CISECO_LOCALE;
   const rawBaseLink = (target: string) =>
-    mode === "preview"
-      ? `/preview?path=${encodeURIComponent(normalizePath(target))}`
-      : `/catalogue/${data.website.slug}${normalizePath(target)}`;
+    buildPublicWebsiteHref({
+      slug: data.website.slug,
+      targetPath: normalizePath(target),
+      mode,
+      customDomain: data.website.customDomain,
+      domainStatus: data.website.domainStatus,
+    });
   const baseLink = (target: string) =>
     appendCisecoLocaleToHref(rawBaseLink(target), locale);
   const homeHref = baseLink("/");

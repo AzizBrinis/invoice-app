@@ -179,8 +179,14 @@ describeClientPayments("client payment domain", () => {
         date: new Date(),
         method: "Espèces",
         description: "Acompte complémentaire",
-        note: "Paiement sans service lié",
-        serviceLinks: [],
+        note: "Paiement avec service lié",
+        serviceLinks: [
+          {
+            clientServiceId: service.id,
+            allocatedAmountCents: 8000,
+            position: 0,
+          },
+        ],
       },
       userId,
     );
@@ -518,6 +524,16 @@ describeClientPayments("client payment domain", () => {
       },
       userId,
     );
+    const mixedCurrencyService = await createClientService(
+      {
+        clientId: mixedCurrencyClient.id,
+        title: "Service multi-devise",
+        details: "Support de test pour les totaux par devise",
+        priceCents: 12500,
+        isActive: true,
+      },
+      userId,
+    );
 
     await createClientPayment(
       {
@@ -526,7 +542,13 @@ describeClientPayments("client payment domain", () => {
         currency: "TND",
         date: new Date(),
         description: "Paiement TND",
-        serviceLinks: [],
+        serviceLinks: [
+          {
+            clientServiceId: mixedCurrencyService.id,
+            allocatedAmountCents: 12500,
+            position: 0,
+          },
+        ],
       },
       userId,
     );
@@ -538,7 +560,13 @@ describeClientPayments("client payment domain", () => {
         currency: "EUR",
         date: new Date(),
         description: "Paiement EUR",
-        serviceLinks: [],
+        serviceLinks: [
+          {
+            clientServiceId: mixedCurrencyService.id,
+            allocatedAmountCents: 9000,
+            position: 0,
+          },
+        ],
       },
       userId,
     );

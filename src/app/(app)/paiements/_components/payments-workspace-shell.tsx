@@ -248,6 +248,20 @@ export function PaymentsWorkspaceShell(props: PaymentsWorkspaceShellProps) {
       });
       return;
     }
+    if (selectedCreateServices.length === 0) {
+      addToast({
+        variant: "error",
+        title: "Sélectionnez au moins un service à lier au paiement.",
+      });
+      return;
+    }
+
+    formData.set("clientId", selectedCreateClient.id);
+    formData.delete("clientServiceIds");
+    selectedCreateServices.forEach((service) => {
+      formData.append("clientServiceIds", service.id);
+    });
+
     const optimisticPayment = buildOptimisticPayment(
       formData,
       selectedCreateClient,
@@ -522,7 +536,7 @@ export function PaymentsWorkspaceShell(props: PaymentsWorkspaceShellProps) {
                 />
                 <p className="text-xs text-zinc-500 dark:text-zinc-400">
                   Recherchez uniquement les services utiles au paiement. Vous pouvez
-                  aussi enregistrer un paiement sans service lié.
+                  lier un ou plusieurs services du catalogue au reçu.
                 </p>
               </div>
 

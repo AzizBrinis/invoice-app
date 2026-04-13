@@ -213,4 +213,48 @@ describe("client payment actions", () => {
       "Paiement client supprimé",
     );
   });
+
+  it("rejects payment creation when the service link is missing", async () => {
+    const { createClientPaymentInlineAction } = await import(
+      "@/app/(app)/clients/actions"
+    );
+
+    const formData = new FormData();
+    formData.set("clientId", "client-123");
+    formData.set("amount", "180");
+    formData.set("currency", "TND");
+    formData.set("date", "2026-03-19");
+    formData.set("method", "Virement bancaire");
+
+    const result = await createClientPaymentInlineAction(formData);
+
+    expect(result).toMatchObject({
+      status: "error",
+      message: "Sélectionnez au moins un service à lier au paiement.",
+    });
+    expect(createClientPaymentMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects duplicated service links before creating the payment", async () => {
+    const { createClientPaymentInlineAction } = await import(
+      "@/app/(app)/clients/actions"
+    );
+
+    const formData = new FormData();
+    formData.set("clientId", "client-123");
+    formData.set("amount", "180");
+    formData.set("currency", "TND");
+    formData.set("date", "2026-03-19");
+    formData.set("method", "Virement bancaire");
+    formData.append("clientServiceIds", "service-a");
+    formData.append("clientServiceIds", "service-a");
+
+    const result = await createClientPaymentInlineAction(formData);
+
+    expect(result).toMatchObject({
+      status: "error",
+      message: "Un service ne peut pas être lié plusieurs fois au même paiement.",
+    });
+    expect(createClientPaymentMock).not.toHaveBeenCalled();
+  });
 });

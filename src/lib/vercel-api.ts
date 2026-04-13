@@ -4,6 +4,17 @@ type VercelConfig = {
   teamId?: string;
 };
 
+type VercelProjectDomain = {
+  name: string;
+  verified: boolean;
+  verification?: Array<{
+    type?: string;
+    domain?: string;
+    value?: string;
+    reason?: string;
+  }>;
+};
+
 const VERCEL_API_BASE_URL = "https://api.vercel.com";
 
 export class MissingVercelConfigError extends Error {
@@ -144,8 +155,9 @@ async function callVercelApi<T>(
 
 export async function ensureVercelProjectDomain(domain: string) {
   const config = requireVercelConfig();
+  let projectDomain: VercelProjectDomain;
   try {
-    await callVercelApi(
+    projectDomain = await callVercelApi<VercelProjectDomain>(
       `/v9/projects/${config.projectId}/domains`,
       {
         method: "POST",
@@ -159,10 +171,37 @@ export async function ensureVercelProjectDomain(domain: string) {
       error.status === 409 &&
       error.code === "domain_already_exists"
     ) {
-      return;
+      projectDomain = await callVercelApi<VercelProjectDomain>(
+        `/v9/projects/${config.projectId}/domains/${domain}`,
+        { method: "GET" },
+        config,
+      );
+    } else {
+      throw error;
     }
-    throw error;
   }
+
+  if (projectDomain.verified) {
+    return;
+  }
+
+  const verifiedDomain = await callVercelApi<VercelProjectDomain>(
+    `/v9/projects/${config.projectId}/domains/${domain}/verify`,
+    { method: "POST" },
+    config,
+  );
+
+  if (verifiedDomain.verified) {
+    return;
+  }
+
+  throw new VercelApiError(
+    "Vercel n’a pas encore validé ce domaine. Vérifiez les enregistrements DNS dans Vercel et réessayez dans quelques minutes.",
+    {
+      status: 412,
+      body: verifiedDomain,
+    },
+  );
 }
 
 export async function removeVercelProjectDomain(domain: string) {

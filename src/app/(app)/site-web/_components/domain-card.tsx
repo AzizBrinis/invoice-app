@@ -80,8 +80,13 @@ export function DomainCard({
           Domaine personnalisé
         </h2>
         <p className="text-sm text-zinc-600 dark:text-zinc-300">
-          Pointez votre domaine vers <strong>{edgeDomain}</strong> via un
-          CNAME, ajoutez l’enregistrement TXT ci-dessous puis validez.
+          Utilisez un sous-domaine comme <strong>www</strong> ou{" "}
+          <strong>shop</strong>, pointez-le vers <strong>{edgeDomain}</strong>{" "}
+          via un CNAME, puis ajoutez le TXT ci-dessous.
+        </p>
+        <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+          Les domaines apex/root (`example.com`) ne sont pas pris en charge par
+          le flux actuel.
         </p>
       </div>
       <div className="flex items-center gap-2 text-sm">
@@ -108,7 +113,7 @@ export function DomainCard({
       <form action={domainAction} className="space-y-3">
         <div>
           <label htmlFor="customDomain" className="label">
-            Domaine
+            Sous-domaine personnalisé
           </label>
           <Input
             id="customDomain"

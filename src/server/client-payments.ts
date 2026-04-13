@@ -63,7 +63,9 @@ const clientPaymentSchema = z
     description: z.string().nullable().optional(),
     note: z.string().nullable().optional(),
     privateNote: z.string().nullable().optional(),
-    serviceLinks: z.array(clientPaymentServiceLinkSchema).default([]),
+    serviceLinks: z
+      .array(clientPaymentServiceLinkSchema)
+      .min(1, "Sélectionnez au moins un service à lier au paiement"),
   })
   .refine(
     (payload) =>
@@ -1191,6 +1193,22 @@ export async function createClientPayment(
       tx,
     );
 
+    const serviceLinks = payload.serviceLinks.map((link, index) => {
+      const service = services.get(link.clientServiceId);
+      if (!service) {
+        throw new Error("Service lié introuvable");
+      }
+      return {
+        clientServiceId: service.id,
+        titleSnapshot: service.title,
+        detailsSnapshot: service.details ?? null,
+        allocatedAmountCents:
+          link.allocatedAmountCents ??
+          (payload.serviceLinks.length === 1 ? amountCents : null),
+        position: link.position ?? index,
+      };
+    });
+
     const payment = await tx.clientPayment.create({
       data: {
         userId: tenantId,
@@ -1203,30 +1221,24 @@ export async function createClientPayment(
         description: payload.description ?? null,
         note: payload.note ?? null,
         privateNote: payload.privateNote ?? null,
-        serviceLinks: payload.serviceLinks.length
-          ? {
-              create: payload.serviceLinks.map((link, index) => {
-                const service = services.get(link.clientServiceId);
-                if (!service) {
-                  throw new Error("Service lié introuvable");
-                }
-                return {
-                  clientServiceId: service.id,
-                  titleSnapshot: service.title,
-                  detailsSnapshot: service.details ?? null,
-                  allocatedAmountCents:
-                    link.allocatedAmountCents ??
-                    (payload.serviceLinks.length === 1 ? amountCents : null),
-                  position: link.position ?? index,
-                };
-              }),
-            }
-          : undefined,
       },
-      include: clientPaymentDetailInclude,
+      select: {
+        id: true,
+      },
     });
 
-    return payment;
+    const createdLinks = await tx.clientPaymentService.createMany({
+      data: serviceLinks.map((link) => ({
+        ...link,
+        clientPaymentId: payment.id,
+      })),
+    });
+
+    if (createdLinks.count !== serviceLinks.length) {
+      throw new Error("La liaison service du paiement n'a pas pu être enregistrée.");
+    }
+
+    return getClientPaymentById(payment.id, tenantId, tx);
   });
 }
 
@@ -1263,10 +1275,16 @@ export async function issueClientPaymentReceipt(
   const payment = await prisma.$transaction(async (tx) => {
     const payment = await getClientPaymentById(paymentId, tenantId, tx);
 
+    const existingSnapshot = parseReceiptSnapshot(payment.receiptSnapshot);
+    const snapshotMatchesPersistedServices =
+      existingSnapshot &&
+      (payment.serviceLinks.length === 0 ||
+        existingSnapshot.services.length === payment.serviceLinks.length);
+
     if (
       payment.receiptNumber &&
       payment.receiptIssuedAt &&
-      parseReceiptSnapshot(payment.receiptSnapshot)
+      snapshotMatchesPersistedServices
     ) {
       return payment;
     }

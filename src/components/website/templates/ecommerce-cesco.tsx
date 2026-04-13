@@ -21,6 +21,7 @@ import {
 } from "@/lib/product-pricing";
 import { slugify } from "@/lib/slug";
 import { WEBSITE_MEDIA_PLACEHOLDERS } from "@/lib/website/placeholders";
+import { buildPublicWebsiteHref } from "@/lib/website/custom-domain";
 import type {
   WebsiteBuilderConfig,
   WebsiteBuilderMediaAsset,
@@ -5305,9 +5306,13 @@ export function EcommerceCescoTemplate({
   const faqSection = resolveSection(sections, "faq");
   const page = resolvePage(path);
   const baseLink = (target: string) =>
-    mode === "preview"
-      ? `/preview?path=${encodeURIComponent(normalizePath(target))}`
-      : `/catalogue/${data.website.slug}${normalizePath(target)}`;
+    buildPublicWebsiteHref({
+      slug: data.website.slug,
+      targetPath: normalizePath(target),
+      mode,
+      customDomain: data.website.customDomain,
+      domainStatus: data.website.domainStatus,
+    });
 
   const usePreviewFallback =
     mode === "preview" && data.products.all.length === 0;

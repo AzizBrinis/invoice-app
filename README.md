@@ -131,6 +131,7 @@ Les pixels d'ouverture et liens de suivi doivent être accessibles via une URL H
 
 ### Site web public & catalogue
 
+- Documentation détaillée du domaine personnalisé : [CUSTOM_DOMAIN_SETUP.md](/Users/brinis/Documents/Learning/ai/codex/invoices-app/CUSTOM_DOMAIN_SETUP.md)
 - Configurez le contenu dans **Site web** (nouvel item du menu). Le formulaire vous permet de personnaliser le héro, les blocs “À propos”/contact, la couleur d’accent, les champs SEO et le message de remerciement du formulaire de contact.
 - Sélectionnez un template visuel (actuellement “Dev Agency”) pour adapter la mise en page. Les prochains modèles (architecte, école IT…) arriveront progressivement.
 - Utilisez `/preview` (bouton “Prévisualiser”) pour valider la mise en page en développement : cette route est réservée aux utilisateurs authentifiés et n’enregistre pas les leads.

@@ -356,12 +356,14 @@ export async function requestCustomDomainAction(
   try {
     await requireWebsiteAccess();
     const domain = formData.get("customDomain")?.toString() ?? "";
-    await requestCustomDomain({ customDomain: domain });
+    const result = await requestCustomDomain({ customDomain: domain });
     revalidatePath("/site-web");
     revalidatePath("/catalogue");
     return {
       status: "success",
-      message: "Domaine enregistré. Ajoutez le CNAME puis lancez la vérification.",
+      message: result.changed
+        ? "Domaine enregistré. Ajoutez le CNAME et le TXT de vérification, puis lancez la vérification."
+        : "Ce domaine est déjà enregistré. Aucun changement n’a été appliqué.",
     };
   } catch (error) {
     if (error instanceof ZodError) {

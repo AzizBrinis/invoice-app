@@ -233,6 +233,24 @@ function parseAmountField(value: FormDataEntryValue | null) {
   return amount;
 }
 
+function parseClientPaymentServiceIds(formData: FormData) {
+  const serviceIds = formData
+    .getAll("clientServiceIds")
+    .map((entry) => entry.toString().trim())
+    .filter((entry) => entry.length > 0);
+  const uniqueServiceIds = Array.from(new Set(serviceIds));
+
+  if (uniqueServiceIds.length === 0) {
+    throw new Error("Sélectionnez au moins un service à lier au paiement.");
+  }
+
+  if (uniqueServiceIds.length !== serviceIds.length) {
+    throw new Error("Un service ne peut pas être lié plusieurs fois au même paiement.");
+  }
+
+  return uniqueServiceIds;
+}
+
 function parseNonNegativeAmountField(
   value: FormDataEntryValue | null,
   fieldName = "Montant",
@@ -492,10 +510,7 @@ async function performCreateClientPayment(formData: FormData) {
     throw new Error("Client requis");
   }
 
-  const serviceIds = formData
-    .getAll("clientServiceIds")
-    .map((entry) => entry.toString().trim())
-    .filter((entry) => entry.length > 0);
+  const serviceIds = parseClientPaymentServiceIds(formData);
 
   const payment = await createClientPayment(
     {

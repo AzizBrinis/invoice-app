@@ -35,6 +35,7 @@ import {
   type ContactSocialLink,
 } from "@/lib/website/contact";
 import { DEFAULT_PRIMARY_CTA_LABEL } from "@/lib/website/defaults";
+import { isSameCustomDomain } from "@/lib/website/custom-domain";
 import { slugify } from "@/lib/slug";
 import { fromCents } from "@/lib/money";
 import { stripProductHtml } from "@/lib/product-html";
@@ -1311,6 +1312,12 @@ export async function requestCustomDomain(
   const parsed = domainSchema.parse(input);
   const config = await ensureWebsiteConfig(resolvedUserId);
   const normalized = normalizeDomain(parsed.customDomain);
+  if (isSameCustomDomain(config.customDomain, normalized)) {
+    return {
+      config,
+      changed: false,
+    } as const;
+  }
   const alreadyUsed = await prisma.websiteConfig.findFirst({
     where: {
       customDomain: normalized,
@@ -1323,7 +1330,16 @@ export async function requestCustomDomain(
   if (alreadyUsed) {
     throw new Error("Ce domaine est déjà connecté à un autre compte.");
   }
-  return prisma.websiteConfig.update({
+  if (config.customDomain) {
+    removeVercelProjectDomain(config.customDomain).catch((error) => {
+      console.warn("[website] Failed to remove previous project domain", {
+        previousDomain: config.customDomain,
+        nextDomain: normalized,
+        error,
+      });
+    });
+  }
+  const updated = await prisma.websiteConfig.update({
     where: { id: config.id },
     data: {
       customDomain: normalized,
@@ -1333,6 +1349,10 @@ export async function requestCustomDomain(
       published: false,
     },
   });
+  return {
+    config: updated,
+    changed: true,
+  } as const;
 }
 
 export async function verifyCustomDomain(userId?: string) {

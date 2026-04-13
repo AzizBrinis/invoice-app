@@ -22,6 +22,7 @@ import {
 import { slugify } from "@/lib/slug";
 import { DEFAULT_PRIMARY_CTA_LABEL } from "@/lib/website/defaults";
 import { WEBSITE_MEDIA_PLACEHOLDERS } from "@/lib/website/placeholders";
+import { buildPublicWebsiteHref } from "@/lib/website/custom-domain";
 import type {
   WebsiteBuilderConfig,
   WebsiteBuilderMediaAsset,
@@ -4003,9 +4004,13 @@ export function EcommerceTechAgencyTemplate({
   const ctaSection = resolveSection(sections, "promo", ["newsletter", "contact"]);
   const page = resolvePage(path);
   const baseLink = (target: string) =>
-    mode === "preview"
-      ? `/preview?path=${encodeURIComponent(normalizePath(target))}`
-      : `/catalogue/${data.website.slug}${normalizePath(target)}`;
+    buildPublicWebsiteHref({
+      slug: data.website.slug,
+      targetPath: normalizePath(target),
+      mode,
+      customDomain: data.website.customDomain,
+      domainStatus: data.website.domainStatus,
+    });
 
   const allCards = useMemo(
     () =>

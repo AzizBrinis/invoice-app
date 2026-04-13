@@ -18,6 +18,82 @@ function createFakeSqlClient(
 }
 
 describe("db client relation compatibility", () => {
+  it("keeps selected client payment service links matched to their payment", async () => {
+    const serviceLinkCalls: Array<{
+      statement: string;
+      values: readonly unknown[];
+    }> = [];
+    const sqlClient = createFakeSqlClient(async (statement, values) => {
+      if (statement.includes('"public"."ClientPaymentService"')) {
+        serviceLinkCalls.push({ statement, values });
+        return [
+          {
+            id: "link-1",
+            clientPaymentId: "payment-1",
+            clientServiceId: "service-1",
+            titleSnapshot: "Service lié",
+            position: 0,
+          },
+        ];
+      }
+
+      if (statement.includes('"public"."ClientPayment"')) {
+        return [
+          {
+            id: "payment-1",
+            userId: "tenant-1",
+            clientId: "client-1",
+            amountCents: 12000,
+          },
+        ];
+      }
+
+      return [];
+    });
+    const client = createDatabaseClient(
+      sqlClient as Parameters<typeof createDatabaseClient>[0],
+    ) as {
+      clientPayment: {
+        findFirst: (args: Record<string, unknown>) => Promise<{
+          id: string;
+          serviceLinks: Array<{
+            id: string;
+            clientPaymentId?: string;
+            clientServiceId: string;
+            titleSnapshot: string;
+          }>;
+        } | null>;
+      };
+    };
+
+    const payment = await client.clientPayment.findFirst({
+      where: { id: "payment-1", userId: "tenant-1" },
+      include: {
+        serviceLinks: {
+          orderBy: { position: "asc" },
+          select: {
+            id: true,
+            clientServiceId: true,
+            titleSnapshot: true,
+            position: true,
+          },
+        },
+      },
+    });
+
+    expect(payment?.serviceLinks).toEqual([
+      {
+        id: "link-1",
+        clientServiceId: "service-1",
+        titleSnapshot: "Service lié",
+        position: 0,
+      },
+    ]);
+    expect(serviceLinkCalls).toHaveLength(1);
+    expect(serviceLinkCalls[0].statement).toContain('"clientPaymentId"');
+    expect(serviceLinkCalls[0].values).toEqual(["payment-1"]);
+  });
+
   it("loads one latest payment per listed order like src/server/orders.ts", async () => {
     const paymentCalls: Array<{
       statement: string;
