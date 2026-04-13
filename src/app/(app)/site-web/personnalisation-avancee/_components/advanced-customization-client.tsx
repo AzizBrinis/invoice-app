@@ -384,6 +384,19 @@ function isHomeTestimonialsSection(
   );
 }
 
+function isAboutTestimonialsSection(
+  section: WebsiteBuilderSection | null | undefined,
+  pageKey: CisecoPageKey,
+  isCisecoTemplate: boolean,
+) {
+  return Boolean(
+    isCisecoTemplate &&
+      pageKey === "about" &&
+      section?.type === "testimonials" &&
+      section?.id === "ciseco-testimonials",
+  );
+}
+
 function resolveHomeSliderEditorSlides(
   section: WebsiteBuilderSection | null | undefined,
 ) {
@@ -900,6 +913,13 @@ export function AdvancedCustomizationClient({
     selectedPageKey,
     isCisecoTemplate,
   );
+  const isSelectedAboutTestimonials = isAboutTestimonialsSection(
+    selectedSection,
+    selectedPageKey,
+    isCisecoTemplate,
+  );
+  const isSelectedTestimonialsPhotosSection =
+    isSelectedHomeTestimonials || isSelectedAboutTestimonials;
   const homeSliderSlides = resolveHomeSliderEditorSlides(
     isSelectedHomeSlider ? selectedSection : null,
   );
@@ -921,7 +941,7 @@ export function AdvancedCustomizationClient({
     ? clampHomeHeroSliderInterval(selectedSection?.settings?.autoSlideIntervalMs)
     : DEFAULT_HOME_HERO_SLIDER_INTERVAL_MS;
   const selectedSectionShowsCustomerPhotos = resolveSectionCustomerPhotosVisibility(
-    isSelectedHomeTestimonials ? selectedSection : null,
+    isSelectedTestimonialsPhotosSection ? selectedSection : null,
   );
   const layoutOptions = selectedSection
     ? selectedSectionTemplate?.singleton
@@ -2476,7 +2496,7 @@ export function AdvancedCustomizationClient({
                   </select>
                 </label>
               </div>
-              {isSelectedHomeTestimonials ? (
+              {isSelectedTestimonialsPhotosSection ? (
                 <div className="rounded-2xl border border-zinc-200 p-4 dark:border-zinc-800">
                   <label className="flex items-start gap-3">
                     <input

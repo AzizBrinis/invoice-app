@@ -2,6 +2,7 @@ import clsx from "clsx";
 import type { ThemeTokens } from "../../types";
 import { useCisecoI18n } from "../../i18n";
 import { Section } from "../layout/Section";
+import { CatalogImage } from "../shared/CatalogImage";
 
 const ORBIT_POSITIONS = [
   "-left-6 top-10 hidden sm:block animate-[float_14s_ease-in-out_infinite]",
@@ -21,6 +22,7 @@ type OrbitAvatar = {
 type Testimonial = {
   quote: string;
   name: string;
+  role?: string | null;
   rating: number;
   avatar: string;
 };
@@ -31,6 +33,7 @@ type TestimonialsOrbitProps = {
   subtitle: string;
   testimonial: Testimonial;
   avatars: OrbitAvatar[];
+  showCustomerPhotos?: boolean;
   sectionId?: string;
 };
 
@@ -40,6 +43,7 @@ export function TestimonialsOrbit({
   subtitle,
   testimonial,
   avatars,
+  showCustomerPhotos = true,
   sectionId,
 }: TestimonialsOrbitProps) {
   const { t } = useCisecoI18n();
@@ -53,18 +57,32 @@ export function TestimonialsOrbit({
           </h2>
           <p className="text-sm text-slate-500">{t(subtitle)}</p>
         </div>
-        <div className="relative mx-auto max-w-3xl pt-10">
-          <div className="relative rounded-3xl border border-black/5 bg-white px-6 pb-8 pt-10 text-center shadow-sm sm:px-10">
-            <div className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2">
-              <div className="h-16 w-16 overflow-hidden rounded-full border-4 border-white shadow-sm">
-                <img
-                  src={testimonial.avatar}
-                  alt={t(testimonial.name)}
-                  className="h-full w-full object-cover"
-                  loading="lazy"
-                />
+        <div
+          className={clsx(
+            "relative mx-auto max-w-3xl",
+            showCustomerPhotos ? "pt-10" : "pt-2",
+          )}
+        >
+          <div
+            className={clsx(
+              "relative rounded-3xl border border-black/5 bg-white px-6 text-center shadow-sm sm:px-10",
+              showCustomerPhotos ? "pb-8 pt-10" : "py-8 sm:py-10",
+            )}
+          >
+            {showCustomerPhotos ? (
+              <div className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2">
+                <div className="h-16 w-16 overflow-hidden rounded-full border-4 border-white shadow-sm">
+                  <CatalogImage
+                    src={testimonial.avatar}
+                    alt={t(testimonial.name)}
+                    className="h-full w-full object-cover"
+                    width={64}
+                    height={64}
+                    loading="lazy"
+                  />
+                </div>
               </div>
-            </div>
+            ) : null}
             <span
               aria-hidden="true"
               className="absolute left-6 top-6 text-4xl text-slate-200"
@@ -83,6 +101,11 @@ export function TestimonialsOrbit({
             <p className="mt-4 text-sm font-semibold text-slate-900">
               {t(testimonial.name)}
             </p>
+            {testimonial.role ? (
+              <p className="mt-1 text-sm text-slate-500">
+                {t(testimonial.role)}
+              </p>
+            ) : null}
             <div className="mt-2 flex items-center justify-center gap-1 text-amber-400">
               {Array.from({ length: testimonial.rating }).map((_, idx) => (
                 <StarIcon key={`star-${idx}`} className="h-4 w-4" />
@@ -100,24 +123,28 @@ export function TestimonialsOrbit({
               ))}
             </div>
           </div>
-          <div className="pointer-events-none absolute inset-0">
-            {avatars.map((avatar, index) => (
-              <div
-                key={avatar.id}
-                className={clsx(
-                  "absolute h-10 w-10 overflow-hidden rounded-full border-4 border-white shadow-sm",
-                  ORBIT_POSITIONS[index % ORBIT_POSITIONS.length],
-                )}
-              >
-                <img
-                  src={avatar.image}
-                  alt=""
-                  className="h-full w-full object-cover"
-                  loading="lazy"
-                />
-              </div>
-            ))}
-          </div>
+          {showCustomerPhotos && avatars.length ? (
+            <div className="pointer-events-none absolute inset-0">
+              {avatars.map((avatar, index) => (
+                <div
+                  key={avatar.id}
+                  className={clsx(
+                    "absolute h-10 w-10 overflow-hidden rounded-full border-4 border-white shadow-sm",
+                    ORBIT_POSITIONS[index % ORBIT_POSITIONS.length],
+                  )}
+                >
+                  <CatalogImage
+                    src={avatar.image}
+                    alt=""
+                    className="h-full w-full object-cover"
+                    width={40}
+                    height={40}
+                    loading="lazy"
+                  />
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
       </div>
     </Section>

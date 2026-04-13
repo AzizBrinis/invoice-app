@@ -7,7 +7,6 @@ import type {
 import { WEBSITE_MEDIA_PLACEHOLDERS } from "@/lib/website/placeholders";
 import type { ThemeTokens } from "../types";
 import {
-  buildImageList,
   resolveBuilderMedia,
   resolveBuilderSectionBySignature,
 } from "../builder-helpers";
@@ -20,6 +19,7 @@ import { ExtraSections } from "../components/builder/ExtraSections";
 import { Footer } from "../components/layout/Footer";
 import { Navbar } from "../components/layout/Navbar";
 import { PageShell } from "../components/layout/PageShell";
+import { resolveSectionCustomerPhotosVisibility } from "@/lib/website/builder";
 import {
   ABOUT_FAST_FACTS,
   ABOUT_FAST_FACTS_COPY,
@@ -90,12 +90,16 @@ export function AboutPage({
     showHero || showTeam || showAbout || showTestimonials;
 
   const heroImages = heroSection
-    ? heroSection.items.length > 0
-      ? buildImageList(heroSection.items, mediaLibrary, {
-          fallback: ABOUT_HERO_IMAGES,
-          altPrefix: "About gallery",
+    ? heroSection.items
+        .map((item, index) => {
+          const asset = resolveBuilderMedia(item.mediaId, mediaLibrary);
+          if (!asset?.src) return null;
+          return {
+            src: asset.src,
+            alt: asset.alt || item.title || `About gallery ${index + 1}`,
+          };
         })
-      : []
+        .filter((image): image is { src: string; alt: string } => Boolean(image))
     : ABOUT_HERO_IMAGES.map((src, index) => ({
         src,
         alt: `About gallery ${index + 1}`,
@@ -154,6 +158,9 @@ export function AboutPage({
 
   const testimonialItems = testimonialsSection?.items ?? [];
   const [primaryTestimonial, ...orbitItems] = testimonialItems;
+  const showTestimonialPhotos = resolveSectionCustomerPhotosVisibility(
+    testimonialsSection,
+  );
   const testimonialAvatar = resolveBuilderMedia(
     primaryTestimonial?.mediaId,
     mediaLibrary,
@@ -163,18 +170,20 @@ export function AboutPage({
       ? {
           quote: primaryTestimonial.description ?? ABOUT_TESTIMONIAL.quote,
           name: primaryTestimonial.title ?? ABOUT_TESTIMONIAL.name,
+          role: primaryTestimonial.tag ?? null,
           rating: ABOUT_TESTIMONIAL.rating,
           avatar: testimonialAvatar?.src ?? ABOUT_TESTIMONIAL.avatar,
         }
       : {
           quote: ABOUT_TESTIMONIAL.quote,
           name: ABOUT_TESTIMONIAL.name,
+          role: null,
           rating: ABOUT_TESTIMONIAL.rating,
           avatar: ABOUT_TESTIMONIAL.avatar,
         };
 
   const orbitAvatars =
-    orbitItems.length > 0
+    showTestimonialPhotos && orbitItems.length > 0
       ? orbitItems.map((item, index) => {
           const asset = resolveBuilderMedia(item.mediaId, mediaLibrary);
           const defaultOrbit = ABOUT_TESTIMONIAL_AVATARS[index];
@@ -294,6 +303,7 @@ export function AboutPage({
               }
               testimonial={mainTestimonial}
               avatars={orbitAvatars}
+              showCustomerPhotos={showTestimonialPhotos}
               sectionId={testimonialsSection?.id}
             />
           </>

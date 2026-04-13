@@ -21,6 +21,12 @@ vi.mock("@/components/website/templates/ecommerce-ciseco/i18n", () => ({
   }),
 }));
 import { CatalogPage } from "@/components/website/catalog-page";
+import { AboutPage } from "@/components/website/templates/ecommerce-ciseco/pages/AboutPage";
+import { CisecoNavigationProvider } from "@/components/website/templates/ecommerce-ciseco/navigation";
+import {
+  buildCisecoInlineStyles,
+  buildCisecoTheme,
+} from "@/components/website/templates/ecommerce-ciseco/template-shared";
 import { type CatalogPayload } from "@/server/website";
 import {
   builderConfigSchema,
@@ -136,6 +142,31 @@ function createCisecoCatalogPayload(
     },
     currentCmsPage: null,
   };
+}
+
+function renderAboutPage(config: ReturnType<typeof createCisecoConfig>) {
+  const theme = buildCisecoTheme(config.theme?.accentColor ?? "#22c55e");
+  const inlineStyles = buildCisecoInlineStyles(theme);
+
+  return renderToStaticMarkup(
+    createElement(
+      CisecoNavigationProvider,
+      {
+        mode: "preview",
+        slug: "demo",
+        initialHref: "/preview?path=%2Fabout&lang=fr",
+        initialPath: "/about",
+        serverRoutedPaths: ["/", "/about", "/contact", "/blog"],
+      },
+      createElement(AboutPage, {
+        theme,
+        inlineStyles,
+        companyName: "Demo",
+        homeHref: "/preview?path=%2F&lang=fr",
+        builder: config.pages.about,
+      }),
+    ),
+  );
 }
 
 function createLegacyHomeSection(input: {
@@ -477,6 +508,44 @@ describe("website builder page persistence", () => {
     );
     const defaultTestimonials = normalizeForSave(config).pages.home?.sections.find(
       (section) => section.id === "ciseco-home-testimonials",
+    );
+
+    expect(normalizedTestimonials?.settings?.showCustomerPhotos).toBe(false);
+    expect(resolveSectionCustomerPhotosVisibility(normalizedTestimonials)).toBe(false);
+    expect(resolveSectionCustomerPhotosVisibility(defaultTestimonials)).toBe(true);
+  });
+
+  it("persists the about testimonials customer photo setting without breaking defaults", () => {
+    const config = createCisecoConfig();
+    const about = config.pages.about;
+
+    const nextConfig = {
+      ...config,
+      pages: {
+        ...config.pages,
+        about: {
+          ...about,
+          sections: about.sections.map((section) =>
+            section.id === "ciseco-testimonials"
+              ? {
+                  ...section,
+                  settings: {
+                    ...(section.settings ?? {}),
+                    showCustomerPhotos: false,
+                  },
+                }
+              : section,
+          ),
+        },
+      },
+    };
+
+    const normalized = normalizeForSave(nextConfig);
+    const normalizedTestimonials = normalized.pages.about?.sections.find(
+      (section) => section.id === "ciseco-testimonials",
+    );
+    const defaultTestimonials = normalizeForSave(config).pages.about?.sections.find(
+      (section) => section.id === "ciseco-testimonials",
     );
 
     expect(normalizedTestimonials?.settings?.showCustomerPhotos).toBe(false);
@@ -926,6 +995,67 @@ describe("website builder page persistence", () => {
     expect(html).not.toContain("/images/placeholders/portrait-1.svg");
     expect(html).not.toContain("/images/placeholders/portrait-2.svg");
     expect(html).not.toContain("/images/placeholders/portrait-3.svg");
+  });
+
+  it("renders testimonial photos on the about page by default", () => {
+    const config = createCisecoConfig();
+
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const html = (() => {
+      try {
+        return renderAboutPage(config);
+      } finally {
+        consoleErrorSpy.mockRestore();
+      }
+    })();
+
+    expect(html).toContain("Lennie Swiffan");
+    expect(html).toContain('alt="Lennie Swiffan"');
+    expect(html).toContain(
+      "photo-1500648767791-00dcc994a43e",
+    );
+  });
+
+  it("renders the about testimonials section without photos when disabled", () => {
+    const config = createCisecoConfig();
+    config.pages.about.sections = config.pages.about.sections.map((section) =>
+      section.id === "ciseco-testimonials"
+        ? {
+            ...section,
+            settings: {
+              ...(section.settings ?? {}),
+              showCustomerPhotos: false,
+            },
+          }
+        : section,
+    );
+
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const html = (() => {
+      try {
+        return renderAboutPage(config);
+      } finally {
+        consoleErrorSpy.mockRestore();
+      }
+    })();
+
+    expect(html).toContain("Lennie Swiffan");
+    expect(html).toContain(
+      "Great quality products, affordable prices, fast and friendly delivery.",
+    );
+    expect(html).not.toContain(
+      "https://images.unsplash.com/photo-1494790108377-be9c29b29330",
+    );
+    expect(html).not.toContain(
+      "https://images.unsplash.com/photo-1500648767791-00dcc994a43e",
+    );
+    expect(html).not.toContain('alt="Lennie Swiffan"');
+    expect(html).toContain("relative mx-auto max-w-3xl pt-2");
+    expect(html).toContain("py-8 sm:py-10");
   });
 
   it("renders an added generic extra section on contact pages", () => {

@@ -32,23 +32,66 @@ export function AboutHero({
   sectionId,
 }: AboutHeroProps) {
   const { t } = useCisecoI18n();
+  const resolvedImages = images.filter((image) => image.src.trim().length > 0);
+  const hasImages = resolvedImages.length > 0;
 
   return (
     <Section theme={theme} id="about-hero" className="pt-8" builderSectionId={sectionId}>
-      <div className="rounded-[36px] bg-gradient-to-br from-rose-50 via-white to-sky-50 px-6 py-10 shadow-sm sm:px-10 lg:px-12">
-        <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] lg:items-center">
-          <div className="max-w-lg space-y-4">
-            <h1 className="text-3xl font-semibold text-slate-900 sm:text-4xl lg:text-5xl">
+      <div
+        className={clsx(
+          "relative overflow-hidden rounded-[36px] bg-gradient-to-br from-rose-50 via-white to-sky-50 shadow-sm",
+          hasImages
+            ? "px-6 py-10 sm:px-10 sm:py-12 lg:px-12"
+            : "px-6 py-12 sm:px-10 sm:py-14 lg:px-14 lg:py-16 xl:px-16 xl:py-20",
+        )}
+      >
+        {!hasImages ? (
+          <>
+            <div className="pointer-events-none absolute -right-10 top-0 h-40 w-40 rounded-full bg-rose-200/45 blur-3xl sm:h-52 sm:w-52" />
+            <div className="pointer-events-none absolute bottom-0 left-6 h-32 w-32 rounded-full bg-sky-200/50 blur-3xl sm:h-44 sm:w-44" />
+          </>
+        ) : null}
+        <div
+          className={clsx(
+            "relative",
+            hasImages
+              ? "grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] lg:items-center"
+              : "flex min-h-[260px] items-center justify-center sm:min-h-[300px] lg:min-h-[340px]",
+          )}
+        >
+          <div
+            className={clsx(
+              "space-y-4",
+              hasImages
+                ? "max-w-lg"
+                : "mx-auto max-w-4xl space-y-5 text-center lg:space-y-6",
+            )}
+          >
+            <h1
+              className={clsx(
+                "font-semibold text-slate-900",
+                hasImages
+                  ? "text-3xl sm:text-4xl lg:text-5xl"
+                  : "text-4xl tracking-[-0.03em] sm:text-5xl lg:text-6xl",
+              )}
+            >
               {t(title)}
             </h1>
-            <p className="text-sm text-slate-600 sm:text-base">
+            <p
+              className={clsx(
+                "text-slate-600",
+                hasImages
+                  ? "text-sm sm:text-base"
+                  : "mx-auto max-w-3xl text-base leading-7 sm:text-lg sm:leading-8",
+              )}
+            >
               {t(description)}
             </p>
           </div>
-          {images.length ? (
+          {hasImages ? (
             <div className="flex justify-start lg:justify-end">
               <div className="flex flex-nowrap items-end gap-3 sm:gap-4">
-                {images.map((image, index) => (
+                {resolvedImages.map((image, index) => (
                   <div
                     key={`${image.src}-${index}`}
                     className={clsx(
