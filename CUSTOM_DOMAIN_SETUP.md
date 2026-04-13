@@ -11,7 +11,7 @@ Flux réel actuel :
 3. L’admin ajoute les enregistrements DNS demandés.
 4. Le bouton **Vérifier** contrôle le TXT de vérification et le CNAME via DNS.
 5. Le bouton **Activer** ajoute le domaine au projet Vercel, déclenche la vérification Vercel, puis passe le site en `ACTIVE` et `published=true`.
-6. En production, le middleware réécrit toute requête reçue sur un hostname non applicatif vers `/catalogue?domain=<host>`.
+6. En production, le proxy Next.js réécrit toute requête reçue sur un hostname non applicatif vers `/catalogue?domain=<host>`.
 
 Le domaine n’est servi que si :
 
@@ -42,7 +42,7 @@ Contraintes observées :
 
 ### Résolution de domaine et routing
 
-Le middleware (`middleware.ts`) :
+Le proxy Next.js (`src/proxy.ts`) :
 
 - considère comme hostnames applicatifs ceux issus de `APP_URL`, `NEXT_PUBLIC_APP_URL`, `APP_HOSTNAMES`, `VERCEL_URL`, `localhost:3000` et `127.0.0.1:3000`
 - laisse passer les requêtes `/_next`, `/api`, `/static`, `favicon.ico`, `robots.txt`, `sitemap.xml` et les chemins statiques
@@ -440,7 +440,7 @@ Comportement normal actuel :
 
 ### Ce qui fonctionne bien
 
-- mapping domaine -> site via middleware + résolution serveur
+- mapping domaine -> site via proxy Next.js + résolution serveur
 - séparation claire entre hostnames applicatifs et hostnames catalogue
 - vérification DNS applicative avant activation
 - usage du domaine actif dans les URLs canoniques, `robots`, `sitemap` et certains liens email

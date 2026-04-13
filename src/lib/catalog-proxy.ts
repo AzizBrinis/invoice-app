@@ -20,7 +20,7 @@ function isStaticPath(pathname: string) {
   return /\.[a-z0-9]+$/i.test(pathname);
 }
 
-export function middleware(request: NextRequest) {
+export function handleCatalogHostRouting(request: NextRequest) {
   const requestHost = resolveRequestHost(request.headers);
   const normalizedHost = normalizeCatalogHostname(requestHost);
   if (isConfiguredAppHost(requestHost)) {
@@ -42,7 +42,3 @@ export function middleware(request: NextRequest) {
   }
   return NextResponse.rewrite(url);
 }
-
-export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|robots.txt|api|assets).*)"],
-};

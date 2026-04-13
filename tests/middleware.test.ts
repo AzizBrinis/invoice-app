@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
-import { middleware } from "../middleware";
+import { proxy } from "@/proxy";
 
 const ORIGINAL_ENV = {
   APP_URL: process.env.APP_URL,
@@ -20,7 +20,7 @@ function restoreEnv() {
   }
 }
 
-describe("custom-domain middleware routing", () => {
+describe("custom-domain proxy routing", () => {
   beforeEach(() => {
     restoreEnv();
     process.env.APP_URL = "https://app.example.com";
@@ -34,7 +34,7 @@ describe("custom-domain middleware routing", () => {
   });
 
   it("rewrites a forwarded custom-domain request to the public catalogue", () => {
-    const response = middleware(
+    const response = proxy(
       new NextRequest("https://app.example.com/about", {
         headers: {
           host: "app.example.com",
@@ -50,7 +50,7 @@ describe("custom-domain middleware routing", () => {
   });
 
   it("lets the configured app domain load the app normally", () => {
-    const response = middleware(
+    const response = proxy(
       new NextRequest("https://app.example.com/", {
         headers: {
           host: "app.example.com",
