@@ -1,22 +1,14 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import { getAppHostnames } from "@/lib/env";
+import { resolveCatalogDomainFromHeaders } from "@/lib/catalog-host";
 import { prisma } from "@/lib/db";
 import { slugify } from "@/lib/slug";
 import {
   externalizeCatalogProductInlineImages,
   type CatalogProduct,
-  normalizeCatalogDomainInput,
   normalizeCatalogSlugInput,
   resolveCatalogWebsite,
 } from "@/server/website";
-
-const APP_HOSTS = new Set(getAppHostnames());
-const APP_HOSTNAMES = new Set(
-  Array.from(APP_HOSTS)
-    .map((entry) => normalizeCatalogDomainInput(entry))
-    .filter((entry): entry is string => Boolean(entry)),
-);
 
 const catalogProductSelect = {
   id: true,
@@ -62,15 +54,10 @@ function resolveDomainAndSlug(
   request: NextRequest,
   fallbackSlug?: string | null,
 ) {
-  const host = request.headers.get("host")?.toLowerCase() ?? "";
-  const normalizedHost = normalizeCatalogDomainInput(host);
-  const isAppHost =
-    APP_HOSTS.has(host) ||
-    (normalizedHost ? APP_HOSTNAMES.has(normalizedHost) : false);
-
+  const domain = resolveCatalogDomainFromHeaders(request.headers);
   return {
-    slug: isAppHost ? normalizeCatalogSlugInput(fallbackSlug) : null,
-    domain: isAppHost ? null : normalizedHost,
+    slug: domain ? null : normalizeCatalogSlugInput(fallbackSlug),
+    domain,
   };
 }
 

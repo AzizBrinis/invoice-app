@@ -1,22 +1,14 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getAppHostnames } from "@/lib/env";
+import { resolveCatalogDomainFromHeaders } from "@/lib/catalog-host";
 import { createCheckoutSession } from "@/server/payments";
 import { createCisecoRequestTranslator } from "@/lib/website/ciseco-request-locale";
 import {
-  normalizeCatalogDomainInput,
   normalizeCatalogPathInput,
   normalizeCatalogSlugInput,
   resolveCatalogWebsite,
 } from "@/server/website";
-
-const APP_HOSTS = new Set(getAppHostnames());
-const APP_HOSTNAMES = new Set(
-  Array.from(APP_HOSTS)
-    .map((entry) => normalizeCatalogDomainInput(entry))
-    .filter((entry): entry is string => Boolean(entry)),
-);
 
 const PROVIDER_KEYS = ["stub", "stripe"] as const;
 
@@ -59,13 +51,8 @@ export async function POST(request: NextRequest) {
       throw new Error("Invalid path.");
     }
 
-    const host = request.headers.get("host")?.toLowerCase() ?? "";
-    const normalizedHost = normalizeCatalogDomainInput(host);
-    const isAppHost =
-      APP_HOSTS.has(host) ||
-      (normalizedHost ? APP_HOSTNAMES.has(normalizedHost) : false);
-    const domain = isAppHost ? null : normalizedHost;
-    const slug = isAppHost ? normalizeCatalogSlugInput(payload.slug) : null;
+    const domain = resolveCatalogDomainFromHeaders(request.headers);
+    const slug = domain ? null : normalizeCatalogSlugInput(payload.slug);
 
     const website = await resolveCatalogWebsite({
       slug,

@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { Prisma } from "@/lib/db/prisma-server";
-import { getAppHostnames } from "@/lib/env";
+import { resolveCatalogDomainFromHeaders } from "@/lib/catalog-host";
 import { prisma } from "@/lib/db";
 import { createCisecoRequestTranslator } from "@/lib/website/ciseco-request-locale";
 import {
@@ -11,34 +11,21 @@ import {
   signOutClient,
 } from "@/lib/client-auth";
 import {
-  normalizeCatalogDomainInput,
   normalizeCatalogSlugInput,
   resolveCatalogWebsite,
 } from "@/server/website";
 
 export const dynamic = "force-dynamic";
 
-const APP_HOSTS = new Set(getAppHostnames());
-const APP_HOSTNAMES = new Set(
-  Array.from(APP_HOSTS)
-    .map((entry) => normalizeCatalogDomainInput(entry))
-    .filter((entry): entry is string => Boolean(entry)),
-);
-
 const wishlistActionSchema = z.object({
   productId: z.string().min(1),
 });
 
 function resolveDomainAndSlug(request: NextRequest) {
-  const host = request.headers.get("host")?.toLowerCase() ?? "";
-  const normalizedHost = normalizeCatalogDomainInput(host);
-  const isAppHost =
-    APP_HOSTS.has(host) ||
-    (normalizedHost ? APP_HOSTNAMES.has(normalizedHost) : false);
-  const slug = isAppHost
-    ? normalizeCatalogSlugInput(request.nextUrl.searchParams.get("slug"))
-    : null;
-  const domain = isAppHost ? null : normalizedHost;
+  const domain = resolveCatalogDomainFromHeaders(request.headers);
+  const slug = domain
+    ? null
+    : normalizeCatalogSlugInput(request.nextUrl.searchParams.get("slug"));
   return { slug, domain };
 }
 

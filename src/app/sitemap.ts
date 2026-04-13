@@ -2,21 +2,16 @@ import type { MetadataRoute } from "next";
 import { headers } from "next/headers";
 import { WebsiteDomainStatus } from "@/lib/db/prisma";
 import { prisma } from "@/lib/db";
-import { getAppHostnames } from "@/lib/env";
+import {
+  resolveCatalogDomainFromHost,
+  resolveRequestHost,
+} from "@/lib/catalog-host";
 import { slugify } from "@/lib/slug";
 import { builderConfigSchema } from "@/lib/website/builder";
 import {
   buildCatalogUrl,
-  normalizeCatalogDomainInput,
   resolveCatalogWebsite,
 } from "@/server/website";
-
-const APP_HOSTS = new Set(getAppHostnames());
-const APP_HOSTNAMES = new Set(
-  Array.from(APP_HOSTS)
-    .map((host) => normalizeCatalogDomainInput(host))
-    .filter((host): host is string => Boolean(host)),
-);
 
 type SitemapWebsite = {
   id: string;
@@ -143,22 +138,14 @@ function pushEntry(
   });
 }
 
-function isAppHost(host: string | null, normalizedHost: string | null) {
-  if (!host) return true;
-  if (APP_HOSTS.has(host)) return true;
-  if (normalizedHost && APP_HOSTNAMES.has(normalizedHost)) return true;
-  return false;
-}
-
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const requestHeaders = await headers();
-  const host = requestHeaders.get("host")?.toLowerCase() ?? null;
-  const normalizedHost = normalizeCatalogDomainInput(host);
-  const appHost = isAppHost(host, normalizedHost);
+  const requestHost = resolveRequestHost(requestHeaders);
+  const domain = resolveCatalogDomainFromHost(requestHost);
   let websites: SitemapWebsite[] = [];
 
-  if (!appHost && normalizedHost) {
-    const website = await resolveCatalogWebsite({ domain: normalizedHost });
+  if (domain) {
+    const website = await resolveCatalogWebsite({ domain });
     if (!website) {
       return [];
     }

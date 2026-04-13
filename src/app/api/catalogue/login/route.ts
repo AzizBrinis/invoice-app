@@ -4,46 +4,9 @@ import {
   createClientSession,
   getCatalogClientProfileById,
 } from "@/lib/client-auth";
-import { getAppHostnames } from "@/lib/env";
+import { resolveCatalogDomainFromHeaders } from "@/lib/catalog-host";
 import { createCisecoRequestTranslator } from "@/lib/website/ciseco-request-locale";
 import { authenticateWebsiteLogin } from "@/server/website-login";
-
-const APP_HOSTS = new Set(getAppHostnames().map((host) => host.toLowerCase()));
-
-function normalizeHost(value: string | null) {
-  if (!value) return null;
-  const trimmed = value.trim().toLowerCase();
-  if (!trimmed) return null;
-  try {
-    return new URL(`https://${trimmed}`).hostname.toLowerCase();
-  } catch {
-    return null;
-  }
-}
-
-const APP_HOSTNAMES = new Set(
-  Array.from(APP_HOSTS)
-    .map((entry) => normalizeHost(entry))
-    .filter((entry): entry is string => Boolean(entry)),
-);
-
-function resolveRequestHost(request: NextRequest) {
-  const forwarded =
-    request.headers.get("x-forwarded-host") ??
-    request.headers.get("host") ??
-    "";
-  return forwarded.split(",")[0]?.trim().toLowerCase() ?? "";
-}
-
-function resolveDomainFromHost(host: string) {
-  if (!host) return null;
-  const normalizedHost = normalizeHost(host);
-  const isAppHost =
-    APP_HOSTS.has(host) ||
-    (normalizedHost ? APP_HOSTNAMES.has(normalizedHost) : false);
-  if (isAppHost) return null;
-  return normalizedHost ?? host;
-}
 
 function formDataToObject(formData: FormData) {
   const entries: Record<string, string> = {};
@@ -67,8 +30,7 @@ export async function POST(request: NextRequest) {
       payload = formDataToObject(formData);
     }
 
-    const host = resolveRequestHost(request);
-    const domain = resolveDomainFromHost(host);
+    const domain = resolveCatalogDomainFromHeaders(request.headers);
     const email = typeof payload.email === "string" ? payload.email : "";
     const password = typeof payload.password === "string" ? payload.password : "";
 

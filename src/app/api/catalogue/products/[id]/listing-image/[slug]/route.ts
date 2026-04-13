@@ -2,21 +2,14 @@ import { Buffer } from "node:buffer";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import sharp from "sharp";
-import { getAppHostnames } from "@/lib/env";
+import { resolveCatalogDomainFromHeaders } from "@/lib/catalog-host";
 import { prisma } from "@/lib/db";
 import {
-  normalizeCatalogDomainInput,
   normalizeCatalogSlugInput,
   resolveCatalogProductListingImageDataUrl,
   resolveCatalogWebsite,
 } from "@/server/website";
 
-const APP_HOSTS = new Set(getAppHostnames());
-const APP_HOSTNAMES = new Set(
-  Array.from(APP_HOSTS)
-    .map((entry) => normalizeCatalogDomainInput(entry))
-    .filter((entry): entry is string => Boolean(entry)),
-);
 const LISTING_IMAGE_CACHE_CONTROL = "public, max-age=31536000, immutable";
 const LISTING_IMAGE_WIDTHS = [160, 240, 320, 480, 640, 768, 960, 1200];
 const DEFAULT_LISTING_IMAGE_QUALITY = 72;
@@ -27,13 +20,8 @@ function resolveDomainAndSlug(
   request: NextRequest,
   fallbackSlug?: string | null,
 ) {
-  const host = request.headers.get("host")?.toLowerCase() ?? "";
-  const normalizedHost = normalizeCatalogDomainInput(host);
-  const isAppHost =
-    APP_HOSTS.has(host) ||
-    (normalizedHost ? APP_HOSTNAMES.has(normalizedHost) : false);
-  const slug = isAppHost ? normalizeCatalogSlugInput(fallbackSlug) : null;
-  const domain = isAppHost ? null : normalizedHost;
+  const domain = resolveCatalogDomainFromHeaders(request.headers);
+  const slug = domain ? null : normalizeCatalogSlugInput(fallbackSlug);
   return { slug, domain };
 }
 

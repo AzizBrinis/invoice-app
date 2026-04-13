@@ -12,6 +12,10 @@ import {
 } from "@/lib/db/prisma-server";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
+import {
+  isReservedPublicHostname,
+  normalizeCatalogHostname,
+} from "@/lib/catalog-host";
 import { getAppBaseUrl, getCatalogEdgeDomain } from "@/lib/env";
 import { assertCustomDomainRecords, DomainVerificationError } from "@/lib/domain-verification";
 import {
@@ -880,21 +884,7 @@ function normalizeDomain(domain: string) {
 }
 
 export function normalizeCatalogDomainInput(value?: string | null) {
-  if (!value) return null;
-  const sanitized = sanitizeDomain(value);
-  if (!sanitized) return null;
-  const candidate = /^https?:\/\//i.test(sanitized)
-    ? sanitized
-    : `https://${sanitized}`;
-  try {
-    const hostname = new URL(candidate).hostname.toLowerCase();
-    if (!hostname || !domainHostnamePattern.test(hostname)) {
-      return null;
-    }
-    return hostname;
-  } catch {
-    return null;
-  }
+  return normalizeCatalogHostname(value);
 }
 
 export function normalizeCatalogSlugInput(value?: string | null) {
@@ -1312,6 +1302,11 @@ export async function requestCustomDomain(
   const parsed = domainSchema.parse(input);
   const config = await ensureWebsiteConfig(resolvedUserId);
   const normalized = normalizeDomain(parsed.customDomain);
+  if (isReservedPublicHostname(normalized)) {
+    throw new Error(
+      "Ce domaine est réservé à l’application. Utilisez un sous-domaine public distinct du domaine de l’interface.",
+    );
+  }
   if (isSameCustomDomain(config.customDomain, normalized)) {
     return {
       config,

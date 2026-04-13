@@ -211,6 +211,10 @@ describe("catalog routing", () => {
       website: {
         contact: { companyName: "Test Co" },
       },
+      products: {
+        featured: [],
+        all: [],
+      },
     } as unknown as CatalogPayload;
 
     getCatalogPayloadByDomainMock.mockResolvedValue(payload);

@@ -1,16 +1,8 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import { getAppHostnames } from "@/lib/env";
+import { resolveCatalogDomainFromHeaders } from "@/lib/catalog-host";
 import { createCisecoRequestTranslator } from "@/lib/website/ciseco-request-locale";
-import { normalizeCatalogDomainInput } from "@/server/website";
 import { recordContactMessage } from "@/server/contact-messages";
-
-const APP_HOSTS = new Set(getAppHostnames());
-const APP_HOSTNAMES = new Set(
-  Array.from(APP_HOSTS)
-    .map((entry) => normalizeCatalogDomainInput(entry))
-    .filter((entry): entry is string => Boolean(entry)),
-);
 
 function formDataToObject(formData: FormData) {
   const entries: Record<string, string> = {};
@@ -33,12 +25,7 @@ export async function POST(request: NextRequest) {
       const formData = await request.formData();
       payload = formDataToObject(formData);
     }
-    const host = request.headers.get("host")?.toLowerCase() ?? "";
-    const normalizedHost = normalizeCatalogDomainInput(host);
-    const isAppHost =
-      APP_HOSTS.has(host) ||
-      (normalizedHost ? APP_HOSTNAMES.has(normalizedHost) : false);
-    const domain = isAppHost ? null : normalizedHost;
+    const domain = resolveCatalogDomainFromHeaders(request.headers);
     const ipAddress =
       request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
       request.headers.get("x-real-ip")?.trim() ??

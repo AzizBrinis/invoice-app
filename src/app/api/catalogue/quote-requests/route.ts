@@ -1,23 +1,15 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getAppHostnames } from "@/lib/env";
+import { resolveCatalogDomainFromHeaders } from "@/lib/catalog-host";
 import { prisma } from "@/lib/db";
 import { createCisecoRequestTranslator } from "@/lib/website/ciseco-request-locale";
 import { createQuoteRequest } from "@/server/quote-requests";
 import {
-  normalizeCatalogDomainInput,
   normalizeCatalogPathInput,
   normalizeCatalogSlugInput,
   resolveCatalogWebsite,
 } from "@/server/website";
-
-const APP_HOSTS = new Set(getAppHostnames());
-const APP_HOSTNAMES = new Set(
-  Array.from(APP_HOSTS)
-    .map((entry) => normalizeCatalogDomainInput(entry))
-    .filter((entry): entry is string => Boolean(entry)),
-);
 
 const jsonObjectOrArraySchema = z.union([
   z.record(z.string(), z.unknown()),
@@ -116,13 +108,8 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const host = request.headers.get("host")?.toLowerCase() ?? "";
-    const normalizedHost = normalizeCatalogDomainInput(host);
-    const isAppHost =
-      APP_HOSTS.has(host) ||
-      (normalizedHost ? APP_HOSTNAMES.has(normalizedHost) : false);
-    const domain = isAppHost ? null : normalizedHost;
-    const slug = isAppHost ? normalizeCatalogSlugInput(parsed.slug) : null;
+    const domain = resolveCatalogDomainFromHeaders(request.headers);
+    const slug = domain ? null : normalizeCatalogSlugInput(parsed.slug);
     const resolvedPath = normalizeCatalogPathInput(parsed.path);
     if (parsed.path && !resolvedPath) {
       throw new Error("Invalid path.");

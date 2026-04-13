@@ -2,12 +2,11 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { Buffer } from "node:buffer";
 import { randomUUID } from "node:crypto";
-import { getAppHostnames } from "@/lib/env";
+import { resolveCatalogDomainFromHeaders } from "@/lib/catalog-host";
 import { createCisecoRequestTranslator } from "@/lib/website/ciseco-request-locale";
 import { resolveCatalogWebsite } from "@/server/website";
 import { attachOrderTransferProof } from "@/server/orders";
 
-const APP_HOSTS = new Set(getAppHostnames());
 const MAX_PROOF_FILE_SIZE = 6 * 1024 * 1024;
 const STORAGE_BUCKET =
   process.env.SUPABASE_STORAGE_BUCKET?.trim() || "order-proofs";
@@ -111,10 +110,8 @@ export async function POST(
     const formData = await request.formData();
     const modeValue = normalizeStringEntry(formData.get("mode"));
     const mode = modeValue === "preview" ? "preview" : "public";
-    const slug = normalizeStringEntry(formData.get("slug"));
-
-    const host = request.headers.get("host")?.toLowerCase() ?? "";
-    const domain = APP_HOSTS.has(host) ? null : host;
+    const domain = resolveCatalogDomainFromHeaders(request.headers);
+    const slug = domain ? null : normalizeStringEntry(formData.get("slug"));
     const website = await resolveCatalogWebsite({
       slug,
       domain,

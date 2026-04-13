@@ -1,24 +1,13 @@
 import type { MetadataRoute } from "next";
 import { headers } from "next/headers";
-import { getAppBaseUrl, getAppHostnames } from "@/lib/env";
 import {
-  normalizeCatalogDomainInput,
+  resolveCatalogDomainFromHost,
+  resolveRequestHost,
+} from "@/lib/catalog-host";
+import { getAppBaseUrl } from "@/lib/env";
+import {
   resolveCatalogWebsite,
 } from "@/server/website";
-
-const APP_HOSTS = new Set(getAppHostnames());
-const APP_HOSTNAMES = new Set(
-  Array.from(APP_HOSTS)
-    .map((host) => normalizeCatalogDomainInput(host))
-    .filter((host): host is string => Boolean(host)),
-);
-
-function isAppHost(host: string | null, normalizedHost: string | null) {
-  if (!host) return true;
-  if (APP_HOSTS.has(host)) return true;
-  if (normalizedHost && APP_HOSTNAMES.has(normalizedHost)) return true;
-  return false;
-}
 
 const APP_HOST_DISALLOWS = [
   "/api/",
@@ -58,15 +47,15 @@ const CATALOGUE_HOST_DISALLOWS = [
 
 export default async function robots(): Promise<MetadataRoute.Robots> {
   const requestHeaders = await headers();
-  const host = requestHeaders.get("host")?.toLowerCase() ?? null;
-  const normalizedHost = normalizeCatalogDomainInput(host);
-  const appHost = isAppHost(host, normalizedHost);
+  const requestHost = resolveRequestHost(requestHeaders);
+  const domain = resolveCatalogDomainFromHost(requestHost);
+  const appHost = !domain;
   let baseUrl = getAppBaseUrl();
 
-  if (!appHost && normalizedHost) {
-    const website = await resolveCatalogWebsite({ domain: normalizedHost });
+  if (domain) {
+    const website = await resolveCatalogWebsite({ domain });
     if (website) {
-      const resolvedDomain = website.customDomain ?? normalizedHost;
+      const resolvedDomain = website.customDomain ?? domain;
       baseUrl = `https://${resolvedDomain}`;
     }
   }

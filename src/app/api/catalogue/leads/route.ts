@@ -1,10 +1,8 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { recordWebsiteLead } from "@/server/website";
-import { getAppHostnames } from "@/lib/env";
+import { resolveCatalogDomainFromHeaders } from "@/lib/catalog-host";
 import { createCisecoRequestTranslator } from "@/lib/website/ciseco-request-locale";
-
-const APP_HOSTS = new Set(getAppHostnames());
 
 function formDataToObject(formData: FormData) {
   const entries: Record<string, string> = {};
@@ -27,8 +25,7 @@ export async function POST(request: NextRequest) {
       const formData = await request.formData();
       payload = formDataToObject(formData);
     }
-    const host = request.headers.get("host")?.toLowerCase() ?? "";
-    const domain = APP_HOSTS.has(host) ? null : host;
+    const domain = resolveCatalogDomainFromHeaders(request.headers);
     const ipAddress =
       request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
       request.headers.get("x-real-ip")?.trim() ??

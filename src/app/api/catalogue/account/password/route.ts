@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getAppHostnames } from "@/lib/env";
+import { resolveCatalogDomainFromHeaders } from "@/lib/catalog-host";
 import { prisma } from "@/lib/db";
 import { createCisecoRequestTranslator } from "@/lib/website/ciseco-request-locale";
 import {
@@ -12,17 +12,9 @@ import {
   verifyClientPassword,
 } from "@/lib/client-auth";
 import {
-  normalizeCatalogDomainInput,
   normalizeCatalogSlugInput,
   resolveCatalogWebsite,
 } from "@/server/website";
-
-const APP_HOSTS = new Set(getAppHostnames());
-const APP_HOSTNAMES = new Set(
-  Array.from(APP_HOSTS)
-    .map((entry) => normalizeCatalogDomainInput(entry))
-    .filter((entry): entry is string => Boolean(entry)),
-);
 
 const passwordSchema = z.object({
   currentPassword: z.string().min(1),
@@ -31,15 +23,10 @@ const passwordSchema = z.object({
 });
 
 function resolveDomainAndSlug(request: NextRequest) {
-  const host = request.headers.get("host")?.toLowerCase() ?? "";
-  const normalizedHost = normalizeCatalogDomainInput(host);
-  const isAppHost =
-    APP_HOSTS.has(host) ||
-    (normalizedHost ? APP_HOSTNAMES.has(normalizedHost) : false);
-  const slug = isAppHost
-    ? normalizeCatalogSlugInput(request.nextUrl.searchParams.get("slug"))
-    : null;
-  const domain = isAppHost ? null : normalizedHost;
+  const domain = resolveCatalogDomainFromHeaders(request.headers);
+  const slug = domain
+    ? null
+    : normalizeCatalogSlugInput(request.nextUrl.searchParams.get("slug"));
   return { slug, domain };
 }
 

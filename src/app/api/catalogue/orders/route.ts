@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getAppHostnames } from "@/lib/env";
+import { resolveCatalogDomainFromHeaders } from "@/lib/catalog-host";
 import { generateId } from "@/lib/id";
 import { prisma } from "@/lib/db";
 import { calculateLineTotals } from "@/lib/documents";
@@ -24,7 +24,6 @@ import { createCisecoRequestTranslator } from "@/lib/website/ciseco-request-loca
 import { createOrder } from "@/server/orders";
 import { getSettings } from "@/server/settings";
 import {
-  normalizeCatalogDomainInput,
   normalizeCatalogPathInput,
   normalizeCatalogSlugInput,
   resolveEcommerceSettingsFromWebsite,
@@ -32,12 +31,6 @@ import {
   resolveCatalogWebsite,
 } from "@/server/website";
 
-const APP_HOSTS = new Set(getAppHostnames());
-const APP_HOSTNAMES = new Set(
-  Array.from(APP_HOSTS)
-    .map((entry) => normalizeCatalogDomainInput(entry))
-    .filter((entry): entry is string => Boolean(entry)),
-);
 const MAX_ORDER_ITEMS = 50;
 
 const quantitySchema = z.preprocess(
@@ -113,13 +106,8 @@ export async function POST(request: NextRequest) {
   const { t } = createCisecoRequestTranslator(request);
   try {
     const payload = orderPayloadSchema.parse(await request.json());
-    const host = request.headers.get("host")?.toLowerCase() ?? "";
-    const normalizedHost = normalizeCatalogDomainInput(host);
-    const isAppHost =
-      APP_HOSTS.has(host) ||
-      (normalizedHost ? APP_HOSTNAMES.has(normalizedHost) : false);
-    const domain = isAppHost ? null : normalizedHost;
-    const slug = isAppHost ? normalizeCatalogSlugInput(payload.slug) : null;
+    const domain = resolveCatalogDomainFromHeaders(request.headers);
+    const slug = domain ? null : normalizeCatalogSlugInput(payload.slug);
     if (payload.path && !normalizeCatalogPathInput(payload.path)) {
       throw new Error("Invalid path.");
     }
