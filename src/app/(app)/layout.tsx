@@ -7,7 +7,7 @@ import {
   isClientPaymentsAccount,
   type AppSection,
 } from "@/lib/authorization";
-import { getSettings } from "@/server/settings";
+import { getSettingsSummary } from "@/server/settings";
 import { SidebarNav, type NavItem } from "@/components/layout/sidebar-nav";
 import { Topbar } from "@/components/layout/topbar";
 import { AssistantLauncher } from "@/components/assistant/assistant-launcher";
@@ -178,7 +178,7 @@ export default async function AppLayout({
       NAV_ITEM_SECTIONS[item.href] ?? "dashboard",
     ),
   );
-  const settings = await getSettings(tenantId);
+  const settings = await getSettingsSummary(tenantId);
   const workspaceLabel = isClientPaymentsAccount(user)
     ? "Espace paiements clients"
     : "Espace d'administration";

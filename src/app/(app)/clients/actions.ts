@@ -37,7 +37,7 @@ import {
   createAccountInvitation,
 } from "@/server/accounts";
 import { getMessagingSettingsSummary } from "@/server/messaging";
-import { getSettings } from "@/server/settings";
+import { getSettingsSummary } from "@/server/settings";
 import { queueReceiptEmailJob } from "@/server/document-email-jobs";
 import {
   requireAccountPermission,
@@ -865,7 +865,7 @@ export async function createClientServiceAction(
   const user = await requireAccountPermission(AccountPermission.SERVICES_MANAGE);
   const tenantId = getClientTenantId(user);
   try {
-    const settings = await getSettings(tenantId);
+    const settings = await getSettingsSummary(tenantId);
     await createClientService(
       {
         clientId,
@@ -913,7 +913,7 @@ export async function updateClientServiceAction(
   const user = await requireAccountPermission(AccountPermission.SERVICES_MANAGE);
   const tenantId = getClientTenantId(user);
   try {
-    const settings = await getSettings(tenantId);
+    const settings = await getSettingsSummary(tenantId);
     await updateClientService(
       serviceId,
       {

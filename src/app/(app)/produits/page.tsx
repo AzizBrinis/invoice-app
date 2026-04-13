@@ -8,7 +8,7 @@ import {
 import { importProductsAction } from "@/app/(app)/produits/actions";
 import { Button } from "@/components/ui/button";
 import { ExportButton } from "@/components/export-button";
-import { getSettings } from "@/server/settings";
+import { getSettingsSummary } from "@/server/settings";
 import type { CurrencyCode } from "@/lib/currency";
 import { FormSubmitButton } from "@/components/ui/form-submit-button";
 import { Alert } from "@/components/ui/alert";
@@ -84,7 +84,7 @@ async function ProduitsPageContent({
       user.id,
     ),
     listProductCategories(user.id),
-    getSettings(user.id),
+    getSettingsSummary(user.id),
   ]);
 
   const categoryOptions = ["all", ...categoriesRaw];

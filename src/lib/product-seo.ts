@@ -1,38 +1,14 @@
-export type ProductFaqItem = {
-  question: string;
-  answer: string;
-};
-
-function normalizeFaqText(value: unknown) {
-  return typeof value === "string" ? value.trim() : "";
-}
-
-export function normalizeProductFaqItems(value: unknown): ProductFaqItem[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value
-    .map((entry) => {
-      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-        return null;
-      }
-
-      const record = entry as Record<string, unknown>;
-      const question = normalizeFaqText(record.question ?? record.title);
-      const answer = normalizeFaqText(record.answer ?? record.description);
-
-      if (!question || !answer) {
-        return null;
-      }
-
-      return {
-        question,
-        answer,
-      } satisfies ProductFaqItem;
-    })
-    .filter((entry): entry is ProductFaqItem => Boolean(entry));
-}
+export {
+  buildProductFaqStructuredData,
+  normalizeProductFaqItems,
+  parseBulkProductFaqInput,
+  PRODUCT_FAQ_ANSWER_MAX_LENGTH,
+  PRODUCT_FAQ_ANSWER_MIN_LENGTH,
+  PRODUCT_FAQ_MAX_ITEMS,
+  PRODUCT_FAQ_QUESTION_MAX_LENGTH,
+  PRODUCT_FAQ_QUESTION_MIN_LENGTH,
+  type ProductFaqItem,
+} from "@/lib/product-faq";
 
 export function buildProductImageAlt(options: {
   explicitAlt?: string | null;

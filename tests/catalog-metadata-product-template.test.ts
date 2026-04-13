@@ -166,8 +166,19 @@ describe("catalog metadata - product seo templates", () => {
         name: "Tunisie",
       },
     });
-    expect(structuredData[2]).toMatchObject({
+    expect(structuredData[2]).toEqual({
+      "@context": "https://schema.org",
       "@type": "FAQPage",
+      mainEntity: [
+        {
+          "@type": "Question",
+          name: "Livrez-vous en Tunisie ?",
+          acceptedAnswer: {
+            "@type": "Answer",
+            text: "Oui, la livraison est disponible partout en Tunisie.",
+          },
+        },
+      ],
     });
   });
 });

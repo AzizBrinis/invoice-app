@@ -6,7 +6,7 @@ import {
 } from "@/lib/authorization";
 import { getClient } from "@/server/clients";
 import { listPaymentServicesPage } from "@/server/client-payments";
-import { getSettings } from "@/server/settings";
+import { getSettingsSummary } from "@/server/settings";
 import { Button } from "@/components/ui/button";
 import { Alert } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
@@ -75,7 +75,7 @@ export default async function ServicesPage({
   const [legacyClient, servicesPage, settings] = await Promise.all([
     legacyClientId ? getClient(legacyClientId, tenantId) : Promise.resolve(null),
     listPaymentServicesPage({ search, page: currentPage }, tenantId),
-    getSettings(tenantId),
+    getSettingsSummary(tenantId),
   ]);
   const canManageServices = hasAccountPermission(
     user,

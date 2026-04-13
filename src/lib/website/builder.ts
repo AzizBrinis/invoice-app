@@ -111,6 +111,7 @@ const builderSectionSettingsSchema = z
     sliderMode: z.enum(HOME_HERO_SLIDER_MODES).optional(),
     contentBackground: z.enum(HOME_HERO_CONTENT_BACKGROUNDS).optional(),
     autoSlideIntervalMs: z.number().int().min(2500).max(15000).optional(),
+    showCustomerPhotos: z.boolean().optional(),
   })
   .optional();
 
@@ -487,6 +488,12 @@ export function resolveHomeHeroSlideContentBackground(params: {
     return params.slideBackground;
   }
   return resolveHomeHeroContentBackground(params.settings);
+}
+
+export function resolveSectionCustomerPhotosVisibility(
+  section: Pick<WebsiteBuilderSection, "settings"> | null | undefined,
+) {
+  return section?.settings?.showCustomerPhotos !== false;
 }
 
 function cloneBuilderButton(button: WebsiteBuilderButton): WebsiteBuilderButton {

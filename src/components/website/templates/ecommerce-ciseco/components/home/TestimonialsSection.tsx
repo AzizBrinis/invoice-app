@@ -1,8 +1,9 @@
 import clsx from "clsx";
 import { TESTIMONIALS } from "../../data/home";
-import type {
-  WebsiteBuilderMediaAsset,
-  WebsiteBuilderSection,
+import {
+  resolveSectionCustomerPhotosVisibility,
+  type WebsiteBuilderMediaAsset,
+  type WebsiteBuilderSection,
 } from "@/lib/website/builder";
 import type { ThemeTokens } from "../../types";
 import { resolveBuilderMedia } from "../../builder-helpers";
@@ -42,8 +43,14 @@ export function TestimonialsSection({
           };
         })
       : TESTIMONIALS;
+  const showCustomerPhotos = resolveSectionCustomerPhotosVisibility(section);
   const [featured] = testimonials;
-  const avatars = testimonials.slice(0, 6).map((item) => item.avatar);
+  const avatars = showCustomerPhotos
+    ? testimonials
+      .slice(0, 6)
+      .map((item) => item.avatar)
+      .filter(Boolean)
+    : [];
 
   return (
     <Section
@@ -94,31 +101,33 @@ export function TestimonialsSection({
               {featured.rating.toFixed(1)}
             </div>
           </div>
-          <div className="pointer-events-none hidden sm:block">
-            {avatars.map((avatar, index) => (
-              <div
-                key={`${avatar}-${index}`}
-                className={clsx(
-                  "absolute h-10 w-10 overflow-hidden rounded-full border-4 border-white shadow-sm",
-                  index === 0 && "-left-2 top-8",
-                  index === 1 && "left-10 -bottom-2",
-                  index === 2 && "right-12 -bottom-3",
-                  index === 3 && "-right-2 top-9",
-                  index === 4 && "left-20 -top-2",
-                  index === 5 && "right-24 -top-3",
-                )}
-              >
-                <CatalogImage
-                  src={avatar}
-                  alt=""
-                  className="h-full w-full object-cover"
-                  width={40}
-                  height={40}
-                  loading="lazy"
-                />
-              </div>
-            ))}
-          </div>
+          {avatars.length ? (
+            <div className="pointer-events-none hidden sm:block">
+              {avatars.map((avatar, index) => (
+                <div
+                  key={`${avatar}-${index}`}
+                  className={clsx(
+                    "absolute h-10 w-10 overflow-hidden rounded-full border-4 border-white shadow-sm",
+                    index === 0 && "-left-2 top-8",
+                    index === 1 && "left-10 -bottom-2",
+                    index === 2 && "right-12 -bottom-3",
+                    index === 3 && "-right-2 top-9",
+                    index === 4 && "left-20 -top-2",
+                    index === 5 && "right-24 -top-3",
+                  )}
+                >
+                  <CatalogImage
+                    src={avatar}
+                    alt=""
+                    className="h-full w-full object-cover"
+                    width={40}
+                    height={40}
+                    loading="lazy"
+                  />
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
       </div>
     </Section>

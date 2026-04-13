@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { getInvoice } from "@/server/invoices";
 import { InvoiceEditor } from "@/app/(app)/factures/invoice-editor";
-import { getSettings } from "@/server/settings";
+import { getSettingsDocumentDefaults } from "@/server/settings";
 import { SUPPORTED_CURRENCIES, type CurrencyCode } from "@/lib/currency";
 import { normalizeTaxConfiguration } from "@/lib/taxes";
 
@@ -34,7 +34,7 @@ export default async function EditFacturePage({
       where: { userId: user.id },
       orderBy: { name: "asc" },
     }),
-    getSettings(user.id),
+    getSettingsDocumentDefaults(user.id),
   ]);
 
   return (

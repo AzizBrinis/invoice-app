@@ -9,6 +9,7 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
+    "db:benchmark-connections": "tsx scripts/db-benchmark-connections.ts",
     "db:seed": "tsx scripts/db-seed.ts",
     "db:migrate:sqlite-to-postgres": "tsx scripts/migrate-sqlite-to-postgres.ts",
     "dev:stack:up": "docker compose -f docker-compose.dev.yml up -d",

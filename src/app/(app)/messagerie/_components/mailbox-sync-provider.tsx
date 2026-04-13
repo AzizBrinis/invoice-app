@@ -298,7 +298,7 @@ export function MailboxSyncProvider({
     let initialSyncTimer: number | null = null;
 
     const syncAll = () => {
-      if (cancelled) return;
+      if (cancelled || document.visibilityState !== "visible") return;
       MAILBOXES.forEach((mailbox) => {
         void synchronizeMailbox(mailbox);
       });

@@ -4,6 +4,7 @@ import { cache } from "react";
 import { unstable_cache } from "next/cache";
 import { requireUser } from "@/lib/auth";
 import { refreshTagForMutation } from "@/lib/cache-invalidation";
+import { Prisma } from "@/lib/db/prisma-server";
 import {
   DEFAULT_CLIENT_PAYMENT_METHODS,
   normalizeClientPaymentMethods,
@@ -75,11 +76,19 @@ const clientPaymentMethodsSchema = z
   .min(1, "Ajoutez au moins un mode de paiement.");
 const isTestEnv = process.env.NODE_ENV === "test";
 const SETTINGS_CACHE_REVALIDATE_SECONDS = 60;
+const MAX_INLINE_IMAGE_DATA_URL_LENGTH = 1_000_000;
 
 export const settingsSchema = z.object({
   companyName: z.string().min(2, "Nom obligatoire"),
   logoUrl: z.string().url("URL invalide").nullable().optional(),
-  logoData: z.string().nullable().optional(),
+  logoData: z
+    .string()
+    .max(
+      MAX_INLINE_IMAGE_DATA_URL_LENGTH,
+      "Le logo est trop volumineux pour un stockage inline.",
+    )
+    .nullable()
+    .optional(),
   matriculeFiscal: z
     .string()
     .min(3, "Matricule fiscal invalide")
@@ -94,8 +103,22 @@ export const settingsSchema = z.object({
   email: z.string().email("E-mail invalide").nullable().optional(),
   phone: z.string().min(5, "Téléphone invalide").nullable().optional(),
   iban: z.string().min(10, "IBAN invalide").nullable().optional(),
-  stampImage: z.string().nullable().optional(),
-  signatureImage: z.string().nullable().optional(),
+  stampImage: z
+    .string()
+    .max(
+      MAX_INLINE_IMAGE_DATA_URL_LENGTH,
+      "Le cachet est trop volumineux pour un stockage inline.",
+    )
+    .nullable()
+    .optional(),
+  signatureImage: z
+    .string()
+    .max(
+      MAX_INLINE_IMAGE_DATA_URL_LENGTH,
+      "La signature est trop volumineuse pour un stockage inline.",
+    )
+    .nullable()
+    .optional(),
   stampPosition: imagePositionSchema.default("bottom-right"),
   signaturePosition: imagePositionSchema.default("bottom-right"),
   defaultCurrency: z.enum(CURRENCY_CODES).default(getDefaultCurrencyCode()),
@@ -126,6 +149,21 @@ const settingsInclude = {
   quoteTemplate: true,
 } as const;
 
+const settingsSummarySelect = Prisma.validator<Prisma.CompanySettingsSelect>()({
+  companyName: true,
+  defaultCurrency: true,
+  clientPaymentMethods: true,
+});
+
+const settingsDocumentDefaultsSelect =
+  Prisma.validator<Prisma.CompanySettingsSelect>()({
+    defaultCurrency: true,
+    invoiceNumberPrefix: true,
+    quoteNumberPrefix: true,
+    resetNumberingAnnually: true,
+    taxConfiguration: true,
+  });
+
 export const settingsTag = (tenantId: string) => `settings:${tenantId}`;
 
 export function revalidateSettings(tenantId: string) {
@@ -145,6 +183,26 @@ async function fetchSettings(
   return db.companySettings.findUnique({
     where: { userId },
     include: settingsInclude,
+  });
+}
+
+async function fetchSettingsSummary(
+  userId: string,
+  db: SettingsDatabaseClient = prisma,
+) {
+  return db.companySettings.findUnique({
+    where: { userId },
+    select: settingsSummarySelect,
+  });
+}
+
+async function fetchSettingsDocumentDefaults(
+  userId: string,
+  db: SettingsDatabaseClient = prisma,
+) {
+  return db.companySettings.findUnique({
+    where: { userId },
+    select: settingsDocumentDefaultsSelect,
   });
 }
 
@@ -182,7 +240,27 @@ async function readOrInitializeSettings(
   resolvedUserId: string,
   db: SettingsDatabaseClient = prisma,
 ) {
-  const settings = await fetchSettings(resolvedUserId, db);
+  return readOrInitializeSettingsWithFetcher(
+    resolvedUserId,
+    fetchSettings,
+    db,
+  );
+}
+
+async function readOrInitializeSettingsWithFetcher<
+  T extends {
+    clientPaymentMethods?: unknown;
+    taxConfiguration?: unknown;
+  },
+>(
+  resolvedUserId: string,
+  fetcher: (
+    userId: string,
+    db: SettingsDatabaseClient,
+  ) => Promise<T | null>,
+  db: SettingsDatabaseClient = prisma,
+) {
+  const settings = await fetcher(resolvedUserId, db);
 
   if (settings) {
     return normalizeSettings(settings);
@@ -208,7 +286,7 @@ async function readOrInitializeSettings(
     skipDuplicates: true,
   });
 
-  const ensuredSettings = await fetchSettings(resolvedUserId, db);
+  const ensuredSettings = await fetcher(resolvedUserId, db);
   if (!ensuredSettings) {
     throw new Error("Unable to initialize default company settings.");
   }
@@ -233,9 +311,69 @@ const readSettingsByUserId = cache(async (resolvedUserId: string) => {
   return cached();
 });
 
+const readSettingsSummaryByUserId = cache(async (resolvedUserId: string) => {
+  if (isTestEnv) {
+    return readOrInitializeSettingsWithFetcher(
+      resolvedUserId,
+      fetchSettingsSummary,
+    );
+  }
+
+  const cached = unstable_cache(
+    () =>
+      readOrInitializeSettingsWithFetcher(
+        resolvedUserId,
+        fetchSettingsSummary,
+      ),
+    ["settings", "summary", resolvedUserId],
+    {
+      revalidate: SETTINGS_CACHE_REVALIDATE_SECONDS,
+      tags: [settingsTag(resolvedUserId)],
+    },
+  );
+
+  return cached();
+});
+
+const readSettingsDocumentDefaultsByUserId = cache(
+  async (resolvedUserId: string) => {
+    if (isTestEnv) {
+      return readOrInitializeSettingsWithFetcher(
+        resolvedUserId,
+        fetchSettingsDocumentDefaults,
+      );
+    }
+
+    const cached = unstable_cache(
+      () =>
+        readOrInitializeSettingsWithFetcher(
+          resolvedUserId,
+          fetchSettingsDocumentDefaults,
+        ),
+      ["settings", "documents", resolvedUserId],
+      {
+        revalidate: SETTINGS_CACHE_REVALIDATE_SECONDS,
+        tags: [settingsTag(resolvedUserId)],
+      },
+    );
+
+    return cached();
+  },
+);
+
 export async function getSettings(userId?: string) {
   const resolvedUserId = await resolveUserId(userId);
   return readSettingsByUserId(resolvedUserId);
+}
+
+export async function getSettingsSummary(userId?: string) {
+  const resolvedUserId = await resolveUserId(userId);
+  return readSettingsSummaryByUserId(resolvedUserId);
+}
+
+export async function getSettingsDocumentDefaults(userId?: string) {
+  const resolvedUserId = await resolveUserId(userId);
+  return readSettingsDocumentDefaultsByUserId(resolvedUserId);
 }
 
 export async function getSettingsWithDatabaseClient(

@@ -31,6 +31,7 @@ import {
   getCisecoPageSectionCatalog,
   resolveCisecoBuilderPageConfig,
   resolveCisecoSectionTemplate,
+  resolveSectionCustomerPhotosVisibility,
   sanitizeBuilderPages,
 } from "@/lib/website/builder";
 
@@ -375,8 +376,12 @@ describe("website builder page persistence", () => {
     );
 
     const heroSection = homeSections.find((section) => section.id === "ciseco-home-hero");
+    const testimonialsSection = homeSections.find(
+      (section) => section.id === "ciseco-home-testimonials",
+    );
     expect(heroSection?.settings?.sliderMode).toBe("image");
     expect(heroSection?.settings?.autoSlideIntervalMs).toBe(5500);
+    expect(resolveSectionCustomerPhotosVisibility(testimonialsSection)).toBe(true);
     expect(heroSection?.items.length).toBeGreaterThan(0);
     expect(heroSection?.items[0]?.buttons?.length).toBeGreaterThan(0);
   });
@@ -439,6 +444,44 @@ describe("website builder page persistence", () => {
 
     expect(normalizedPromo).toBeDefined();
     expect(normalizedPromo?.visible).toBe(false);
+  });
+
+  it("persists the home testimonials customer photo setting without breaking defaults", () => {
+    const config = createCisecoConfig();
+    const home = config.pages.home;
+
+    const nextConfig = {
+      ...config,
+      pages: {
+        ...config.pages,
+        home: {
+          ...home,
+          sections: home.sections.map((section) =>
+            section.id === "ciseco-home-testimonials"
+              ? {
+                  ...section,
+                  settings: {
+                    ...(section.settings ?? {}),
+                    showCustomerPhotos: false,
+                  },
+                }
+              : section,
+          ),
+        },
+      },
+    };
+
+    const normalized = normalizeForSave(nextConfig);
+    const normalizedTestimonials = normalized.pages.home?.sections.find(
+      (section) => section.id === "ciseco-home-testimonials",
+    );
+    const defaultTestimonials = normalizeForSave(config).pages.home?.sections.find(
+      (section) => section.id === "ciseco-home-testimonials",
+    );
+
+    expect(normalizedTestimonials?.settings?.showCustomerPhotos).toBe(false);
+    expect(resolveSectionCustomerPhotosVisibility(normalizedTestimonials)).toBe(false);
+    expect(resolveSectionCustomerPhotosVisibility(defaultTestimonials)).toBe(true);
   });
 
   it("preserves deleted home sections and keeps other sections intact", () => {
@@ -821,6 +864,68 @@ describe("website builder page persistence", () => {
 
     expect(html).toContain("Need help choosing the right collection?");
     expect(html).toContain("Browse collections");
+  });
+
+  it("renders customer photos in the home testimonials section by default", () => {
+    const config = createCisecoConfig();
+
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const html = (() => {
+      try {
+        return renderToStaticMarkup(
+          createElement(CatalogPage, {
+            data: createCisecoCatalogPayload(config),
+            mode: "preview",
+            path: "/",
+          }),
+        );
+      } finally {
+        consoleErrorSpy.mockRestore();
+      }
+    })();
+
+    expect(html).toContain("Alex Morgan");
+    expect(html).toContain("/images/placeholders/portrait-1.svg");
+  });
+
+  it("renders the home testimonials section without customer photos when disabled", () => {
+    const config = createCisecoConfig();
+    config.pages.home.sections = config.pages.home.sections.map((section) =>
+      section.id === "ciseco-home-testimonials"
+        ? {
+            ...section,
+            settings: {
+              ...(section.settings ?? {}),
+              showCustomerPhotos: false,
+            },
+          }
+        : section,
+    );
+
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const html = (() => {
+      try {
+        return renderToStaticMarkup(
+          createElement(CatalogPage, {
+            data: createCisecoCatalogPayload(config),
+            mode: "preview",
+            path: "/",
+          }),
+        );
+      } finally {
+        consoleErrorSpy.mockRestore();
+      }
+    })();
+
+    expect(html).toContain("Alex Morgan");
+    expect(html).toContain("The neutral defaults gave us a polished starting point");
+    expect(html).not.toContain("/images/placeholders/portrait-1.svg");
+    expect(html).not.toContain("/images/placeholders/portrait-2.svg");
+    expect(html).not.toContain("/images/placeholders/portrait-3.svg");
   });
 
   it("renders an added generic extra section on contact pages", () => {

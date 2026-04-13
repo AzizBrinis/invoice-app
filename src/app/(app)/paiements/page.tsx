@@ -15,7 +15,7 @@ import {
   getClientPaymentPeriodSummary,
   listClientPaymentsPage,
 } from "@/server/client-payments";
-import { getSettings } from "@/server/settings";
+import { getSettingsSummary } from "@/server/settings";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ExportButton } from "@/components/export-button";
@@ -62,7 +62,7 @@ export default async function PaymentsPage({
 
   const [selectedClient, settings, initialClientSearch] = await Promise.all([
     filters.clientId ? getClient(filters.clientId, tenantId) : Promise.resolve(null),
-    getSettings(tenantId),
+    getSettingsSummary(tenantId),
     searchClientPickerOptions(tenantId, null, 1),
   ]);
   const effectiveClientId = selectedClient ? filters.clientId : null;

@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { getSettings } from "@/server/settings";
+import { getSettingsDocumentDefaults } from "@/server/settings";
 import { requireUser } from "@/lib/auth";
 
 type NumberingOverrides = {
@@ -34,7 +34,7 @@ async function nextNumber(
   let resetAnnually = overrides?.resetAnnually;
 
   if (prefix === undefined || resetAnnually === undefined) {
-    const settings = await getSettings(userId);
+    const settings = await getSettingsDocumentDefaults(userId);
     prefix =
       type === "DEVIS"
         ? settings.quoteNumberPrefix

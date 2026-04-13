@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { formatCurrency, formatDate } from "@/lib/formatters";
 import { fromCents } from "@/lib/money";
-import { getSettings } from "@/server/settings";
+import { getSettingsDocumentDefaults } from "@/server/settings";
 import type { CurrencyCode } from "@/lib/currency";
 
 type CsvRow = Record<string, string | number | null | undefined>;
@@ -246,7 +246,7 @@ async function* productRows(userId: string, currencyCode: CurrencyCode) {
 
 export async function exportProductsCsv() {
   const { id: userId } = await requireUser();
-  const settings = await getSettings(userId);
+  const settings = await getSettingsDocumentDefaults(userId);
   const currencyCode = settings.defaultCurrency as CurrencyCode;
 
   return streamCsv<ProductCsvRow>(

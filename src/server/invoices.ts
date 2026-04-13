@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { calculateDocumentTotals, calculateLineTotals } from "@/lib/documents";
 import { toCents } from "@/lib/money";
-import { getSettings } from "@/server/settings";
+import { getSettingsDocumentDefaults } from "@/server/settings";
 import {
   DEFAULT_TAX_CONFIGURATION,
   normalizeTaxConfiguration,
@@ -723,7 +723,7 @@ export async function createInvoiceForUser(userId: string, input: InvoiceInput) 
     userId,
     payload.lines.map((line) => line.productId),
   );
-  const settings = await getSettings(userId);
+  const settings = await getSettingsDocumentDefaults(userId);
   const taxConfig = normalizeTaxConfiguration(
     (settings as { taxConfiguration?: unknown }).taxConfiguration,
   );
@@ -761,22 +761,24 @@ export async function createInvoiceForUser(userId: string, input: InvoiceInput) 
       fodecAmountCents: totals.fodecAmountCents,
       timbreAmountCents,
       lines: {
-        create: payload.lines.map((line, index) => ({
-          productId: line.productId ?? null,
-          description: line.description,
-          quantity: line.quantity,
-          unit: line.unit,
-          unitPriceHTCents: line.unitPriceHTCents,
-          vatRate: line.vatRate,
-          discountRate: line.discountRate ?? null,
-          discountAmountCents: computedLines[index].discountAmountCents,
-          totalHTCents: computedLines[index].totalHTCents,
-          totalTVACents: computedLines[index].totalTVACents,
-          totalTTCCents: computedLines[index].totalTTCCents,
-          fodecRate: computedLines[index].fodecRate ?? null,
-          fodecAmountCents: computedLines[index].fodecAmountCents,
-          position: line.position,
-        })),
+        createMany: {
+          data: payload.lines.map((line, index) => ({
+            productId: line.productId ?? null,
+            description: line.description,
+            quantity: line.quantity,
+            unit: line.unit,
+            unitPriceHTCents: line.unitPriceHTCents,
+            vatRate: line.vatRate,
+            discountRate: line.discountRate ?? null,
+            discountAmountCents: computedLines[index].discountAmountCents,
+            totalHTCents: computedLines[index].totalHTCents,
+            totalTVACents: computedLines[index].totalTVACents,
+            totalTTCCents: computedLines[index].totalTTCCents,
+            fodecRate: computedLines[index].fodecRate ?? null,
+            fodecAmountCents: computedLines[index].fodecAmountCents,
+            position: line.position,
+          })),
+        },
       },
     },
     include: {
@@ -878,7 +880,7 @@ export async function updateInvoice(id: string, input: InvoiceInput) {
     userId,
     payload.lines.map((line) => line.productId),
   );
-  const settings = await getSettings(userId);
+  const settings = await getSettingsDocumentDefaults(userId);
   const taxConfig = normalizeTaxConfiguration(
     (settings as { taxConfiguration?: unknown }).taxConfiguration,
   );
@@ -913,22 +915,24 @@ export async function updateInvoice(id: string, input: InvoiceInput) {
         fodecAmountCents: totals.fodecAmountCents,
         timbreAmountCents,
         lines: {
-          create: payload.lines.map((line, index) => ({
-            productId: line.productId ?? null,
-            description: line.description,
-            quantity: line.quantity,
-            unit: line.unit,
-            unitPriceHTCents: line.unitPriceHTCents,
-            vatRate: line.vatRate,
-            discountRate: line.discountRate ?? null,
-            discountAmountCents: computedLines[index].discountAmountCents,
-            totalHTCents: computedLines[index].totalHTCents,
-            totalTVACents: computedLines[index].totalTVACents,
-            totalTTCCents: computedLines[index].totalTTCCents,
-            fodecRate: computedLines[index].fodecRate ?? null,
-            fodecAmountCents: computedLines[index].fodecAmountCents,
-            position: line.position,
-          })),
+          createMany: {
+            data: payload.lines.map((line, index) => ({
+              productId: line.productId ?? null,
+              description: line.description,
+              quantity: line.quantity,
+              unit: line.unit,
+              unitPriceHTCents: line.unitPriceHTCents,
+              vatRate: line.vatRate,
+              discountRate: line.discountRate ?? null,
+              discountAmountCents: computedLines[index].discountAmountCents,
+              totalHTCents: computedLines[index].totalHTCents,
+              totalTVACents: computedLines[index].totalTVACents,
+              totalTTCCents: computedLines[index].totalTTCCents,
+              fodecRate: computedLines[index].fodecRate ?? null,
+              fodecAmountCents: computedLines[index].fodecAmountCents,
+              position: line.position,
+            })),
+          },
         },
       },
       include: {
@@ -984,22 +988,24 @@ export async function duplicateInvoice(id: string) {
       fodecAmountCents: existing.fodecAmountCents ?? 0,
       timbreAmountCents: existing.timbreAmountCents ?? 0,
       lines: {
-        create: existing.lines.map((line, index) => ({
-          productId: line.productId,
-          description: line.description,
-          quantity: line.quantity,
-          unit: line.unit,
-          unitPriceHTCents: line.unitPriceHTCents,
-          vatRate: line.vatRate,
-          discountRate: line.discountRate,
-          discountAmountCents: line.discountAmountCents,
-          totalHTCents: line.totalHTCents,
-          totalTVACents: line.totalTVACents,
-          totalTTCCents: line.totalTTCCents,
-          fodecRate: line.fodecRate,
-          fodecAmountCents: line.fodecAmountCents,
-          position: index,
-        })),
+        createMany: {
+          data: existing.lines.map((line, index) => ({
+            productId: line.productId,
+            description: line.description,
+            quantity: line.quantity,
+            unit: line.unit,
+            unitPriceHTCents: line.unitPriceHTCents,
+            vatRate: line.vatRate,
+            discountRate: line.discountRate,
+            discountAmountCents: line.discountAmountCents,
+            totalHTCents: line.totalHTCents,
+            totalTVACents: line.totalTVACents,
+            totalTTCCents: line.totalTTCCents,
+            fodecRate: line.fodecRate,
+            fodecAmountCents: line.fodecAmountCents,
+            position: index,
+          })),
+        },
       },
     },
     include: {

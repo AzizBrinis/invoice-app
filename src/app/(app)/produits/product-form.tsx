@@ -12,11 +12,15 @@ import { Alert } from "@/components/ui/alert";
 import { useToast } from "@/components/ui/toast-provider";
 import { generateId } from "@/lib/id";
 import { slugify } from "@/lib/slug";
-import { normalizeProductOptionConfig } from "@/lib/product-options";
 import {
-  buildProductImageAlt,
   normalizeProductFaqItems,
-} from "@/lib/product-seo";
+  parseBulkProductFaqInput,
+  PRODUCT_FAQ_ANSWER_MAX_LENGTH,
+  PRODUCT_FAQ_MAX_ITEMS,
+  PRODUCT_FAQ_QUESTION_MAX_LENGTH,
+} from "@/lib/product-faq";
+import { normalizeProductOptionConfig } from "@/lib/product-options";
+import { buildProductImageAlt } from "@/lib/product-seo";
 import {
   submitProductFormAction,
 } from "@/app/(app)/produits/actions";
@@ -73,6 +77,8 @@ type FaqItem = {
   answer: string;
 };
 
+type FaqInputMode = "normal" | "bulk";
+
 type OptionValue = {
   id: string;
   label: string;
@@ -100,6 +106,12 @@ type VariantStockMap = Record<string, string>;
 
 const VARIANT_SEPARATOR = "::";
 const SHORT_DESCRIPTION_HTML_LIMIT = 600;
+const BULK_FAQ_TEMPLATE = `Question: Comment vais-je recevoir ma licence Microsoft Office 2021 ?
+Réponse: Il s'agit d'un téléchargement numérique. Vous recevrez votre clé et les instructions d'activation par email après validation de la commande.
+
+---
+Question: La licence est-elle valable à vie ?
+Réponse: Oui, il s'agit d'une licence perpétuelle pour 1 PC, sans abonnement annuel.`;
 
 function buildVariantKey(colorId?: string | null, sizeId?: string | null) {
   return `${colorId ?? ""}${VARIANT_SEPARATOR}${sizeId ?? ""}`;
@@ -173,6 +185,12 @@ function normalizeFaqItems(value: unknown): FaqItem[] {
     question: item.question,
     answer: item.answer,
   }));
+}
+
+function hasFaqContent(item: Pick<FaqItem, "question" | "answer">) {
+  return (
+    item.question.trim().length > 0 || item.answer.trim().length > 0
+  );
 }
 
 function cleanUploadedImageLabel(fileName: string) {
@@ -356,6 +374,9 @@ export function ProductForm({
   const [faqItems, setFaqItems] = useState<FaqItem[]>(() =>
     normalizeFaqItems(defaultValues?.faqItems),
   );
+  const [faqInputMode, setFaqInputMode] = useState<FaqInputMode>("normal");
+  const [bulkFaqValue, setBulkFaqValue] = useState("");
+  const [bulkFaqError, setBulkFaqError] = useState<string | null>(null);
   const [photoUrl, setPhotoUrl] = useState("");
   const [optionConfig, setOptionConfig] = useState<OptionConfigState>(() =>
     normalizeOptionConfig(defaultValues?.optionConfig, currencyCode),
@@ -446,10 +467,18 @@ export function ProductForm({
         question: item.question.trim(),
         answer: item.answer.trim(),
       }))
-      .filter((item) => item.question.length > 0 && item.answer.length > 0);
+      .filter((item) => item.question.length > 0 || item.answer.length > 0);
     if (!payload.length) return "";
     return JSON.stringify(payload);
   }, [faqItems]);
+  const filledFaqCount = useMemo(
+    () => faqItems.filter((item) => hasFaqContent(item)).length,
+    [faqItems],
+  );
+  const remainingFaqSlots = Math.max(
+    0,
+    PRODUCT_FAQ_MAX_ITEMS - filledFaqCount,
+  );
 
   const coverImageUrlValue = useMemo(() => {
     const primary = galleryItems.find((item) => item.isPrimary);
@@ -601,7 +630,7 @@ export function ProductForm({
 
   function addFaqItem() {
     setFaqItems((prev) => {
-      if (prev.length >= 8) return prev;
+      if (prev.length >= PRODUCT_FAQ_MAX_ITEMS) return prev;
       return [
         ...prev,
         {
@@ -640,6 +669,41 @@ export function ProductForm({
 
   function removeFaqItem(targetId: string) {
     setFaqItems((prev) => prev.filter((item) => item.id !== targetId));
+  }
+
+  function importBulkFaqItems() {
+    const existingQuestions = faqItems
+      .filter((item) => hasFaqContent(item))
+      .map((item) => item.question);
+    const result = parseBulkProductFaqInput(bulkFaqValue, {
+      existingCount: filledFaqCount,
+      existingQuestions,
+      maxItems: PRODUCT_FAQ_MAX_ITEMS,
+    });
+
+    if (!result.success) {
+      setBulkFaqError(result.error);
+      return;
+    }
+
+    setFaqItems((prev) => [
+      ...prev.filter((item) => hasFaqContent(item)),
+      ...result.items.map((item) => ({
+        id: generateId("faq"),
+        question: item.question,
+        answer: item.answer,
+      })),
+    ]);
+    setBulkFaqValue("");
+    setBulkFaqError(null);
+    setFaqInputMode("normal");
+    addToast({
+      variant: "success",
+      title:
+        result.items.length > 1
+          ? `${result.items.length} FAQs ajoutées`
+          : "1 FAQ ajoutée",
+    });
   }
 
   function updateOption(kind: OptionKind, id: string, changes: Partial<OptionValue>) {
@@ -1080,12 +1144,102 @@ export function ProductForm({
               Ajoutez des réponses utiles pour les clients et les résultats enrichis.
             </p>
           </div>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant={faqInputMode === "normal" ? "primary" : "secondary"}
+              className="min-h-8 px-2 py-1 text-xs"
+              onClick={() => {
+                setFaqInputMode("normal");
+                setBulkFaqError(null);
+              }}
+            >
+              Mode normal
+            </Button>
+            <Button
+              type="button"
+              variant={faqInputMode === "bulk" ? "primary" : "secondary"}
+              className="min-h-8 px-2 py-1 text-xs"
+              onClick={() => {
+                setFaqInputMode("bulk");
+                setBulkFaqError(null);
+              }}
+            >
+              Ajout rapide
+            </Button>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 px-4 py-3 text-xs text-zinc-600 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300">
+          <p>
+            {filledFaqCount}/{PRODUCT_FAQ_MAX_ITEMS} FAQs prêtes pour la fiche
+            produit et le JSON-LD.
+          </p>
+          <p>
+            {remainingFaqSlots > 0
+              ? `${remainingFaqSlots} emplacement${remainingFaqSlots > 1 ? "s" : ""} restant${remainingFaqSlots > 1 ? "s" : ""}.`
+              : "Limite atteinte."}
+          </p>
+        </div>
+        {faqInputMode === "bulk" ? (
+          <div className="space-y-3 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                Coller plusieurs FAQs
+              </p>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                Utilisez le format <span className="font-mono">Question:</span> puis <span className="font-mono">Réponse:</span>. Séparez chaque bloc avec <span className="font-mono">---</span>. Les FAQs importées deviennent ensuite modifiables ligne par ligne.
+              </p>
+            </div>
+            <Textarea
+              rows={10}
+              value={bulkFaqValue}
+              onChange={(event) => {
+                setBulkFaqValue(event.target.value);
+                if (bulkFaqError) {
+                  setBulkFaqError(null);
+                }
+              }}
+              placeholder={BULK_FAQ_TEMPLATE}
+              className="font-mono text-xs"
+            />
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                className="min-h-8 px-2 py-1 text-xs"
+                onClick={() => {
+                  setBulkFaqValue(BULK_FAQ_TEMPLATE);
+                  setBulkFaqError(null);
+                }}
+              >
+                Insérer un exemple
+              </Button>
+              <Button
+                type="button"
+                className="min-h-8 px-2 py-1 text-xs"
+                onClick={importBulkFaqItems}
+                disabled={remainingFaqSlots === 0}
+              >
+                Importer dans la liste
+              </Button>
+            </div>
+            {bulkFaqError ? (
+              <p className="text-xs text-red-600 dark:text-red-400">
+                {bulkFaqError}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            Ordre, question et réponse sont repris tels quels pour le rendu public.
+          </p>
           <Button
             type="button"
             variant="secondary"
             className="min-h-8 px-2 py-1 text-xs"
             onClick={addFaqItem}
-            disabled={faqItems.length >= 8}
+            disabled={faqItems.length >= PRODUCT_FAQ_MAX_ITEMS}
           >
             Ajouter une question
           </Button>
@@ -1137,7 +1291,7 @@ export function ProductForm({
                   <Input
                     id={`faq-question-${item.id}`}
                     value={item.question}
-                    maxLength={180}
+                    maxLength={PRODUCT_FAQ_QUESTION_MAX_LENGTH}
                     onChange={(event) =>
                       updateFaqItem(item.id, {
                         question: event.target.value,
@@ -1153,7 +1307,7 @@ export function ProductForm({
                   <Textarea
                     id={`faq-answer-${item.id}`}
                     rows={3}
-                    maxLength={1200}
+                    maxLength={PRODUCT_FAQ_ANSWER_MAX_LENGTH}
                     value={item.answer}
                     onChange={(event) =>
                       updateFaqItem(item.id, {

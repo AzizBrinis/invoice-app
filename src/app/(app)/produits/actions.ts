@@ -9,7 +9,7 @@ import { productSchema, createProduct, updateProduct, deleteProduct } from "@/se
 import { buildProductFormValidationState } from "@/server/product-form-errors";
 import { toCents } from "@/lib/money";
 import { prisma } from "@/lib/db";
-import { getSettings } from "@/server/settings";
+import { getSettingsDocumentDefaults } from "@/server/settings";
 import { requireUser } from "@/lib/auth";
 import { requireAppSectionAccess } from "@/lib/authorization";
 import type { ProductFormState } from "@/app/(app)/produits/form-state";
@@ -198,7 +198,7 @@ export async function submitProductFormAction(
   try {
     await requireProductsAccess();
     const productId = formData.get("productId")?.toString() || undefined;
-    const settings = await getSettings();
+    const settings = await getSettingsDocumentDefaults();
     const data = await parseProductForm(formData, settings.defaultCurrency);
 
     if (productId) {
@@ -266,7 +266,7 @@ export async function createProductAction(formData: FormData) {
   const redirectTarget = resolveRedirectTarget(formData, "/produits");
   try {
     await requireProductsAccess();
-    const settings = await getSettings();
+    const settings = await getSettingsDocumentDefaults();
     const data = await parseProductForm(formData, settings.defaultCurrency);
     await createProduct(data);
     revalidatePath("/produits");
@@ -297,7 +297,7 @@ export async function updateProductAction(id: string, formData: FormData) {
   const redirectTarget = resolveRedirectTarget(formData, "/produits");
   try {
     await requireProductsAccess();
-    const settings = await getSettings();
+    const settings = await getSettingsDocumentDefaults();
     const data = await parseProductForm(formData, settings.defaultCurrency);
     await updateProduct(id, data);
     revalidatePath("/produits");
@@ -403,7 +403,7 @@ export async function importProductsAction(formData: FormData) {
       return index >= 0 ? row[index]?.trim() ?? "" : "";
     };
 
-    const settings = await getSettings(user.id);
+    const settings = await getSettingsDocumentDefaults(user.id);
     const currency = settings.defaultCurrency;
 
     const entries: Array<{

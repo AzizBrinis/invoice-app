@@ -10,7 +10,7 @@ import {
   type LineComputationResult,
 } from "@/lib/documents";
 import { nextQuoteNumber, nextInvoiceNumber } from "@/server/sequences";
-import { getSettings } from "@/server/settings";
+import { getSettingsDocumentDefaults } from "@/server/settings";
 import { getClientTenantId } from "@/server/clients";
 import {
   DEFAULT_TAX_CONFIGURATION,
@@ -328,7 +328,7 @@ export async function searchQuoteProducts(
 }
 
 export async function getQuoteFormSettings(userId: string) {
-  const runQuery = () => getSettings(userId);
+  const runQuery = () => getSettingsDocumentDefaults(userId);
 
   if (!SHOULD_USE_QUOTE_CACHE) {
     return runQuery();
@@ -648,7 +648,7 @@ export async function createQuoteForUser(userId: string, input: QuoteInput) {
     payload.lines.map((line) => line.productId),
   );
 
-  const settings = await getSettings(userId);
+  const settings = await getSettingsDocumentDefaults(userId);
   const taxConfig = normalizeTaxConfiguration(
     (settings as { taxConfiguration?: unknown }).taxConfiguration,
   );
@@ -691,9 +691,11 @@ export async function createQuoteForUser(userId: string, input: QuoteInput) {
       fodecAmountCents: totals.fodecAmountCents,
       timbreAmountCents: totals.timbreAmountCents,
       lines: {
-        create: payload.lines.map((line, index) =>
-          mapLineData(line, computedLines[index]),
-        ),
+        createMany: {
+          data: payload.lines.map((line, index) =>
+            mapLineData(line, computedLines[index]),
+          ),
+        },
       },
     },
     include: {
@@ -801,7 +803,7 @@ export async function updateQuote(id: string, input: QuoteInput) {
     userId,
     payload.lines.map((line) => line.productId),
   );
-  const settings = await getSettings(userId);
+  const settings = await getSettingsDocumentDefaults(userId);
   const taxConfig = normalizeTaxConfiguration(
     (settings as { taxConfiguration?: unknown }).taxConfiguration,
   );
@@ -841,9 +843,11 @@ export async function updateQuote(id: string, input: QuoteInput) {
         fodecAmountCents: totals.fodecAmountCents,
         timbreAmountCents: totals.timbreAmountCents,
         lines: {
-          create: payload.lines.map((line, index) =>
-            mapLineData(line, computedLines[index]),
-          ),
+          createMany: {
+            data: payload.lines.map((line, index) =>
+              mapLineData(line, computedLines[index]),
+            ),
+          },
         },
       },
       include: {
@@ -974,22 +978,24 @@ export async function duplicateQuote(id: string) {
       fodecAmountCents: existing.fodecAmountCents ?? 0,
       timbreAmountCents: existing.timbreAmountCents ?? 0,
       lines: {
-        create: existing.lines.map((line, index) => ({
-          productId: line.productId,
-          description: line.description,
-          quantity: line.quantity,
-          unit: line.unit,
-          unitPriceHTCents: line.unitPriceHTCents,
-          vatRate: line.vatRate,
-          discountRate: line.discountRate,
-          discountAmountCents: line.discountAmountCents,
-          totalHTCents: line.totalHTCents,
-          totalTVACents: line.totalTVACents,
-          totalTTCCents: line.totalTTCCents,
-          fodecRate: line.fodecRate,
-          fodecAmountCents: line.fodecAmountCents,
-          position: index,
-        })),
+        createMany: {
+          data: existing.lines.map((line, index) => ({
+            productId: line.productId,
+            description: line.description,
+            quantity: line.quantity,
+            unit: line.unit,
+            unitPriceHTCents: line.unitPriceHTCents,
+            vatRate: line.vatRate,
+            discountRate: line.discountRate,
+            discountAmountCents: line.discountAmountCents,
+            totalHTCents: line.totalHTCents,
+            totalTVACents: line.totalTVACents,
+            totalTTCCents: line.totalTTCCents,
+            fodecRate: line.fodecRate,
+            fodecAmountCents: line.fodecAmountCents,
+            position: index,
+          })),
+        },
       },
     },
     include: {
@@ -1056,22 +1062,24 @@ export async function convertQuoteToInvoiceForUser(userId: string, id: string) {
         fodecAmountCents: quote.fodecAmountCents ?? 0,
         timbreAmountCents: quote.timbreAmountCents ?? 0,
         lines: {
-          create: quote.lines.map((line, index) => ({
-            productId: line.productId,
-            description: line.description,
-            quantity: line.quantity,
-            unit: line.unit,
-            unitPriceHTCents: line.unitPriceHTCents,
-            vatRate: line.vatRate,
-            discountRate: line.discountRate,
-            discountAmountCents: line.discountAmountCents,
-            totalHTCents: line.totalHTCents,
-            totalTVACents: line.totalTVACents,
-            totalTTCCents: line.totalTTCCents,
-            fodecRate: line.fodecRate,
-            fodecAmountCents: line.fodecAmountCents,
-            position: index,
-          })),
+          createMany: {
+            data: quote.lines.map((line, index) => ({
+              productId: line.productId,
+              description: line.description,
+              quantity: line.quantity,
+              unit: line.unit,
+              unitPriceHTCents: line.unitPriceHTCents,
+              vatRate: line.vatRate,
+              discountRate: line.discountRate,
+              discountAmountCents: line.discountAmountCents,
+              totalHTCents: line.totalHTCents,
+              totalTVACents: line.totalTVACents,
+              totalTTCCents: line.totalTTCCents,
+              fodecRate: line.fodecRate,
+              fodecAmountCents: line.fodecAmountCents,
+              position: index,
+            })),
+          },
         },
       },
     });

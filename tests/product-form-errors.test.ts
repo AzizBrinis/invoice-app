@@ -42,4 +42,26 @@ describe("buildProductFormValidationState", () => {
     expect(validationState.fieldErrors.defaultDiscount).toBe("Remise invalide");
     expect(validationState.fieldErrors.vatRate).toBeUndefined();
   });
+
+  it("maps nested FAQ validation errors back to the faqItems field", () => {
+    const result = z
+      .object({
+        faqItems: z.array(
+          z.object({
+            question: z.string().min(5, "Question FAQ invalide"),
+          }),
+        ),
+      })
+      .safeParse({
+        faqItems: [{ question: "abc" }],
+      });
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+
+    const validationState = buildProductFormValidationState(result.error);
+
+    expect(validationState.message).toBe("Question FAQ invalide");
+    expect(validationState.fieldErrors.faqItems).toBe("Question FAQ invalide");
+  });
 });

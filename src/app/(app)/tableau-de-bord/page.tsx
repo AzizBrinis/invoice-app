@@ -17,7 +17,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { getSettings } from "@/server/settings";
+import { getSettingsSummary } from "@/server/settings";
 import type { CurrencyCode } from "@/lib/currency";
 import {
   DashboardChartSkeleton,
@@ -83,7 +83,7 @@ async function DashboardPageContent({
   });
   const resolvedSearchParams: SearchParams = (await searchParams) ?? {};
   const tenantId = user.activeTenantId ?? user.tenantId ?? user.id;
-  const settings = await getSettings(tenantId);
+  const settings = await getSettingsSummary(tenantId);
   const dashboardCurrency = settings.defaultCurrency as CurrencyCode;
 
   if (isClientPaymentsAccount(user)) {

@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { ProductForm } from "@/app/(app)/produits/product-form";
-import { getSettings } from "@/server/settings";
+import { getSettingsDocumentDefaults } from "@/server/settings";
 import type { CurrencyCode } from "@/lib/currency";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +20,7 @@ export default async function EditProduitPage({
     prisma.product.findFirst({
       where: { id: resolvedParams.id, userId: user.id },
     }),
-    getSettings(user.id),
+    getSettingsDocumentDefaults(user.id),
   ]);
 
   if (!product) {

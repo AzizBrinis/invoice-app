@@ -62,6 +62,8 @@ type QueryContext = {
   values: unknown[];
 };
 
+const INTERNAL_REQUIRED_FIELDS = "__internalRequiredFields";
+
 function createCuid() {
   const timestamp = Date.now().toString(36);
   const random = randomBytes(12).toString("base64url").replace(/[^a-z0-9]/gi, "").toLowerCase();
@@ -86,6 +88,10 @@ function toQueryArgRows(value: unknown): QueryArgs[] {
 
 function toNumberOrUndefined(value: unknown) {
   return typeof value === "number" ? value : undefined;
+}
+
+function hasQueryWhere(value: unknown) {
+  return isPlainObject(value) && Object.keys(value).length > 0;
 }
 
 function cloneValue<T>(value: T): T {
@@ -519,6 +525,140 @@ function buildPaginationSql(skip?: number, take?: number, context?: QueryContext
   return sql;
 }
 
+function getRelationEntries(model: RuntimeModel, args: QueryArgs) {
+  return [
+    ...Object.entries(args.select ?? {}).filter(
+      ([fieldName, enabled]) => model.relations[fieldName] && enabled,
+    ),
+    ...Object.entries(args.include ?? {}).filter(
+      ([fieldName, enabled]) => model.relations[fieldName] && enabled,
+    ),
+  ];
+}
+
+function getScalarSelectFields(
+  modelName: ModelName,
+  args: QueryArgs,
+) {
+  const model = getModel(modelName);
+  const fields = new Set<string>();
+  const hasScalarSelect = isPlainObject(args.select) && !args.include;
+
+  if (hasScalarSelect) {
+    for (const [fieldName, enabled] of Object.entries(args.select as QueryArgs)) {
+      if (enabled === true && model.fields[fieldName]?.kind !== "object") {
+        fields.add(fieldName);
+      }
+    }
+  } else {
+    model.scalarFields.forEach((fieldName) => fields.add(fieldName));
+  }
+
+  for (const fieldName of toStringArray(args[INTERNAL_REQUIRED_FIELDS])) {
+    if (model.fields[fieldName]?.kind !== "object") {
+      fields.add(fieldName);
+    }
+  }
+
+  for (const fieldName of toStringArray(args.distinct)) {
+    if (model.fields[fieldName]?.kind !== "object") {
+      fields.add(fieldName);
+    }
+  }
+
+  for (const [relationName] of getRelationEntries(model, args)) {
+    const relation = model.relations[relationName];
+    relation.sourceFields.forEach((fieldName) => fields.add(fieldName));
+  }
+
+  if (fields.size === 0) {
+    const fallbackField = model.primaryKey[0] ?? model.scalarFields[0];
+    if (fallbackField) {
+      fields.add(fallbackField);
+    }
+  }
+
+  return Array.from(fields);
+}
+
+function buildSelectColumnsSql(
+  modelName: ModelName,
+  alias: string,
+  args: QueryArgs,
+) {
+  return getScalarSelectFields(modelName, args)
+    .map((fieldName) => `${quoteColumn(alias, fieldName)} AS ${quoteIdentifier(fieldName)}`)
+    .join(", ");
+}
+
+function getIdentityFields(model: RuntimeModel) {
+  return model.primaryKey.length > 0
+    ? [...model.primaryKey]
+    : [...(model.uniqueFields[0] ?? ["id"])];
+}
+
+function getNestedRelationSourceFields(
+  model: RuntimeModel,
+  relationData?: Record<string, unknown>,
+) {
+  if (!relationData) {
+    return [];
+  }
+
+  const fields = new Set<string>();
+  for (const relation of Object.values(model.relations)) {
+    const relationValue = relationData[relation.fieldName];
+    if (!isPlainObject(relationValue) || relation.owning) {
+      continue;
+    }
+    if ("create" in relationValue || "createMany" in relationValue) {
+      relation.sourceFields.forEach((fieldName) => fields.add(fieldName));
+    }
+  }
+  return Array.from(fields);
+}
+
+function getWriteReturningFields(
+  modelName: ModelName,
+  args: QueryArgs,
+  relationData?: Record<string, unknown>,
+) {
+  const model = getModel(modelName);
+  const fields = new Set<string>();
+
+  if (args.include) {
+    getIdentityFields(model).forEach((fieldName) => fields.add(fieldName));
+  } else if (isPlainObject(args.select)) {
+    getScalarSelectFields(modelName, args).forEach((fieldName) => fields.add(fieldName));
+    getIdentityFields(model).forEach((fieldName) => fields.add(fieldName));
+  } else {
+    model.scalarFields.forEach((fieldName) => fields.add(fieldName));
+  }
+
+  getNestedRelationSourceFields(model, relationData).forEach((fieldName) =>
+    fields.add(fieldName),
+  );
+
+  const validFields = Array.from(fields).filter(
+    (fieldName) => model.fields[fieldName]?.kind !== "object",
+  );
+  if (validFields.length > 0) {
+    return validFields;
+  }
+
+  const fallbackField = getIdentityFields(model)[0] ?? model.scalarFields[0];
+  return fallbackField ? [fallbackField] : [];
+}
+
+function buildReturningColumnsSql(modelName: ModelName, fields: string[]) {
+  const model = getModel(modelName);
+  const columns = fields.filter((fieldName) => model.fields[fieldName]?.kind !== "object");
+  const returningFields = columns.length > 0
+    ? columns
+    : [getIdentityFields(model)[0] ?? model.scalarFields[0]].filter(Boolean);
+  return returningFields.map((fieldName) => quoteIdentifier(fieldName)).join(", ");
+}
+
 function hydrateRow(modelName: ModelName, row: Record<string, unknown>) {
   const model = getModel(modelName);
   const hydrated: Record<string, unknown> = {};
@@ -564,7 +704,8 @@ async function findManyInternal(
     toNumberOrUndefined(args.take),
     context,
   );
-  const query = `${selectPrefix} * FROM ${quoteQualifiedIdentifier("public", model.tableName)} ${quoteIdentifier(alias)} WHERE ${whereSql}${orderBySql}${paginationSql}`;
+  const selectColumnsSql = buildSelectColumnsSql(modelName, alias, args);
+  const query = `${selectPrefix} ${selectColumnsSql} FROM ${quoteQualifiedIdentifier("public", model.tableName)} ${quoteIdentifier(alias)} WHERE ${whereSql}${orderBySql}${paginationSql}`;
   const rows = await executeStatement(query, context.values, sqlClient);
   const hydrated = rows.map((row) => hydrateRow(modelName, row));
   return projectRows(modelName, hydrated, args, sqlClient);
@@ -1046,6 +1187,7 @@ async function insertRow(
   modelName: ModelName,
   scalarData: Record<string, unknown>,
   sqlClient: DatabaseSqlClient,
+  returningFields: string[],
 ) {
   const model = getModel(modelName);
   const context: QueryContext = {
@@ -1057,12 +1199,61 @@ async function insertRow(
   const placeholders = fields
     .map((fieldName) => pushParameter(context, model.fields[fieldName], scalarData[fieldName]))
     .join(", ");
-  const query = `INSERT INTO ${quoteQualifiedIdentifier("public", model.tableName)} (${columns}) VALUES (${placeholders}) RETURNING *`;
+  const returningColumns = buildReturningColumnsSql(modelName, returningFields);
+  const query = `INSERT INTO ${quoteQualifiedIdentifier("public", model.tableName)} (${columns}) VALUES (${placeholders}) RETURNING ${returningColumns}`;
   try {
     const [row] = await executeStatement(query, context.values, sqlClient);
     return hydrateRow(modelName, row);
   } catch (error) {
     throw mapDatabaseError(error);
+  }
+}
+
+function getNestedCreateManySkipDuplicates(value: unknown) {
+  return isPlainObject(value) && value.skipDuplicates === true;
+}
+
+function attachNestedRelationFields(
+  relation: RuntimeRelation,
+  parentRow: Record<string, unknown>,
+  entry: QueryArgs,
+) {
+  const childData = { ...entry };
+  relation.targetFields.forEach((targetField, index) => {
+    childData[targetField] = parentRow[relation.sourceFields[index]];
+  });
+  return childData;
+}
+
+async function processNestedRelationCreates(
+  relation: RuntimeRelation,
+  parentRow: Record<string, unknown>,
+  relationValue: Record<string, unknown>,
+  sqlClient: DatabaseSqlClient,
+) {
+  const createPayload = normalizeNestedCreatePayload(relationValue.create);
+  for (const entry of createPayload) {
+    await createRecord(
+      relation.targetModel,
+      {
+        data: attachNestedRelationFields(relation, parentRow, entry),
+      },
+      sqlClient,
+    );
+  }
+
+  const createManyPayload = normalizeNestedCreatePayload(relationValue.createMany);
+  if (createManyPayload.length > 0) {
+    await createManyRecords(
+      relation.targetModel,
+      {
+        data: createManyPayload.map((entry) =>
+          attachNestedRelationFields(relation, parentRow, entry),
+        ),
+        skipDuplicates: getNestedCreateManySkipDuplicates(relationValue.createMany),
+      },
+      sqlClient,
+    );
   }
 }
 
@@ -1080,19 +1271,39 @@ async function processNestedCreates(
       continue;
     }
 
-    const createPayload = [
-      ...normalizeNestedCreatePayload(relationValue.create),
-      ...normalizeNestedCreatePayload(relationValue.createMany),
-    ];
-
-    for (const entry of createPayload) {
-      const childData = { ...entry };
-      relation.targetFields.forEach((targetField, index) => {
-        childData[targetField] = parentRow[relation.sourceFields[index]];
-      });
-      await createRecord(relation.targetModel, { data: childData }, sqlClient);
-    }
+    await processNestedRelationCreates(relation, parentRow, relationValue, sqlClient);
   }
+}
+
+async function projectWriteResult(
+  modelName: ModelName,
+  row: Record<string, unknown>,
+  args: QueryArgs,
+  sqlClient: DatabaseSqlClient,
+) {
+  if (args.include) {
+    return findFirstInternal(
+      modelName,
+      {
+        where: getIdentityWhere(modelName, row),
+        select: args.select,
+        include: args.include,
+      },
+      sqlClient,
+    );
+  }
+
+  if (args.select) {
+    const [projected] = await projectRows(
+      modelName,
+      [row],
+      { select: args.select },
+      sqlClient,
+    );
+    return projected ?? null;
+  }
+
+  return row;
 }
 
 async function createRecord(
@@ -1105,25 +1316,19 @@ async function createRecord(
     toQueryArgs(args.data),
     sqlClient,
   );
-  const created = await insertRow(modelName, scalarData, sqlClient);
-  await processNestedCreates(modelName, created, relationData, sqlClient);
-  return findFirstInternal(
+  const created = await insertRow(
     modelName,
-    {
-      where: getIdentityWhere(modelName, created),
-      select: args.select,
-      include: args.include,
-    },
+    scalarData,
     sqlClient,
+    getWriteReturningFields(modelName, args, relationData),
   );
+  await processNestedCreates(modelName, created, relationData, sqlClient);
+  return projectWriteResult(modelName, created, args, sqlClient);
 }
 
 function getIdentityWhere(modelName: ModelName, row: Record<string, unknown>) {
   const model = getModel(modelName);
-  const keyFields =
-    model.primaryKey.length > 0
-      ? model.primaryKey
-      : model.uniqueFields[0] ?? ["id"];
+  const keyFields = getIdentityFields(model);
   return Object.fromEntries(keyFields.map((fieldName) => [fieldName, row[fieldName]]));
 }
 
@@ -1177,6 +1382,7 @@ async function updateRecord(
   }
 
   const fields = Object.keys(scalarData);
+  let updatedRow: Record<string, unknown> | null = null;
   if (fields.length > 0) {
     const context: QueryContext = {
       aliasCounter: 0,
@@ -1189,9 +1395,14 @@ async function updateRecord(
       .join(", ");
     const alias = "t0";
     const whereSql = buildWhereSql(modelName, alias, args.where, context);
-    const query = `UPDATE ${quoteQualifiedIdentifier("public", model.tableName)} AS ${quoteIdentifier(alias)} SET ${assignments} WHERE ${whereSql} RETURNING *`;
+    const returningColumns = buildReturningColumnsSql(
+      modelName,
+      getWriteReturningFields(modelName, args),
+    );
+    const query = `UPDATE ${quoteQualifiedIdentifier("public", model.tableName)} AS ${quoteIdentifier(alias)} SET ${assignments} WHERE ${whereSql} RETURNING ${returningColumns}`;
     try {
-      await executeStatement(query, context.values, sqlClient);
+      const [row] = await executeStatement(query, context.values, sqlClient);
+      updatedRow = row ? hydrateRow(modelName, row) : null;
     } catch (error) {
       throw mapDatabaseError(error);
     }
@@ -1263,28 +1474,10 @@ async function updateRecord(
       await deleteManyRecords(relation.targetModel, { where: combinedWhere }, sqlClient);
     }
 
-    const createPayload = [
-      ...normalizeNestedCreatePayload(relationValue.create),
-      ...normalizeNestedCreatePayload(relationValue.createMany),
-    ];
-    for (const entry of createPayload) {
-      const childData = { ...entry };
-      relation.targetFields.forEach((targetField, index) => {
-        childData[targetField] = existing[relation.sourceFields[index]];
-      });
-      await createRecord(relation.targetModel, { data: childData }, sqlClient);
-    }
+    await processNestedRelationCreates(relation, existing, relationValue, sqlClient);
   }
 
-  return findFirstInternal(
-    modelName,
-    {
-      where: getIdentityWhere(modelName, existing),
-      select: args.select,
-      include: args.include,
-    },
-    sqlClient,
-  );
+  return projectWriteResult(modelName, updatedRow ?? existing, args, sqlClient);
 }
 
 async function updateManyRecords(
@@ -1447,21 +1640,16 @@ async function upsertRecord(
             )
             .join(", ")
         : `${quoteIdentifier(uniqueWhere.fields[0])} = ${quoteQualifiedIdentifier(model.tableName, uniqueWhere.fields[0])}`;
-    const query = `INSERT INTO ${quoteQualifiedIdentifier("public", model.tableName)} (${columns}) VALUES (${placeholders}) ON CONFLICT (${conflictFields}) DO UPDATE SET ${assignments} RETURNING *`;
+    const returningColumns = buildReturningColumnsSql(
+      modelName,
+      getWriteReturningFields(modelName, args),
+    );
+    const query = `INSERT INTO ${quoteQualifiedIdentifier("public", model.tableName)} (${columns}) VALUES (${placeholders}) ON CONFLICT (${conflictFields}) DO UPDATE SET ${assignments} RETURNING ${returningColumns}`;
 
     try {
       const [row] = await executeStatement(query, context.values, sqlClient);
       const hydrated = hydrateRow(modelName, row);
-      const [projected] = await projectRows(
-        modelName,
-        [hydrated],
-        {
-          select: args.select,
-          include: args.include,
-        },
-        sqlClient,
-      );
-      return projected ?? null;
+      return projectWriteResult(modelName, hydrated, args, sqlClient);
     } catch (error) {
       throw mapDatabaseError(error);
     }
@@ -1516,10 +1704,7 @@ async function projectRows(
     return { ...row };
   });
 
-  const relationEntries = [
-    ...Object.entries(select ?? {}).filter(([fieldName, enabled]) => model.relations[fieldName] && enabled),
-    ...Object.entries(include ?? {}).filter(([fieldName, enabled]) => model.relations[fieldName] && enabled),
-  ];
+  const relationEntries = getRelationEntries(model, args);
   const seenRelations = new Set<string>();
 
   for (const [relationName, relationArgs] of relationEntries) {
@@ -1553,31 +1738,83 @@ async function loadRelationValues(
   args: QueryArgs,
   sqlClient: DatabaseSqlClient,
 ) {
-  const filters = sourceRows
-    .map((row) =>
-      Object.fromEntries(
-        relation.targetFields.map((targetField, index) => [
-          targetField,
-          row[relation.sourceFields[index]],
-        ]),
-      ),
-    )
-    .filter((entry) => Object.values(entry).every((value) => value !== null && value !== undefined));
+  const filters = sourceRows.flatMap((row) => {
+    const filter = Object.fromEntries(
+      relation.targetFields.map((targetField, index) => [
+        targetField,
+        row[relation.sourceFields[index]],
+      ]),
+    );
+
+    if (Object.values(filter).some((value) => value === null || value === undefined)) {
+      return [];
+    }
+
+    return [
+      {
+        filter,
+        sourceKey: serializeKey(
+          relation.sourceFields.map((fieldName) => row[fieldName]),
+        ),
+      },
+    ];
+  });
 
   if (filters.length === 0) {
     return new Map<string, unknown>();
   }
 
+  const buildRelatedWhere = (relationWhere: QueryArgs) =>
+    hasQueryWhere(args.where)
+      ? {
+          AND: [
+            relationWhere,
+            args.where,
+          ],
+        }
+      : relationWhere;
+
+  if (
+    relation.isList &&
+    (typeof args.take === "number" || typeof args.skip === "number")
+  ) {
+    const grouped = new Map<string, unknown>();
+    const loadedKeys = new Set<string>();
+
+    for (const { filter, sourceKey } of filters) {
+      if (loadedKeys.has(sourceKey)) {
+        continue;
+      }
+      loadedKeys.add(sourceKey);
+      grouped.set(
+        sourceKey,
+        await findManyInternal(
+          relation.targetModel,
+          {
+            ...args,
+            where: buildRelatedWhere(filter),
+            [INTERNAL_REQUIRED_FIELDS]: relation.targetFields,
+          },
+          sqlClient,
+        ),
+      );
+    }
+
+    return grouped;
+  }
+
+  const relationWhere =
+    filters.length === 1
+      ? filters[0].filter
+      : {
+          OR: filters.map(({ filter }) => filter),
+        };
   const relatedRows = await findManyInternal(
     relation.targetModel,
     {
       ...args,
-      where:
-        filters.length === 1
-          ? filters[0]
-          : {
-              OR: filters,
-            },
+      where: buildRelatedWhere(relationWhere),
+      [INTERNAL_REQUIRED_FIELDS]: relation.targetFields,
     },
     sqlClient,
   );

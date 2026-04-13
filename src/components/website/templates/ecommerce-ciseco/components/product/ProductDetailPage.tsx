@@ -9,7 +9,7 @@ import type {
   WebsiteBuilderMediaAsset,
   WebsiteBuilderSection,
 } from "@/lib/website/builder";
-import { normalizeProductFaqItems } from "@/lib/product-seo";
+import { normalizeProductFaqItems } from "@/lib/product-faq";
 import { slugify } from "@/lib/slug";
 import { formatCurrency } from "@/lib/formatters";
 import { fromCents } from "@/lib/money";

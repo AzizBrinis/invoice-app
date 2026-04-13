@@ -10,7 +10,7 @@ import { z } from "zod";
 import { resolveClientForContact } from "@/server/clients";
 import { queueQuoteRequestEmailJob } from "@/server/order-email-jobs";
 import { createQuoteForUser } from "@/server/quotes";
-import { getSettings } from "@/server/settings";
+import { getSettingsDocumentDefaults } from "@/server/settings";
 import { resolveProductDiscount } from "@/lib/product-pricing";
 
 const quoteRequestAttachmentInputSchema = z.object({
@@ -496,7 +496,7 @@ export async function convertQuoteRequestToQuote(
     });
   }
 
-  const settings = await getSettings(userId);
+  const settings = await getSettingsDocumentDefaults(userId);
   const product = request.product;
   const description = product?.name ?? "Prestation sur mesure";
   const unit = product?.unit ?? "unite";

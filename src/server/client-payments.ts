@@ -1583,36 +1583,47 @@ export async function getClientPaymentDashboardSummary(
       dateTo: historyRangeEnd ?? null,
       includeByClient: false,
     } satisfies ClientPaymentFilters & { includeByClient: boolean };
-    const [summary, recentPaymentsPage, revenueHistoryTotals] = await Promise.all([
+    const [summary, recentPayments, revenueHistoryRows] = await Promise.all([
       getClientPaymentPeriodSummary(summaryFilters, tenantId),
-      listClientPaymentsPage(
-        {
+      prisma.clientPayment.findMany({
+        where: buildPaymentWhere(tenantId, {
           currency: options.currency ?? null,
           dateFrom: historyRangeStart ?? null,
           dateTo: historyRangeEnd ?? null,
-          page: 1,
-          pageSize: RECENT_PAYMENTS_LIMIT,
-        },
-        tenantId,
-      ),
-      Promise.all(
-        historySlots.map((slot) =>
-          prisma.clientPayment.aggregate({
-            where: buildPaymentWhere(tenantId, {
-              currency: options.currency ?? null,
-              dateFrom: slot.startUtc,
-              dateTo: slot.endUtc,
-            }),
-            _sum: {
-              amountCents: true,
-            },
-          }),
-        ),
-      ),
+        }),
+        select: clientPaymentListSelect,
+        orderBy: [
+          { date: "desc" },
+          { createdAt: "desc" },
+        ],
+        take: RECENT_PAYMENTS_LIMIT,
+      }),
+      historyRangeStart && historyRangeEnd
+        ? prisma.$queryRaw<Array<{ month: string; amount_cents: bigint }>>`
+            SELECT
+              to_char(
+                date_trunc(
+                  'month',
+                  timezone(${TUNIS_TIMEZONE}, ("date" AT TIME ZONE 'UTC'))
+                ),
+                'YYYY-MM'
+              ) AS month,
+              SUM("amountCents")::bigint AS amount_cents
+            FROM "ClientPayment"
+            WHERE "userId" = ${tenantId}
+              ${options.currency ? Prisma.sql`AND "currency" = ${options.currency}` : Prisma.sql``}
+              AND "date" BETWEEN ${historyRangeStart} AND ${historyRangeEnd}
+            GROUP BY 1
+            ORDER BY 1
+          `
+        : Promise.resolve([]),
     ]);
-    const revenueHistory = historySlots.map((slot, index) => ({
+    const revenueHistoryByMonth = new Map(
+      revenueHistoryRows.map((row) => [row.month, Number(row.amount_cents)]),
+    );
+    const revenueHistory = historySlots.map((slot) => ({
       month: slot.label,
-      amountCents: revenueHistoryTotals[index]?._sum.amountCents ?? 0,
+      amountCents: revenueHistoryByMonth.get(slot.label) ?? 0,
     })) satisfies RevenueHistoryPoint[];
     const collectedThisMonthCents =
       revenueHistory[revenueHistory.length - 1]?.amountCents ?? 0;
@@ -1630,7 +1641,7 @@ export async function getClientPaymentDashboardSummary(
         clientCount: summary.totals.clientCount,
         revenueHistory,
       },
-      recentPayments: recentPaymentsPage.items,
+      recentPayments,
     };
   };
 

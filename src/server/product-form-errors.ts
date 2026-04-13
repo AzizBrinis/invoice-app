@@ -7,16 +7,16 @@ export function buildProductFormValidationState(error: ZodError): {
   fieldErrors: ProductFormFieldErrors;
 } {
   const flat = error.flatten();
-  const rawFieldErrors = flat.fieldErrors as Record<string, string[] | undefined>;
-  const pick = (key: string) => rawFieldErrors[key]?.[0];
-  const firstFieldError = Object.values(rawFieldErrors)
-    .flat()
-    .find((message): message is string => Boolean(message));
+  const pick = (...keys: string[]) =>
+    error.issues.find((issue) => {
+      const root = issue.path[0];
+      return typeof root === "string" && keys.includes(root);
+    })?.message;
 
   return {
     message:
       flat.formErrors[0] ??
-      firstFieldError ??
+      error.issues[0]?.message ??
       "Certains champs sont invalides.",
     fieldErrors: {
       sku: pick("sku"),
@@ -39,8 +39,7 @@ export function buildProductFormValidationState(error: ZodError): {
       priceHTCents: pick("priceHTCents"),
       vatRate: pick("vatRate"),
       defaultDiscount:
-        pick("defaultDiscountRate") ??
-        pick("defaultDiscountAmountCents"),
+        pick("defaultDiscountRate", "defaultDiscountAmountCents"),
     },
   };
 }

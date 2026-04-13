@@ -43,6 +43,7 @@ import {
   resolveHomeHeroContentBackground,
   resolveHomeHeroSlideContentBackground,
   resolveHomeHeroSliderMode,
+  resolveSectionCustomerPhotosVisibility,
   resolveCisecoBuilderPageConfig,
   resolveCisecoSectionTemplate,
 } from "@/lib/website/builder";
@@ -367,6 +368,19 @@ function isHomeHeroSliderSection(
       pageKey === "home" &&
       section?.type === "hero" &&
       section?.layout === "home-hero",
+  );
+}
+
+function isHomeTestimonialsSection(
+  section: WebsiteBuilderSection | null | undefined,
+  pageKey: CisecoPageKey,
+  isCisecoTemplate: boolean,
+) {
+  return Boolean(
+    isCisecoTemplate &&
+      pageKey === "home" &&
+      section?.type === "testimonials" &&
+      section?.layout === "home-testimonials",
   );
 }
 
@@ -881,6 +895,11 @@ export function AdvancedCustomizationClient({
     selectedPageKey,
     isCisecoTemplate,
   );
+  const isSelectedHomeTestimonials = isHomeTestimonialsSection(
+    selectedSection,
+    selectedPageKey,
+    isCisecoTemplate,
+  );
   const homeSliderSlides = resolveHomeSliderEditorSlides(
     isSelectedHomeSlider ? selectedSection : null,
   );
@@ -901,6 +920,9 @@ export function AdvancedCustomizationClient({
   const homeSliderIntervalMs = isSelectedHomeSlider
     ? clampHomeHeroSliderInterval(selectedSection?.settings?.autoSlideIntervalMs)
     : DEFAULT_HOME_HERO_SLIDER_INTERVAL_MS;
+  const selectedSectionShowsCustomerPhotos = resolveSectionCustomerPhotosVisibility(
+    isSelectedHomeTestimonials ? selectedSection : null,
+  );
   const layoutOptions = selectedSection
     ? selectedSectionTemplate?.singleton
       ? [selectedSectionTemplate.section.layout]
@@ -1095,6 +1117,13 @@ export function AdvancedCustomizationClient({
   }
 
   function updateHomeSliderSettings(
+    sectionId: string,
+    changes: Partial<NonNullable<WebsiteBuilderSection["settings"]>>,
+  ) {
+    updateSectionSettings(sectionId, changes);
+  }
+
+  function updateSectionSettings(
     sectionId: string,
     changes: Partial<NonNullable<WebsiteBuilderSection["settings"]>>,
   ) {
@@ -2447,6 +2476,30 @@ export function AdvancedCustomizationClient({
                   </select>
                 </label>
               </div>
+              {isSelectedHomeTestimonials ? (
+                <div className="rounded-2xl border border-zinc-200 p-4 dark:border-zinc-800">
+                  <label className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={selectedSectionShowsCustomerPhotos}
+                      onChange={(event) =>
+                        updateSectionSettings(selectedSection.id, {
+                          showCustomerPhotos: event.target.checked,
+                        })
+                      }
+                    />
+                    <span className="space-y-1">
+                      <span className="block text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                        Afficher les photos clients
+                      </span>
+                      <span className="block text-xs text-zinc-500 dark:text-zinc-400">
+                        Masque les avatars tout en conservant l’avis, la note et le nom du client.
+                      </span>
+                    </span>
+                  </label>
+                </div>
+              ) : null}
 
               {selectedSection.items ? (
                 <div className="space-y-3">

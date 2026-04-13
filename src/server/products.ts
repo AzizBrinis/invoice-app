@@ -3,15 +3,49 @@ import { Prisma, ProductSaleMode } from "@/lib/db/prisma-server";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { sanitizeProductHtml } from "@/lib/product-html";
-import { normalizeProductFaqItems } from "@/lib/product-seo";
+import {
+  normalizeProductFaqItems,
+  PRODUCT_FAQ_ANSWER_MAX_LENGTH,
+  PRODUCT_FAQ_ANSWER_MIN_LENGTH,
+  PRODUCT_FAQ_MAX_ITEMS,
+  PRODUCT_FAQ_QUESTION_MAX_LENGTH,
+  PRODUCT_FAQ_QUESTION_MIN_LENGTH,
+} from "@/lib/product-faq";
 import { slugify } from "@/lib/slug";
 import { z } from "zod";
 
 const productSlugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const relativeOrAbsoluteUrl = /^(?:https?:\/\/|\/|data:image\/)/i;
 const MAX_COVER_URL_LENGTH = 400;
-const MAX_COVER_DATA_URL_LENGTH = 1_000_000;
+const MAX_GALLERY_IMAGE_URL_LENGTH = 1_000_000;
 const SHORT_DESCRIPTION_HTML_MAX_LENGTH = 600;
+
+function isAcceptedImageSource(value: string) {
+  return relativeOrAbsoluteUrl.test(value);
+}
+
+function isAcceptedImageSourceLength(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return true;
+  }
+  if (trimmed.toLowerCase().startsWith("data:image/")) {
+    return trimmed.length <= MAX_GALLERY_IMAGE_URL_LENGTH;
+  }
+  return trimmed.length <= MAX_COVER_URL_LENGTH;
+}
+
+const productImageSourceSchema = z
+  .string()
+  .min(1)
+  .refine(
+    (value) => isAcceptedImageSource(value),
+    "L'URL doit commencer par http(s):// ou /",
+  )
+  .refine(
+    (value) => isAcceptedImageSourceLength(value),
+    "L'image est trop volumineuse.",
+  );
 
 const productSlugSchema = z
   .string()
@@ -61,13 +95,51 @@ const productVariantStockSchema = z
   .optional();
 
 const productFaqItemSchema = z.object({
-  question: z.string().min(3, "Question trop courte.").max(180),
-  answer: z.string().min(8, "Réponse trop courte.").max(1200),
+  question: z
+    .string()
+    .trim()
+    .min(
+      PRODUCT_FAQ_QUESTION_MIN_LENGTH,
+      "Question trop courte.",
+    )
+    .max(
+      PRODUCT_FAQ_QUESTION_MAX_LENGTH,
+      `La question doit contenir au maximum ${PRODUCT_FAQ_QUESTION_MAX_LENGTH} caractères.`,
+    ),
+  answer: z
+    .string()
+    .trim()
+    .min(
+      PRODUCT_FAQ_ANSWER_MIN_LENGTH,
+      "Réponse trop courte.",
+    )
+    .max(
+      PRODUCT_FAQ_ANSWER_MAX_LENGTH,
+      `La réponse doit contenir au maximum ${PRODUCT_FAQ_ANSWER_MAX_LENGTH} caractères.`,
+    ),
 });
 
 const productFaqItemsSchema = z
   .array(productFaqItemSchema)
-  .max(8, "Ajoutez au maximum 8 questions fréquentes.")
+  .max(
+    PRODUCT_FAQ_MAX_ITEMS,
+    `Ajoutez au maximum ${PRODUCT_FAQ_MAX_ITEMS} questions fréquentes.`,
+  )
+  .superRefine((value, ctx) => {
+    const seenQuestions = new Set<string>();
+    value.forEach((item, index) => {
+      const questionKey = item.question.toLocaleLowerCase();
+      if (seenQuestions.has(questionKey)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [index, "question"],
+          message: "Chaque question FAQ doit être unique.",
+        });
+        return;
+      }
+      seenQuestions.add(questionKey);
+    });
+  })
   .optional();
 
 export const productSchema = z.object({
@@ -94,27 +166,19 @@ export const productSchema = z.object({
     .nullable()
     .optional()
     .refine(
-      (value) => !value || relativeOrAbsoluteUrl.test(value),
+      (value) => !value || isAcceptedImageSource(value),
       "L'URL doit commencer par http(s):// ou /",
     )
     .refine(
-      (value) => {
-        if (!value) return true;
-        const trimmed = value.trim();
-        if (!trimmed) return true;
-        if (trimmed.toLowerCase().startsWith("data:image/")) {
-          return trimmed.length <= MAX_COVER_DATA_URL_LENGTH;
-        }
-        return trimmed.length <= MAX_COVER_URL_LENGTH;
-      },
+      (value) => !value || isAcceptedImageSourceLength(value),
       "L'URL est trop longue.",
     ),
   gallery: z
     .array(
       z.union([
-        z.string(),
+        productImageSourceSchema,
         z.object({
-          src: z.string().min(1),
+          src: productImageSourceSchema,
           alt: z.string().nullable().optional(),
           isPrimary: z.boolean().optional(),
           position: z.number().int().optional(),

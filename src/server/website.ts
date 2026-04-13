@@ -38,7 +38,10 @@ import { DEFAULT_PRIMARY_CTA_LABEL } from "@/lib/website/defaults";
 import { slugify } from "@/lib/slug";
 import { fromCents } from "@/lib/money";
 import { stripProductHtml } from "@/lib/product-html";
-import { normalizeProductFaqItems } from "@/lib/product-seo";
+import {
+  buildProductFaqStructuredData,
+  normalizeProductFaqItems,
+} from "@/lib/product-faq";
 import {
   applyThemeFallbacks,
   builderConfigSchema,
@@ -3423,19 +3426,9 @@ export function resolveCatalogStructuredData(options: {
 
     structuredData.push(productStructuredData);
 
-    if (faqItems.length) {
-      structuredData.push({
-        "@context": "https://schema.org",
-        "@type": "FAQPage",
-        mainEntity: faqItems.map((item) => ({
-          "@type": "Question",
-          name: item.question,
-          acceptedAnswer: {
-            "@type": "Answer",
-            text: item.answer,
-          },
-        })),
-      });
+    const faqStructuredData = buildProductFaqStructuredData(faqItems);
+    if (faqStructuredData) {
+      structuredData.push(faqStructuredData);
     }
 
     return structuredData;

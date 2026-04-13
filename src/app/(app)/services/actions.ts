@@ -9,7 +9,7 @@ import {
   revalidatePaymentServiceCatalog,
   updatePaymentService,
 } from "@/server/client-payments";
-import { getSettings } from "@/server/settings";
+import { getSettingsSummary } from "@/server/settings";
 import { requireAccountPermission } from "@/lib/authorization";
 import { AuthorizationError } from "@/lib/errors";
 import { isRedirectError } from "@/lib/next";
@@ -125,7 +125,7 @@ function getMutationErrorMessage(error: unknown, fallback: string) {
 async function performCreatePaymentService(formData: FormData) {
   const user = await requireAccountPermission(AccountPermission.SERVICES_MANAGE);
   const tenantId = getClientTenantId(user);
-  const settings = await getSettings(tenantId);
+  const settings = await getSettingsSummary(tenantId);
   const service = await createPaymentService(
     {
       title: normalizeRequiredString(formData.get("title")),
@@ -150,7 +150,7 @@ async function performCreatePaymentService(formData: FormData) {
 async function performUpdatePaymentService(serviceId: string, formData: FormData) {
   const user = await requireAccountPermission(AccountPermission.SERVICES_MANAGE);
   const tenantId = getClientTenantId(user);
-  const settings = await getSettings(tenantId);
+  const settings = await getSettingsSummary(tenantId);
   const service = await updatePaymentService(
     serviceId,
     {
