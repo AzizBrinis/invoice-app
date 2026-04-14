@@ -2002,6 +2002,82 @@ function collectProductTextCandidates(product: CatalogProduct) {
   ].filter((entry): entry is string => entry.length > 0);
 }
 
+function collectProductFaqTextCandidates(value: unknown) {
+  return normalizeProductFaqItems(value)
+    .flatMap((item) => [
+      trimCatalogText(item.question),
+      trimCatalogText(item.answer),
+    ])
+    .filter((entry): entry is string => entry.length > 0);
+}
+
+function buildDigitalOfferShippingDetailsFallback(options: {
+  payload: CatalogPayload;
+  product: CatalogProduct;
+  countryCode: string | null;
+}) {
+  if (!options.countryCode) {
+    return undefined;
+  }
+
+  const productText = [
+    trimCatalogText(options.product.name),
+    ...collectProductTextCandidates(options.product),
+    ...collectProductFaqTextCandidates(options.product.faqItems),
+  ].join(" ");
+  const siteText = [
+    trimCatalogText(options.payload.website.metadata?.description),
+    trimCatalogText(options.payload.website.heroSubtitle),
+    trimCatalogText(options.payload.website.aboutBody),
+  ].join(" ");
+
+  const hasDigitalProductCue =
+    /(?:t[ée]l[ée]chargement num[ée]rique|digital download|download num[ée]rique|format num[ée]rique|version num[ée]rique|code d['’]activation envoy[ée]e?\s+par email|cl[ée]\s+(?:d['’]activation\s+)?envoy[ée]e?\s+par email|compte pr[ée][ -]?activ[ée]|licence num[ée]rique)/i.test(
+      productText,
+    );
+  const hasDigitalDeliveryCue =
+    /(?:email|e-mail|24\s*h|24h|24\s*heures?|acc[èe]s imm[ée]diat|instantan[ée]|pas de frais de livraison|sans frais de livraison|livraison gratuite)/i.test(
+      `${productText} ${siteText}`,
+    );
+
+  if (!hasDigitalProductCue || !hasDigitalDeliveryCue) {
+    return undefined;
+  }
+
+  const hasTwentyFourHourCue = /(?:24\s*h|24h|24\s*heures?)/i.test(
+    `${productText} ${siteText}`,
+  );
+
+  return {
+    "@type": "OfferShippingDetails",
+    shippingDestination: {
+      "@type": "DefinedRegion",
+      addressCountry: options.countryCode,
+    },
+    // Digital delivery verified from existing product/site copy has no shipping fee.
+    shippingRate: {
+      "@type": "MonetaryAmount",
+      value: "0.00",
+      currency: options.payload.website.currencyCode,
+    },
+    deliveryTime: {
+      "@type": "ShippingDeliveryTime",
+      handlingTime: {
+        "@type": "QuantitativeValue",
+        minValue: 0,
+        maxValue: hasTwentyFourHourCue ? 1 : 0,
+        unitCode: "DAY",
+      },
+      transitTime: {
+        "@type": "QuantitativeValue",
+        minValue: 0,
+        maxValue: 0,
+        unitCode: "DAY",
+      },
+    },
+  } satisfies Record<string, unknown>;
+}
+
 function collectProductImageUrls(product: CatalogProduct) {
   const urls: string[] = [];
   const seen = new Set<string>();
@@ -2055,6 +2131,7 @@ function resolveCatalogMarketLabel(payload: CatalogPayload) {
 
 function buildOfferShippingDetailsStructuredData(options: {
   payload: CatalogPayload;
+  product?: CatalogProduct | null;
 }) {
   const shipping =
     options.payload.website.ecommerceSettings?.shipping ??
@@ -2065,43 +2142,51 @@ function buildOfferShippingDetailsStructuredData(options: {
   );
 
   if (
-    !countryCode ||
-    shipping.rate == null ||
-    shipping.handlingMinDays == null ||
-    shipping.handlingMaxDays == null ||
-    shipping.transitMinDays == null ||
-    shipping.transitMaxDays == null
+    countryCode &&
+    shipping.rate != null &&
+    shipping.handlingMinDays != null &&
+    shipping.handlingMaxDays != null &&
+    shipping.transitMinDays != null &&
+    shipping.transitMaxDays != null
   ) {
+    return {
+      "@type": "OfferShippingDetails",
+      shippingDestination: {
+        "@type": "DefinedRegion",
+        addressCountry: countryCode,
+      },
+      shippingRate: {
+        "@type": "MonetaryAmount",
+        value: shipping.rate.toFixed(2),
+        currency: options.payload.website.currencyCode,
+      },
+      deliveryTime: {
+        "@type": "ShippingDeliveryTime",
+        handlingTime: {
+          "@type": "QuantitativeValue",
+          minValue: shipping.handlingMinDays,
+          maxValue: shipping.handlingMaxDays,
+          unitCode: "DAY",
+        },
+        transitTime: {
+          "@type": "QuantitativeValue",
+          minValue: shipping.transitMinDays,
+          maxValue: shipping.transitMaxDays,
+          unitCode: "DAY",
+        },
+      },
+    } satisfies Record<string, unknown>;
+  }
+
+  if (!options.product) {
     return undefined;
   }
 
-  return {
-    "@type": "OfferShippingDetails",
-    shippingDestination: {
-      "@type": "DefinedRegion",
-      addressCountry: countryCode,
-    },
-    shippingRate: {
-      "@type": "MonetaryAmount",
-      value: shipping.rate.toFixed(2),
-      currency: options.payload.website.currencyCode,
-    },
-    deliveryTime: {
-      "@type": "ShippingDeliveryTime",
-      handlingTime: {
-        "@type": "QuantitativeValue",
-        minValue: shipping.handlingMinDays,
-        maxValue: shipping.handlingMaxDays,
-        unitCode: "DAY",
-      },
-      transitTime: {
-        "@type": "QuantitativeValue",
-        minValue: shipping.transitMinDays,
-        maxValue: shipping.transitMaxDays,
-        unitCode: "DAY",
-      },
-    },
-  } satisfies Record<string, unknown>;
+  return buildDigitalOfferShippingDetailsFallback({
+    payload: options.payload,
+    product: options.product,
+    countryCode,
+  });
 }
 
 function buildMerchantReturnPolicyStructuredData(options: {
@@ -3913,6 +3998,7 @@ export function resolveCatalogStructuredData(options: {
     ) {
       const shippingDetails = buildOfferShippingDetailsStructuredData({
         payload,
+        product,
       });
       const detailedReturnPolicy = buildMerchantReturnPolicyStructuredData({
         payload,

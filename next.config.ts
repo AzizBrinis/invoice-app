@@ -46,26 +46,7 @@ if (configuredStorageUrl) {
     // Ignore invalid public storage URLs in local envs.
   }
 }
-const CONTENT_SECURITY_POLICY = [
-  "default-src 'self'",
-  "base-uri 'self'",
-  "form-action 'self'",
-  "frame-ancestors 'self'",
-  "object-src 'none'",
-  "img-src 'self' data: blob: https:",
-  "font-src 'self' data: https:",
-  "script-src 'self' 'unsafe-inline'",
-  "style-src 'self' 'unsafe-inline'",
-  "connect-src 'self' https: ws: wss:",
-  "frame-src 'self' https:",
-  "media-src 'self' data: blob: https:",
-  ...(IS_PRODUCTION ? ["upgrade-insecure-requests"] : []),
-].join("; ");
 const SECURITY_HEADERS = [
-  {
-    key: "Content-Security-Policy",
-    value: CONTENT_SECURITY_POLICY,
-  },
   {
     key: "Permissions-Policy",
     value: "camera=(), geolocation=(), microphone=(), payment=(), usb=()",

@@ -314,4 +314,70 @@ describe("catalog metadata - product seo templates", () => {
       },
     });
   });
+
+  it("falls back to digital delivery shipping details when product copy verifies it", () => {
+    const payload = createPayload();
+    payload.website.ecommerceSettings.shipping = {
+      countryCode: "TN",
+      rate: null,
+      handlingMinDays: null,
+      handlingMaxDays: null,
+      transitMinDays: null,
+      transitMaxDays: null,
+    };
+    payload.website.metadata.description =
+      "Accès immédiat à vos licences Microsoft en Tunisie avec livraison par email en 24h max.";
+    payload.products.all[0] = {
+      ...payload.products.all[0],
+      name: "Windows 11 Professionnel (Téléchargement numérique)",
+      description:
+        "Code d'activation envoyé par email. Pas de frais de livraison.",
+      category: "Software",
+      faqItems: [
+        {
+          question: "Ce produit est-il livré en version physique ou numérique ?",
+          answer:
+            "Il s’agit d’un téléchargement numérique envoyé par email après validation.",
+        },
+      ],
+    };
+
+    const structuredData = resolveCatalogStructuredData({
+      payload: payload as unknown as CatalogPayload,
+      path: "/produit/chaise-design",
+    });
+
+    expect(
+      (structuredData[1] as { offers?: Record<string, unknown> } | undefined)
+        ?.offers,
+    ).toMatchObject({
+      shippingDetails: {
+        "@type": "OfferShippingDetails",
+        shippingDestination: {
+          "@type": "DefinedRegion",
+          addressCountry: "TN",
+        },
+        shippingRate: {
+          "@type": "MonetaryAmount",
+          value: "0.00",
+          currency: "TND",
+        },
+        deliveryTime: {
+          "@type": "ShippingDeliveryTime",
+          handlingTime: {
+            "@type": "QuantitativeValue",
+            minValue: 0,
+            maxValue: 1,
+            unitCode: "DAY",
+          },
+          transitTime: {
+            "@type": "QuantitativeValue",
+            minValue: 0,
+            maxValue: 0,
+            unitCode: "DAY",
+          },
+        },
+      },
+    });
+  });
 });

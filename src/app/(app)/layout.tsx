@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import localFont from "next/font/local";
 import { requireUser } from "@/lib/auth";
 import {
@@ -15,6 +15,7 @@ import {
   ThemeProvider,
   type Theme,
 } from "@/components/theme/theme-provider";
+import { ThemeScript } from "@/components/theme/theme-script";
 import { ToastProvider } from "@/components/ui/toast-provider";
 
 const geistMono = localFont({
@@ -163,6 +164,7 @@ export default async function AppLayout({
   children: React.ReactNode;
 }) {
   const cookieStore = await cookies();
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
   const themeCookie = cookieStore.get("theme")?.value;
   const isTheme = (value: string | undefined): value is Theme =>
     value === "light" || value === "dark" || value === "system";
@@ -186,6 +188,7 @@ export default async function AppLayout({
   return (
     <ThemeProvider initialTheme={initialTheme}>
       <ToastProvider>
+        <ThemeScript nonce={nonce} />
         <div className={`${geistMono.variable} min-h-screen bg-zinc-100 transition-colors dark:bg-zinc-950 lg:h-screen lg:overflow-hidden`}>
           <div className="flex min-h-screen min-w-0 lg:h-full">
             <SidebarNav items={navItems} />

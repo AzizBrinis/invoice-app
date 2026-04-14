@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
-import { ThemeScript } from "@/components/theme/theme-script";
 import { getAppBaseUrl } from "@/lib/env";
 
 const geistSans = localFont({
@@ -53,7 +52,6 @@ export default function RootLayout({
         style={{ colorScheme: "light" }}
         suppressHydrationWarning
       >
-        <ThemeScript />
         {children}
       </body>
     </html>

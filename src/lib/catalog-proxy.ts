@@ -20,18 +20,28 @@ function isStaticPath(pathname: string) {
   return /\.[a-z0-9]+$/i.test(pathname);
 }
 
-export function handleCatalogHostRouting(request: NextRequest) {
-  const requestHost = resolveRequestHost(request.headers);
+export function handleCatalogHostRouting(
+  request: NextRequest,
+  requestHeaders?: Headers,
+) {
+  const forwardedHeaders = requestHeaders ?? request.headers;
+  const requestHost = resolveRequestHost(forwardedHeaders);
   const normalizedHost = normalizeCatalogHostname(requestHost);
   if (isConfiguredAppHost(requestHost)) {
-    return NextResponse.next();
+    return NextResponse.next({
+      request: { headers: forwardedHeaders },
+    });
   }
   if (!normalizedHost) {
-    return NextResponse.next();
+    return NextResponse.next({
+      request: { headers: forwardedHeaders },
+    });
   }
   const pathname = request.nextUrl.pathname;
   if (isStaticPath(pathname)) {
-    return NextResponse.next();
+    return NextResponse.next({
+      request: { headers: forwardedHeaders },
+    });
   }
   const url = request.nextUrl.clone();
   const suffix = pathname === "/" ? "" : pathname;
@@ -40,5 +50,7 @@ export function handleCatalogHostRouting(request: NextRequest) {
   if (pathname && pathname !== "/" && !pathname.includes("..") && !pathname.includes("\\")) {
     url.searchParams.set("path", pathname);
   }
-  return NextResponse.rewrite(url);
+  return NextResponse.rewrite(url, {
+    request: { headers: forwardedHeaders },
+  });
 }
