@@ -28,6 +28,10 @@ import {
 } from "@/components/website/templates/ecommerce-ciseco/data/home";
 import { CISECO_PAGE_DEFINITIONS, type CisecoPageKey } from "@/lib/website/ciseco-pages";
 
+// This module is imported by public website client components for builder
+// helpers/types. Keep Zod in non-JIT mode so CSP can block eval-like APIs.
+z.config({ jitless: true });
+
 export const BUILDER_SECTION_TYPES = [
   "hero",
   "categories",
