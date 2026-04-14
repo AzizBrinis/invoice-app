@@ -9,6 +9,7 @@ import {
   normalizeCatalogSlugInput,
   resolveCatalogWebsite,
 } from "@/server/website";
+import { listApprovedProductReviewsForProducts } from "@/server/product-review-queries";
 
 const catalogProductSelect = {
   id: true,
@@ -127,9 +128,18 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Product not found." }, { status: 404 });
   }
 
+  const reviewsByProduct = await listApprovedProductReviewsForProducts(
+    website.userId,
+    [product.id],
+  );
+  const productWithReviews = {
+    ...(product as CatalogProduct),
+    reviews: reviewsByProduct.get(product.id) ?? [],
+  };
+
   return NextResponse.json({
     product: externalizeCatalogProductInlineImages(
-      product as CatalogProduct,
+      productWithReviews,
       website,
     ),
   });

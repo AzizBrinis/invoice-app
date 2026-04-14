@@ -162,7 +162,8 @@ export type ProductReviewCard = {
   date: string;
   rating: number;
   body: string;
-  avatar: string;
+  avatar?: string;
+  title?: string | null;
 };
 
 export type PurchasedProductCard = {

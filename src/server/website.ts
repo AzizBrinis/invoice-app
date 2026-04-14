@@ -80,6 +80,10 @@ import {
 } from "@/lib/website/url-safety";
 import { revalidateClientFilters } from "@/server/clients";
 import { revalidateQuoteFilterClients } from "@/server/quotes";
+import {
+  listApprovedProductReviewsForProducts,
+  type PublicProductReview,
+} from "@/server/product-review-queries";
 import type { CatalogViewerState } from "@/lib/catalog-viewer";
 
 const slugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -657,6 +661,7 @@ export type CatalogProduct = {
   saleMode: ProductSaleMode;
   isActive: boolean;
   createdAt?: Date | string;
+  reviews?: PublicProductReview[];
 };
 
 export type CatalogWebsiteMetadata = {
@@ -3902,6 +3907,48 @@ function buildCatalogWebsiteStructuredData(options: {
   } satisfies Record<string, unknown>;
 }
 
+function resolveProductApprovedReviewStructuredData(product: CatalogProduct) {
+  const reviews = (product.reviews ?? []).filter(
+    (review) =>
+      Number.isFinite(review.rating) &&
+      review.rating >= 1 &&
+      review.rating <= 5 &&
+      review.body.trim().length > 0,
+  );
+  if (!reviews.length) {
+    return null;
+  }
+
+  const averageRating =
+    reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length;
+
+  return {
+    aggregateRating: {
+      "@type": "AggregateRating",
+      ratingValue: Number(averageRating.toFixed(1)),
+      reviewCount: reviews.length,
+      bestRating: 5,
+      worstRating: 1,
+    },
+    review: reviews.slice(0, 20).map((review) => ({
+      "@type": "Review",
+      author: {
+        "@type": "Person",
+        name: review.authorName,
+      },
+      datePublished: review.createdAt.slice(0, 10),
+      name: review.title ?? undefined,
+      reviewBody: review.body,
+      reviewRating: {
+        "@type": "Rating",
+        ratingValue: review.rating,
+        bestRating: 5,
+        worstRating: 1,
+      },
+    })),
+  };
+}
+
 export function resolveCatalogStructuredData(options: {
   payload: CatalogPayload;
   path?: string | null;
@@ -3990,6 +4037,13 @@ export function resolveCatalogStructuredData(options: {
       },
       mainEntityOfPage: seo.metadata.canonicalUrl,
     };
+    const reviewStructuredData =
+      resolveProductApprovedReviewStructuredData(product);
+    if (reviewStructuredData) {
+      productStructuredData.aggregateRating =
+        reviewStructuredData.aggregateRating;
+      productStructuredData.review = reviewStructuredData.review;
+    }
 
     if (
       product.saleMode === "INSTANT" &&
@@ -4255,7 +4309,15 @@ async function listCatalogProducts(userId: string, options?: { includeInactive?:
       createdAt: true,
     },
   });
-  return products as CatalogProduct[];
+  const catalogProducts = products as CatalogProduct[];
+  const reviewsByProduct = await listApprovedProductReviewsForProducts(
+    userId,
+    catalogProducts.map((product) => product.id),
+  );
+  return catalogProducts.map((product) => ({
+    ...product,
+    reviews: reviewsByProduct.get(product.id) ?? [],
+  }));
 }
 
 const readCatalogProductsCached = cache(

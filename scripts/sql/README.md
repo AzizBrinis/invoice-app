@@ -6,6 +6,7 @@ This directory is the reviewed SQL source of truth for schema and index changes 
 
 - `20260411_db_optimization.sql` is the one-off post-migration cleanup and background job event index fix.
 - `20260413_performance_index_baseline.sql` is the maintained performance index baseline for the current direct Postgres query paths.
+- `20260414_product_reviews.sql` adds moderated product reviews for public catalogue product pages.
 
 ## Applying
 

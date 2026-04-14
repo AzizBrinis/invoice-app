@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { notFound } from "next/navigation";
 import { CatalogPage } from "@/components/website/catalog-page";
 import { trimCatalogProductForListing } from "@/lib/catalogue-public";
@@ -330,11 +331,14 @@ export default async function CatalogueCatchAllPage({
     locale,
     searchParams: resolvedSearchParams,
   });
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
   return (
     <>
       {structuredData.map((entry, index) => (
         <script
           key={`catalog-jsonld-${index + 1}`}
+          nonce={nonce}
+          suppressHydrationWarning
           type="application/ld+json"
           dangerouslySetInnerHTML={{
             __html: serializeStructuredData(entry),

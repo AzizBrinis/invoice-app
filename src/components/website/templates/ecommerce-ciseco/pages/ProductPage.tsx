@@ -22,6 +22,7 @@ type ProductPageProps = {
   products: CatalogPayload["products"] | null;
   showPrices: boolean;
   productSlug?: string;
+  mode: "public" | "preview";
   requiresClientProductData?: boolean;
   builder?: WebsiteBuilderPageConfig | null;
 };
@@ -101,6 +102,7 @@ export function ProductPage({
   products,
   showPrices,
   productSlug,
+  mode,
   requiresClientProductData = false,
   builder,
 }: ProductPageProps) {
@@ -303,6 +305,7 @@ export function ProductPage({
           relatedProducts={relatedProducts}
           sections={detailSections}
           mediaLibrary={mediaLibrary}
+          mode={mode}
         />
       </main>
       <Footer theme={theme} companyName={companyName} homeHref={homeHref} />

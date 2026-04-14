@@ -147,6 +147,7 @@ function createPayload() {
           publicSlug: "chaise-design",
           saleMode: "INSTANT",
           isActive: true,
+          reviews: [],
         },
       ],
     },
@@ -378,6 +379,78 @@ describe("catalog metadata - product seo templates", () => {
           },
         },
       },
+    });
+  });
+
+  it("includes approved review data in product structured data", () => {
+    const payload = createPayload();
+    const reviewedProduct = {
+      ...payload.products.all[0],
+      reviews: [
+        {
+          id: "review-1",
+          productId: "prod-1",
+          authorName: "Meriem",
+          rating: 5,
+          title: "Très confortable",
+          body: "Produit solide et livraison rapide.",
+          createdAt: "2026-04-13T10:00:00.000Z",
+        },
+        {
+          id: "review-2",
+          productId: "prod-1",
+          authorName: "Nader",
+          rating: 4,
+          title: null,
+          body: "Bon rapport qualité prix.",
+          createdAt: "2026-04-12T10:00:00.000Z",
+        },
+      ],
+    };
+    const payloadWithReviews = {
+      ...payload,
+      products: {
+        ...payload.products,
+        all: [reviewedProduct],
+      },
+    };
+
+    const structuredData = resolveCatalogStructuredData({
+      payload: payloadWithReviews as unknown as CatalogPayload,
+      path: "/produit/chaise-design",
+    });
+
+    expect(structuredData[1]).toMatchObject({
+      "@type": "Product",
+      aggregateRating: {
+        "@type": "AggregateRating",
+        ratingValue: 4.5,
+        reviewCount: 2,
+      },
+      review: [
+        {
+          "@type": "Review",
+          author: {
+            "@type": "Person",
+            name: "Meriem",
+          },
+          datePublished: "2026-04-13",
+          name: "Très confortable",
+          reviewRating: {
+            "@type": "Rating",
+            ratingValue: 5,
+          },
+        },
+        {
+          "@type": "Review",
+          author: {
+            "@type": "Person",
+            name: "Nader",
+          },
+          datePublished: "2026-04-12",
+          reviewBody: "Bon rapport qualité prix.",
+        },
+      ],
     });
   });
 });

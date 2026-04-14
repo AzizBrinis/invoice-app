@@ -115,6 +115,11 @@ export const enumValues = {
     "INSTANT",
     "QUOTE"
   ],
+  "ProductReviewStatus": [
+    "PENDING",
+    "APPROVED",
+    "DECLINED"
+  ],
   "OrderStatus": [
     "PENDING",
     "PAID",
@@ -10599,6 +10604,434 @@ export const modelSchema = {
       }
     }
   },
+  "ProductReview": {
+    "tableName": "ProductReview",
+    "primaryKey": [
+      "id"
+    ],
+    "uniqueFields": [],
+    "fields": {
+      "id": {
+        "name": "id",
+        "kind": "scalar",
+        "type": "String",
+        "isList": false,
+        "isRequired": true,
+        "isUnique": false,
+        "isId": true,
+        "hasDefaultValue": false,
+        "default": null,
+        "isUpdatedAt": false,
+        "relationName": null,
+        "relationFromFields": [],
+        "relationToFields": [],
+        "relationOnDelete": null
+      },
+      "userId": {
+        "name": "userId",
+        "kind": "scalar",
+        "type": "String",
+        "isList": false,
+        "isRequired": true,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": false,
+        "default": null,
+        "isUpdatedAt": false,
+        "relationName": null,
+        "relationFromFields": [],
+        "relationToFields": [],
+        "relationOnDelete": null
+      },
+      "user": {
+        "name": "user",
+        "kind": "object",
+        "type": "User",
+        "isList": false,
+        "isRequired": true,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": false,
+        "default": null,
+        "isUpdatedAt": false,
+        "relationName": "ProductReviewToUser",
+        "relationFromFields": [
+          "userId"
+        ],
+        "relationToFields": [
+          "id"
+        ],
+        "relationOnDelete": "Cascade"
+      },
+      "websiteId": {
+        "name": "websiteId",
+        "kind": "scalar",
+        "type": "String",
+        "isList": false,
+        "isRequired": true,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": false,
+        "default": null,
+        "isUpdatedAt": false,
+        "relationName": null,
+        "relationFromFields": [],
+        "relationToFields": [],
+        "relationOnDelete": null
+      },
+      "website": {
+        "name": "website",
+        "kind": "object",
+        "type": "WebsiteConfig",
+        "isList": false,
+        "isRequired": true,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": false,
+        "default": null,
+        "isUpdatedAt": false,
+        "relationName": "ProductReviewToWebsiteConfig",
+        "relationFromFields": [
+          "websiteId"
+        ],
+        "relationToFields": [
+          "id"
+        ],
+        "relationOnDelete": "Cascade"
+      },
+      "productId": {
+        "name": "productId",
+        "kind": "scalar",
+        "type": "String",
+        "isList": false,
+        "isRequired": true,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": false,
+        "default": null,
+        "isUpdatedAt": false,
+        "relationName": null,
+        "relationFromFields": [],
+        "relationToFields": [],
+        "relationOnDelete": null
+      },
+      "product": {
+        "name": "product",
+        "kind": "object",
+        "type": "Product",
+        "isList": false,
+        "isRequired": true,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": false,
+        "default": null,
+        "isUpdatedAt": false,
+        "relationName": "ProductReviewToProduct",
+        "relationFromFields": [
+          "productId"
+        ],
+        "relationToFields": [
+          "id"
+        ],
+        "relationOnDelete": "Cascade"
+      },
+      "clientId": {
+        "name": "clientId",
+        "kind": "scalar",
+        "type": "String",
+        "isList": false,
+        "isRequired": false,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": false,
+        "default": null,
+        "isUpdatedAt": false,
+        "relationName": null,
+        "relationFromFields": [],
+        "relationToFields": [],
+        "relationOnDelete": null
+      },
+      "client": {
+        "name": "client",
+        "kind": "object",
+        "type": "Client",
+        "isList": false,
+        "isRequired": false,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": false,
+        "default": null,
+        "isUpdatedAt": false,
+        "relationName": "ClientToProductReview",
+        "relationFromFields": [
+          "clientId"
+        ],
+        "relationToFields": [
+          "id"
+        ],
+        "relationOnDelete": "SetNull"
+      },
+      "rating": {
+        "name": "rating",
+        "kind": "scalar",
+        "type": "Int",
+        "isList": false,
+        "isRequired": true,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": false,
+        "default": null,
+        "isUpdatedAt": false,
+        "relationName": null,
+        "relationFromFields": [],
+        "relationToFields": [],
+        "relationOnDelete": null
+      },
+      "title": {
+        "name": "title",
+        "kind": "scalar",
+        "type": "String",
+        "isList": false,
+        "isRequired": false,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": false,
+        "default": null,
+        "isUpdatedAt": false,
+        "relationName": null,
+        "relationFromFields": [],
+        "relationToFields": [],
+        "relationOnDelete": null
+      },
+      "body": {
+        "name": "body",
+        "kind": "scalar",
+        "type": "String",
+        "isList": false,
+        "isRequired": true,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": false,
+        "default": null,
+        "isUpdatedAt": false,
+        "relationName": null,
+        "relationFromFields": [],
+        "relationToFields": [],
+        "relationOnDelete": null
+      },
+      "authorName": {
+        "name": "authorName",
+        "kind": "scalar",
+        "type": "String",
+        "isList": false,
+        "isRequired": true,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": false,
+        "default": null,
+        "isUpdatedAt": false,
+        "relationName": null,
+        "relationFromFields": [],
+        "relationToFields": [],
+        "relationOnDelete": null
+      },
+      "authorEmail": {
+        "name": "authorEmail",
+        "kind": "scalar",
+        "type": "String",
+        "isList": false,
+        "isRequired": false,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": false,
+        "default": null,
+        "isUpdatedAt": false,
+        "relationName": null,
+        "relationFromFields": [],
+        "relationToFields": [],
+        "relationOnDelete": null
+      },
+      "status": {
+        "name": "status",
+        "kind": "enum",
+        "type": "ProductReviewStatus",
+        "isList": false,
+        "isRequired": true,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": true,
+        "default": "PENDING",
+        "isUpdatedAt": false,
+        "relationName": null,
+        "relationFromFields": [],
+        "relationToFields": [],
+        "relationOnDelete": null
+      },
+      "moderationReason": {
+        "name": "moderationReason",
+        "kind": "scalar",
+        "type": "String",
+        "isList": false,
+        "isRequired": false,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": false,
+        "default": null,
+        "isUpdatedAt": false,
+        "relationName": null,
+        "relationFromFields": [],
+        "relationToFields": [],
+        "relationOnDelete": null
+      },
+      "moderatedAt": {
+        "name": "moderatedAt",
+        "kind": "scalar",
+        "type": "DateTime",
+        "isList": false,
+        "isRequired": false,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": false,
+        "default": null,
+        "isUpdatedAt": false,
+        "relationName": null,
+        "relationFromFields": [],
+        "relationToFields": [],
+        "relationOnDelete": null
+      },
+      "moderatedByUserId": {
+        "name": "moderatedByUserId",
+        "kind": "scalar",
+        "type": "String",
+        "isList": false,
+        "isRequired": false,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": false,
+        "default": null,
+        "isUpdatedAt": false,
+        "relationName": null,
+        "relationFromFields": [],
+        "relationToFields": [],
+        "relationOnDelete": null
+      },
+      "sourcePath": {
+        "name": "sourcePath",
+        "kind": "scalar",
+        "type": "String",
+        "isList": false,
+        "isRequired": false,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": false,
+        "default": null,
+        "isUpdatedAt": false,
+        "relationName": null,
+        "relationFromFields": [],
+        "relationToFields": [],
+        "relationOnDelete": null
+      },
+      "sourceDomain": {
+        "name": "sourceDomain",
+        "kind": "scalar",
+        "type": "String",
+        "isList": false,
+        "isRequired": false,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": false,
+        "default": null,
+        "isUpdatedAt": false,
+        "relationName": null,
+        "relationFromFields": [],
+        "relationToFields": [],
+        "relationOnDelete": null
+      },
+      "sourceSlug": {
+        "name": "sourceSlug",
+        "kind": "scalar",
+        "type": "String",
+        "isList": false,
+        "isRequired": false,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": false,
+        "default": null,
+        "isUpdatedAt": false,
+        "relationName": null,
+        "relationFromFields": [],
+        "relationToFields": [],
+        "relationOnDelete": null
+      },
+      "ipAddress": {
+        "name": "ipAddress",
+        "kind": "scalar",
+        "type": "String",
+        "isList": false,
+        "isRequired": false,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": false,
+        "default": null,
+        "isUpdatedAt": false,
+        "relationName": null,
+        "relationFromFields": [],
+        "relationToFields": [],
+        "relationOnDelete": null
+      },
+      "userAgent": {
+        "name": "userAgent",
+        "kind": "scalar",
+        "type": "String",
+        "isList": false,
+        "isRequired": false,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": false,
+        "default": null,
+        "isUpdatedAt": false,
+        "relationName": null,
+        "relationFromFields": [],
+        "relationToFields": [],
+        "relationOnDelete": null
+      },
+      "createdAt": {
+        "name": "createdAt",
+        "kind": "scalar",
+        "type": "DateTime",
+        "isList": false,
+        "isRequired": true,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": true,
+        "default": {
+          "name": "now",
+          "args": []
+        },
+        "isUpdatedAt": false,
+        "relationName": null,
+        "relationFromFields": [],
+        "relationToFields": [],
+        "relationOnDelete": null
+      },
+      "updatedAt": {
+        "name": "updatedAt",
+        "kind": "scalar",
+        "type": "DateTime",
+        "isList": false,
+        "isRequired": true,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": false,
+        "default": null,
+        "isUpdatedAt": true,
+        "relationName": null,
+        "relationFromFields": [],
+        "relationToFields": [],
+        "relationOnDelete": null
+      }
+    }
+  },
   "Order": {
     "tableName": "Order",
     "primaryKey": [
@@ -15749,6 +16182,9 @@ export const ClientSource = Object.freeze(Object.fromEntries(enumValues.ClientSo
 export type ProductSaleMode = (typeof enumValues)["ProductSaleMode"][number];
 export const ProductSaleMode = Object.freeze(Object.fromEntries(enumValues.ProductSaleMode.map((value) => [value, value])) as Record<(typeof enumValues)["ProductSaleMode"][number], (typeof enumValues)["ProductSaleMode"][number]>);
 
+export type ProductReviewStatus = (typeof enumValues)["ProductReviewStatus"][number];
+export const ProductReviewStatus = Object.freeze(Object.fromEntries(enumValues.ProductReviewStatus.map((value) => [value, value])) as Record<(typeof enumValues)["ProductReviewStatus"][number], (typeof enumValues)["ProductReviewStatus"][number]>);
+
 export type OrderStatus = (typeof enumValues)["OrderStatus"][number];
 export const OrderStatus = Object.freeze(Object.fromEntries(enumValues.OrderStatus.map((value) => [value, value])) as Record<(typeof enumValues)["OrderStatus"][number], (typeof enumValues)["OrderStatus"][number]>);
 
@@ -15825,6 +16261,7 @@ export type PaymentService = AnyRow;
 export type ClientPayment = AnyRow;
 export type ClientPaymentService = AnyRow;
 export type Product = AnyRow;
+export type ProductReview = AnyRow;
 export type Order = AnyRow;
 export type OrderItem = AnyRow;
 export type OrderPayment = AnyRow;

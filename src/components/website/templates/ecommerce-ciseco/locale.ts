@@ -378,12 +378,43 @@ const FRENCH_TRANSLATIONS: Record<string, string> = {
     "Les prix sont masqués pour cette boutique. Veuillez nous contacter.",
   "Back to home": "Retour à l'accueil",
   "Browse products": "Parcourir les produits",
+  "We could not load this page right now. Please try again.":
+    "Impossible de charger cette page pour le moment. Veuillez réessayer.",
+  "Page not found": "Page introuvable",
+  "We could not find this page for the current catalog.":
+    "Impossible de trouver cette page pour le catalogue actuel.",
   "Customers also purchased": "Les clients ont aussi acheté",
   "No related products are available yet.":
     "Aucun produit associé n'est encore disponible.",
   "No reviews yet. Be the first to share your feedback.":
     "Pas encore d'avis. Soyez le premier à partager votre retour.",
   "Write a review": "Écrire un avis",
+  Name: "Nom",
+  Rating: "Note",
+  Title: "Titre",
+  Optional: "Optionnel",
+  Review: "Avis",
+  "Submit review": "Envoyer l'avis",
+  "Thanks! Your review is awaiting moderation.":
+    "Merci ! Votre avis est en attente de modération.",
+  "Reviews are published after moderation.":
+    "Les avis sont publiés après modération.",
+  "Please enter your name.": "Veuillez saisir votre nom.",
+  "Please enter a valid email address.":
+    "Veuillez saisir une adresse e-mail valide.",
+  "Please write a review of at least 10 characters.":
+    "Veuillez écrire un avis d'au moins 10 caractères.",
+  "Unable to submit your review.": "Impossible d'envoyer votre avis.",
+  "Reviews are not available yet.":
+    "Les avis ne sont pas encore disponibles.",
+  "Preview mode: no review is saved.":
+    "Mode aperçu : aucun avis n'est enregistré.",
+  "Reviews cannot contain external links.":
+    "Les avis ne peuvent pas contenir de liens externes.",
+  "Your review has already been received.":
+    "Votre avis a déjà été reçu.",
+  "Too many review attempts. Please wait before trying again.":
+    "Trop de tentatives d'avis. Veuillez patienter avant de réessayer.",
   "Graduation Dresses: A Style Guide":
     "Robes de remise des diplômes : guide de style",
   "How To Wear Your Eid Pieces All Year Long":

@@ -267,6 +267,7 @@ function TemplateContent({
         products={data.products}
         showPrices={data.website.showPrices}
         productSlug={page.productSlug}
+        mode={mode}
         requiresClientProductData={
           mode === "public" && serverPath !== normalizePath(currentPath)
         }

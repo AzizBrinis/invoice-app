@@ -2,7 +2,7 @@
 
 import clsx from "clsx";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { ReactNode } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { useCart } from "@/components/website/cart/cart-context";
 import type {
@@ -58,6 +58,7 @@ type ProductDetailPageProps = {
   relatedProducts: HomeProduct[];
   sections?: WebsiteBuilderSection[];
   mediaLibrary?: WebsiteBuilderMediaAsset[];
+  mode: "public" | "preview";
 };
 
 type VariantStockEntry = {
@@ -294,6 +295,19 @@ function findSectionItem(
   return section?.items?.find((item) => item.id === id) ?? null;
 }
 
+function formatReviewDate(value: string | Date | null | undefined) {
+  if (!value) {
+    return "";
+  }
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return new Intl.DateTimeFormat("fr-FR", {
+    dateStyle: "medium",
+  }).format(date);
+}
+
 export function ProductDetailPage({
   theme,
   baseLink,
@@ -304,9 +318,10 @@ export function ProductDetailPage({
   relatedProducts,
   sections = [],
   mediaLibrary = [],
+  mode,
 }: ProductDetailPageProps) {
   const { t, localizeHref } = useCisecoI18n();
-  const { authStatus } = useAccountProfile({
+  const { authStatus, profile } = useAccountProfile({
     redirectOnUnauthorized: false,
     loadStrategy: "manual",
   });
@@ -389,7 +404,16 @@ export function ProductDetailPage({
     });
   }, [cartProduct?.image, product]);
   const { addItem } = useCart();
-  const reviews: ProductReviewCard[] = [];
+  const reviews = useMemo<ProductReviewCard[]>(() => {
+    return (product?.reviews ?? []).map((review) => ({
+      id: review.id,
+      name: review.authorName,
+      date: formatReviewDate(review.createdAt),
+      rating: review.rating,
+      title: review.title,
+      body: review.body,
+    }));
+  }, [product?.reviews]);
   const reviewCount = reviews.length;
   const rating = reviewCount
     ? reviews.reduce((sum, review) => sum + review.rating, 0) / reviewCount
@@ -417,6 +441,29 @@ export function ProductDetailPage({
   const [quantity, setQuantity] = useState(1);
   const [openAccordion, setOpenAccordion] = useState("specs");
   const [openFaqId, setOpenFaqId] = useState("");
+  const [reviewFormOpen, setReviewFormOpen] = useState(false);
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewAuthorName, setReviewAuthorName] = useState(
+    profile?.name ?? "",
+  );
+  const [reviewAuthorEmail, setReviewAuthorEmail] = useState(
+    profile?.email ?? "",
+  );
+  const [reviewTitle, setReviewTitle] = useState("");
+  const [reviewBody, setReviewBody] = useState("");
+  const [reviewStatus, setReviewStatus] = useState<
+    "idle" | "submitting" | "success" | "error"
+  >("idle");
+  const [reviewFeedback, setReviewFeedback] = useState("");
+
+  useEffect(() => {
+    if (profile?.name && !reviewAuthorName) {
+      setReviewAuthorName(profile.name);
+    }
+    if (profile?.email && !reviewAuthorEmail) {
+      setReviewAuthorEmail(profile.email);
+    }
+  }, [profile?.name, profile?.email, reviewAuthorEmail, reviewAuthorName]);
 
   const useVariantStock =
     hasVariantStock &&
@@ -1404,6 +1451,79 @@ export function ProductDetailPage({
     );
   };
 
+  const handleReviewSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!product) {
+      return;
+    }
+
+    const trimmedName = reviewAuthorName.trim();
+    const trimmedEmail = reviewAuthorEmail.trim();
+    const trimmedBody = reviewBody.trim();
+    if (!trimmedName || trimmedName.length < 2) {
+      setReviewStatus("error");
+      setReviewFeedback(t("Please enter your name."));
+      return;
+    }
+    if (!trimmedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      setReviewStatus("error");
+      setReviewFeedback(t("Please enter a valid email address."));
+      return;
+    }
+    if (trimmedBody.length < 10) {
+      setReviewStatus("error");
+      setReviewFeedback(t("Please write a review of at least 10 characters."));
+      return;
+    }
+
+    setReviewStatus("submitting");
+    setReviewFeedback("");
+    try {
+      const response = await fetch("/api/catalogue/reviews", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          productId: product.id,
+          rating: reviewRating,
+          title: reviewTitle,
+          body: trimmedBody,
+          authorName: trimmedName,
+          authorEmail: trimmedEmail,
+          slug: catalogSlug,
+          mode,
+          path:
+            typeof window !== "undefined"
+              ? window.location.pathname
+              : `/product/${product.publicSlug}`,
+          website: "",
+        }),
+      });
+      const result = (await response.json()) as {
+        message?: string;
+        error?: string;
+      };
+      if (!response.ok) {
+        throw new Error(result.error || t("Unable to submit your review."));
+      }
+
+      setReviewStatus("success");
+      setReviewFeedback(
+        result.message || t("Thanks! Your review is awaiting moderation."),
+      );
+      setReviewTitle("");
+      setReviewBody("");
+    } catch (error) {
+      setReviewStatus("error");
+      setReviewFeedback(
+        error instanceof Error
+          ? error.message
+          : t("Unable to submit your review."),
+      );
+    }
+  };
+
   const renderDescriptionSection = (section?: WebsiteBuilderSection | null) => {
     const heading = applyTemplate(
       translateTemplateSource(section?.title),
@@ -1501,14 +1621,127 @@ export function ProductDetailPage({
             )}
           </div>
           <Button
-            asChild
+            type="button"
             className={clsx(
               theme.buttonShape,
               "w-fit bg-slate-900 px-5 text-white shadow-[0_18px_30px_-20px_rgba(15,23,42,0.4)] hover:opacity-90",
             )}
+            onClick={() => {
+              setReviewFormOpen((current) => !current);
+              setReviewStatus("idle");
+              setReviewFeedback("");
+            }}
           >
-            <a href={localizeHref(reviewButton?.href ?? "#")}>{reviewButtonLabel}</a>
+            {reviewButtonLabel}
           </Button>
+          {reviewFormOpen ? (
+            <form
+              className="grid gap-4 rounded-2xl border border-black/5 bg-white p-5 text-sm shadow-sm"
+              onSubmit={handleReviewSubmit}
+            >
+              <input
+                type="text"
+                name="website"
+                tabIndex={-1}
+                autoComplete="off"
+                className="hidden"
+                aria-hidden="true"
+              />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="space-y-1">
+                  <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                    {t("Name")}
+                  </span>
+                  <input
+                    value={reviewAuthorName}
+                    onChange={(event) => setReviewAuthorName(event.target.value)}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-slate-900"
+                    maxLength={120}
+                    required
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                    {t("Email")}
+                  </span>
+                  <input
+                    type="email"
+                    value={reviewAuthorEmail}
+                    onChange={(event) => setReviewAuthorEmail(event.target.value)}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-slate-900"
+                    maxLength={160}
+                    required
+                  />
+                </label>
+              </div>
+              <label className="space-y-1">
+                <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                  {t("Rating")}
+                </span>
+                <select
+                  value={reviewRating}
+                  onChange={(event) => setReviewRating(Number(event.target.value))}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-slate-900 sm:max-w-48"
+                >
+                  {[5, 4, 3, 2, 1].map((value) => (
+                    <option key={value} value={value}>
+                      {value}/5
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="space-y-1">
+                <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                  {t("Title")}
+                </span>
+                <input
+                  value={reviewTitle}
+                  onChange={(event) => setReviewTitle(event.target.value)}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-slate-900"
+                  maxLength={140}
+                  placeholder={t("Optional")}
+                />
+              </label>
+              <label className="space-y-1">
+                <span className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                  {t("Review")}
+                </span>
+                <textarea
+                  value={reviewBody}
+                  onChange={(event) => setReviewBody(event.target.value)}
+                  className="min-h-32 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-slate-900"
+                  maxLength={2000}
+                  required
+                />
+              </label>
+              {reviewFeedback ? (
+                <p
+                  className={clsx(
+                    "rounded-lg px-3 py-2 text-xs",
+                    reviewStatus === "error"
+                      ? "bg-red-50 text-red-700"
+                      : "bg-emerald-50 text-emerald-700",
+                  )}
+                  role="status"
+                >
+                  {reviewFeedback}
+                </p>
+              ) : null}
+              <Button
+                type="submit"
+                disabled={reviewStatus === "submitting"}
+                loading={reviewStatus === "submitting"}
+                className={clsx(theme.buttonShape, "w-fit bg-slate-900 text-white")}
+              >
+                {reviewStatus === "submitting"
+                  ? t("Submitting...")
+                  : t("Submit review")}
+              </Button>
+              <p className="text-xs text-slate-500">
+                {t("Reviews are published after moderation.")}
+              </p>
+            </form>
+          ) : null}
         </div>
       </Section>
     );
