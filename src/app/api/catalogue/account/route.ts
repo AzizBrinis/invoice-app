@@ -4,6 +4,12 @@ import { z } from "zod";
 import { toCatalogClientProfile } from "@/lib/catalog-viewer";
 import { resolveCatalogDomainFromHeaders } from "@/lib/catalog-host";
 import { prisma } from "@/lib/db";
+import {
+  assertSameOriginMutationRequest,
+  buildPublicRateLimitKey,
+  enforceRateLimit,
+  resolveSecurityErrorResponseInit,
+} from "@/lib/security/public-request";
 import { createCisecoRequestTranslator } from "@/lib/website/ciseco-request-locale";
 import {
   getClientFromSessionToken,
@@ -22,7 +28,6 @@ const updateProfileSchema = z.object({
   email: z.string().email("Invalid email address.").max(160).optional().or(z.literal("")),
   phone: z.string().max(40).optional().or(z.literal("")),
   address: z.string().max(240).optional().or(z.literal("")),
-  notes: z.string().max(1200).optional().or(z.literal("")),
 });
 
 function normalizeOptional(value: string | null | undefined) {
@@ -104,6 +109,17 @@ export async function PATCH(request: NextRequest) {
   }
 
   try {
+    assertSameOriginMutationRequest(request.headers, "Invalid request origin.");
+    enforceRateLimit({
+      key: buildPublicRateLimitKey({
+        scope: "catalogue-account-update",
+        headers: request.headers,
+        parts: [resolved.client.id],
+      }),
+      limit: 20,
+      windowMs: 10 * 60 * 1000,
+      message: "Too many account updates. Please wait before trying again.",
+    });
     const payload = updateProfileSchema.parse(await request.json());
     const name = payload.name.trim();
 
@@ -114,7 +130,6 @@ export async function PATCH(request: NextRequest) {
         email: normalizeOptional(payload.email),
         phone: normalizeOptional(payload.phone),
         address: normalizeOptional(payload.address),
-        notes: normalizeOptional(payload.notes),
       },
       select: {
         displayName: true,
@@ -123,7 +138,6 @@ export async function PATCH(request: NextRequest) {
         address: true,
         companyName: true,
         vatNumber: true,
-        notes: true,
       },
     });
 
@@ -138,6 +152,7 @@ export async function PATCH(request: NextRequest) {
         : error instanceof Error
           ? t(error.message)
           : t("Unable to update account.");
-    return NextResponse.json({ error: message }, { status: 400 });
+    const init = resolveSecurityErrorResponseInit(error, 400);
+    return NextResponse.json({ error: message }, init);
   }
 }

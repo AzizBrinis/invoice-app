@@ -13,6 +13,7 @@ import {
   resolveAuthoritativeCisecoNavigationState,
   resolveCisecoLogicalPath,
   resolveCisecoNavigationState,
+  shouldUseLocalViewTransition,
   shouldUseServerNavigationForOwnedPath,
 } from "@/components/website/templates/ecommerce-ciseco/navigation";
 import {
@@ -100,6 +101,21 @@ describe("ciseco collection routing", () => {
         fallbackPath: "/collections",
       }),
     ).toBe("/catalogue/acme/collections");
+  });
+
+  it("downgrades unsafe external hrefs into scoped internal paths", () => {
+    expect(
+      resolveCisecoNavigationHref({
+        href: "javascript:alert(1)",
+        homeHref: "/catalogue/acme",
+      }),
+    ).toBe("/catalogue/acme/javascript:alert(1)");
+    expect(
+      resolveCisecoNavigationHref({
+        href: "//evil.example/collection",
+        homeHref: "/catalogue/acme",
+      }),
+    ).toBe("/catalogue/acme/evil.example/collection");
   });
 
   it("preserves scoped preview routing when adding search params", () => {
@@ -242,5 +258,25 @@ describe("ciseco collection routing", () => {
         "/legal-notice",
       ]),
     ).toBe(false);
+  });
+
+  it("skips view transitions for in-page query updates", () => {
+    expect(
+      shouldUseLocalViewTransition({
+        currentUrl: new URL("https://example.com/catalogue/acme/collections?lang=en"),
+        nextUrl: new URL("https://example.com/catalogue/acme/collections?lang=en&page=2"),
+        currentLogicalPath: "/collections",
+        nextLogicalPath: "/collections",
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldUseLocalViewTransition({
+        currentUrl: new URL("https://example.com/catalogue/acme/collections?lang=en"),
+        nextUrl: new URL("https://example.com/catalogue/acme/produit/chair?lang=en"),
+        currentLogicalPath: "/collections",
+        nextLogicalPath: "/produit/chair",
+      }),
+    ).toBe(true);
   });
 });

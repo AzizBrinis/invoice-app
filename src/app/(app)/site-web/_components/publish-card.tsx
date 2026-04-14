@@ -9,12 +9,14 @@ type PublishCardProps = {
   published: boolean;
   slugUrl: string;
   previewUrl: string;
+  customDomainUrl?: string | null;
 };
 
 export function PublishCard({
   published,
   slugUrl,
   previewUrl,
+  customDomainUrl,
 }: PublishCardProps) {
   const [pending, startTransition] = useTransition();
   const [localState, setLocalState] = useState<"published" | "unpublished">(
@@ -63,6 +65,13 @@ export function PublishCard({
             Ouvrir la prévisualisation
           </a>
         </Button>
+        {customDomainUrl ? (
+          <Button asChild variant="secondary">
+            <a href={customDomainUrl} target="_blank" rel="noreferrer">
+              Ouvrir le domaine
+            </a>
+          </Button>
+        ) : null}
         <Button asChild variant="ghost">
           <a href={slugUrl} target="_blank" rel="noreferrer">
             Voir l’URL slug

@@ -556,6 +556,7 @@ function CheckoutContent({
             },
             body: JSON.stringify({
               orderId,
+              token: confirmationToken,
               method: normalizedPaymentMethod,
               slug,
               mode,

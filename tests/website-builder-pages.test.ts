@@ -1,4 +1,5 @@
 import { createElement } from "react";
+import { load } from "cheerio";
 import { renderToStaticMarkup } from "react-dom/server";
 import { WebsiteDomainStatus, WebsiteThemeMode } from "@/lib/db/prisma";
 import { describe, expect, it, vi } from "vitest";
@@ -85,6 +86,22 @@ function createCisecoCatalogPayload(
           requirePhone: false,
           allowNotes: true,
           termsUrl: "",
+        },
+        shipping: {
+          countryCode: "",
+          rate: null,
+          handlingMinDays: null,
+          handlingMaxDays: null,
+          transitMinDays: null,
+          transitMaxDays: null,
+        },
+        returns: {
+          countryCode: "",
+          policyCategory: null,
+          merchantReturnDays: null,
+          returnFees: null,
+          returnMethod: null,
+          returnShippingFeesAmount: null,
         },
         featuredProductIds: [],
         signup: {
@@ -854,6 +871,112 @@ describe("website builder page persistence", () => {
     expect(html).toContain("text-white/82");
     expect(html).toContain("border border-white/24 bg-white/10 text-white");
     expect(html).toContain("text-white/88 underline decoration-white/30");
+  });
+
+  it("keeps hero CTA classes identical across app, preview, and active custom-domain routes", () => {
+    const config = createCisecoConfig();
+    config.pages.home.sections = config.pages.home.sections.map((section) =>
+      section.id === "ciseco-home-hero"
+        ? {
+            ...section,
+            buttons: [
+              {
+                id: "hero-primary",
+                label: "Shop now",
+                href: "/collections",
+                style: "primary",
+              },
+              {
+                id: "hero-secondary",
+                label: "Lookbook",
+                href: "/about",
+                style: "secondary",
+              },
+              {
+                id: "hero-ghost",
+                label: "Learn more",
+                href: "/contact",
+                style: "ghost",
+              },
+            ],
+          }
+        : section,
+    );
+
+    const basePayload = createCisecoCatalogPayload(config);
+    basePayload.website.customDomain = "shop.example.com";
+    basePayload.website.domainStatus = WebsiteDomainStatus.ACTIVE;
+
+    const renderPage = (options: {
+      mode: "public" | "preview";
+      resolvedByDomain?: boolean;
+    }) =>
+      renderToStaticMarkup(
+        createElement(CatalogPage, {
+          data: basePayload,
+          mode: options.mode,
+          path: "/",
+          resolvedByDomain: options.resolvedByDomain,
+        }),
+      );
+
+    const appHtml = renderPage({ mode: "public", resolvedByDomain: false });
+    const previewHtml = renderPage({ mode: "preview" });
+    const customDomainHtml = renderPage({
+      mode: "public",
+      resolvedByDomain: true,
+    });
+
+    const readHeroLink = (html: string, label: string) => {
+      const $ = load(html);
+      const link = $("a")
+        .filter((_, element) => $(element).text().trim() === label)
+        .first();
+
+      expect(link.length, `Missing hero link: ${label}`).toBe(1);
+
+      return {
+        href: link.attr("href"),
+        className: link.attr("class") ?? "",
+      };
+    };
+
+    const appPrimary = readHeroLink(appHtml, "Shop now");
+    const previewPrimary = readHeroLink(previewHtml, "Shop now");
+    const customDomainPrimary = readHeroLink(customDomainHtml, "Shop now");
+    const appSecondary = readHeroLink(appHtml, "Lookbook");
+    const previewSecondary = readHeroLink(previewHtml, "Lookbook");
+    const customDomainSecondary = readHeroLink(customDomainHtml, "Lookbook");
+    const appGhost = readHeroLink(appHtml, "Learn more");
+    const previewGhost = readHeroLink(previewHtml, "Learn more");
+    const customDomainGhost = readHeroLink(customDomainHtml, "Learn more");
+
+    expect(appPrimary.href).toBe("/catalogue/demo/collections?lang=fr");
+    expect(previewPrimary.href).toBe("/preview?path=%2Fcollections&lang=fr");
+    expect(customDomainPrimary.href).toBe("/collections?lang=fr");
+    expect(appSecondary.href).toBe("/catalogue/demo/about?lang=fr");
+    expect(previewSecondary.href).toBe("/preview?path=%2Fabout&lang=fr");
+    expect(customDomainSecondary.href).toBe("/about?lang=fr");
+    expect(appGhost.href).toBe("/catalogue/demo/contact?lang=fr");
+    expect(previewGhost.href).toBe("/preview?path=%2Fcontact&lang=fr");
+    expect(customDomainGhost.href).toBe("/contact?lang=fr");
+
+    expect(appPrimary.className).toBe(previewPrimary.className);
+    expect(appPrimary.className).toBe(customDomainPrimary.className);
+    expect(appPrimary.className).toContain("bg-white");
+    expect(appPrimary.className).toContain("text-slate-950");
+    expect(appPrimary.className).not.toContain("dark:text-zinc-300");
+
+    expect(appSecondary.className).toBe(previewSecondary.className);
+    expect(appSecondary.className).toBe(customDomainSecondary.className);
+    expect(appSecondary.className).toContain("border-white/22");
+    expect(appSecondary.className).toContain("text-white");
+    expect(appSecondary.className).not.toContain("dark:text-zinc-300");
+
+    expect(appGhost.className).toBe(previewGhost.className);
+    expect(appGhost.className).toBe(customDomainGhost.className);
+    expect(appGhost.className).toContain("underline decoration-white/30");
+    expect(appGhost.className).toContain("text-white");
   });
 
   it("migrates legacy global content backgrounds onto each home hero slide", () => {

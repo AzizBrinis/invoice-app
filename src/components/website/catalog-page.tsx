@@ -11,6 +11,7 @@ type CatalogPageProps = {
   mode: "public" | "preview";
   path?: string | null;
   initialLocale?: CisecoLocale;
+  resolvedByDomain?: boolean;
 };
 
 const TEMPLATE_COMPONENTS = {

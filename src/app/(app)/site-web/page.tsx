@@ -78,6 +78,17 @@ export default async function SiteWebPage() {
               Prévisualiser
             </a>
           </Button>
+          {links.activeCustomDomainUrl ? (
+            <Button asChild variant="secondary" className="w-full sm:w-auto">
+              <a
+                href={links.activeCustomDomainUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Ouvrir le domaine
+              </a>
+            </Button>
+          ) : null}
           <Button asChild className="w-full sm:w-auto">
             <a
               href={`/catalogue/${website.slug}`}
@@ -139,6 +150,7 @@ export default async function SiteWebPage() {
             seoDescription: website.seoDescription,
             seoKeywords: website.seoKeywords,
             socialImageUrl: website.socialImageUrl,
+            faviconUrl: website.faviconUrl,
             accentColor: website.accentColor,
             theme: website.theme,
             showPrices: website.showPrices,
@@ -168,6 +180,7 @@ export default async function SiteWebPage() {
             published={website.published}
             slugUrl={links.slugPreviewUrl}
             previewUrl={links.previewUrl}
+            customDomainUrl={links.activeCustomDomainUrl}
           />
         </Suspense>
       </div>

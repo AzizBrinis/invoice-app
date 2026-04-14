@@ -1,6 +1,13 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { resolveCatalogDomainFromHeaders } from "@/lib/catalog-host";
+import {
+  assertSameOriginMutationRequest,
+  buildPublicRateLimitKey,
+  enforceRateLimit,
+  getClientIpFromHeaders,
+  resolveSecurityErrorResponseInit,
+} from "@/lib/security/public-request";
 import { createCisecoRequestTranslator } from "@/lib/website/ciseco-request-locale";
 import { recordContactMessage } from "@/server/contact-messages";
 
@@ -17,6 +24,7 @@ function formDataToObject(formData: FormData) {
 export async function POST(request: NextRequest) {
   const { t } = createCisecoRequestTranslator(request);
   try {
+    assertSameOriginMutationRequest(request.headers, "Invalid request origin.");
     const contentType = request.headers.get("content-type") ?? "";
     let payload: Record<string, unknown>;
     if (contentType.includes("application/json")) {
@@ -26,10 +34,19 @@ export async function POST(request: NextRequest) {
       payload = formDataToObject(formData);
     }
     const domain = resolveCatalogDomainFromHeaders(request.headers);
-    const ipAddress =
-      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-      request.headers.get("x-real-ip")?.trim() ??
-      null;
+    const email =
+      typeof payload.email === "string" ? payload.email.trim().toLowerCase() : "";
+    enforceRateLimit({
+      key: buildPublicRateLimitKey({
+        scope: "catalogue-contact",
+        headers: request.headers,
+        parts: [email || "anonymous"],
+      }),
+      limit: 5,
+      windowMs: 10 * 60 * 1000,
+      message: "Too many contact requests. Please wait before sending another message.",
+    });
+    const ipAddress = getClientIpFromHeaders(request.headers);
     const mode =
       typeof payload.mode === "string" && payload.mode === "preview"
         ? "preview"
@@ -71,11 +88,10 @@ export async function POST(request: NextRequest) {
       error instanceof Error
         ? t(error.message)
         : t("Unable to send your message.");
+    const init = resolveSecurityErrorResponseInit(error, 400);
     return NextResponse.json(
       { error: message },
-      {
-        status: 400,
-      },
+      init,
     );
   }
 }

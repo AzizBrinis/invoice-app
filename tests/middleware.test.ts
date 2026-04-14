@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
-import { proxy } from "@/proxy";
+import { config, proxy } from "@/proxy";
+
+const EXPECTED_PROXY_MATCHER =
+  "/((?!_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|\\.well-known(?:/.*)?|api|assets).*)";
 
 const ORIGINAL_ENV = {
   APP_URL: process.env.APP_URL,
@@ -60,5 +63,10 @@ describe("custom-domain proxy routing", () => {
 
     expect(response.headers.get("x-middleware-next")).toBe("1");
     expect(response.headers.get("x-middleware-rewrite")).toBeNull();
+  });
+
+  it("excludes .well-known requests from the proxy matcher", () => {
+    expect(config.matcher).toEqual([EXPECTED_PROXY_MATCHER]);
+    expect(EXPECTED_PROXY_MATCHER).toContain("\\.well-known");
   });
 });

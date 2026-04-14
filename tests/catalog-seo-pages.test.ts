@@ -56,6 +56,22 @@ function createPayload(): CatalogPayload {
           allowNotes: true,
           termsUrl: "",
         },
+        shipping: {
+          countryCode: "",
+          rate: null,
+          handlingMinDays: null,
+          handlingMaxDays: null,
+          transitMinDays: null,
+          transitMaxDays: null,
+        },
+        returns: {
+          countryCode: "",
+          policyCategory: null,
+          merchantReturnDays: null,
+          returnFees: null,
+          returnMethod: null,
+          returnShippingFeesAmount: null,
+        },
         featuredProductIds: [],
         signup: {
           redirectTarget: "home",

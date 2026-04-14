@@ -89,6 +89,7 @@ export function EcommerceCisecoHomeTemplateClient({
   mode,
   path,
   initialLocale,
+  resolvedByDomain = false,
 }: TemplateProps) {
   const theme = buildCisecoTheme(data.website.accentColor);
   const inlineStyles = buildCisecoInlineStyles(theme);
@@ -101,6 +102,7 @@ export function EcommerceCisecoHomeTemplateClient({
       mode,
       customDomain: data.website.customDomain,
       domainStatus: data.website.domainStatus,
+      useCustomDomainPaths: resolvedByDomain,
     });
   const baseLink = (target: string) =>
     appendCisecoLocaleToHref(rawBaseLink(target), locale);

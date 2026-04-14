@@ -17,6 +17,7 @@ type TemplateProps = {
   data: CatalogPayload;
   mode: "public" | "preview";
   path?: string | null;
+  resolvedByDomain?: boolean;
 };
 
 type ThemeContext = {
@@ -1443,6 +1444,7 @@ export function EcommerceTemplate({
   data,
   mode,
   path,
+  resolvedByDomain = false,
 }: TemplateProps) {
   const builder = data.website.builder;
   const accent = builder.theme?.accent ?? data.website.accentColor ?? "#0f172a";
@@ -1489,6 +1491,7 @@ export function EcommerceTemplate({
       mode,
       customDomain: data.website.customDomain,
       domainStatus: data.website.domainStatus,
+      useCustomDomainPaths: resolvedByDomain,
     });
   const cartItems = products.slice(0, 3);
   const related = products.slice(1, 5);

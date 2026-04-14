@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useActionState, useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -45,6 +46,7 @@ type WebsiteContentFormProps = {
     seoDescription: string | null;
     seoKeywords: string | null;
     socialImageUrl: string | null;
+    faviconUrl: string | null;
     accentColor: string;
     theme: "SYSTEM" | "LIGHT" | "DARK";
     showPrices: boolean;
@@ -69,6 +71,26 @@ type WebsiteContentFormProps = {
         requirePhone: boolean;
         allowNotes: boolean;
         termsUrl: string;
+      };
+      shipping: {
+        countryCode: string;
+        rate: number | null;
+        handlingMinDays: number | null;
+        handlingMaxDays: number | null;
+        transitMinDays: number | null;
+        transitMaxDays: number | null;
+      };
+      returns: {
+        countryCode: string;
+        policyCategory: "FINITE" | "UNLIMITED" | "NOT_PERMITTED" | null;
+        merchantReturnDays: number | null;
+        returnFees:
+          | "FREE"
+          | "CUSTOMER_RESPONSIBILITY"
+          | "RETURN_SHIPPING_FEES"
+          | null;
+        returnMethod: "BY_MAIL" | "IN_STORE" | "AT_KIOSK" | null;
+        returnShippingFeesAmount: number | null;
       };
       featuredProductIds: string[];
     };
@@ -491,6 +513,68 @@ export function WebsiteContentForm({
           </div>
         </div>
 
+        <div className="space-y-3 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                Favicon du site public
+              </h3>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                PNG ou ICO, 512 Ko maximum. Si aucun favicon n’est défini, le
+                favicon par défaut est conservé.
+              </p>
+            </div>
+            <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-xl border border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900">
+              {defaultValues.faviconUrl ? (
+                <Image
+                  src={defaultValues.faviconUrl}
+                  alt="Aperçu du favicon"
+                  className="h-8 w-8 rounded object-contain"
+                  width={32}
+                  height={32}
+                  unoptimized
+                />
+              ) : (
+                <span className="text-[10px] font-medium uppercase tracking-[0.2em] text-zinc-400">
+                  Défaut
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+            <div>
+              <label htmlFor="faviconFile" className="label">
+                Remplacer le favicon
+              </label>
+              <Input
+                id="faviconFile"
+                name="faviconFile"
+                type="file"
+                accept=".png,.ico,image/png,image/x-icon,image/vnd.microsoft.icon"
+                aria-invalid={Boolean(fieldErrors.faviconFile) || undefined}
+              />
+              {fieldErrors.faviconFile ? (
+                <p className="text-xs text-red-600 dark:text-red-400">
+                  {fieldErrors.faviconFile}
+                </p>
+              ) : (
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Téléchargez une nouvelle icône pour remplacer l’actuelle.
+                </p>
+              )}
+            </div>
+            <label className="flex flex-wrap items-center gap-3 rounded-lg border border-zinc-200 px-4 py-3 text-sm text-zinc-700 dark:border-zinc-800 dark:text-zinc-200">
+              <input
+                type="checkbox"
+                name="removeFavicon"
+                className="checkbox"
+                defaultChecked={false}
+              />
+              Revenir au favicon par défaut
+            </label>
+          </div>
+        </div>
+
         <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
           <FormSubmitButton className="w-full sm:w-auto">
             Enregistrer les modifications
@@ -624,6 +708,331 @@ export function WebsiteContentForm({
             />
             Autoriser les notes client
           </label>
+        </div>
+
+        <div className="space-y-4 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
+          <div>
+            <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+              Livraison structurée Google
+            </h3>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              Ces champs alimentent `shippingDetails` dans le JSON-LD produit.
+              Laissez vide tant que votre politique n’est pas définie.
+            </p>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div>
+              <label htmlFor="shippingCountryCode" className="label">
+                Pays ISO
+              </label>
+              <Input
+                id="shippingCountryCode"
+                name="shippingCountryCode"
+                placeholder="TN"
+                defaultValue={defaultValues.ecommerceSettings.shipping.countryCode}
+                aria-invalid={
+                  Boolean(ecommerceFieldErrors.shippingCountryCode) || undefined
+                }
+              />
+              {ecommerceFieldErrors.shippingCountryCode ? (
+                <p className="text-xs text-red-600 dark:text-red-400">
+                  {ecommerceFieldErrors.shippingCountryCode}
+                </p>
+              ) : null}
+            </div>
+            <div>
+              <label htmlFor="shippingRate" className="label">
+                Tarif livraison
+              </label>
+              <Input
+                id="shippingRate"
+                name="shippingRate"
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="7.00"
+                defaultValue={
+                  defaultValues.ecommerceSettings.shipping.rate ?? ""
+                }
+                aria-invalid={
+                  Boolean(ecommerceFieldErrors.shippingRate) || undefined
+                }
+              />
+              {ecommerceFieldErrors.shippingRate ? (
+                <p className="text-xs text-red-600 dark:text-red-400">
+                  {ecommerceFieldErrors.shippingRate}
+                </p>
+              ) : null}
+            </div>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div>
+              <label htmlFor="shippingHandlingMinDays" className="label">
+                Préparation min (jours)
+              </label>
+              <Input
+                id="shippingHandlingMinDays"
+                name="shippingHandlingMinDays"
+                type="number"
+                min="0"
+                step="1"
+                placeholder="0"
+                defaultValue={
+                  defaultValues.ecommerceSettings.shipping.handlingMinDays ?? ""
+                }
+                aria-invalid={
+                  Boolean(ecommerceFieldErrors.shippingHandlingMinDays) ||
+                  undefined
+                }
+              />
+              {ecommerceFieldErrors.shippingHandlingMinDays ? (
+                <p className="text-xs text-red-600 dark:text-red-400">
+                  {ecommerceFieldErrors.shippingHandlingMinDays}
+                </p>
+              ) : null}
+            </div>
+            <div>
+              <label htmlFor="shippingHandlingMaxDays" className="label">
+                Préparation max (jours)
+              </label>
+              <Input
+                id="shippingHandlingMaxDays"
+                name="shippingHandlingMaxDays"
+                type="number"
+                min="0"
+                step="1"
+                placeholder="1"
+                defaultValue={
+                  defaultValues.ecommerceSettings.shipping.handlingMaxDays ?? ""
+                }
+                aria-invalid={
+                  Boolean(ecommerceFieldErrors.shippingHandlingMaxDays) ||
+                  undefined
+                }
+              />
+              {ecommerceFieldErrors.shippingHandlingMaxDays ? (
+                <p className="text-xs text-red-600 dark:text-red-400">
+                  {ecommerceFieldErrors.shippingHandlingMaxDays}
+                </p>
+              ) : null}
+            </div>
+            <div>
+              <label htmlFor="shippingTransitMinDays" className="label">
+                Transport min (jours)
+              </label>
+              <Input
+                id="shippingTransitMinDays"
+                name="shippingTransitMinDays"
+                type="number"
+                min="0"
+                step="1"
+                placeholder="1"
+                defaultValue={
+                  defaultValues.ecommerceSettings.shipping.transitMinDays ?? ""
+                }
+                aria-invalid={
+                  Boolean(ecommerceFieldErrors.shippingTransitMinDays) ||
+                  undefined
+                }
+              />
+              {ecommerceFieldErrors.shippingTransitMinDays ? (
+                <p className="text-xs text-red-600 dark:text-red-400">
+                  {ecommerceFieldErrors.shippingTransitMinDays}
+                </p>
+              ) : null}
+            </div>
+            <div>
+              <label htmlFor="shippingTransitMaxDays" className="label">
+                Transport max (jours)
+              </label>
+              <Input
+                id="shippingTransitMaxDays"
+                name="shippingTransitMaxDays"
+                type="number"
+                min="0"
+                step="1"
+                placeholder="3"
+                defaultValue={
+                  defaultValues.ecommerceSettings.shipping.transitMaxDays ?? ""
+                }
+                aria-invalid={
+                  Boolean(ecommerceFieldErrors.shippingTransitMaxDays) ||
+                  undefined
+                }
+              />
+              {ecommerceFieldErrors.shippingTransitMaxDays ? (
+                <p className="text-xs text-red-600 dark:text-red-400">
+                  {ecommerceFieldErrors.shippingTransitMaxDays}
+                </p>
+              ) : null}
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-4 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
+          <div>
+            <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+              Politique de retour structurée
+            </h3>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              Ces champs alimentent `hasMerchantReturnPolicy` dans les offres
+              produit pour Google Merchant listings.
+            </p>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div>
+              <label htmlFor="returnsCountryCode" className="label">
+                Pays ISO
+              </label>
+              <Input
+                id="returnsCountryCode"
+                name="returnsCountryCode"
+                placeholder="TN"
+                defaultValue={defaultValues.ecommerceSettings.returns.countryCode}
+                aria-invalid={
+                  Boolean(ecommerceFieldErrors.returnsCountryCode) || undefined
+                }
+              />
+              {ecommerceFieldErrors.returnsCountryCode ? (
+                <p className="text-xs text-red-600 dark:text-red-400">
+                  {ecommerceFieldErrors.returnsCountryCode}
+                </p>
+              ) : null}
+            </div>
+            <div>
+              <label htmlFor="returnsPolicyCategory" className="label">
+                Type de retour
+              </label>
+              <select
+                id="returnsPolicyCategory"
+                name="returnsPolicyCategory"
+                className="input"
+                defaultValue={
+                  defaultValues.ecommerceSettings.returns.policyCategory ?? ""
+                }
+                aria-invalid={
+                  Boolean(ecommerceFieldErrors.returnsPolicyCategory) || undefined
+                }
+              >
+                <option value="">Non renseigné</option>
+                <option value="FINITE">Fenêtre limitée</option>
+                <option value="UNLIMITED">Fenêtre illimitée</option>
+                <option value="NOT_PERMITTED">Retours non autorisés</option>
+              </select>
+              {ecommerceFieldErrors.returnsPolicyCategory ? (
+                <p className="text-xs text-red-600 dark:text-red-400">
+                  {ecommerceFieldErrors.returnsPolicyCategory}
+                </p>
+              ) : null}
+            </div>
+            <div>
+              <label htmlFor="returnsMerchantReturnDays" className="label">
+                Jours de retour
+              </label>
+              <Input
+                id="returnsMerchantReturnDays"
+                name="returnsMerchantReturnDays"
+                type="number"
+                min="0"
+                step="1"
+                placeholder="14"
+                defaultValue={
+                  defaultValues.ecommerceSettings.returns.merchantReturnDays ?? ""
+                }
+                aria-invalid={
+                  Boolean(ecommerceFieldErrors.returnsMerchantReturnDays) ||
+                  undefined
+                }
+              />
+              {ecommerceFieldErrors.returnsMerchantReturnDays ? (
+                <p className="text-xs text-red-600 dark:text-red-400">
+                  {ecommerceFieldErrors.returnsMerchantReturnDays}
+                </p>
+              ) : null}
+            </div>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div>
+              <label htmlFor="returnsFees" className="label">
+                Frais de retour
+              </label>
+              <select
+                id="returnsFees"
+                name="returnsFees"
+                className="input"
+                defaultValue={defaultValues.ecommerceSettings.returns.returnFees ?? ""}
+                aria-invalid={
+                  Boolean(ecommerceFieldErrors.returnsFees) || undefined
+                }
+              >
+                <option value="">Non renseigné</option>
+                <option value="FREE">Retour gratuit</option>
+                <option value="CUSTOMER_RESPONSIBILITY">
+                  À la charge du client
+                </option>
+                <option value="RETURN_SHIPPING_FEES">
+                  Frais facturés par la boutique
+                </option>
+              </select>
+              {ecommerceFieldErrors.returnsFees ? (
+                <p className="text-xs text-red-600 dark:text-red-400">
+                  {ecommerceFieldErrors.returnsFees}
+                </p>
+              ) : null}
+            </div>
+            <div>
+              <label htmlFor="returnsMethod" className="label">
+                Méthode de retour
+              </label>
+              <select
+                id="returnsMethod"
+                name="returnsMethod"
+                className="input"
+                defaultValue={
+                  defaultValues.ecommerceSettings.returns.returnMethod ?? ""
+                }
+                aria-invalid={
+                  Boolean(ecommerceFieldErrors.returnsMethod) || undefined
+                }
+              >
+                <option value="">Non renseigné</option>
+                <option value="BY_MAIL">Par courrier</option>
+                <option value="IN_STORE">En magasin</option>
+                <option value="AT_KIOSK">En point relais / kiosque</option>
+              </select>
+              {ecommerceFieldErrors.returnsMethod ? (
+                <p className="text-xs text-red-600 dark:text-red-400">
+                  {ecommerceFieldErrors.returnsMethod}
+                </p>
+              ) : null}
+            </div>
+            <div>
+              <label htmlFor="returnsShippingFeesAmount" className="label">
+                Montant frais retour
+              </label>
+              <Input
+                id="returnsShippingFeesAmount"
+                name="returnsShippingFeesAmount"
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="5.00"
+                defaultValue={
+                  defaultValues.ecommerceSettings.returns
+                    .returnShippingFeesAmount ?? ""
+                }
+                aria-invalid={
+                  Boolean(ecommerceFieldErrors.returnsShippingFeesAmount) ||
+                  undefined
+                }
+              />
+              {ecommerceFieldErrors.returnsShippingFeesAmount ? (
+                <p className="text-xs text-red-600 dark:text-red-400">
+                  {ecommerceFieldErrors.returnsShippingFeesAmount}
+                </p>
+              ) : null}
+            </div>
+          </div>
         </div>
 
         <div className="space-y-3">

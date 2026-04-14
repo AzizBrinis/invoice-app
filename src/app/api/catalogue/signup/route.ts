@@ -5,6 +5,13 @@ import {
   getCatalogClientProfileById,
 } from "@/lib/client-auth";
 import { resolveCatalogDomainFromHeaders } from "@/lib/catalog-host";
+import {
+  assertSameOriginMutationRequest,
+  buildPublicRateLimitKey,
+  enforceRateLimit,
+  getClientIpFromHeaders,
+  resolveSecurityErrorResponseInit,
+} from "@/lib/security/public-request";
 import { createCisecoRequestTranslator } from "@/lib/website/ciseco-request-locale";
 import { registerWebsiteSignup } from "@/server/website-signup";
 
@@ -21,6 +28,7 @@ function formDataToObject(formData: FormData) {
 export async function POST(request: NextRequest) {
   const { t } = createCisecoRequestTranslator(request);
   try {
+    assertSameOriginMutationRequest(request.headers, "Invalid request origin.");
     const contentType = request.headers.get("content-type") ?? "";
     let payload: Record<string, unknown>;
     if (contentType.includes("application/json")) {
@@ -33,10 +41,19 @@ export async function POST(request: NextRequest) {
     const domain = resolveCatalogDomainFromHeaders(request.headers);
     const email = typeof payload.email === "string" ? payload.email : "";
     const password = typeof payload.password === "string" ? payload.password : "";
-    const ipAddress =
-      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-      request.headers.get("x-real-ip")?.trim() ??
-      null;
+    const normalizedEmail = email.trim().toLowerCase();
+    enforceRateLimit({
+      key: buildPublicRateLimitKey({
+        scope: "catalogue-signup",
+        headers: request.headers,
+        parts: [normalizedEmail || "anonymous"],
+      }),
+      limit: 5,
+      windowMs: 30 * 60 * 1000,
+      message: "Too many account creation attempts. Please wait before trying again.",
+    });
+
+    const ipAddress = getClientIpFromHeaders(request.headers);
 
     const result = await registerWebsiteSignup({
       intent: "password",
@@ -78,6 +95,7 @@ export async function POST(request: NextRequest) {
       error instanceof Error
         ? t(error.message)
         : t("Unable to create account.");
-    return NextResponse.json({ error: message }, { status: 400 });
+    const init = resolveSecurityErrorResponseInit(error, 400);
+    return NextResponse.json({ error: message }, init);
   }
 }

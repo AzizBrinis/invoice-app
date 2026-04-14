@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   buildPaginationSequence,
+  buildCollectionQueryParams,
   filterCollectionCatalogItems,
+  normalizeCollectionPriceInput,
   normalizeCollectionSort,
+  parseCollectionPriceToCents,
   paginateCollectionCatalogItems,
   sortCollectionCatalogItems,
   type CollectionCatalogItem,
@@ -80,6 +83,34 @@ describe("ciseco collections helpers", () => {
     });
 
     expect(filtered.map((item) => item.id)).toEqual(["p1"]);
+  });
+
+  it("normalizes flexible price inputs before filtering", () => {
+    expect(normalizeCollectionPriceInput(" 1 500,5 ")).toBe("1500.5");
+    expect(normalizeCollectionPriceInput("TND 1,500.50")).toBe("1500.50");
+    expect(parseCollectionPriceToCents("1500.50")).toBe(150050);
+    expect(normalizeCollectionPriceInput("abc")).toBe("");
+  });
+
+  it("builds canonical collection query params without stale page data", () => {
+    const params = buildCollectionQueryParams({
+      currentSearchParams: new URLSearchParams(
+        "lang=en&q=chair&page=4&color=oak&size=m",
+      ),
+      baseSearchParams: new URLSearchParams("path=%2Fcollections"),
+      state: {
+        colorIds: ["oak"],
+        sizeIds: [],
+        minPrice: "120",
+        maxPrice: "",
+        sort: "price-low-high",
+        page: 2,
+      },
+    });
+
+    expect(params.toString()).toBe(
+      "lang=en&path=%2Fcollections&color=oak&sort=price-low-high&minPrice=120&page=2",
+    );
   });
 
   it("sorts featured and price-based views consistently", () => {

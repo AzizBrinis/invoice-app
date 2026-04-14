@@ -1214,6 +1214,7 @@ export function AdvancedCustomizationClient({
         ...(section.items ?? []),
         {
           id: generateId("item"),
+          href: null,
           title: `Slide ${(section.items?.length ?? 0) + 2}`,
           description: "Ajoutez un message clair et un appel à l’action.",
           badge: "Nouveau slide",
@@ -2534,7 +2535,12 @@ export function AdvancedCustomizationClient({
                         updateSection(selectedSection.id, (section) => ({
                           items: [
                             ...(section.items ?? []),
-                            { id: generateId("item"), title: "Nouvel élément", stats: [] },
+                            {
+                              id: generateId("item"),
+                              href: null,
+                              title: "Nouvel élément",
+                              stats: [],
+                            },
                           ],
                         }))
                       }

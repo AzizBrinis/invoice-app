@@ -34,6 +34,7 @@ type TemplateProps = {
   data: CatalogPayload;
   mode: "public" | "preview";
   path?: string | null;
+  resolvedByDomain?: boolean;
 };
 
 type PageDescriptor =
@@ -3092,6 +3093,7 @@ function CheckoutPage({
             },
             body: JSON.stringify({
               orderId,
+              token: confirmationToken,
               method: paymentMethod,
               slug,
               mode,
@@ -3631,6 +3633,7 @@ function ConfirmationPage({
     payload.append("proof", proof);
     payload.append("slug", slug);
     payload.append("mode", mode);
+    payload.append("token", confirmationToken);
 
     try {
       setProofStatus("loading");
@@ -3953,6 +3956,7 @@ export function EcommerceTechAgencyTemplate({
   data,
   mode,
   path,
+  resolvedByDomain = false,
 }: TemplateProps) {
   const builder = data.website.builder;
   const accent = builder.theme?.accent ?? data.website.accentColor ?? "#0f766e";
@@ -4010,6 +4014,7 @@ export function EcommerceTechAgencyTemplate({
       mode,
       customDomain: data.website.customDomain,
       domainStatus: data.website.domainStatus,
+      useCustomDomainPaths: resolvedByDomain,
     });
 
   const allCards = useMemo(

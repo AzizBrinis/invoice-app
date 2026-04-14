@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { CatalogPage } from "@/components/website/catalog-page";
+import { trimCatalogProductForListing } from "@/lib/catalogue-public";
 import { slugify } from "@/lib/slug";
 import {
   resolveCisecoLocale,
@@ -15,7 +16,7 @@ import {
   normalizeCatalogPathInput,
   normalizeCatalogSlugInput,
   resolveCatalogMetadataTarget,
-  resolveCatalogProductListingImageSource,
+  resolveCatalogFaviconUrl,
   resolveCatalogSeo,
   resolveCatalogStructuredData,
 } from "@/server/website";
@@ -29,6 +30,7 @@ type CataloguePageProps = {
 type ResolvedCataloguePayload = {
   payload: CatalogPayload | null;
   path: string | null;
+  resolvedByDomain: boolean;
 };
 type ResolvedCataloguePayloadCacheEntry = {
   expiresAt: number;
@@ -59,30 +61,6 @@ function stripSlugPrefix(path: string | null, slug: string) {
     return next || "/";
   }
   return path;
-}
-
-function trimCatalogProductForListing(
-  product: CatalogProduct,
-  website: CatalogPayload["website"],
-): CatalogProduct {
-  return {
-    ...product,
-    description: null,
-    descriptionHtml: null,
-    shortDescriptionHtml: null,
-    excerpt: null,
-    metaTitle: null,
-    metaDescription: null,
-    coverImageUrl: resolveCatalogProductListingImageSource(
-      product,
-      website,
-    ),
-    gallery: null,
-    faqItems: null,
-    quoteFormSchema: null,
-    optionConfig: null,
-    variantStock: null,
-  };
 }
 
 function trimWebsiteForInitialRoute(
@@ -254,21 +232,21 @@ async function loadResolvedPayload(
   if (domain) {
     const payload = await getCatalogPayloadByDomain(domain, resolvedPath);
     if (!payload) {
-      return { payload: null, path: resolvedPath };
+      return { payload: null, path: resolvedPath, resolvedByDomain: true };
     }
     const adjustedPath = stripSlugPrefix(
       resolvedPath,
       payload.website.slug,
     );
-    return { payload, path: adjustedPath };
+    return { payload, path: adjustedPath, resolvedByDomain: true };
   }
 
   if (!slug) {
-    return { payload: null, path: resolvedPath };
+    return { payload: null, path: resolvedPath, resolvedByDomain: false };
   }
 
   const payload = await getCatalogPayloadBySlug(slug, { path: resolvedPath });
-  return { payload, path: resolvedPath };
+  return { payload, path: resolvedPath, resolvedByDomain: false };
 }
 
 export async function generateMetadata({
@@ -290,6 +268,7 @@ export async function generateMetadata({
     searchParams: resolvedSearchParams,
   });
   const meta = seo.metadata;
+  const faviconUrl = resolveCatalogFaviconUrl(payload.website);
   return {
     title: meta.title,
     description: meta.description,
@@ -318,6 +297,12 @@ export async function generateMetadata({
       description: meta.description,
       images: meta.socialImageUrl ? [meta.socialImageUrl] : undefined,
     },
+    icons: faviconUrl
+      ? {
+          icon: [{ url: faviconUrl }],
+          shortcut: [{ url: faviconUrl }],
+        }
+      : undefined,
     other: seo.contentLanguage
       ? {
           "content-language": seo.contentLanguage,
@@ -361,6 +346,7 @@ export default async function CatalogueCatchAllPage({
         mode="public"
         path={resolved.path}
         initialLocale={locale}
+        resolvedByDomain={resolved.resolvedByDomain}
       />
     </>
   );

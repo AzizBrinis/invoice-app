@@ -4,8 +4,12 @@ import { revalidatePath } from "next/cache";
 import { ZodError } from "zod";
 import {
   deleteWebsiteCmsPage,
+  deleteManagedWebsiteFavicon,
+  getWebsiteConfig,
+  resolveWebsiteFaviconUrlFromWebsite,
   listWebsiteCmsPages,
   saveWebsiteContent,
+  saveWebsiteFaviconFile,
   saveWebsiteCmsPage,
   saveWebsiteEcommerceSettings,
   getWebsiteEcommerceSettings,
@@ -47,6 +51,21 @@ function cleanString(value: FormDataEntryValue | null) {
   return value.toString().trim();
 }
 
+function cleanOptionalNumber(value: FormDataEntryValue | null) {
+  if (value == null) return null;
+  const trimmed = value.toString().trim();
+  if (!trimmed) return null;
+  const normalized = trimmed.replace(",", ".");
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : Number.NaN;
+}
+
+function cleanOptionalInteger(value: FormDataEntryValue | null) {
+  const parsed = cleanOptionalNumber(value);
+  if (parsed == null) return null;
+  return Number.isInteger(parsed) ? parsed : Number.NaN;
+}
+
 function parseIdList(value: FormDataEntryValue | null) {
   if (!value) {
     return [];
@@ -76,8 +95,33 @@ export async function saveWebsiteContentAction(
   _prevState: WebsiteContentFormState,
   formData: FormData,
 ): Promise<WebsiteContentFormState> {
+  let userId = "";
+  let uploadedFaviconUrl: string | null = null;
+  let previousFaviconUrl: string | null = null;
+  let nextFaviconUrl: string | null = null;
   try {
     await requireWebsiteAccess();
+    const currentWebsite = await getWebsiteConfig();
+    userId = currentWebsite.userId;
+    previousFaviconUrl = resolveWebsiteFaviconUrlFromWebsite(currentWebsite);
+    nextFaviconUrl = previousFaviconUrl;
+    const potentialFavicon = formData.get("faviconFile");
+    const faviconFile =
+      potentialFavicon instanceof File && potentialFavicon.size > 0
+        ? potentialFavicon
+        : null;
+    const removeFavicon = booleanFromForm(
+      formData.get("removeFavicon"),
+      false,
+    );
+
+    if (faviconFile) {
+      uploadedFaviconUrl = await saveWebsiteFaviconFile(faviconFile, userId);
+      nextFaviconUrl = uploadedFaviconUrl;
+    } else if (removeFavicon) {
+      nextFaviconUrl = null;
+    }
+
     await saveWebsiteContent({
       slug: formData.get("slug")?.toString(),
       heroEyebrow: cleanNullable(formData.get("heroEyebrow")),
@@ -119,7 +163,16 @@ export async function saveWebsiteContentAction(
         formData.get("spamProtectionEnabled"),
         true,
       ),
+    }, undefined, {
+      faviconUrl: nextFaviconUrl,
     });
+    if (
+      userId &&
+      previousFaviconUrl &&
+      previousFaviconUrl !== nextFaviconUrl
+    ) {
+      await deleteManagedWebsiteFavicon(previousFaviconUrl, userId);
+    }
     revalidatePath("/site-web");
     revalidatePath("/preview");
     revalidatePath("/catalogue");
@@ -129,6 +182,9 @@ export async function saveWebsiteContentAction(
     };
   } catch (error) {
     if (error instanceof ZodError) {
+      if (userId && uploadedFaviconUrl) {
+        await deleteManagedWebsiteFavicon(uploadedFaviconUrl, userId);
+      }
       const flattened = error.flatten();
       const fieldErrors: Record<string, string | undefined> = {};
       (
@@ -147,6 +203,24 @@ export async function saveWebsiteContentAction(
           "Impossible d’enregistrer : certains champs sont invalides.",
         fieldErrors,
       };
+    }
+    if (
+      error instanceof Error &&
+      /favicon|PNG|ICO|512 Ko/i.test(error.message)
+    ) {
+      if (userId && uploadedFaviconUrl) {
+        await deleteManagedWebsiteFavicon(uploadedFaviconUrl, userId);
+      }
+      return {
+        status: "error",
+        message: error.message,
+        fieldErrors: {
+          faviconFile: error.message,
+        },
+      };
+    }
+    if (userId && uploadedFaviconUrl) {
+      await deleteManagedWebsiteFavicon(uploadedFaviconUrl, userId);
     }
     console.error("[saveWebsiteContentAction] Échec", error);
     return {
@@ -284,6 +358,44 @@ export async function saveWebsiteEcommerceSettingsAction(
         allowNotes: booleanFromForm(formData.get("checkoutAllowNotes"), true),
         termsUrl: cleanString(formData.get("checkoutTermsUrl")),
       },
+      shipping: {
+        countryCode: cleanString(formData.get("shippingCountryCode")),
+        rate: cleanOptionalNumber(formData.get("shippingRate")),
+        handlingMinDays: cleanOptionalInteger(
+          formData.get("shippingHandlingMinDays"),
+        ),
+        handlingMaxDays: cleanOptionalInteger(
+          formData.get("shippingHandlingMaxDays"),
+        ),
+        transitMinDays: cleanOptionalInteger(
+          formData.get("shippingTransitMinDays"),
+        ),
+        transitMaxDays: cleanOptionalInteger(
+          formData.get("shippingTransitMaxDays"),
+        ),
+      },
+      returns: {
+        countryCode: cleanString(formData.get("returnsCountryCode")),
+        policyCategory: cleanNullable(
+          formData.get("returnsPolicyCategory"),
+        ) as "FINITE" | "UNLIMITED" | "NOT_PERMITTED" | null,
+        merchantReturnDays: cleanOptionalInteger(
+          formData.get("returnsMerchantReturnDays"),
+        ),
+        returnFees: cleanNullable(formData.get("returnsFees")) as
+          | "FREE"
+          | "CUSTOMER_RESPONSIBILITY"
+          | "RETURN_SHIPPING_FEES"
+          | null,
+        returnMethod: cleanNullable(formData.get("returnsMethod")) as
+          | "BY_MAIL"
+          | "IN_STORE"
+          | "AT_KIOSK"
+          | null,
+        returnShippingFeesAmount: cleanOptionalNumber(
+          formData.get("returnsShippingFeesAmount"),
+        ),
+      },
       featuredProductIds: parseIdList(
         formData.get("featuredProductIds"),
       ),
@@ -306,6 +418,18 @@ export async function saveWebsiteEcommerceSettingsAction(
         "checkout.requirePhone": "checkoutRequirePhone",
         "checkout.allowNotes": "checkoutAllowNotes",
         "checkout.termsUrl": "checkoutTermsUrl",
+        "shipping.countryCode": "shippingCountryCode",
+        "shipping.rate": "shippingRate",
+        "shipping.handlingMinDays": "shippingHandlingMinDays",
+        "shipping.handlingMaxDays": "shippingHandlingMaxDays",
+        "shipping.transitMinDays": "shippingTransitMinDays",
+        "shipping.transitMaxDays": "shippingTransitMaxDays",
+        "returns.countryCode": "returnsCountryCode",
+        "returns.policyCategory": "returnsPolicyCategory",
+        "returns.merchantReturnDays": "returnsMerchantReturnDays",
+        "returns.returnFees": "returnsFees",
+        "returns.returnMethod": "returnsMethod",
+        "returns.returnShippingFeesAmount": "returnsShippingFeesAmount",
         featuredProductIds: "featuredProductIds",
       };
       error.issues.forEach((issue) => {

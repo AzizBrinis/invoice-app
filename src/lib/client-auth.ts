@@ -35,7 +35,22 @@ export async function getClientSessionTokenFromCookie() {
   return extractSignedToken(rawValue);
 }
 
-export async function createClientSession(clientId: string) {
+export async function revokeClientSessions(clientId: string) {
+  await prisma.clientSession.deleteMany({
+    where: {
+      clientId,
+    },
+  });
+}
+
+export async function createClientSession(
+  clientId: string,
+  options?: { revokeExisting?: boolean },
+) {
+  if (options?.revokeExisting) {
+    await revokeClientSessions(clientId);
+  }
+
   const token = randomBytes(48).toString("hex");
   const tokenHash = hashToken(token);
   const expiresAt = new Date(
@@ -89,7 +104,6 @@ export async function getCatalogClientProfileById(
       address: true,
       companyName: true,
       vatNumber: true,
-      notes: true,
     },
   });
 

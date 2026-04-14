@@ -55,6 +55,7 @@ type OrderSuccessOrder = {
   totalTVACents: number;
   totalTTCCents: number;
   items: Array<{
+    id: string;
     productId: string;
     title: string;
     productName: string | null;
@@ -284,7 +285,7 @@ export function OrderSuccessPage({
       return [];
     }
     return viewState.order.items.map((item) => ({
-      id: item.productId,
+      id: item.id,
       name: item.title,
       detail:
         item.productName && item.productName !== item.title

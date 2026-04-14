@@ -3,6 +3,12 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { resolveCatalogDomainFromHeaders } from "@/lib/catalog-host";
 import { prisma } from "@/lib/db";
+import {
+  assertSameOriginMutationRequest,
+  buildPublicRateLimitKey,
+  enforceRateLimit,
+  resolveSecurityErrorResponseInit,
+} from "@/lib/security/public-request";
 import { createCisecoRequestTranslator } from "@/lib/website/ciseco-request-locale";
 import { createQuoteRequest } from "@/server/quote-requests";
 import {
@@ -72,6 +78,7 @@ function containsExternalLinks(value: string) {
 export async function POST(request: NextRequest) {
   const { t } = createCisecoRequestTranslator(request);
   try {
+    assertSameOriginMutationRequest(request.headers, "Invalid request origin.");
     const contentType = request.headers.get("content-type") ?? "";
     let payload: Record<string, unknown>;
     if (contentType.includes("application/json")) {
@@ -96,6 +103,17 @@ export async function POST(request: NextRequest) {
     };
 
     const parsed = quoteRequestPayloadSchema.parse(normalizedPayload);
+    const normalizedEmail = parsed.customer.email.trim().toLowerCase();
+    enforceRateLimit({
+      key: buildPublicRateLimitKey({
+        scope: "catalogue-quote-requests",
+        headers: request.headers,
+        parts: [normalizedEmail],
+      }),
+      limit: 5,
+      windowMs: 10 * 60 * 1000,
+      message: "Too many quote requests. Please wait before sending another one.",
+    });
 
     if (parsed.honeypot && parsed.honeypot.trim().length > 0) {
       throw new Error("Request blocked.");
@@ -142,7 +160,6 @@ export async function POST(request: NextRequest) {
       throw new Error("This product cannot be requested as a quote.");
     }
 
-    const normalizedEmail = parsed.customer.email.trim().toLowerCase();
     const formDataValue =
       typeof parsed.formData === "string"
         ? parseFormDataValue(parsed.formData)
@@ -208,11 +225,10 @@ export async function POST(request: NextRequest) {
         : error instanceof Error
           ? t(error.message)
           : t("Unable to save the request.");
+    const init = resolveSecurityErrorResponseInit(error, 400);
     return NextResponse.json(
       { error: message },
-      {
-        status: 400,
-      },
+      init,
     );
   }
 }

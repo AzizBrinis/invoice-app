@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
-import { Button } from "@/components/ui/button";
 import {
   clampHomeHeroSliderInterval,
   resolveHomeHeroContentBackground,
@@ -207,6 +206,9 @@ function ArrowIcon({ direction }: { direction: "left" | "right" }) {
   );
 }
 
+const HERO_SOLID_BUTTON_BASE_CLASS =
+  "inline-flex min-h-12 items-center justify-center gap-1.5 px-4 py-2.5 text-base font-medium leading-6 shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-white";
+
 const CONTENT_BACKGROUND_STYLES: Record<
   HomeHeroContentBackground,
   {
@@ -327,11 +329,11 @@ function SlideButtons({
               }),
             );
             return (
-              <Button
+              <a
                 key={button.id}
-                asChild
-                variant="ghost"
+                href={href}
                 className={clsx(
+                  HERO_SOLID_BUTTON_BASE_CLASS,
                   theme.buttonShape,
                   "min-h-10 max-w-full px-4 text-sm leading-5 shadow-none whitespace-normal sm:min-h-11 sm:px-5",
                   isImageTone
@@ -347,8 +349,8 @@ function SlideButtons({
                       : "bg-slate-950 text-white hover:bg-slate-900",
                 )}
               >
-                <a href={href}>{t(button.label)}</a>
-              </Button>
+                {t(button.label)}
+              </a>
             );
           })}
         </div>

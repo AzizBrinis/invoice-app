@@ -5,7 +5,6 @@ export type CatalogClientProfile = {
   address: string;
   companyName: string;
   vatNumber: string;
-  notes: string;
   avatarUrl: string | null;
 };
 
@@ -21,7 +20,6 @@ export const EMPTY_CATALOG_CLIENT_PROFILE: CatalogClientProfile = {
   address: "",
   companyName: "",
   vatNumber: "",
-  notes: "",
   avatarUrl: null,
 };
 
@@ -32,7 +30,6 @@ export function toCatalogClientProfile(client: {
   address: string | null;
   companyName: string | null;
   vatNumber: string | null;
-  notes: string | null;
 }): CatalogClientProfile {
   return {
     name: client.displayName?.trim() ?? "",
@@ -41,7 +38,6 @@ export function toCatalogClientProfile(client: {
     address: client.address?.trim() ?? "",
     companyName: client.companyName?.trim() ?? "",
     vatNumber: client.vatNumber?.trim() ?? "",
-    notes: client.notes?.trim() ?? "",
     avatarUrl: null,
   };
 }

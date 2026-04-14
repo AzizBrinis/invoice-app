@@ -9,12 +9,17 @@ import {
 import type { WebsiteBuilderPageConfig, WebsiteBuilderSection } from "@/lib/website/builder";
 import type { CatalogPayload } from "@/server/website";
 import {
+  buildCollectionQueryParams,
   buildCollectionCatalogItems,
   buildCollectionFacets,
   buildPaginationSequence,
   COLLECTION_SORT_OPTIONS,
   filterCollectionCatalogItems,
+  normalizeCollectionFacetValues,
+  normalizeCollectionPriceInput,
   normalizeCollectionSort,
+  parseCollectionPageValue,
+  parseCollectionPriceToCents,
   paginateCollectionCatalogItems,
   sortCollectionCatalogItems,
 } from "../collections";
@@ -60,39 +65,6 @@ function titleizeSlug(value: string) {
     .join(" ");
 }
 
-function parsePageValue(value: string | null) {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) {
-    return 1;
-  }
-  return Math.max(1, Math.floor(parsed));
-}
-
-function normalizeFacetValues(values: string[]) {
-  return Array.from(
-    new Set(
-      values
-        .map((value) => value.trim())
-        .filter((value) => value.length > 0),
-    ),
-  );
-}
-
-function normalizePriceInput(value: string | null) {
-  if (!value) return "";
-  const normalized = value.trim().replace(",", ".");
-  return /^[0-9]+(?:\.[0-9]{0,2})?$/.test(normalized) ? normalized : "";
-}
-
-function parsePriceToCents(value: string) {
-  if (!value) return null;
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed < 0) {
-    return null;
-  }
-  return Math.round(parsed * 100);
-}
-
 function resolveAvailabilityLabel(product: {
   saleMode: "INSTANT" | "QUOTE";
   stockQuantity: number | null;
@@ -127,8 +99,8 @@ export function CollectionsPage({
     redirectOnUnauthorized: false,
     loadStrategy: "manual",
   });
-  const { searchParams } = useCisecoLocation();
-  const { navigate, replace } = useCisecoNavigation();
+  const { href, searchParams } = useCisecoLocation();
+  const { isNavigating, navigate, replace } = useCisecoNavigation();
   const { isWishlisted, toggleWishlist, pendingIds } = useWishlist({
     redirectOnLoad: false,
     redirectOnAction: true,
@@ -165,20 +137,22 @@ export function CollectionsPage({
     () => buildCollectionFacets(collectionScopedProducts),
     [collectionScopedProducts],
   );
-  const selectedSort = normalizeCollectionSort(searchParams.get("sort"));
-  const requestedPage = parsePageValue(searchParams.get("page"));
-  const requestedMinPrice = normalizePriceInput(searchParams.get("minPrice"));
-  const requestedMaxPrice = normalizePriceInput(searchParams.get("maxPrice"));
+  const rawSelectedSort = searchParams.get("sort");
+  const rawRequestedPage = searchParams.get("page");
+  const rawRequestedMinPrice = searchParams.get("minPrice");
+  const rawRequestedMaxPrice = searchParams.get("maxPrice");
+  const selectedSort = normalizeCollectionSort(rawSelectedSort);
+  const requestedPage = parseCollectionPageValue(rawRequestedPage);
+  const requestedMinPrice = normalizeCollectionPriceInput(rawRequestedMinPrice);
+  const requestedMaxPrice = normalizeCollectionPriceInput(rawRequestedMaxPrice);
   const validColorIds = new Set(scopedFacets.colors.map((option) => option.id));
   const validSizeIds = new Set(scopedFacets.sizes.map((option) => option.id));
-  const selectedColorIds = normalizeFacetValues(searchParams.getAll("color")).filter(
-    (value) => validColorIds.has(value),
-  );
-  const selectedSizeIds = normalizeFacetValues(searchParams.getAll("size")).filter(
-    (value) => validSizeIds.has(value),
-  );
-  const minPriceCents = parsePriceToCents(requestedMinPrice);
-  const maxPriceCents = parsePriceToCents(requestedMaxPrice);
+  const rawColorIds = normalizeCollectionFacetValues(searchParams.getAll("color"));
+  const rawSizeIds = normalizeCollectionFacetValues(searchParams.getAll("size"));
+  const selectedColorIds = rawColorIds.filter((value) => validColorIds.has(value));
+  const selectedSizeIds = rawSizeIds.filter((value) => validSizeIds.has(value));
+  const minPriceCents = parseCollectionPriceToCents(requestedMinPrice);
+  const maxPriceCents = parseCollectionPriceToCents(requestedMaxPrice);
   const normalizedMinPriceCents =
     minPriceCents != null && maxPriceCents != null && minPriceCents > maxPriceCents
       ? maxPriceCents
@@ -266,6 +240,7 @@ export function CollectionsPage({
     [selectedSort],
   );
   const hasActiveQueryFilters =
+    Boolean(selectedCollectionSlug) ||
     selectedColorIds.length > 0 ||
     selectedSizeIds.length > 0 ||
     requestedMinPrice.length > 0 ||
@@ -289,39 +264,6 @@ export function CollectionsPage({
       })),
     [homeHref, pagination.items],
   );
-  const activeFilterLabels = useMemo(() => {
-    const colorLabels = colorOptions
-      .filter((option) => option.selected)
-      .map((option) => option.label);
-    const sizeLabels = sizeOptions
-      .filter((option) => option.selected)
-      .map((option) => option.label);
-    const priceLabels: string[] = [];
-
-    if (requestedMinPrice.length > 0) {
-      priceLabels.push(`${t("Min price")}: ${requestedMinPrice}`);
-    }
-    if (requestedMaxPrice.length > 0) {
-      priceLabels.push(`${t("Max price")}: ${requestedMaxPrice}`);
-    }
-    if (selectedSort !== "featured") {
-      const activeSort = sortOptions.find((option) => option.selected);
-      if (activeSort) {
-        priceLabels.push(t(activeSort.label));
-      }
-    }
-
-    return [...colorLabels, ...sizeLabels, ...priceLabels];
-  }, [
-    colorOptions,
-    requestedMaxPrice,
-    requestedMinPrice,
-    selectedSort,
-    sizeOptions,
-    sortOptions,
-    t,
-  ]);
-
   const buildCollectionsHref = useCallback(
     (nextState?: {
       collectionSlug?: string | null;
@@ -341,14 +283,7 @@ export function CollectionsPage({
         : "/collections";
       const baseHref = buildCisecoHref(homeHref, targetPath);
       const [pathname, query = ""] = baseHref.split("?");
-      const params = new URLSearchParams(searchParams.toString());
       const baseParams = new URLSearchParams(query);
-
-      if (baseParams.has("path")) {
-        params.set("path", baseParams.get("path") ?? targetPath);
-      } else {
-        params.delete("path");
-      }
 
       const colorIds = nextState?.colorIds ?? selectedColorIds;
       const sizeIds = nextState?.sizeIds ?? selectedSizeIds;
@@ -356,40 +291,18 @@ export function CollectionsPage({
       const maxPrice = nextState?.maxPrice ?? requestedMaxPrice;
       const sort = nextState?.sort ?? selectedSort;
       const page = nextState?.page ?? 1;
-
-      params.delete("color");
-      colorIds.forEach((value) => {
-        params.append("color", value);
+      const params = buildCollectionQueryParams({
+        currentSearchParams: searchParams,
+        baseSearchParams: baseParams,
+        state: {
+          colorIds,
+          sizeIds,
+          minPrice,
+          maxPrice,
+          sort: normalizeCollectionSort(sort),
+          page: Math.max(1, page),
+        },
       });
-
-      params.delete("size");
-      sizeIds.forEach((value) => {
-        params.append("size", value);
-      });
-
-      if (sort && sort !== "featured") {
-        params.set("sort", sort);
-      } else {
-        params.delete("sort");
-      }
-
-      if (minPrice) {
-        params.set("minPrice", minPrice);
-      } else {
-        params.delete("minPrice");
-      }
-
-      if (maxPrice) {
-        params.set("maxPrice", maxPrice);
-      } else {
-        params.delete("maxPrice");
-      }
-
-      if (page > 1) {
-        params.set("page", String(page));
-      } else {
-        params.delete("page");
-      }
 
       const queryString = params.toString();
       return `${pathname}${queryString ? `?${queryString}` : ""}`;
@@ -407,14 +320,21 @@ export function CollectionsPage({
   );
 
   useEffect(() => {
-    if (requestedPage === pagination.page) {
+    const canonicalHref = localizeHref(
+      buildCollectionsHref({
+        page: pagination.page,
+      }),
+    );
+
+    if (canonicalHref === href) {
       return;
     }
 
-    replace(localizeHref(buildCollectionsHref({ page: pagination.page })), {
+    replace(canonicalHref, {
       scroll: false,
     });
   }, [
+    href,
     buildCollectionsHref,
     localizeHref,
     pagination.page,
@@ -495,8 +415,8 @@ export function CollectionsPage({
     (minPrice: string, maxPrice: string) => {
       navigateTo(
         buildCollectionsHref({
-          minPrice: normalizePriceInput(minPrice),
-          maxPrice: normalizePriceInput(maxPrice),
+          minPrice: normalizeCollectionPriceInput(minPrice),
+          maxPrice: normalizeCollectionPriceInput(maxPrice),
           page: 1,
         }),
       );
@@ -507,6 +427,7 @@ export function CollectionsPage({
   const handleClearFilters = useCallback(() => {
     navigateTo(
       buildCollectionsHref({
+        collectionSlug: null,
         colorIds: [],
         sizeIds: [],
         minPrice: "",
@@ -543,6 +464,98 @@ export function CollectionsPage({
   );
   const isCollectionMissing =
     Boolean(selectedCollectionSlug) && collectionScopedProducts.length === 0;
+  const activeFilters = useMemo(() => {
+    const filters: Array<{
+      key: string;
+      label: string;
+      onRemove: () => void;
+    }> = [];
+
+    if (selectedCollectionSlug) {
+      filters.push({
+        key: `collection:${selectedCollectionSlug}`,
+        label: t(selectedCollection?.label ?? titleizeSlug(selectedCollectionSlug)),
+        onRemove: () => handleSelectCollection(null),
+      });
+    }
+
+    colorOptions
+      .filter((option) => option.selected)
+      .forEach((option) => {
+        filters.push({
+          key: `color:${option.id}`,
+          label: option.label,
+          onRemove: () => handleToggleColor(option.id),
+        });
+      });
+
+    sizeOptions
+      .filter((option) => option.selected)
+      .forEach((option) => {
+        filters.push({
+          key: `size:${option.id}`,
+          label: option.label,
+          onRemove: () => handleToggleSize(option.id),
+        });
+      });
+
+    if (requestedMinPrice.length > 0) {
+      filters.push({
+        key: "minPrice",
+        label: `${t("Min price")}: ${requestedMinPrice}`,
+        onRemove: () =>
+          navigateTo(
+            buildCollectionsHref({
+              minPrice: "",
+              page: 1,
+            }),
+          ),
+      });
+    }
+
+    if (requestedMaxPrice.length > 0) {
+      filters.push({
+        key: "maxPrice",
+        label: `${t("Max price")}: ${requestedMaxPrice}`,
+        onRemove: () =>
+          navigateTo(
+            buildCollectionsHref({
+              maxPrice: "",
+              page: 1,
+            }),
+          ),
+      });
+    }
+
+    if (selectedSort !== "featured") {
+      const activeSort = sortOptions.find((option) => option.selected);
+      if (activeSort) {
+        filters.push({
+          key: `sort:${activeSort.id}`,
+          label: t(activeSort.label),
+          onRemove: () => handleSelectSort("featured"),
+        });
+      }
+    }
+
+    return filters;
+  }, [
+    buildCollectionsHref,
+    colorOptions,
+    handleSelectCollection,
+    handleSelectSort,
+    handleToggleColor,
+    handleToggleSize,
+    navigateTo,
+    requestedMaxPrice,
+    requestedMinPrice,
+    selectedCollection,
+    selectedCollectionSlug,
+    selectedSort,
+    sizeOptions,
+    sortOptions,
+    t,
+  ]);
 
   return (
     <PageShell inlineStyles={inlineStyles}>
@@ -587,21 +600,31 @@ export function CollectionsPage({
                   <span className="inline-flex rounded-full border border-black/5 bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700">
                     {t("Showing")} {pagination.total} {t(pagination.total === 1 ? "item" : "items")}
                   </span>
+                  {isNavigating ? (
+                    <span className="inline-flex rounded-full border border-black/10 bg-white px-3 py-1.5 text-xs font-medium text-slate-500">
+                      {t("Loading...")}
+                    </span>
+                  ) : null}
                   {selectedCollection ? (
                     <span className="inline-flex rounded-full border border-black/10 bg-white px-3 py-1.5 text-xs font-medium text-slate-600">
                       {t(selectedCollection.label)}
                     </span>
                   ) : null}
                 </div>
-                {activeFilterLabels.length ? (
+                {activeFilters.length ? (
                   <div className="flex flex-wrap items-center gap-2">
-                    {activeFilterLabels.map((label) => (
-                      <span
-                        key={label}
-                        className="inline-flex rounded-full border border-black/10 bg-white px-3 py-1.5 text-xs font-medium text-slate-600"
+                    {activeFilters.map((filter) => (
+                      <button
+                        key={filter.key}
+                        type="button"
+                        onClick={filter.onRemove}
+                        className="inline-flex items-center gap-2 rounded-full border border-black/10 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-black/15 hover:text-slate-900"
                       >
-                        {label}
-                      </span>
+                        <span>{filter.label}</span>
+                        <span aria-hidden="true" className="text-slate-400">
+                          ×
+                        </span>
+                      </button>
                     ))}
                   </div>
                 ) : (

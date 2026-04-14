@@ -6,6 +6,8 @@ type ConfirmationTokenPayload = {
 };
 
 const TOKEN_PREFIX = "order-confirmation";
+export const CONFIRMATION_TOKEN_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+const CONFIRMATION_TOKEN_CLOCK_SKEW_MS = 5 * 60 * 1000;
 
 function encodePayload(payload: ConfirmationTokenPayload) {
   const raw = JSON.stringify(payload);
@@ -40,11 +42,34 @@ export async function createConfirmationToken(orderId: string) {
 
 export async function parseConfirmationToken(
   rawValue: string | null | undefined,
+  options?: {
+    maxAgeMs?: number;
+    orderId?: string;
+  },
 ) {
   const token = await extractSignedToken(rawValue);
   if (!token || !token.startsWith(`${TOKEN_PREFIX}:`)) {
     return null;
   }
   const encoded = token.slice(TOKEN_PREFIX.length + 1);
-  return decodePayload(encoded);
+  const payload = decodePayload(encoded);
+  if (!payload) {
+    return null;
+  }
+
+  const now = Date.now();
+  if (payload.issuedAt > now + CONFIRMATION_TOKEN_CLOCK_SKEW_MS) {
+    return null;
+  }
+
+  const maxAgeMs = options?.maxAgeMs ?? CONFIRMATION_TOKEN_MAX_AGE_MS;
+  if (maxAgeMs > 0 && now - payload.issuedAt > maxAgeMs) {
+    return null;
+  }
+
+  if (options?.orderId && payload.orderId !== options.orderId) {
+    return null;
+  }
+
+  return payload;
 }

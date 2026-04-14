@@ -1,4 +1,6 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import fs from "node:fs/promises";
+import path from "node:path";
 import { unstable_cache, revalidateTag } from "next/cache";
 import { cache } from "react";
 import { z, ZodError } from "zod";
@@ -39,7 +41,10 @@ import {
   type ContactSocialLink,
 } from "@/lib/website/contact";
 import { DEFAULT_PRIMARY_CTA_LABEL } from "@/lib/website/defaults";
-import { isSameCustomDomain } from "@/lib/website/custom-domain";
+import {
+  buildActiveCustomDomainUrl,
+  isSameCustomDomain,
+} from "@/lib/website/custom-domain";
 import { slugify } from "@/lib/slug";
 import { fromCents } from "@/lib/money";
 import { stripProductHtml } from "@/lib/product-html";
@@ -70,14 +75,17 @@ import {
   type WebsiteCmsPageHeading,
 } from "@/lib/website/cms";
 import { generateId } from "@/lib/id";
+import {
+  isSafeHttpOrRelativeUrl,
+  isSafePublicHref,
+  isSafeSocialHref,
+} from "@/lib/website/url-safety";
 import { revalidateClientFilters } from "@/server/clients";
 import { revalidateQuoteFilterClients } from "@/server/quotes";
 import type { CatalogViewerState } from "@/lib/catalog-viewer";
 
 const slugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const hexColorPattern = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
-const relativeOrAbsoluteUrl = /^(?:https?:\/\/|\/)/i;
-const socialLinkUrlPattern = /^(?:https?:\/\/|mailto:|tel:|\/)/i;
 const domainHostnamePattern = /^[a-z0-9.-]+$/i;
 const catalogPathPattern = /^\/[a-z0-9/_-]*$/i;
 const CATALOG_PATH_MAX_LENGTH = 180;
@@ -86,6 +94,13 @@ export const CATALOG_PAYLOAD_REVALIDATE_SECONDS = 30;
 const WEBSITE_PRODUCT_STATS_CACHE_SECONDS = 30;
 const WEBSITE_PRODUCT_LIST_DEFAULT_PAGE_SIZE = 40;
 const WEBSITE_PRODUCT_LIST_MAX_PAGE_SIZE = 80;
+const WEBSITE_FAVICON_UPLOAD_PUBLIC_PREFIX = "/uploads/site-favicons";
+const WEBSITE_FAVICON_MAX_FILE_SIZE = 512 * 1024;
+const ALLOWED_WEBSITE_FAVICON_MIME_TYPES = new Map<string, string>([
+  ["image/png", "png"],
+  ["image/x-icon", "ico"],
+  ["image/vnd.microsoft.icon", "ico"],
+]);
 
 function websiteAdminTag(userId: string) {
   return `website-admin:${userId}`;
@@ -104,7 +119,7 @@ const contactSocialLinkSchema = z.object({
     .string()
     .max(200)
     .refine(
-      (value) => socialLinkUrlPattern.test(value),
+      (value) => isSafeSocialHref(value),
       "L'URL doit commencer par http(s)://, /, mailto: ou tel:",
     ),
   icon: z.enum(CONTACT_SOCIAL_ICON_VALUES),
@@ -128,7 +143,13 @@ const websiteContentSchema = z.object({
     .nullable()
     .optional()
     .refine(
-      (value) => !value || relativeOrAbsoluteUrl.test(value),
+      (value) =>
+        !value ||
+        isSafePublicHref(value, {
+          allowExternalHttp: true,
+          allowHash: true,
+          allowRelativePath: true,
+        }),
       "L'URL doit commencer par http(s):// ou /",
     ),
   aboutTitle: z.string().max(120).nullable().optional(),
@@ -199,6 +220,95 @@ export function resolveContactSocialLinks(
   return parsed.data;
 }
 
+function normalizeWebsiteFaviconUrl(value: string | null | undefined) {
+  const trimmed = value?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : null;
+}
+
+function getWebsiteFaviconUploadDir(userId: string) {
+  return path.join(
+    process.cwd(),
+    "public",
+    "uploads",
+    "site-favicons",
+    userId,
+  );
+}
+
+function createWebsiteFaviconFileName(extension: string) {
+  return `${Date.now()}-${randomUUID()}.${extension}`;
+}
+
+function resolveWebsiteFaviconExtension(file: File) {
+  const mimeExtension = ALLOWED_WEBSITE_FAVICON_MIME_TYPES.get(file.type);
+  if (mimeExtension) {
+    return mimeExtension;
+  }
+  const extension = path.extname(file.name).toLowerCase();
+  if (extension === ".png") {
+    return "png";
+  }
+  if (extension === ".ico") {
+    return "ico";
+  }
+  return null;
+}
+
+export function validateWebsiteFaviconFile(file: File) {
+  if (!(file instanceof File) || file.size === 0) {
+    throw new Error("Fichier favicon invalide.");
+  }
+  if (file.size > WEBSITE_FAVICON_MAX_FILE_SIZE) {
+    throw new Error("Le favicon dépasse la taille maximale de 512 Ko.");
+  }
+  const extension = resolveWebsiteFaviconExtension(file);
+  if (!extension) {
+    throw new Error("Format de favicon non supporté. Utilisez PNG ou ICO.");
+  }
+  return extension;
+}
+
+export async function saveWebsiteFaviconFile(
+  file: File,
+  userId: string,
+): Promise<string> {
+  const extension = validateWebsiteFaviconFile(file);
+  const uploadDir = getWebsiteFaviconUploadDir(userId);
+  await fs.mkdir(uploadDir, { recursive: true });
+  const fileName = createWebsiteFaviconFileName(extension);
+  const absolutePath = path.join(uploadDir, fileName);
+  const arrayBuffer = await file.arrayBuffer();
+  await fs.writeFile(absolutePath, Buffer.from(arrayBuffer));
+  return `${WEBSITE_FAVICON_UPLOAD_PUBLIC_PREFIX}/${userId}/${fileName}`.replace(
+    /\\/g,
+    "/",
+  );
+}
+
+export async function deleteManagedWebsiteFavicon(
+  faviconUrl: string | null,
+  userId: string,
+): Promise<void> {
+  if (!faviconUrl) {
+    return;
+  }
+  const normalized = faviconUrl.replace(/\\/g, "/");
+  const expectedPrefix = `${WEBSITE_FAVICON_UPLOAD_PUBLIC_PREFIX}/${userId}/`;
+  if (!normalized.startsWith(expectedPrefix)) {
+    return;
+  }
+  const relativePath = normalized.replace(/^\//, "");
+  if (relativePath.includes("..")) {
+    return;
+  }
+  const absolutePath = path.join(process.cwd(), "public", relativePath);
+  try {
+    await fs.rm(absolutePath, { force: true });
+  } catch (error) {
+    console.warn("[website] favicon cleanup failed", error);
+  }
+}
+
 const signupProviderSchema = z
   .object({
     enabled: z.boolean().default(false),
@@ -248,6 +358,145 @@ const DEFAULT_CHECKOUT_SETTINGS = {
   requirePhone: false,
   allowNotes: true,
   termsUrl: "",
+} as const;
+
+const isoCountryCodeSchema = z
+  .string()
+  .trim()
+  .transform((value) => value.toUpperCase())
+  .refine(
+    (value) => value.length === 0 || /^[A-Z]{2}$/.test(value),
+    "Utilisez un code pays ISO 3166-1 alpha-2 sur 2 lettres (ex: TN).",
+  );
+
+const shippingDaysSchema = z
+  .number()
+  .int("Saisissez un nombre entier de jours.")
+  .min(0, "La valeur doit être positive ou nulle.");
+
+const shippingSettingsSchema = z
+  .object({
+    countryCode: isoCountryCodeSchema.default(""),
+    rate: z
+      .number()
+      .min(0, "Le tarif de livraison doit être positif ou nul.")
+      .nullable()
+      .default(null),
+    handlingMinDays: shippingDaysSchema.nullable().default(null),
+    handlingMaxDays: shippingDaysSchema.nullable().default(null),
+    transitMinDays: shippingDaysSchema.nullable().default(null),
+    transitMaxDays: shippingDaysSchema.nullable().default(null),
+  })
+  .superRefine((value, ctx) => {
+    if (
+      value.handlingMinDays != null &&
+      value.handlingMaxDays != null &&
+      value.handlingMaxDays < value.handlingMinDays
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "Le délai de préparation maximum doit être supérieur ou égal au minimum.",
+        path: ["handlingMaxDays"],
+      });
+    }
+    if (
+      value.transitMinDays != null &&
+      value.transitMaxDays != null &&
+      value.transitMaxDays < value.transitMinDays
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "Le délai de transport maximum doit être supérieur ou égal au minimum.",
+        path: ["transitMaxDays"],
+      });
+    }
+  });
+
+const DEFAULT_SHIPPING_SETTINGS = {
+  countryCode: "",
+  rate: null,
+  handlingMinDays: null,
+  handlingMaxDays: null,
+  transitMinDays: null,
+  transitMaxDays: null,
+} as const;
+
+const merchantReturnPolicyCategorySchema = z.enum([
+  "FINITE",
+  "UNLIMITED",
+  "NOT_PERMITTED",
+]);
+
+const merchantReturnFeeTypeSchema = z.enum([
+  "FREE",
+  "CUSTOMER_RESPONSIBILITY",
+  "RETURN_SHIPPING_FEES",
+]);
+
+const merchantReturnMethodSchema = z.enum([
+  "BY_MAIL",
+  "IN_STORE",
+  "AT_KIOSK",
+]);
+
+const returnPolicySettingsSchema = z
+  .object({
+    countryCode: isoCountryCodeSchema.default(""),
+    policyCategory: merchantReturnPolicyCategorySchema.nullable().default(null),
+    merchantReturnDays: shippingDaysSchema.nullable().default(null),
+    returnFees: merchantReturnFeeTypeSchema.nullable().default(null),
+    returnMethod: merchantReturnMethodSchema.nullable().default(null),
+    returnShippingFeesAmount: z
+      .number()
+      .positive("Les frais de retour doivent être supérieurs à zéro.")
+      .nullable()
+      .default(null),
+  })
+  .superRefine((value, ctx) => {
+    if (
+      value.policyCategory === "FINITE" &&
+      value.merchantReturnDays == null
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "Le nombre de jours de retour est requis pour une fenêtre de retour limitée.",
+        path: ["merchantReturnDays"],
+      });
+    }
+    if (
+      value.returnFees === "RETURN_SHIPPING_FEES" &&
+      value.returnShippingFeesAmount == null
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "Indiquez un montant pour les frais de retour facturés au client.",
+        path: ["returnShippingFeesAmount"],
+      });
+    }
+    if (
+      value.returnFees !== "RETURN_SHIPPING_FEES" &&
+      value.returnShippingFeesAmount != null
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "Le montant des frais de retour ne doit être renseigné que si la boutique facture un retour.",
+        path: ["returnShippingFeesAmount"],
+      });
+    }
+  });
+
+const DEFAULT_RETURN_POLICY_SETTINGS = {
+  countryCode: "",
+  policyCategory: null,
+  merchantReturnDays: null,
+  returnFees: null,
+  returnMethod: null,
+  returnShippingFeesAmount: null,
 } as const;
 
 const signupProvidersSchema = z
@@ -302,11 +551,13 @@ const ecommerceSettingsSchema = z.object({
         .max(200)
         .default("")
         .refine(
-          (value) => !value || relativeOrAbsoluteUrl.test(value),
+          (value) => !value || isSafeHttpOrRelativeUrl(value),
           "L'URL doit commencer par http(s):// ou /",
         ),
     })
     .default(DEFAULT_CHECKOUT_SETTINGS),
+  shipping: shippingSettingsSchema.default(DEFAULT_SHIPPING_SETTINGS),
+  returns: returnPolicySettingsSchema.default(DEFAULT_RETURN_POLICY_SETTINGS),
   featuredProductIds: z.array(z.string()).default([]),
   signup: signupSettingsSchema,
 });
@@ -330,6 +581,22 @@ const DEFAULT_ECOMMERCE_SETTINGS: EcommerceSettingsInput = {
     requirePhone: false,
     allowNotes: true,
     termsUrl: "",
+  },
+  shipping: {
+    countryCode: "",
+    rate: null,
+    handlingMinDays: null,
+    handlingMaxDays: null,
+    transitMinDays: null,
+    transitMaxDays: null,
+  },
+  returns: {
+    countryCode: "",
+    policyCategory: null,
+    merchantReturnDays: null,
+    returnFees: null,
+    returnMethod: null,
+    returnShippingFeesAmount: null,
   },
   featuredProductIds: [],
   signup: {
@@ -470,6 +737,7 @@ export type CatalogWebsiteSummary = {
   accentColor: string;
   theme: WebsiteThemeMode;
   showPrices: boolean;
+  faviconUrl: string | null;
   ecommerceSettings: EcommerceSettingsInput;
   leadThanksMessage: string | null;
   spamProtectionEnabled: boolean;
@@ -1020,6 +1288,9 @@ export async function getWebsiteConfig(userId?: string) {
 export async function saveWebsiteContent(
   input: WebsiteContentInput,
   userId?: string,
+  options?: {
+    faviconUrl?: string | null;
+  },
 ) {
   const resolvedUserId = await resolveUserId(userId);
   const currentConfig = await ensureWebsiteConfig(resolvedUserId);
@@ -1068,10 +1339,23 @@ export async function saveWebsiteContent(
     spamProtectionEnabled: parsed.spamProtectionEnabled,
     templateKey: parsed.templateKey,
   };
+  if (
+    options &&
+    Object.prototype.hasOwnProperty.call(options, "faviconUrl")
+  ) {
+    const nextBuilderConfig = resolveBuilderConfigFromWebsite(currentConfig);
+    payload.builderConfig = {
+      ...nextBuilderConfig,
+      site: {
+        ...(nextBuilderConfig.site ?? { faviconUrl: null }),
+        faviconUrl: normalizeWebsiteFaviconUrl(options.faviconUrl),
+      },
+    } as Prisma.JsonObject;
+  }
 
   const updated = await prisma.websiteConfig.update({
     where: { id: currentConfig.id },
-    data: payload,
+    data: payload as Prisma.WebsiteConfigUpdateInput,
   });
   revalidateTag(websiteAdminTag(resolvedUserId), "max");
   return updated;
@@ -1481,6 +1765,15 @@ function buildMetadata(options: {
   } satisfies CatalogWebsiteMetadata;
 }
 
+function escapeEmailText(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 type CatalogPageSeoKind =
   | "home"
   | "collections"
@@ -1567,13 +1860,15 @@ export function buildCatalogUrl(options: {
 }) {
   const baseUrl = getAppBaseUrl();
   const normalizedPath = normalizeCatalogPath(options.path);
-  const pathSegment = normalizedPath !== "/" ? normalizedPath : "";
-  if (
-    options.website.customDomain &&
-    options.website.domainStatus === WebsiteDomainStatus.ACTIVE
-  ) {
-    return `https://${options.website.customDomain}${pathSegment}`;
+  const customDomainUrl = buildActiveCustomDomainUrl({
+    customDomain: options.website.customDomain,
+    domainStatus: options.website.domainStatus,
+    path: normalizedPath,
+  });
+  if (customDomainUrl) {
+    return customDomainUrl;
   }
+  const pathSegment = normalizedPath !== "/" ? normalizedPath : "";
   return `${baseUrl}/catalogue/${options.website.slug}${pathSegment}`;
 }
 
@@ -1657,6 +1952,34 @@ function resolveCategoryLabel(products: CatalogProduct[], slug: string) {
 
 function trimCatalogText(value?: string | null) {
   return value?.replace(/\s+/g, " ").trim() ?? "";
+}
+
+function normalizeStructuredDataCountryCode(value?: string | null) {
+  const normalized = trimCatalogText(value).toUpperCase();
+  return /^[A-Z]{2}$/.test(normalized) ? normalized : null;
+}
+
+function inferCatalogCountryCode(payload: CatalogPayload) {
+  if (payload.website.currencyCode === "TND") {
+    return "TN";
+  }
+
+  const address = trimCatalogText(payload.website.contact.address).toLowerCase();
+  if (/(tunisie|tunisia|tunis|sfax|sousse|nabeul|bizerte|monastir)/i.test(address)) {
+    return "TN";
+  }
+
+  return null;
+}
+
+function resolveCatalogStructuredDataCountryCode(
+  payload: CatalogPayload,
+  explicitCountryCode?: string | null,
+) {
+  return (
+    normalizeStructuredDataCountryCode(explicitCountryCode) ??
+    inferCatalogCountryCode(payload)
+  );
 }
 
 function truncateCatalogText(value: string, maxLength: number) {
@@ -1758,6 +2081,115 @@ function resolveCatalogMarketLabel(payload: CatalogPayload) {
     return "Tunisie";
   }
   return null;
+}
+
+function buildOfferShippingDetailsStructuredData(options: {
+  payload: CatalogPayload;
+}) {
+  const shipping =
+    options.payload.website.ecommerceSettings?.shipping ??
+    DEFAULT_SHIPPING_SETTINGS;
+  const countryCode = resolveCatalogStructuredDataCountryCode(
+    options.payload,
+    shipping.countryCode,
+  );
+
+  if (
+    !countryCode ||
+    shipping.rate == null ||
+    shipping.handlingMinDays == null ||
+    shipping.handlingMaxDays == null ||
+    shipping.transitMinDays == null ||
+    shipping.transitMaxDays == null
+  ) {
+    return undefined;
+  }
+
+  return {
+    "@type": "OfferShippingDetails",
+    shippingDestination: {
+      "@type": "DefinedRegion",
+      addressCountry: countryCode,
+    },
+    shippingRate: {
+      "@type": "MonetaryAmount",
+      value: shipping.rate.toFixed(2),
+      currency: options.payload.website.currencyCode,
+    },
+    deliveryTime: {
+      "@type": "ShippingDeliveryTime",
+      handlingTime: {
+        "@type": "QuantitativeValue",
+        minValue: shipping.handlingMinDays,
+        maxValue: shipping.handlingMaxDays,
+        unitCode: "DAY",
+      },
+      transitTime: {
+        "@type": "QuantitativeValue",
+        minValue: shipping.transitMinDays,
+        maxValue: shipping.transitMaxDays,
+        unitCode: "DAY",
+      },
+    },
+  } satisfies Record<string, unknown>;
+}
+
+function buildMerchantReturnPolicyStructuredData(options: {
+  payload: CatalogPayload;
+}) {
+  const returns =
+    options.payload.website.ecommerceSettings?.returns ??
+    DEFAULT_RETURN_POLICY_SETTINGS;
+  const countryCode = resolveCatalogStructuredDataCountryCode(
+    options.payload,
+    returns.countryCode,
+  );
+
+  if (!countryCode || !returns.policyCategory || !returns.returnFees) {
+    return undefined;
+  }
+
+  const categoryMap = {
+    FINITE: "https://schema.org/MerchantReturnFiniteReturnWindow",
+    UNLIMITED: "https://schema.org/MerchantReturnUnlimitedWindow",
+    NOT_PERMITTED: "https://schema.org/MerchantReturnNotPermitted",
+  } as const;
+
+  const feesMap = {
+    FREE: "https://schema.org/FreeReturn",
+    CUSTOMER_RESPONSIBILITY:
+      "https://schema.org/ReturnFeesCustomerResponsibility",
+    RETURN_SHIPPING_FEES: "https://schema.org/ReturnShippingFees",
+  } as const;
+
+  const methodMap = {
+    BY_MAIL: "https://schema.org/ReturnByMail",
+    IN_STORE: "https://schema.org/ReturnInStore",
+    AT_KIOSK: "https://schema.org/ReturnAtKiosk",
+  } as const;
+
+  return {
+    "@type": "MerchantReturnPolicy",
+    applicableCountry: countryCode,
+    returnPolicyCategory: categoryMap[returns.policyCategory],
+    merchantReturnDays:
+      returns.policyCategory === "FINITE"
+        ? returns.merchantReturnDays ?? undefined
+        : undefined,
+    returnFees: feesMap[returns.returnFees],
+    returnMethod: returns.returnMethod
+      ? methodMap[returns.returnMethod]
+      : undefined,
+    returnShippingFeesAmount:
+      returns.returnFees === "RETURN_SHIPPING_FEES" &&
+      returns.returnShippingFeesAmount != null
+        ? {
+            "@type": "MonetaryAmount",
+            value: returns.returnShippingFeesAmount.toFixed(2),
+            currency: options.payload.website.currencyCode,
+          }
+        : undefined,
+  } satisfies Record<string, unknown>;
 }
 
 function buildProductMetaTitle(options: {
@@ -1995,6 +2427,24 @@ function resolveCatalogAbsoluteUrl(
   } catch {
     return null;
   }
+}
+
+export function resolveCatalogFaviconUrl(
+  website: Pick<
+    CatalogWebsiteSummary,
+    "slug" | "customDomain" | "domainStatus" | "faviconUrl"
+  >,
+) {
+  return resolveCatalogAbsoluteUrl(website, website.faviconUrl);
+}
+
+export function resolveWebsiteFaviconUrlFromWebsite(
+  website: Pick<WebsiteConfig, "builderConfig" | "templateKey" | "accentColor">,
+) {
+  const builderConfig = resolveBuilderConfigFromWebsite(
+    website as WebsiteConfig,
+  );
+  return normalizeWebsiteFaviconUrl(builderConfig.site?.faviconUrl);
 }
 
 function resolveCatalogPageBuilderConfig(
@@ -3410,6 +3860,12 @@ export function resolveCatalogStructuredData(options: {
       payload.website.showPrices &&
       product.priceTTCCents > 0
     ) {
+      const shippingDetails = buildOfferShippingDetailsStructuredData({
+        payload,
+      });
+      const hasMerchantReturnPolicy = buildMerchantReturnPolicyStructuredData({
+        payload,
+      });
       productStructuredData.offers = {
         "@type": "Offer",
         url: seo.metadata.canonicalUrl,
@@ -3427,6 +3883,10 @@ export function resolveCatalogStructuredData(options: {
           "@type": "Organization",
           name: payload.website.contact.companyName,
         },
+        ...(shippingDetails ? { shippingDetails } : {}),
+        ...(hasMerchantReturnPolicy
+          ? { hasMerchantReturnPolicy }
+          : {}),
         eligibleRegion: marketLabel
           ? {
               "@type": "Country",
@@ -3744,6 +4204,7 @@ async function buildCatalogPayloadFromWebsite(
       accentColor: website.accentColor,
       theme: website.theme,
       showPrices: website.showPrices,
+      faviconUrl: normalizeWebsiteFaviconUrl(builderConfig.site?.faviconUrl),
       ecommerceSettings: resolveEcommerceSettingsFromWebsite(website),
       leadThanksMessage: website.leadThanksMessage,
       spamProtectionEnabled: website.spamProtectionEnabled,
@@ -3991,6 +4452,12 @@ export async function recordWebsiteLead(input: WebsiteLeadInput) {
     settings.email;
   if (notificationEmail) {
     try {
+      const escapedName = escapeEmailText(parsed.name);
+      const escapedEmail = escapeEmailText(parsed.email);
+      const escapedPhone = escapeEmailText(parsed.phone ?? "—");
+      const escapedCompany = escapeEmailText(parsed.company ?? "—");
+      const escapedNeeds = escapeEmailText(parsed.needs).replace(/\n/g, "<br />");
+      const escapedSourceUrl = escapeEmailText(metadata.canonicalUrl);
       await sendEmailMessageForUser(website.userId, {
         to: [notificationEmail],
         subject: `Nouveau lead — ${parsed.name}`,
@@ -4002,12 +4469,12 @@ Besoin :
 ${parsed.needs}
 
 Source : ${metadata.canonicalUrl}`,
-        html: `<p><strong>Nom :</strong> ${parsed.name}</p>
-<p><strong>Email :</strong> ${parsed.email}</p>
-<p><strong>Téléphone :</strong> ${parsed.phone ?? "—"}</p>
-<p><strong>Entreprise :</strong> ${parsed.company ?? "—"}</p>
-<p><strong>Besoin :</strong><br />${parsed.needs.replace(/\n/g, "<br />")}</p>
-<p style="font-size:12px;color:#64748b;">Source : ${metadata.canonicalUrl}</p>`,
+        html: `<p><strong>Nom :</strong> ${escapedName}</p>
+<p><strong>Email :</strong> ${escapedEmail}</p>
+<p><strong>Téléphone :</strong> ${escapedPhone}</p>
+<p><strong>Entreprise :</strong> ${escapedCompany}</p>
+<p><strong>Besoin :</strong><br />${escapedNeeds}</p>
+<p style="font-size:12px;color:#64748b;">Source : ${escapedSourceUrl}</p>`,
       });
     } catch (error) {
       console.warn("[website] Impossible d'envoyer la notification lead", error);
@@ -4317,6 +4784,10 @@ export async function getWebsiteAdminPayload(userId?: string) {
       const appBaseUrl = getAppBaseUrl();
       const slugPreviewUrl = `${appBaseUrl}/catalogue/${website.slug}`;
       const previewUrl = `${appBaseUrl}/preview`;
+      const activeCustomDomainUrl = buildActiveCustomDomainUrl({
+        customDomain: website.customDomain,
+        domainStatus: website.domainStatus,
+      });
       const edgeDomain = getCatalogEdgeDomain();
       const builderConfig = resolveBuilderConfigFromWebsite(website);
       const builderHistory = resolveBuilderHistoryFromWebsite(website);
@@ -4325,6 +4796,7 @@ export async function getWebsiteAdminPayload(userId?: string) {
       return {
         website: {
           ...website,
+          faviconUrl: normalizeWebsiteFaviconUrl(builderConfig.site?.faviconUrl),
           ecommerceSettings,
           cmsPages,
         },
@@ -4332,6 +4804,7 @@ export async function getWebsiteAdminPayload(userId?: string) {
         links: {
           slugPreviewUrl,
           previewUrl,
+          activeCustomDomainUrl,
         },
         domain: {
           target: edgeDomain,

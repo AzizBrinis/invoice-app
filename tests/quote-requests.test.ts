@@ -9,6 +9,7 @@ import {
   ProductSaleMode,
   QuoteRequestStatus,
   QuoteStatus,
+  WebsiteDomainStatus,
   type User,
 } from "@/lib/db/prisma";
 import type { CatalogPayload } from "@/server/website";
@@ -209,6 +210,10 @@ describe("catalog routing", () => {
   it("uses the domain search param to resolve metadata", async () => {
     const payload = {
       website: {
+        slug: "site-slug",
+        customDomain: "shop.example.com",
+        domainStatus: WebsiteDomainStatus.ACTIVE,
+        faviconUrl: "/uploads/site-favicons/tenant-1/favicon.png",
         contact: { companyName: "Test Co" },
       },
       products: {
@@ -260,6 +265,11 @@ describe("catalog routing", () => {
     expect(metadata.title).toBe("Catalog Title");
     expect(metadata.alternates?.canonical).toBe("https://example.com/catalog");
     expect(metadata.openGraph?.siteName).toBe("Test Co");
+    expect(metadata.icons?.icon).toEqual([
+      {
+        url: "https://shop.example.com/uploads/site-favicons/tenant-1/favicon.png",
+      },
+    ]);
   });
 
   it("reuses the same payload fetch for metadata and page rendering", async () => {

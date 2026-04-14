@@ -6,6 +6,7 @@ const tracingIncludes = [
 
 const CATALOG_CACHE_SECONDS = 30;
 const CATALOG_STALE_SECONDS = 60;
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const OPTIMIZED_REMOTE_SOURCES: Array<{
   protocol: "http" | "https";
   hostname: string;
@@ -45,14 +46,29 @@ if (configuredStorageUrl) {
     // Ignore invalid public storage URLs in local envs.
   }
 }
-const CATALOG_CACHE_HEADERS = [
-  {
-    key: "Cache-Control",
-    value: `public, s-maxage=${CATALOG_CACHE_SECONDS}, stale-while-revalidate=${CATALOG_STALE_SECONDS}`,
-  },
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'self'",
+  "object-src 'none'",
+  "img-src 'self' data: blob: https:",
+  "font-src 'self' data: https:",
+  "script-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline'",
+  "connect-src 'self' https: ws: wss:",
+  "frame-src 'self' https:",
+  "media-src 'self' data: blob: https:",
+  ...(IS_PRODUCTION ? ["upgrade-insecure-requests"] : []),
+].join("; ");
+const SECURITY_HEADERS = [
   {
     key: "Content-Security-Policy",
-    value: "frame-ancestors 'self'; base-uri 'self'",
+    value: CONTENT_SECURITY_POLICY,
+  },
+  {
+    key: "Permissions-Policy",
+    value: "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
   },
   {
     key: "Referrer-Policy",
@@ -65,6 +81,28 @@ const CATALOG_CACHE_HEADERS = [
   {
     key: "X-Frame-Options",
     value: "SAMEORIGIN",
+  },
+  {
+    key: "X-DNS-Prefetch-Control",
+    value: "off",
+  },
+  {
+    key: "Origin-Agent-Cluster",
+    value: "?1",
+  },
+  ...(IS_PRODUCTION
+    ? ([
+        {
+          key: "Strict-Transport-Security",
+          value: "max-age=31536000",
+        },
+      ] satisfies Array<{ key: string; value: string }>)
+    : []),
+];
+const CATALOG_CACHE_HEADERS = [
+  {
+    key: "Cache-Control",
+    value: `public, s-maxage=${CATALOG_CACHE_SECONDS}, stale-while-revalidate=${CATALOG_STALE_SECONDS}`,
   },
 ];
 const IMMUTABLE_ASSET_HEADERS = [
@@ -89,6 +127,10 @@ const nextConfig: NextConfig = {
   },
   async headers() {
     return [
+      {
+        source: "/:path*",
+        headers: SECURITY_HEADERS,
+      },
       {
         source: "/catalogue",
         headers: CATALOG_CACHE_HEADERS,

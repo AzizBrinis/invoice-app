@@ -1,7 +1,14 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { parseConfirmationToken } from "@/lib/confirmation-token";
 import { resolveCatalogDomainFromHeaders } from "@/lib/catalog-host";
+import {
+  assertSameOriginMutationRequest,
+  buildPublicRateLimitKey,
+  enforceRateLimit,
+  resolveSecurityErrorResponseInit,
+} from "@/lib/security/public-request";
 import { createCheckoutSession } from "@/server/payments";
 import { createCisecoRequestTranslator } from "@/lib/website/ciseco-request-locale";
 import {
@@ -14,6 +21,7 @@ const PROVIDER_KEYS = ["stub", "stripe"] as const;
 
 const checkoutPayloadSchema = z.object({
   orderId: z.string().min(1),
+  token: z.string().min(1),
   provider: z.enum(PROVIDER_KEYS).optional(),
   method: z.string().min(1).nullable().optional(),
   metadata: z.record(z.string(), z.unknown()).nullable().optional(),
@@ -40,7 +48,18 @@ function resolveReturnUrl(value: string, request: NextRequest) {
 export async function POST(request: NextRequest) {
   const { t } = createCisecoRequestTranslator(request);
   try {
+    assertSameOriginMutationRequest(request.headers, "Invalid request origin.");
     const payload = checkoutPayloadSchema.parse(await request.json());
+    enforceRateLimit({
+      key: buildPublicRateLimitKey({
+        scope: "catalogue-checkout-session",
+        headers: request.headers,
+        parts: [payload.orderId],
+      }),
+      limit: 10,
+      windowMs: 10 * 60 * 1000,
+      message: "Too many payment attempts. Please wait before trying again.",
+    });
     if (payload.mode === "preview") {
       throw new Error("Payment is unavailable in preview mode.");
     }
@@ -61,6 +80,12 @@ export async function POST(request: NextRequest) {
     });
     if (!website) {
       throw new Error("Site unavailable.");
+    }
+    const tokenPayload = await parseConfirmationToken(payload.token, {
+      orderId: payload.orderId,
+    });
+    if (!tokenPayload) {
+      throw new Error("Invalid payment confirmation.");
     }
 
     const successUrl = resolveReturnUrl(payload.successUrl, request);
@@ -91,11 +116,10 @@ export async function POST(request: NextRequest) {
       error instanceof Error
         ? t(error.message)
         : t("Unable to create the payment session.");
+    const init = resolveSecurityErrorResponseInit(error, 400);
     return NextResponse.json(
       { error: message },
-      {
-        status: 400,
-      },
+      init,
     );
   }
 }

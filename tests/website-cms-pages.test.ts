@@ -78,6 +78,7 @@ function createPayload(path: string) {
       accentColor: "#22c55e",
       theme: WebsiteThemeMode.LIGHT,
       showPrices: true,
+      faviconUrl: null,
       ecommerceSettings: {
         payments: {
           methods: {
@@ -93,6 +94,22 @@ function createPayload(path: string) {
           requirePhone: false,
           allowNotes: true,
           termsUrl: "",
+        },
+        shipping: {
+          countryCode: "",
+          rate: null,
+          handlingMinDays: null,
+          handlingMaxDays: null,
+          transitMinDays: null,
+          transitMaxDays: null,
+        },
+        returns: {
+          countryCode: "",
+          policyCategory: null,
+          merchantReturnDays: null,
+          returnFees: null,
+          returnMethod: null,
+          returnShippingFeesAmount: null,
         },
         featuredProductIds: [],
         signup: {

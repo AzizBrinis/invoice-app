@@ -4,6 +4,12 @@ import { z } from "zod";
 import { Prisma } from "@/lib/db/prisma-server";
 import { resolveCatalogDomainFromHeaders } from "@/lib/catalog-host";
 import { prisma } from "@/lib/db";
+import {
+  assertSameOriginMutationRequest,
+  buildPublicRateLimitKey,
+  enforceRateLimit,
+  resolveSecurityErrorResponseInit,
+} from "@/lib/security/public-request";
 import { createCisecoRequestTranslator } from "@/lib/website/ciseco-request-locale";
 import {
   getClientFromSessionToken,
@@ -193,6 +199,17 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    assertSameOriginMutationRequest(request.headers, "Invalid request origin.");
+    enforceRateLimit({
+      key: buildPublicRateLimitKey({
+        scope: "catalogue-wishlist-write",
+        headers: request.headers,
+        parts: [resolved.client.id],
+      }),
+      limit: 40,
+      windowMs: 5 * 60 * 1000,
+      message: "Too many wishlist updates. Please wait before trying again.",
+    });
     const wishlistDelegate = getWishlistDelegate();
     if (!wishlistDelegate || typeof wishlistDelegate !== "object") {
       console.warn("[catalogue/wishlist] prisma.wishlistItem missing");
@@ -244,7 +261,8 @@ export async function POST(request: NextRequest) {
     }
     const message =
       error instanceof Error ? t(error.message) : t("Unable to update wishlist.");
-    return NextResponse.json({ error: message }, { status: 400 });
+    const init = resolveSecurityErrorResponseInit(error, 400);
+    return NextResponse.json({ error: message }, init);
   }
 }
 
@@ -259,6 +277,17 @@ export async function DELETE(request: NextRequest) {
   }
 
   try {
+    assertSameOriginMutationRequest(request.headers, "Invalid request origin.");
+    enforceRateLimit({
+      key: buildPublicRateLimitKey({
+        scope: "catalogue-wishlist-write",
+        headers: request.headers,
+        parts: [resolved.client.id],
+      }),
+      limit: 40,
+      windowMs: 5 * 60 * 1000,
+      message: "Too many wishlist updates. Please wait before trying again.",
+    });
     const wishlistDelegate = getWishlistDelegate();
     if (!wishlistDelegate || typeof wishlistDelegate !== "object") {
       console.warn("[catalogue/wishlist] prisma.wishlistItem missing");
@@ -288,6 +317,7 @@ export async function DELETE(request: NextRequest) {
     }
     const message =
       error instanceof Error ? t(error.message) : t("Unable to update wishlist.");
-    return NextResponse.json({ error: message }, { status: 400 });
+    const init = resolveSecurityErrorResponseInit(error, 400);
+    return NextResponse.json({ error: message }, init);
   }
 }

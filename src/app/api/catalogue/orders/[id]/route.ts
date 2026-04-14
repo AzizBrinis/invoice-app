@@ -43,8 +43,10 @@ export async function GET(
       throw new Error("Site unavailable.");
     }
 
-    const tokenPayload = await parseConfirmationToken(query.token);
-    if (!tokenPayload || tokenPayload.orderId !== id) {
+    const tokenPayload = await parseConfirmationToken(query.token, {
+      orderId: id,
+    });
+    if (!tokenPayload) {
       throw new Error("Invalid confirmation.");
     }
 
@@ -102,6 +104,7 @@ export async function GET(
     }
 
     const summaryItems = order.items.map((item) => ({
+      id: item.id,
       productId: item.productId ?? item.id,
       title: item.description,
       quantity: item.quantity,

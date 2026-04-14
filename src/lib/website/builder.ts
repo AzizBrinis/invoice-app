@@ -2,6 +2,7 @@ import { z } from "zod";
 import { generateId } from "@/lib/id";
 import { slugify } from "@/lib/slug";
 import { WEBSITE_MEDIA_PLACEHOLDERS } from "@/lib/website/placeholders";
+import { sanitizePublicHref } from "@/lib/website/url-safety";
 import {
   ABOUT_FAST_FACTS,
   ABOUT_FAST_FACTS_COPY,
@@ -96,7 +97,19 @@ export type BuilderTypographyPreset =
 const builderButtonSchema = z.object({
   id: z.string().default(() => generateId("btn")),
   label: z.string().max(60),
-  href: z.string().max(200).default("#"),
+  href: z
+    .string()
+    .max(200)
+    .transform((value) =>
+      sanitizePublicHref(value, {
+        allowExternalHttp: true,
+        allowHash: true,
+        allowMailto: true,
+        allowRelativePath: true,
+        allowTel: true,
+      }),
+    )
+    .default("#"),
   style: z.enum(["primary", "secondary", "ghost"]).default("primary"),
 });
 
@@ -116,15 +129,15 @@ const builderSectionSettingsSchema = z
   .optional();
 
 function isValidBuilderMediaSrc(value: string) {
-  if (value.startsWith("data:")) {
+  if (value.startsWith("data:image/")) {
     return true;
   }
   if (value.startsWith("/")) {
     return true;
   }
   try {
-    new URL(value);
-    return true;
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
   } catch {
     return false;
   }
@@ -170,7 +183,22 @@ const builderItemSchema = z.object({
   contentBackground: z.enum(HOME_HERO_CONTENT_BACKGROUNDS).optional(),
   price: z.string().max(60).nullable().optional(),
   linkLabel: z.string().max(80).nullable().optional(),
-  href: z.string().max(200).nullable().optional(),
+  href: z
+    .string()
+    .max(200)
+    .nullable()
+    .optional()
+    .transform((value) =>
+      value == null
+        ? value
+        : sanitizePublicHref(value, {
+            allowExternalHttp: true,
+            allowHash: true,
+            allowMailto: true,
+            allowRelativePath: true,
+            allowTel: true,
+          }),
+    ),
   mediaId: z.string().nullable().optional(),
   buttons: z.array(builderButtonSchema).max(BUILDER_ITEM_BUTTON_LIMIT).optional(),
   stats: z.array(builderStatisticSchema).optional().default([]),
@@ -279,7 +307,7 @@ export function sanitizeBuilderPages(
         const parsed = builderMediaAssetSchema.safeParse(
           normalized ?? entry,
         );
-        return parsed.success ? parsed.data : null;
+        return parsed.success ? (parsed.data as WebsiteBuilderMediaAsset) : null;
       })
       .filter((entry): entry is WebsiteBuilderMediaAsset => Boolean(entry));
   };
@@ -298,7 +326,7 @@ export function sanitizeBuilderPages(
         seo: {},
       });
       if (parsed.success) {
-        normalized[key] = parsed.data;
+        normalized[key] = parsed.data as WebsiteBuilderPageConfig;
       }
       continue;
     }
@@ -317,14 +345,16 @@ export function sanitizeBuilderPages(
     };
     const parsed = builderPageSchema.safeParse(normalizedEntry);
     if (parsed.success) {
-      normalized[key] = parsed.data;
+      normalized[key] = parsed.data as WebsiteBuilderPageConfig;
       continue;
     }
     const fallbackSections = Array.isArray(normalizedEntry.sections)
       ? normalizedEntry.sections
         .map((section) => {
           const parsedSection = builderSectionSchema.safeParse(section);
-          return parsedSection.success ? parsedSection.data : null;
+          return parsedSection.success
+            ? (parsedSection.data as WebsiteBuilderSection)
+            : null;
         })
         .filter((section): section is WebsiteBuilderSection => Boolean(section))
       : [];
@@ -368,12 +398,25 @@ const builderThemeSchema = z.object({
   prefersDark: z.enum(["system", "light", "dark"]).default("system"),
 });
 
+const builderSiteSchema = z.object({
+  faviconUrl: z
+    .string()
+    .nullable()
+    .optional()
+    .refine(
+      (value) => value == null || isValidBuilderMediaSrc(value),
+      "Le favicon doit être une URL valide ou un chemin interne commençant par /.",
+    )
+    .default(null),
+});
+
 export const builderConfigSchema = z.object({
   version: z.number().default(1),
   updatedAt: z.string().datetime().optional(),
   sections: z.array(builderSectionSchema).default([]),
   mediaLibrary: z.array(builderMediaAssetSchema).default([]),
   pages: builderPagesSchema,
+  site: builderSiteSchema.default({ faviconUrl: null }),
   theme: builderThemeSchema.default(() =>
     builderThemeSchema.parse({ accent: "#2563eb" }),
   ),
@@ -386,16 +429,58 @@ const builderVersionEntrySchema = z.object({
   snapshot: builderConfigSchema,
 });
 
-export type WebsiteBuilderButton = z.infer<typeof builderButtonSchema>;
+type WebsiteBuilderButtonSchemaValue = z.infer<typeof builderButtonSchema>;
+type WebsiteBuilderItemSchemaValue = z.infer<typeof builderItemSchema>;
+type WebsiteBuilderSectionSchemaValue = z.infer<typeof builderSectionSchema>;
+type WebsiteBuilderPageSeoSchemaValue = z.infer<typeof builderPageSeoSchema>;
+type WebsiteBuilderPageConfigSchemaValue = z.infer<typeof builderPageSchema>;
+type WebsiteBuilderThemeSchemaValue = z.infer<typeof builderThemeSchema>;
+type WebsiteBuilderConfigSchemaValue = z.infer<typeof builderConfigSchema>;
+type WebsiteBuilderVersionEntrySchemaValue = z.infer<
+  typeof builderVersionEntrySchema
+>;
+
+export type WebsiteBuilderButton = WebsiteBuilderButtonSchemaValue;
 export type WebsiteBuilderStatistic = z.infer<typeof builderStatisticSchema>;
 export type WebsiteBuilderMediaAsset = z.infer<typeof builderMediaAssetSchema>;
-export type WebsiteBuilderItem = z.infer<typeof builderItemSchema>;
-export type WebsiteBuilderSection = z.infer<typeof builderSectionSchema>;
-export type WebsiteBuilderPageSeo = z.infer<typeof builderPageSeoSchema>;
-export type WebsiteBuilderPageConfig = z.infer<typeof builderPageSchema>;
-export type WebsiteBuilderTheme = z.infer<typeof builderThemeSchema>;
-export type WebsiteBuilderConfig = z.infer<typeof builderConfigSchema>;
-export type WebsiteBuilderVersionEntry = z.infer<typeof builderVersionEntrySchema>;
+export type WebsiteBuilderItem = Omit<
+  WebsiteBuilderItemSchemaValue,
+  "href" | "buttons" | "stats"
+> & {
+  href?: string | null;
+  buttons?: WebsiteBuilderButton[];
+  stats?: WebsiteBuilderStatistic[];
+};
+export type WebsiteBuilderSection = Omit<
+  WebsiteBuilderSectionSchemaValue,
+  "items" | "buttons"
+> & {
+  items: WebsiteBuilderItem[];
+  buttons: WebsiteBuilderButton[];
+};
+export type WebsiteBuilderPageSeo = WebsiteBuilderPageSeoSchemaValue;
+export type WebsiteBuilderPageConfig = Omit<
+  WebsiteBuilderPageConfigSchemaValue,
+  "sections"
+> & {
+  sections: WebsiteBuilderSection[];
+};
+export type WebsiteBuilderSite = z.infer<typeof builderSiteSchema>;
+export type WebsiteBuilderTheme = WebsiteBuilderThemeSchemaValue;
+export type WebsiteBuilderConfig = Omit<
+  WebsiteBuilderConfigSchemaValue,
+  "sections" | "pages"
+> & {
+  sections: WebsiteBuilderSection[];
+  pages: Record<string, WebsiteBuilderPageConfig>;
+  site: WebsiteBuilderSite;
+};
+export type WebsiteBuilderVersionEntry = Omit<
+  WebsiteBuilderVersionEntrySchemaValue,
+  "snapshot"
+> & {
+  snapshot: WebsiteBuilderConfig;
+};
 
 const CURRENT_BUILDER_CONFIG_VERSION = 5;
 const CISECO_SIMPLIFIED_HOME_VERSION = 2;
@@ -497,7 +582,16 @@ export function resolveSectionCustomerPhotosVisibility(
 }
 
 function cloneBuilderButton(button: WebsiteBuilderButton): WebsiteBuilderButton {
-  return { ...button };
+  return {
+    ...button,
+    href: sanitizePublicHref(button.href, {
+      allowExternalHttp: true,
+      allowHash: true,
+      allowMailto: true,
+      allowRelativePath: true,
+      allowTel: true,
+    }),
+  };
 }
 
 function cloneBuilderMediaAsset(
@@ -512,6 +606,16 @@ function cloneBuilderMediaAsset(
 function cloneBuilderItem(item: WebsiteBuilderItem): WebsiteBuilderItem {
   return {
     ...item,
+    href:
+      item.href == null
+        ? item.href
+        : sanitizePublicHref(item.href, {
+            allowExternalHttp: true,
+            allowHash: true,
+            allowMailto: true,
+            allowRelativePath: true,
+            allowTel: true,
+          }),
     buttons: item.buttons?.map((button) => cloneBuilderButton(button)),
     stats: [...(item.stats ?? [])],
   };
@@ -1130,6 +1234,9 @@ export function createDefaultBuilderConfig(
     updatedAt: timestamp,
     mediaLibrary,
     pages: {},
+    site: {
+      faviconUrl: null,
+    },
     theme: {
       accent,
       typography: "modern",

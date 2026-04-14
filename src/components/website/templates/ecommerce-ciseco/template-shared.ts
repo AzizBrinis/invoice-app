@@ -7,6 +7,7 @@ export type TemplateProps = {
   mode: "public" | "preview";
   path?: string | null;
   initialLocale?: import("./locale").CisecoLocale;
+  resolvedByDomain?: boolean;
 };
 
 export type TemplateStyleVars = CSSProperties & {

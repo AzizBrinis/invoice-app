@@ -8,6 +8,7 @@ import { syncOrderPaymentStatus } from "@/server/orders";
 
 const PAYMENT_PROVIDER_KEYS = ["stub", "stripe"] as const;
 type PaymentProviderKey = (typeof PAYMENT_PROVIDER_KEYS)[number];
+const STRIPE_WEBHOOK_TOLERANCE_SECONDS = 300;
 
 const PAYMENT_STATUS_VALUES = [
   "pending",
@@ -122,12 +123,14 @@ const stripePaymentIntentSchema = z.object({
 const stubProvider: PaymentProvider = {
   key: "stub",
   async createCheckoutSession() {
+    assertStubPaymentsEnabled();
     return {
       reference: generateId("pay"),
       checkoutUrl: null,
     };
   },
   async parseWebhookEvent(payload) {
+    assertStubPaymentsEnabled();
     const parsed = stubWebhookSchema.parse(payload);
     return {
       provider: parsed.provider,
@@ -154,6 +157,21 @@ function getStripeSecretKey() {
 
 function getStripeWebhookSecret() {
   return getEnvValue("STRIPE_WEBHOOK_SECRET");
+}
+
+function allowStubPayments() {
+  return (
+    process.env.NODE_ENV !== "production" ||
+    getEnvValue("ALLOW_STUB_PAYMENTS") === "1"
+  );
+}
+
+function assertStubPaymentsEnabled() {
+  if (!allowStubPayments()) {
+    throw new Error(
+      "Stub payments are disabled. Configure a real payment provider before accepting card payments.",
+    );
+  }
 }
 
 function normalizeStripeMetadataValue(value?: string | null) {
@@ -201,6 +219,14 @@ function verifyStripeSignature(
   });
   if (!timestamp || signatures.length === 0) {
     throw new Error("Signature Stripe invalide.");
+  }
+  const timestampSeconds = Number.parseInt(timestamp, 10);
+  if (
+    !Number.isFinite(timestampSeconds) ||
+    Math.abs(Math.floor(Date.now() / 1000) - timestampSeconds) >
+      STRIPE_WEBHOOK_TOLERANCE_SECONDS
+  ) {
+    throw new Error("Signature Stripe expirée.");
   }
   const signedPayload = `${timestamp}.${rawBody}`;
   const expected = createHmac("sha256", secret)
@@ -449,6 +475,9 @@ export async function createCheckoutSession(
   const payload = createCheckoutSessionSchema.parse(input);
   const userId = providedUserId ?? (await requireUser()).id;
   const provider = getProvider(payload.provider);
+  if (provider.key === "stub") {
+    assertStubPaymentsEnabled();
+  }
 
   const order = await prisma.order.findFirst({
     where: { id: payload.orderId, userId },
@@ -579,6 +608,9 @@ async function applyWebhookEvent(event: WebhookEvent) {
       if (!resolvedOrderId) {
         throw new Error("Commande introuvable");
       }
+      if (payment && event.orderId && payment.orderId !== event.orderId) {
+        throw new Error("Incohérence entre le paiement et la commande.");
+      }
 
       const order = await tx.order.findFirst({
         where: { id: resolvedOrderId },
@@ -612,10 +644,20 @@ async function applyWebhookEvent(event: WebhookEvent) {
           },
         });
       } else {
+        const nextStatus =
+          payment.status === OrderPaymentStatus.REFUNDED
+            ? OrderPaymentStatus.REFUNDED
+            : payment.status === OrderPaymentStatus.SUCCEEDED &&
+                paymentStatus !== OrderPaymentStatus.REFUNDED
+              ? OrderPaymentStatus.SUCCEEDED
+              : payment.status === OrderPaymentStatus.AUTHORIZED &&
+                  paymentStatus === OrderPaymentStatus.PENDING
+                ? OrderPaymentStatus.AUTHORIZED
+                : paymentStatus;
         payment = await tx.orderPayment.update({
           where: { id: payment.id },
           data: {
-            status: paymentStatus,
+            status: nextStatus,
             amountCents: event.amountCents ?? payment.amountCents,
             currency: event.currency ?? payment.currency,
             method: event.method ?? payment.method ?? null,
@@ -624,7 +666,7 @@ async function applyWebhookEvent(event: WebhookEvent) {
               event.externalReference ?? payment.externalReference ?? null,
             metadata: event.metadata ? toJsonInput(event.metadata) : undefined,
             paidAt:
-              paymentStatus === OrderPaymentStatus.SUCCEEDED
+              nextStatus === OrderPaymentStatus.SUCCEEDED
                 ? payment.paidAt ?? new Date()
                 : payment.paidAt,
           },

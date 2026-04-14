@@ -3,8 +3,15 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { resolveCatalogDomainFromHeaders } from "@/lib/catalog-host";
 import { prisma } from "@/lib/db";
+import {
+  assertSameOriginMutationRequest,
+  buildPublicRateLimitKey,
+  enforceRateLimit,
+  resolveSecurityErrorResponseInit,
+} from "@/lib/security/public-request";
 import { createCisecoRequestTranslator } from "@/lib/website/ciseco-request-locale";
 import {
+  createClientSession,
   getClientFromSessionToken,
   getClientSessionTokenFromCookie,
   hashClientPassword,
@@ -77,6 +84,22 @@ function resolvePasswordValidationMessage(input: unknown) {
 
 export async function POST(request: NextRequest) {
   const { t } = createCisecoRequestTranslator(request);
+  try {
+    assertSameOriginMutationRequest(request.headers, "Invalid request origin.");
+    enforceRateLimit({
+      key: buildPublicRateLimitKey({
+        scope: "catalogue-account-password",
+        headers: request.headers,
+      }),
+      limit: 6,
+      windowMs: 15 * 60 * 1000,
+      message: "Too many password change attempts. Please wait before trying again.",
+    });
+  } catch (error) {
+    const init = resolveSecurityErrorResponseInit(error, 400);
+    return NextResponse.json({ message: t("Unable to update password.") }, init);
+  }
+
   const resolved = await requireClientAndWebsite(request, t);
   if ("error" in resolved) {
     return NextResponse.json(
@@ -118,6 +141,9 @@ export async function POST(request: NextRequest) {
       where: { id: resolved.client.id },
       data: { passwordHash: newHash },
     });
+    await createClientSession(resolved.client.id, {
+      revokeExisting: true,
+    });
 
     return NextResponse.json({
       message: t("Password updated successfully."),
@@ -129,6 +155,7 @@ export async function POST(request: NextRequest) {
         : error instanceof Error
           ? t(error.message)
           : t("Unable to update password.");
-    return NextResponse.json({ message }, { status: 400 });
+    const init = resolveSecurityErrorResponseInit(error, 400);
+    return NextResponse.json({ message }, init);
   }
 }

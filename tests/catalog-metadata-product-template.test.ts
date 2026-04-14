@@ -44,6 +44,63 @@ function createPayload() {
       templateKey: "ecommerce-ciseco-home",
       showPrices: true,
       currencyCode: "TND",
+      ecommerceSettings: {
+        payments: {
+          methods: {
+            card: false,
+            bankTransfer: false,
+            cashOnDelivery: false,
+          },
+          bankTransfer: {
+            instructions: "",
+          },
+        },
+        checkout: {
+          requirePhone: false,
+          allowNotes: true,
+          termsUrl: "",
+        },
+        shipping: {
+          countryCode: "TN",
+          rate: 7,
+          handlingMinDays: 0,
+          handlingMaxDays: 1,
+          transitMinDays: 1,
+          transitMaxDays: 3,
+        },
+        returns: {
+          countryCode: "TN",
+          policyCategory: "FINITE",
+          merchantReturnDays: 14,
+          returnFees: "FREE",
+          returnMethod: "BY_MAIL",
+          returnShippingFeesAmount: null,
+        },
+        featuredProductIds: [],
+        signup: {
+          redirectTarget: "home",
+          providers: {
+            facebook: {
+              enabled: false,
+              useEnv: true,
+              clientId: null,
+              clientSecret: null,
+            },
+            google: {
+              enabled: false,
+              useEnv: true,
+              clientId: null,
+              clientSecret: null,
+            },
+            twitter: {
+              enabled: false,
+              useEnv: true,
+              clientId: null,
+              clientSecret: null,
+            },
+          },
+        },
+      },
       builder,
       contact: {
         companyName: "Acme Store",
@@ -161,11 +218,34 @@ describe("catalog metadata - product seo templates", () => {
     ).toMatchObject({
       "@type": "Offer",
       priceCurrency: "TND",
+      shippingDetails: {
+        "@type": "OfferShippingDetails",
+        shippingDestination: {
+          "@type": "DefinedRegion",
+          addressCountry: "TN",
+        },
+        shippingRate: {
+          "@type": "MonetaryAmount",
+          value: "7.00",
+          currency: "TND",
+        },
+      },
+      hasMerchantReturnPolicy: {
+        "@type": "MerchantReturnPolicy",
+        applicableCountry: "TN",
+        returnPolicyCategory:
+          "https://schema.org/MerchantReturnFiniteReturnWindow",
+        merchantReturnDays: 14,
+        returnFees: "https://schema.org/FreeReturn",
+        returnMethod: "https://schema.org/ReturnByMail",
+      },
       eligibleRegion: {
         "@type": "Country",
         name: "Tunisie",
       },
     });
+    expect(structuredData[1]).not.toHaveProperty("aggregateRating");
+    expect(structuredData[1]).not.toHaveProperty("review");
     expect(structuredData[2]).toEqual({
       "@context": "https://schema.org",
       "@type": "FAQPage",
@@ -180,5 +260,39 @@ describe("catalog metadata - product seo templates", () => {
         },
       ],
     });
+  });
+
+  it("omits merchant shipping and return fields when policy data is incomplete", () => {
+    const payload = createPayload();
+    payload.website.ecommerceSettings.shipping = {
+      countryCode: "TN",
+      rate: null,
+      handlingMinDays: null,
+      handlingMaxDays: null,
+      transitMinDays: null,
+      transitMaxDays: null,
+    };
+    payload.website.ecommerceSettings.returns = {
+      countryCode: "TN",
+      policyCategory: null,
+      merchantReturnDays: null,
+      returnFees: null,
+      returnMethod: null,
+      returnShippingFeesAmount: null,
+    };
+
+    const structuredData = resolveCatalogStructuredData({
+      payload: payload as unknown as CatalogPayload,
+      path: "/produit/chaise-design",
+    });
+
+    expect(
+      (structuredData[1] as { offers?: Record<string, unknown> } | undefined)
+        ?.offers,
+    ).not.toHaveProperty("shippingDetails");
+    expect(
+      (structuredData[1] as { offers?: Record<string, unknown> } | undefined)
+        ?.offers,
+    ).not.toHaveProperty("hasMerchantReturnPolicy");
   });
 });

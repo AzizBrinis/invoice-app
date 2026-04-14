@@ -49,12 +49,149 @@ export type CollectionFilterInput = {
   maxPriceCents?: number | null;
 };
 
+export type CollectionQueryState = {
+  colorIds: string[];
+  sizeIds: string[];
+  minPrice: string;
+  maxPrice: string;
+  sort: CollectionSortValue;
+  page: number;
+};
+
+const COLLECTION_PERSISTED_QUERY_KEYS = ["lang", "domain"] as const;
+
 export function normalizeCollectionSort(
   value?: string | null,
 ): CollectionSortValue {
   return COLLECTION_SORT_OPTIONS.some((entry) => entry.id === value)
     ? (value as CollectionSortValue)
     : "featured";
+}
+
+export function parseCollectionPageValue(value: string | null) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return 1;
+  }
+  return Math.max(1, Math.floor(parsed));
+}
+
+export function normalizeCollectionFacetValues(values: string[]) {
+  return Array.from(
+    new Set(
+      values
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0),
+    ),
+  );
+}
+
+export function normalizeCollectionPriceInput(value: string | null) {
+  if (!value) {
+    return "";
+  }
+
+  const compact = value.trim().replace(/\s+/g, "");
+  if (!compact) {
+    return "";
+  }
+
+  const sanitized = compact.replace(/[^0-9,.-]/g, "");
+  const signless = sanitized.startsWith("-") ? sanitized.slice(1) : sanitized;
+  const lastCommaIndex = signless.lastIndexOf(",");
+  const lastDotIndex = signless.lastIndexOf(".");
+  const decimalIndex = Math.max(lastCommaIndex, lastDotIndex);
+
+  let integerPart = signless;
+  let fractionPart = "";
+
+  if (decimalIndex >= 0) {
+    integerPart = signless.slice(0, decimalIndex);
+    fractionPart = signless.slice(decimalIndex + 1);
+  }
+
+  const normalizedInteger = integerPart.replace(/[.,]/g, "");
+  const normalizedFraction = fractionPart.replace(/[.,]/g, "").slice(0, 2);
+
+  if (!/^\d*$/.test(normalizedInteger) || !/^\d*$/.test(normalizedFraction)) {
+    return "";
+  }
+
+  if (!normalizedInteger && !normalizedFraction) {
+    return "";
+  }
+
+  const canonicalInteger = normalizedInteger.length > 0 ? normalizedInteger : "0";
+  return normalizedFraction.length > 0
+    ? `${canonicalInteger}.${normalizedFraction}`
+    : canonicalInteger;
+}
+
+export function parseCollectionPriceToCents(value: string) {
+  if (!value) return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return null;
+  }
+  return Math.round(parsed * 100);
+}
+
+export function buildCollectionQueryParams(options: {
+  currentSearchParams: URLSearchParams;
+  baseSearchParams?: URLSearchParams;
+  state: CollectionQueryState;
+}) {
+  const params = new URLSearchParams();
+
+  COLLECTION_PERSISTED_QUERY_KEYS.forEach((key) => {
+    const values = options.currentSearchParams.getAll(key);
+    if (!values.length) {
+      return;
+    }
+    values.forEach((value) => {
+      params.append(key, value);
+    });
+  });
+
+  options.baseSearchParams?.forEach((value, key) => {
+    params.set(key, value);
+  });
+
+  params.delete("color");
+  options.state.colorIds.forEach((value) => {
+    params.append("color", value);
+  });
+
+  params.delete("size");
+  options.state.sizeIds.forEach((value) => {
+    params.append("size", value);
+  });
+
+  if (options.state.sort !== "featured") {
+    params.set("sort", options.state.sort);
+  } else {
+    params.delete("sort");
+  }
+
+  if (options.state.minPrice) {
+    params.set("minPrice", options.state.minPrice);
+  } else {
+    params.delete("minPrice");
+  }
+
+  if (options.state.maxPrice) {
+    params.set("maxPrice", options.state.maxPrice);
+  } else {
+    params.delete("maxPrice");
+  }
+
+  if (options.state.page > 1) {
+    params.set("page", String(options.state.page));
+  } else {
+    params.delete("page");
+  }
+
+  return params;
 }
 
 export function buildCollectionCatalogItems(options: {

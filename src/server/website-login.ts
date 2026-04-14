@@ -95,7 +95,7 @@ export async function authenticateWebsiteLogin(
     throw new Error("Invalid email or password.");
   }
   if (!client.isActive) {
-    throw new Error("Account inactive. Please contact support.");
+    throw new Error("Invalid email or password.");
   }
 
   const validPassword = await verifyClientPassword(

@@ -5,6 +5,12 @@ import {
   getCatalogClientProfileById,
 } from "@/lib/client-auth";
 import { resolveCatalogDomainFromHeaders } from "@/lib/catalog-host";
+import {
+  assertSameOriginMutationRequest,
+  buildPublicRateLimitKey,
+  enforceRateLimit,
+  resolveSecurityErrorResponseInit,
+} from "@/lib/security/public-request";
 import { createCisecoRequestTranslator } from "@/lib/website/ciseco-request-locale";
 import { authenticateWebsiteLogin } from "@/server/website-login";
 
@@ -21,6 +27,7 @@ function formDataToObject(formData: FormData) {
 export async function POST(request: NextRequest) {
   const { t } = createCisecoRequestTranslator(request);
   try {
+    assertSameOriginMutationRequest(request.headers, "Invalid request origin.");
     const contentType = request.headers.get("content-type") ?? "";
     let payload: Record<string, unknown>;
     if (contentType.includes("application/json")) {
@@ -33,6 +40,18 @@ export async function POST(request: NextRequest) {
     const domain = resolveCatalogDomainFromHeaders(request.headers);
     const email = typeof payload.email === "string" ? payload.email : "";
     const password = typeof payload.password === "string" ? payload.password : "";
+    const normalizedEmail = email.trim().toLowerCase();
+
+    enforceRateLimit({
+      key: buildPublicRateLimitKey({
+        scope: "catalogue-login",
+        headers: request.headers,
+        parts: [normalizedEmail || "anonymous"],
+      }),
+      limit: 10,
+      windowMs: 10 * 60 * 1000,
+      message: "Too many sign-in attempts. Please wait before trying again.",
+    });
 
     const result = await authenticateWebsiteLogin({
       email,
@@ -69,6 +88,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     const message =
       error instanceof Error ? t(error.message) : t("Unable to sign in.");
-    return NextResponse.json({ error: message }, { status: 400 });
+    const init = resolveSecurityErrorResponseInit(error, 400);
+    return NextResponse.json({ error: message }, init);
   }
 }

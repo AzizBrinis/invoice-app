@@ -103,31 +103,8 @@ async function upsertClientForSignup(options: {
   const emailLower = options.email.toLowerCase();
   const existing = await findExistingClient(options.tenantId, emailLower);
 
-  if (existing?.passwordHash) {
-    return { client: existing, created: false, alreadyRegistered: true };
-  }
-
   if (existing) {
-    const updateData: Record<string, unknown> = {};
-    if (!existing.email || existing.email.toLowerCase() !== emailLower) {
-      updateData.email = emailLower;
-    }
-    if (!existing.passwordHash) {
-      updateData.passwordHash = options.passwordHash;
-    }
-    if (Object.keys(updateData).length > 0) {
-      const updated = await prisma.client.update({
-        where: { id: existing.id },
-        data: updateData,
-        select: {
-          id: true,
-          email: true,
-          passwordHash: true,
-        },
-      });
-      return { client: updated, created: false, alreadyRegistered: false };
-    }
-    return { client: existing, created: false, alreadyRegistered: false };
+    return { client: existing, created: false, alreadyRegistered: true };
   }
 
   const displayName = emailLower || "Client";
@@ -240,7 +217,9 @@ export async function registerWebsiteSignup(
   });
 
   if (alreadyRegistered) {
-    throw new Error("Account already exists. Please sign in.");
+    throw new Error(
+      "This email cannot be used to create an account automatically. Please sign in or contact support.",
+    );
   }
 
   revalidateClientFilters(website.userId);

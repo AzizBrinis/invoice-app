@@ -9,6 +9,10 @@ import {
 } from "@/lib/product-pricing";
 import { slugify } from "@/lib/slug";
 import { WEBSITE_MEDIA_PLACEHOLDERS } from "@/lib/website/placeholders";
+import {
+  isSafePublicHref,
+  sanitizePublicPath,
+} from "@/lib/website/url-safety";
 import type { CatalogPayload } from "@/server/website";
 import type { HomeProduct, PageDescriptor, ProductColorOption, ProductGalleryImage } from "./types";
 
@@ -65,10 +69,7 @@ export function formatCisecoLabel(
 }
 
 export function normalizePath(path?: string | null): string {
-  if (!path) return "/";
-  const trimmed = path.trim();
-  if (!trimmed) return "/";
-  return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+  return sanitizePublicPath(path, "/");
 }
 
 function normalizeComparablePath(path?: string | null) {
@@ -149,10 +150,21 @@ export function resolveCisecoNavigationHref(options: {
   const candidate = options.href?.trim();
 
   if (candidate && candidate !== "#") {
+    if (candidate.startsWith("#")) {
+      return candidate;
+    }
+    if (SCOPED_CISECO_HREF_PATTERN.test(candidate)) {
+      return candidate;
+    }
     if (
-      candidate.startsWith("#") ||
-      EXTERNAL_HREF_PATTERN.test(candidate) ||
-      SCOPED_CISECO_HREF_PATTERN.test(candidate)
+      EXTERNAL_HREF_PATTERN.test(candidate) &&
+      isSafePublicHref(candidate, {
+        allowExternalHttp: true,
+        allowHash: false,
+        allowMailto: true,
+        allowRelativePath: false,
+        allowTel: true,
+      })
     ) {
       return candidate;
     }

@@ -254,6 +254,27 @@ function scrollToHash(hash: string) {
   window.scrollTo({ top: 0, left: 0, behavior: "auto" });
 }
 
+export function shouldUseLocalViewTransition(options: {
+  currentUrl: URL;
+  nextUrl: URL;
+  currentLogicalPath: string;
+  nextLogicalPath: string;
+}) {
+  if (options.currentUrl.pathname !== options.nextUrl.pathname) {
+    return true;
+  }
+
+  if (options.currentLogicalPath !== options.nextLogicalPath) {
+    return true;
+  }
+
+  if (options.currentUrl.hash !== options.nextUrl.hash) {
+    return false;
+  }
+
+  return false;
+}
+
 function performDocumentNavigation(
   href: string,
   options: Pick<CisecoNavigationOptions, "replace"> = {},
@@ -498,9 +519,19 @@ export function CisecoNavigationProvider({
           return performDocumentNavigation(nextUrl.toString(), options);
         }
 
-        setIsNavigating(true);
+        const useViewTransition =
+          shouldUseLocalViewTransition({
+            currentUrl,
+            nextUrl,
+            currentLogicalPath: activeState.logicalPath,
+            nextLogicalPath: nextState.logicalPath,
+          });
+
+        if (useViewTransition) {
+          setIsNavigating(true);
+        }
         const documentWithTransitions = document as ViewTransitionDocument;
-        if (documentWithTransitions.startViewTransition) {
+        if (documentWithTransitions.startViewTransition && useViewTransition) {
           documentWithTransitions.startViewTransition(applyState);
         } else {
           applyState();
@@ -510,7 +541,9 @@ export function CisecoNavigationProvider({
           if (options.scroll !== false) {
             scrollToHash(nextState.hash);
           }
-          clearNavigationState();
+          if (useViewTransition) {
+            clearNavigationState();
+          }
         });
 
         return true;

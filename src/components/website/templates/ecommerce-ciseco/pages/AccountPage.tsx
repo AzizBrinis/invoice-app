@@ -28,20 +28,18 @@ type ClientProfile = {
   email: string;
   phone: string;
   address: string;
-  notes: string;
   companyName: string;
   vatNumber: string;
   avatarUrl: string | null;
 };
 
-type EditableProfileField = "name" | "email" | "phone" | "address" | "notes";
+type EditableProfileField = "name" | "email" | "phone" | "address";
 
 const EMPTY_PROFILE: ClientProfile = {
   name: "",
   email: "",
   phone: "",
   address: "",
-  notes: "",
   companyName: "",
   vatNumber: "",
   avatarUrl: null,
@@ -49,9 +47,6 @@ const EMPTY_PROFILE: ClientProfile = {
 
 const inputClassName =
   "w-full rounded-full border border-black/10 bg-white px-4 py-2.5 text-sm text-slate-700 shadow-sm placeholder:text-slate-400 focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900/10";
-
-const textareaClassName =
-  "w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm placeholder:text-slate-400 focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-900/10";
 
 const labelClassName = "text-xs font-semibold text-slate-700";
 
@@ -100,7 +95,6 @@ export function AccountPage({
       email: accountProfile.email ?? "",
       phone: accountProfile.phone ?? "",
       address: accountProfile.address ?? "",
-      notes: accountProfile.notes ?? "",
       companyName: accountProfile.companyName ?? "",
       vatNumber: accountProfile.vatNumber ?? "",
       avatarUrl: accountProfile.avatarUrl ?? null,
@@ -142,7 +136,6 @@ export function AccountPage({
           email: profile.email,
           phone: profile.phone,
           address: profile.address,
-          notes: profile.notes,
         }),
       });
 
@@ -167,7 +160,6 @@ export function AccountPage({
         email: result.profile.email ?? "",
         phone: result.profile.phone ?? "",
         address: result.profile.address ?? "",
-        notes: result.profile.notes ?? "",
         companyName: result.profile.companyName ?? "",
         vatNumber: result.profile.vatNumber ?? "",
         avatarUrl: result.profile.avatarUrl ?? null,
@@ -393,18 +385,6 @@ function AccountForm({
             className={clsx(inputClassName, "pl-10")}
           />
         </div>
-      </div>
-      <div className="space-y-2">
-        <label htmlFor="account-about" className={labelClassName}>
-          {t("About you")}
-        </label>
-        <textarea
-          id="account-about"
-          rows={4}
-          value={values.notes}
-          onChange={onFieldChange("notes")}
-          className={textareaClassName}
-        />
       </div>
       <button
         type="button"

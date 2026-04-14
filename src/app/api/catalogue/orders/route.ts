@@ -7,6 +7,12 @@ import { prisma } from "@/lib/db";
 import { calculateLineTotals } from "@/lib/documents";
 import { createConfirmationToken } from "@/lib/confirmation-token";
 import {
+  assertSameOriginMutationRequest,
+  buildPublicRateLimitKey,
+  enforceRateLimit,
+  resolveSecurityErrorResponseInit,
+} from "@/lib/security/public-request";
+import {
   getClientFromSessionToken,
   getClientSessionTokenFromCookie,
 } from "@/lib/client-auth";
@@ -105,7 +111,19 @@ async function resolveAuthenticatedClientId(websiteUserId: string) {
 export async function POST(request: NextRequest) {
   const { t } = createCisecoRequestTranslator(request);
   try {
+    assertSameOriginMutationRequest(request.headers, "Invalid request origin.");
     const payload = orderPayloadSchema.parse(await request.json());
+    const normalizedEmail = payload.customer.email.trim().toLowerCase();
+    enforceRateLimit({
+      key: buildPublicRateLimitKey({
+        scope: "catalogue-orders",
+        headers: request.headers,
+        parts: [normalizedEmail],
+      }),
+      limit: 8,
+      windowMs: 15 * 60 * 1000,
+      message: "Too many order attempts. Please wait before trying again.",
+    });
     const domain = resolveCatalogDomainFromHeaders(request.headers);
     const slug = domain ? null : normalizeCatalogSlugInput(payload.slug);
     if (payload.path && !normalizeCatalogPathInput(payload.path)) {
@@ -285,7 +303,7 @@ export async function POST(request: NextRequest) {
       clientId: await resolveAuthenticatedClientId(website.userId),
       customer: {
         name: payload.customer.name.trim(),
-        email: payload.customer.email.trim(),
+        email: normalizedEmail,
         phone: normalizedPhone,
         type: payload.customer.type,
         company: normalizedCompany,
@@ -333,11 +351,10 @@ export async function POST(request: NextRequest) {
         : error instanceof Error
           ? t(error.message)
           : t("Unable to create your order right now.");
+    const init = resolveSecurityErrorResponseInit(error, 400);
     return NextResponse.json(
       { error: message },
-      {
-        status: 400,
-      },
+      init,
     );
   }
 }
