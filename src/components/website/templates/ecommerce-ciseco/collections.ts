@@ -1,10 +1,16 @@
 import type { CartProduct } from "@/components/website/cart/cart-context";
+import { getCurrencyInfo } from "@/lib/currency";
+import { toCents } from "@/lib/money";
 import { slugify } from "@/lib/slug";
 import type { CatalogPayload } from "@/server/website";
 import { formatCisecoLabel, buildHomeProducts, resolveVariantOptions, toCartProduct } from "./utils";
 import type { ProductColorOption } from "./types";
 
 export const COLLECTIONS_PAGE_SIZE = 12;
+const COLLECTION_PRICE_CURRENCY_CODE = "TND";
+const COLLECTION_PRICE_FRACTION_DIGITS = getCurrencyInfo(
+  COLLECTION_PRICE_CURRENCY_CODE,
+).decimals;
 
 export const COLLECTION_SORT_OPTIONS = [
   { id: "featured", label: "Most Popular" },
@@ -111,7 +117,9 @@ export function normalizeCollectionPriceInput(value: string | null) {
   }
 
   const normalizedInteger = integerPart.replace(/[.,]/g, "");
-  const normalizedFraction = fractionPart.replace(/[.,]/g, "").slice(0, 2);
+  const normalizedFraction = fractionPart
+    .replace(/[.,]/g, "")
+    .slice(0, COLLECTION_PRICE_FRACTION_DIGITS);
 
   if (!/^\d*$/.test(normalizedInteger) || !/^\d*$/.test(normalizedFraction)) {
     return "";
@@ -133,7 +141,7 @@ export function parseCollectionPriceToCents(value: string) {
   if (!Number.isFinite(parsed) || parsed < 0) {
     return null;
   }
-  return Math.round(parsed * 100);
+  return toCents(parsed, COLLECTION_PRICE_CURRENCY_CODE);
 }
 
 export function buildCollectionQueryParams(options: {

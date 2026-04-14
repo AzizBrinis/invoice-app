@@ -204,7 +204,7 @@ describe("catalog metadata - product seo templates", () => {
       path: "/produit/chaise-design",
     });
 
-    expect(structuredData).toHaveLength(3);
+    expect(structuredData).toHaveLength(4);
     expect(structuredData[0]).toMatchObject({
       "@type": "BreadcrumbList",
     });
@@ -246,7 +246,14 @@ describe("catalog metadata - product seo templates", () => {
     });
     expect(structuredData[1]).not.toHaveProperty("aggregateRating");
     expect(structuredData[1]).not.toHaveProperty("review");
-    expect(structuredData[2]).toEqual({
+    expect(structuredData[2]).toMatchObject({
+      "@type": "Organization",
+      hasMerchantReturnPolicy: {
+        "@type": "MerchantReturnPolicy",
+        applicableCountry: "TN",
+      },
+    });
+    expect(structuredData[3]).toEqual({
       "@context": "https://schema.org",
       "@type": "FAQPage",
       mainEntity: [
@@ -280,6 +287,7 @@ describe("catalog metadata - product seo templates", () => {
       returnMethod: null,
       returnShippingFeesAmount: null,
     };
+    payload.website.ecommerceSettings.checkout.termsUrl = "/conditions-generales";
 
     const structuredData = resolveCatalogStructuredData({
       payload: payload as unknown as CatalogPayload,
@@ -293,6 +301,17 @@ describe("catalog metadata - product seo templates", () => {
     expect(
       (structuredData[1] as { offers?: Record<string, unknown> } | undefined)
         ?.offers,
-    ).not.toHaveProperty("hasMerchantReturnPolicy");
+    ).toMatchObject({
+      hasMerchantReturnPolicy: {
+        "@id": "http://localhost:3000/conditions-generales#policy",
+      },
+    });
+    expect(structuredData[2]).toMatchObject({
+      "@type": "Organization",
+      hasMerchantReturnPolicy: {
+        "@id": "http://localhost:3000/conditions-generales#policy",
+        merchantReturnLink: "http://localhost:3000/conditions-generales",
+      },
+    });
   });
 });

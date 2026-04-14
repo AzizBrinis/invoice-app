@@ -56,6 +56,7 @@ type CisecoNavigationProviderProps = {
   slug: string;
   initialHref: string;
   initialPath?: string | null;
+  publicBasePath?: string;
   serverRoutedPaths?: string[];
   onPrefetchRoute?: (logicalPath: string) => void;
   children: ReactNode;
@@ -66,6 +67,7 @@ type ResolveCisecoStateOptions = {
   mode: CisecoNavigationMode;
   slug: string;
   fallbackLogicalPath?: string | null;
+  publicBasePath?: string;
 };
 
 type ViewTransitionDocument = Document & {
@@ -84,10 +86,27 @@ function normalizeOwnedPathname(pathname: string) {
   return pathname;
 }
 
+function resolvePublicBasePath(
+  mode: CisecoNavigationMode,
+  slug: string,
+  publicBasePath?: string,
+) {
+  if (mode === "preview") {
+    return "/preview";
+  }
+
+  const fallbackBasePath = `/catalogue/${slug}`;
+  const normalizedBasePath = normalizeOwnedPathname(
+    normalizePath(publicBasePath ?? fallbackBasePath),
+  );
+  return normalizedBasePath || "/";
+}
+
 export function isOwnedCisecoPathname(
   pathname: string,
   mode: CisecoNavigationMode,
   slug: string,
+  publicBasePath?: string,
 ) {
   const normalizedPathname = normalizeOwnedPathname(pathname);
 
@@ -95,7 +114,10 @@ export function isOwnedCisecoPathname(
     return normalizedPathname === "/preview";
   }
 
-  const ownedPath = `/catalogue/${slug}`;
+  const ownedPath = resolvePublicBasePath(mode, slug, publicBasePath);
+  if (ownedPath === "/") {
+    return normalizedPathname.startsWith("/");
+  }
   return (
     normalizedPathname === ownedPath ||
     normalizedPathname.startsWith(`${ownedPath}/`)
@@ -107,13 +129,18 @@ export function resolveCisecoLogicalPath(
   mode: CisecoNavigationMode,
   slug: string,
   fallbackLogicalPath = "/",
+  publicBasePath?: string,
 ) {
   if (mode === "preview") {
     return normalizePath(url.searchParams.get("path") ?? fallbackLogicalPath);
   }
 
-  const prefix = `/catalogue/${slug}`;
+  const prefix = resolvePublicBasePath(mode, slug, publicBasePath);
   const normalizedPathname = normalizeOwnedPathname(url.pathname);
+
+  if (prefix === "/") {
+    return normalizePath(normalizedPathname);
+  }
 
   if (
     normalizedPathname === prefix ||
@@ -134,6 +161,7 @@ export function resolveCisecoNavigationState({
   mode,
   slug,
   fallbackLogicalPath,
+  publicBasePath,
 }: ResolveCisecoStateOptions): CisecoNavigationState {
   const url = new URL(href, FALLBACK_ORIGIN);
   const logicalPath = resolveCisecoLogicalPath(
@@ -141,6 +169,7 @@ export function resolveCisecoNavigationState({
     mode,
     slug,
     fallbackLogicalPath ?? "/",
+    publicBasePath,
   );
 
   return {
@@ -150,7 +179,7 @@ export function resolveCisecoNavigationState({
     hash: url.hash,
     logicalPath,
     searchParams: new URLSearchParams(url.search),
-    isOwned: isOwnedCisecoPathname(url.pathname, mode, slug),
+    isOwned: isOwnedCisecoPathname(url.pathname, mode, slug, publicBasePath),
   };
 }
 
@@ -297,12 +326,18 @@ export function CisecoNavigationProvider({
   slug,
   initialHref,
   initialPath,
+  publicBasePath,
   serverRoutedPaths,
   onPrefetchRoute,
   children,
 }: CisecoNavigationProviderProps) {
   const router = useRouter();
   const fallbackLogicalPath = normalizePath(initialPath);
+  const resolvedPublicBasePath = resolvePublicBasePath(
+    mode,
+    slug,
+    publicBasePath,
+  );
   const settleTimeoutRef = useRef<number | null>(null);
   const prefetchedHrefsRef = useRef<Set<string>>(new Set());
   const [isNavigating, setIsNavigating] = useState(false);
@@ -313,6 +348,7 @@ export function CisecoNavigationProvider({
       mode,
       slug,
       fallbackLogicalPath,
+      publicBasePath: resolvedPublicBasePath,
     }),
   );
   const incomingState = useMemo(
@@ -322,8 +358,9 @@ export function CisecoNavigationProvider({
         mode,
         slug,
         fallbackLogicalPath,
+        publicBasePath: resolvedPublicBasePath,
       }),
-    [fallbackLogicalPath, initialHref, mode, slug],
+    [fallbackLogicalPath, initialHref, mode, resolvedPublicBasePath, slug],
   );
   const activeState = useMemo(
     () =>
@@ -355,6 +392,7 @@ export function CisecoNavigationProvider({
         mode,
         slug,
         fallbackLogicalPath,
+        publicBasePath: resolvedPublicBasePath,
       });
 
       const applyState = () => {
@@ -375,7 +413,7 @@ export function CisecoNavigationProvider({
     return () => {
       window.removeEventListener("popstate", handlePopState);
     };
-  }, [fallbackLogicalPath, mode, slug]);
+  }, [fallbackLogicalPath, mode, resolvedPublicBasePath, slug]);
 
   useEffect(() => {
     return () => {
@@ -409,6 +447,7 @@ export function CisecoNavigationProvider({
         mode,
         slug,
         fallbackLogicalPath: activeState.logicalPath,
+        publicBasePath: resolvedPublicBasePath,
       });
       const prefetchKey = nextState.href;
       if (prefetchedHrefsRef.current.has(prefetchKey)) {
@@ -445,6 +484,7 @@ export function CisecoNavigationProvider({
       normalizedServerRoutedPaths,
       onPrefetchRoute,
       router,
+      resolvedPublicBasePath,
       slug,
       activeState.href,
       activeState.logicalPath,
@@ -474,6 +514,7 @@ export function CisecoNavigationProvider({
         mode,
         slug,
         fallbackLogicalPath: activeState.logicalPath,
+        publicBasePath: resolvedPublicBasePath,
       });
 
       if (nextState.isOwned) {
@@ -573,6 +614,7 @@ export function CisecoNavigationProvider({
       normalizedServerRoutedPaths,
       onPrefetchRoute,
       router,
+      resolvedPublicBasePath,
       slug,
       activeState.href,
       activeState.logicalPath,

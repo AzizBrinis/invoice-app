@@ -1,6 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
-import fs from "node:fs/promises";
-import path from "node:path";
+import { createHash } from "node:crypto";
 import { unstable_cache, revalidateTag } from "next/cache";
 import { cache } from "react";
 import { z, ZodError } from "zod";
@@ -94,13 +92,7 @@ export const CATALOG_PAYLOAD_REVALIDATE_SECONDS = 30;
 const WEBSITE_PRODUCT_STATS_CACHE_SECONDS = 30;
 const WEBSITE_PRODUCT_LIST_DEFAULT_PAGE_SIZE = 40;
 const WEBSITE_PRODUCT_LIST_MAX_PAGE_SIZE = 80;
-const WEBSITE_FAVICON_UPLOAD_PUBLIC_PREFIX = "/uploads/site-favicons";
 const WEBSITE_FAVICON_MAX_FILE_SIZE = 512 * 1024;
-const ALLOWED_WEBSITE_FAVICON_MIME_TYPES = new Map<string, string>([
-  ["image/png", "png"],
-  ["image/x-icon", "ico"],
-  ["image/vnd.microsoft.icon", "ico"],
-]);
 
 function websiteAdminTag(userId: string) {
   return `website-admin:${userId}`;
@@ -225,32 +217,31 @@ function normalizeWebsiteFaviconUrl(value: string | null | undefined) {
   return trimmed && trimmed.length > 0 ? trimmed : null;
 }
 
-function getWebsiteFaviconUploadDir(userId: string) {
-  return path.join(
-    process.cwd(),
-    "public",
-    "uploads",
-    "site-favicons",
-    userId,
-  );
-}
+function sniffFaviconContentType(buffer: Buffer) {
+  if (
+    buffer.length >= 8 &&
+    buffer[0] === 0x89 &&
+    buffer[1] === 0x50 &&
+    buffer[2] === 0x4e &&
+    buffer[3] === 0x47 &&
+    buffer[4] === 0x0d &&
+    buffer[5] === 0x0a &&
+    buffer[6] === 0x1a &&
+    buffer[7] === 0x0a
+  ) {
+    return "image/png" as const;
+  }
 
-function createWebsiteFaviconFileName(extension: string) {
-  return `${Date.now()}-${randomUUID()}.${extension}`;
-}
+  if (
+    buffer.length >= 4 &&
+    buffer[0] === 0x00 &&
+    buffer[1] === 0x00 &&
+    buffer[2] === 0x01 &&
+    buffer[3] === 0x00
+  ) {
+    return "image/x-icon" as const;
+  }
 
-function resolveWebsiteFaviconExtension(file: File) {
-  const mimeExtension = ALLOWED_WEBSITE_FAVICON_MIME_TYPES.get(file.type);
-  if (mimeExtension) {
-    return mimeExtension;
-  }
-  const extension = path.extname(file.name).toLowerCase();
-  if (extension === ".png") {
-    return "png";
-  }
-  if (extension === ".ico") {
-    return "ico";
-  }
   return null;
 }
 
@@ -261,52 +252,31 @@ export function validateWebsiteFaviconFile(file: File) {
   if (file.size > WEBSITE_FAVICON_MAX_FILE_SIZE) {
     throw new Error("Le favicon dépasse la taille maximale de 512 Ko.");
   }
-  const extension = resolveWebsiteFaviconExtension(file);
-  if (!extension) {
-    throw new Error("Format de favicon non supporté. Utilisez PNG ou ICO.");
-  }
-  return extension;
+  return file;
 }
 
 export async function saveWebsiteFaviconFile(
   file: File,
   userId: string,
 ): Promise<string> {
-  const extension = validateWebsiteFaviconFile(file);
-  const uploadDir = getWebsiteFaviconUploadDir(userId);
-  await fs.mkdir(uploadDir, { recursive: true });
-  const fileName = createWebsiteFaviconFileName(extension);
-  const absolutePath = path.join(uploadDir, fileName);
+  void userId;
+  validateWebsiteFaviconFile(file);
   const arrayBuffer = await file.arrayBuffer();
-  await fs.writeFile(absolutePath, Buffer.from(arrayBuffer));
-  return `${WEBSITE_FAVICON_UPLOAD_PUBLIC_PREFIX}/${userId}/${fileName}`.replace(
-    /\\/g,
-    "/",
-  );
+  const buffer = Buffer.from(arrayBuffer);
+  const contentType = sniffFaviconContentType(buffer);
+  if (!contentType) {
+    throw new Error("Format de favicon non supporté. Utilisez PNG ou ICO.");
+  }
+  return `data:${contentType};base64,${buffer.toString("base64")}`;
 }
 
 export async function deleteManagedWebsiteFavicon(
   faviconUrl: string | null,
   userId: string,
 ): Promise<void> {
-  if (!faviconUrl) {
-    return;
-  }
-  const normalized = faviconUrl.replace(/\\/g, "/");
-  const expectedPrefix = `${WEBSITE_FAVICON_UPLOAD_PUBLIC_PREFIX}/${userId}/`;
-  if (!normalized.startsWith(expectedPrefix)) {
-    return;
-  }
-  const relativePath = normalized.replace(/^\//, "");
-  if (relativePath.includes("..")) {
-    return;
-  }
-  const absolutePath = path.join(process.cwd(), "public", relativePath);
-  try {
-    await fs.rm(absolutePath, { force: true });
-  } catch (error) {
-    console.warn("[website] favicon cleanup failed", error);
-  }
+  void faviconUrl;
+  void userId;
+  return;
 }
 
 const signupProviderSchema = z
@@ -2192,6 +2162,62 @@ function buildMerchantReturnPolicyStructuredData(options: {
   } satisfies Record<string, unknown>;
 }
 
+function resolveReturnPolicyCandidateUrl(payload: CatalogPayload) {
+  const termsUrl = trimCatalogText(
+    payload.website.ecommerceSettings?.checkout?.termsUrl,
+  );
+  if (termsUrl.length > 0) {
+    return resolveCatalogAbsoluteUrl(payload.website, termsUrl) ?? termsUrl;
+  }
+
+  const cmsPages = payload.website.cmsPages ?? [];
+  const cmsCandidate =
+    cmsPages.find((page) =>
+      /(?:^|\/)(returns?|refund(?:s|-policy)?|retours?|remboursements?|conditions-generales|cgv)(?:$|\/)/i.test(
+        page.path,
+      ),
+    ) ??
+    cmsPages.find((page) =>
+      /(return|refund|retour|remboursement|conditions générales|cgv)/i.test(
+        page.title,
+      ),
+    ) ??
+    null;
+
+  if (!cmsCandidate) {
+    return null;
+  }
+
+  return resolveCatalogAbsoluteUrl(payload.website, cmsCandidate.path);
+}
+
+function buildGlobalMerchantReturnPolicyStructuredData(payload: CatalogPayload) {
+  const detailedPolicy = buildMerchantReturnPolicyStructuredData({ payload });
+  if (detailedPolicy) {
+    const returnLink = resolveReturnPolicyCandidateUrl(payload);
+    return {
+      ...detailedPolicy,
+      "@id": `${returnLink ?? buildCatalogCanonicalUrl({
+        payload,
+        path: "/",
+        locale: null,
+      })}#policy`,
+      merchantReturnLink: returnLink ?? undefined,
+    } satisfies Record<string, unknown>;
+  }
+
+  const returnLink = resolveReturnPolicyCandidateUrl(payload);
+  if (!returnLink) {
+    return undefined;
+  }
+
+  return {
+    "@type": "MerchantReturnPolicy",
+    "@id": `${returnLink}#policy`,
+    merchantReturnLink: returnLink,
+  } satisfies Record<string, unknown>;
+}
+
 function buildProductMetaTitle(options: {
   product: CatalogProduct;
   companyName: string;
@@ -2435,7 +2461,29 @@ export function resolveCatalogFaviconUrl(
     "slug" | "customDomain" | "domainStatus" | "faviconUrl"
   >,
 ) {
-  return resolveCatalogAbsoluteUrl(website, website.faviconUrl);
+  const faviconUrl = normalizeWebsiteFaviconUrl(website.faviconUrl);
+  if (!faviconUrl) {
+    return null;
+  }
+  if (!isInlineCatalogImageSource(faviconUrl)) {
+    return resolveCatalogAbsoluteUrl(website, faviconUrl);
+  }
+
+  const params = new URLSearchParams();
+  if (
+    !website.customDomain ||
+    website.domainStatus !== WebsiteDomainStatus.ACTIVE
+  ) {
+    params.set("slug", website.slug);
+  }
+  params.set(
+    "v",
+    createHash("sha1").update(faviconUrl).digest("hex").slice(0, 12),
+  );
+  const queryString = params.toString();
+  return queryString
+    ? `/api/catalogue/site-favicon?${queryString}`
+    : "/api/catalogue/site-favicon";
 }
 
 export function resolveWebsiteFaviconUrlFromWebsite(
@@ -3716,6 +3764,8 @@ function buildCatalogOrganizationStructuredData(options: {
       options.payload.website,
       options.payload.website.metadata?.socialImageUrl,
     );
+  const globalReturnPolicy =
+    buildGlobalMerchantReturnPolicyStructuredData(options.payload);
 
   return {
     "@context": "https://schema.org",
@@ -3733,6 +3783,7 @@ function buildCatalogOrganizationStructuredData(options: {
         }
       : undefined,
     sameAs: sameAs.length ? sameAs : undefined,
+    hasMerchantReturnPolicy: globalReturnPolicy ?? undefined,
   } satisfies Record<string, unknown>;
 }
 
@@ -3863,9 +3914,23 @@ export function resolveCatalogStructuredData(options: {
       const shippingDetails = buildOfferShippingDetailsStructuredData({
         payload,
       });
-      const hasMerchantReturnPolicy = buildMerchantReturnPolicyStructuredData({
+      const detailedReturnPolicy = buildMerchantReturnPolicyStructuredData({
         payload,
       });
+      const globalReturnPolicy = buildGlobalMerchantReturnPolicyStructuredData(
+        payload,
+      );
+      const globalReturnPolicyId =
+        globalReturnPolicy && typeof globalReturnPolicy["@id"] === "string"
+          ? globalReturnPolicy["@id"]
+          : null;
+      const hasMerchantReturnPolicy =
+        detailedReturnPolicy ??
+        (globalReturnPolicyId
+          ? {
+              "@id": globalReturnPolicyId,
+            }
+          : undefined);
       productStructuredData.offers = {
         "@type": "Offer",
         url: seo.metadata.canonicalUrl,
@@ -3900,6 +3965,7 @@ export function resolveCatalogStructuredData(options: {
     }
 
     structuredData.push(productStructuredData);
+    structuredData.push(organizationStructuredData);
 
     const faqStructuredData = buildProductFaqStructuredData(faqItems);
     if (faqStructuredData) {

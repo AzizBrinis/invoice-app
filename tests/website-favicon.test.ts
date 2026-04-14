@@ -1,87 +1,73 @@
-import fs from "node:fs/promises";
-import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
+import { describe, expect, it } from "vitest";
 import { WebsiteDomainStatus } from "@/lib/db/prisma";
 import {
-  deleteManagedWebsiteFavicon,
   resolveCatalogFaviconUrl,
   saveWebsiteFaviconFile,
   validateWebsiteFaviconFile,
 } from "@/server/website";
 
 const TEST_USER_ID = "tenant-favicon-test";
-const TEST_UPLOAD_DIR = path.join(
-  process.cwd(),
-  "public",
-  "uploads",
-  "site-favicons",
-  TEST_USER_ID,
-);
 
 function createPngFile(options?: { size?: number; name?: string; type?: string }) {
-  const size = options?.size ?? 8;
+  const size = options?.size ?? 16;
+  const bytes = new Uint8Array(size);
+  bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
   return new File(
-    [new Uint8Array(size)],
+    [bytes],
     options?.name ?? "favicon.png",
     { type: options?.type ?? "image/png" },
   );
 }
 
-afterEach(async () => {
-  await fs.rm(TEST_UPLOAD_DIR, { recursive: true, force: true });
-});
-
 describe("website favicon helpers", () => {
-  it("stores and deletes tenant-scoped favicon uploads", async () => {
+  it("stores favicon uploads as inline image data", async () => {
     const faviconUrl = await saveWebsiteFaviconFile(createPngFile(), TEST_USER_ID);
 
-    expect(faviconUrl).toMatch(
-      /^\/uploads\/site-favicons\/tenant-favicon-test\/.+\.png$/,
-    );
-    await expect(
-      fs.access(path.join(process.cwd(), "public", faviconUrl.replace(/^\//, ""))),
-    ).resolves.toBeUndefined();
-
-    await deleteManagedWebsiteFavicon(faviconUrl, TEST_USER_ID);
-
-    await expect(
-      fs.access(path.join(process.cwd(), "public", faviconUrl.replace(/^\//, ""))),
-    ).rejects.toThrow();
+    expect(faviconUrl).toMatch(/^data:image\/png;base64,/);
   });
 
   it("rejects oversized or unsupported favicon uploads", () => {
     expect(() =>
       validateWebsiteFaviconFile(createPngFile({ size: 600 * 1024 })),
     ).toThrow("Le favicon dépasse la taille maximale de 512 Ko.");
-
-    expect(() =>
-      validateWebsiteFaviconFile(
-        createPngFile({
-          name: "favicon.svg",
-          type: "image/svg+xml",
-        }),
-      ),
-    ).toThrow("Format de favicon non supporté. Utilisez PNG ou ICO.");
   });
 
-  it("builds favicon URLs against the active website origin and falls back cleanly", () => {
+  it("rejects unsupported favicon binary formats", async () => {
+    await expect(
+      saveWebsiteFaviconFile(
+        new File([new Uint8Array([1, 2, 3, 4])], "favicon.svg", {
+          type: "image/svg+xml",
+        }),
+        TEST_USER_ID,
+      ),
+    ).rejects.toThrow("Format de favicon non supporté. Utilisez PNG ou ICO.");
+  });
+
+  it("builds public favicon route URLs and falls back cleanly", () => {
+    const faviconDataUrl = "data:image/png;base64,AAAA";
+    const version = createHash("sha1")
+      .update(faviconDataUrl)
+      .digest("hex")
+      .slice(0, 12);
+
     expect(
       resolveCatalogFaviconUrl({
         slug: "demo-shop",
         customDomain: "shop.example.com",
         domainStatus: WebsiteDomainStatus.ACTIVE,
-        faviconUrl: "/uploads/site-favicons/tenant-favicon-test/demo.png",
+        faviconUrl: faviconDataUrl,
       }),
-    ).toBe("https://shop.example.com/uploads/site-favicons/tenant-favicon-test/demo.png");
+    ).toBe(`/api/catalogue/site-favicon?v=${version}`);
 
     expect(
       resolveCatalogFaviconUrl({
         slug: "demo-shop",
         customDomain: null,
         domainStatus: WebsiteDomainStatus.PENDING,
-        faviconUrl: "/uploads/site-favicons/tenant-favicon-test/demo.png",
+        faviconUrl: faviconDataUrl,
       }),
-    ).toBe("http://localhost:3000/uploads/site-favicons/tenant-favicon-test/demo.png");
+    ).toBe(`/api/catalogue/site-favicon?slug=demo-shop&v=${version}`);
 
     expect(
       resolveCatalogFaviconUrl({

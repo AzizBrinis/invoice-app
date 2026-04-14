@@ -965,13 +965,13 @@ describe("website builder page persistence", () => {
     expect(appPrimary.className).toBe(customDomainPrimary.className);
     expect(appPrimary.className).toContain("bg-white");
     expect(appPrimary.className).toContain("text-slate-950");
-    expect(appPrimary.className).not.toContain("dark:text-zinc-300");
+    expect(appPrimary.className).toContain("dark:!text-slate-950");
 
     expect(appSecondary.className).toBe(previewSecondary.className);
     expect(appSecondary.className).toBe(customDomainSecondary.className);
     expect(appSecondary.className).toContain("border-white/22");
     expect(appSecondary.className).toContain("text-white");
-    expect(appSecondary.className).not.toContain("dark:text-zinc-300");
+    expect(appSecondary.className).toContain("dark:!text-white");
 
     expect(appGhost.className).toBe(previewGhost.className);
     expect(appGhost.className).toBe(customDomainGhost.className);

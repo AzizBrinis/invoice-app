@@ -164,6 +164,13 @@ describe("ciseco collection routing", () => {
     expect(isOwnedCisecoPathname("/preview", "preview", "acme")).toBe(true);
   });
 
+  it("treats custom-domain root paths as owned public routes", () => {
+    expect(isOwnedCisecoPathname("/collections", "public", "acme", "/")).toBe(
+      true,
+    );
+    expect(isOwnedCisecoPathname("/about", "public", "acme", "/")).toBe(true);
+  });
+
   it("resolves logical paths from public and preview urls", () => {
     expect(
       resolveCisecoLogicalPath(
@@ -179,6 +186,18 @@ describe("ciseco collection routing", () => {
         "acme",
       ),
     ).toBe("/checkout");
+  });
+
+  it("resolves logical paths from custom-domain urls", () => {
+    expect(
+      resolveCisecoLogicalPath(
+        new URL("https://shop.example.com/collections?lang=en&page=2"),
+        "public",
+        "acme",
+        "/",
+        "/",
+      ),
+    ).toBe("/collections");
   });
 
   it("resolves scoped navigation state from relative hrefs", () => {
@@ -202,6 +221,18 @@ describe("ciseco collection routing", () => {
     ).toMatchObject({
       pathname: "/preview",
       logicalPath: "/product/chair",
+      isOwned: true,
+    });
+    expect(
+      resolveCisecoNavigationState({
+        href: "/collections?lang=en&page=2",
+        mode: "public",
+        slug: "acme",
+        publicBasePath: "/",
+      }),
+    ).toMatchObject({
+      pathname: "/collections",
+      logicalPath: "/collections",
       isOwned: true,
     });
   });

@@ -161,6 +161,14 @@ export function CollectionsPage({
     minPriceCents != null && maxPriceCents != null && minPriceCents > maxPriceCents
       ? minPriceCents
       : maxPriceCents;
+  const normalizedMinPriceValue =
+    minPriceCents != null && maxPriceCents != null && minPriceCents > maxPriceCents
+      ? requestedMaxPrice
+      : requestedMinPrice;
+  const normalizedMaxPriceValue =
+    minPriceCents != null && maxPriceCents != null && minPriceCents > maxPriceCents
+      ? requestedMinPrice
+      : requestedMaxPrice;
   const filteredProducts = useMemo(
     () =>
       filterCollectionCatalogItems(allProducts, {
@@ -243,8 +251,8 @@ export function CollectionsPage({
     Boolean(selectedCollectionSlug) ||
     selectedColorIds.length > 0 ||
     selectedSizeIds.length > 0 ||
-    requestedMinPrice.length > 0 ||
-    requestedMaxPrice.length > 0 ||
+    normalizedMinPriceValue.length > 0 ||
+    normalizedMaxPriceValue.length > 0 ||
     selectedSort !== "featured";
   const collectionProducts = useMemo<CollectionProduct[]>(
     () =>
@@ -287,8 +295,8 @@ export function CollectionsPage({
 
       const colorIds = nextState?.colorIds ?? selectedColorIds;
       const sizeIds = nextState?.sizeIds ?? selectedSizeIds;
-      const minPrice = nextState?.minPrice ?? requestedMinPrice;
-      const maxPrice = nextState?.maxPrice ?? requestedMaxPrice;
+      const minPrice = nextState?.minPrice ?? normalizedMinPriceValue;
+      const maxPrice = nextState?.maxPrice ?? normalizedMaxPriceValue;
       const sort = nextState?.sort ?? selectedSort;
       const page = nextState?.page ?? 1;
       const params = buildCollectionQueryParams({
@@ -309,8 +317,8 @@ export function CollectionsPage({
     },
     [
       homeHref,
-      requestedMaxPrice,
-      requestedMinPrice,
+      normalizedMaxPriceValue,
+      normalizedMinPriceValue,
       searchParams,
       selectedCollectionSlug,
       selectedColorIds,
@@ -339,7 +347,6 @@ export function CollectionsPage({
     localizeHref,
     pagination.page,
     replace,
-    requestedPage,
   ]);
 
   const navigateTo = useCallback(
@@ -499,10 +506,10 @@ export function CollectionsPage({
         });
       });
 
-    if (requestedMinPrice.length > 0) {
+    if (normalizedMinPriceValue.length > 0) {
       filters.push({
         key: "minPrice",
-        label: `${t("Min price")}: ${requestedMinPrice}`,
+        label: `${t("Min price")}: ${normalizedMinPriceValue}`,
         onRemove: () =>
           navigateTo(
             buildCollectionsHref({
@@ -513,10 +520,10 @@ export function CollectionsPage({
       });
     }
 
-    if (requestedMaxPrice.length > 0) {
+    if (normalizedMaxPriceValue.length > 0) {
       filters.push({
         key: "maxPrice",
-        label: `${t("Max price")}: ${requestedMaxPrice}`,
+        label: `${t("Max price")}: ${normalizedMaxPriceValue}`,
         onRemove: () =>
           navigateTo(
             buildCollectionsHref({
@@ -547,8 +554,8 @@ export function CollectionsPage({
     handleToggleColor,
     handleToggleSize,
     navigateTo,
-    requestedMaxPrice,
-    requestedMinPrice,
+    normalizedMaxPriceValue,
+    normalizedMinPriceValue,
     selectedCollection,
     selectedCollectionSlug,
     selectedSort,
@@ -668,8 +675,8 @@ export function CollectionsPage({
                 collectionOptions={collectionOptions}
                 colorOptions={colorOptions}
                 sizeOptions={sizeOptions}
-                minPriceValue={requestedMinPrice}
-                maxPriceValue={requestedMaxPrice}
+                minPriceValue={normalizedMinPriceValue}
+                maxPriceValue={normalizedMaxPriceValue}
                 hasActiveFilters={hasActiveQueryFilters}
                 onSelectCollection={handleSelectCollection}
                 onToggleColor={handleToggleColor}
@@ -686,8 +693,8 @@ export function CollectionsPage({
               collectionOptions={collectionOptions}
               colorOptions={colorOptions}
               sizeOptions={sizeOptions}
-              minPriceValue={requestedMinPrice}
-              maxPriceValue={requestedMaxPrice}
+              minPriceValue={normalizedMinPriceValue}
+              maxPriceValue={normalizedMaxPriceValue}
               hasActiveFilters={hasActiveQueryFilters}
               onSelectCollection={handleSelectCollection}
               onToggleColor={handleToggleColor}

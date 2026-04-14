@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { createHash } from "node:crypto";
 import { prisma } from "@/lib/db";
 import {
   convertQuoteRequestToQuote,
@@ -208,12 +209,17 @@ describe("catalog routing", () => {
   });
 
   it("uses the domain search param to resolve metadata", async () => {
+    const faviconDataUrl = "data:image/png;base64,AAAA";
+    const faviconVersion = createHash("sha1")
+      .update(faviconDataUrl)
+      .digest("hex")
+      .slice(0, 12);
     const payload = {
       website: {
         slug: "site-slug",
         customDomain: "shop.example.com",
         domainStatus: WebsiteDomainStatus.ACTIVE,
-        faviconUrl: "/uploads/site-favicons/tenant-1/favicon.png",
+        faviconUrl: faviconDataUrl,
         contact: { companyName: "Test Co" },
       },
       products: {
@@ -267,7 +273,7 @@ describe("catalog routing", () => {
     expect(metadata.openGraph?.siteName).toBe("Test Co");
     expect(metadata.icons?.icon).toEqual([
       {
-        url: "https://shop.example.com/uploads/site-favicons/tenant-1/favicon.png",
+        url: `/api/catalogue/site-favicon?v=${faviconVersion}`,
       },
     ]);
   });

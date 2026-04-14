@@ -22,7 +22,7 @@ const ITEMS: CollectionCatalogItem[] = [
     price: "120 TND",
     image: "/alpha.jpg",
     saleMode: "INSTANT",
-    unitAmountCents: 12000,
+    unitAmountCents: 120000,
     stockQuantity: 4,
     createdAtMs: 100,
     cartProduct: null,
@@ -39,7 +39,7 @@ const ITEMS: CollectionCatalogItem[] = [
     price: "80 TND",
     image: "/beta.jpg",
     saleMode: "INSTANT",
-    unitAmountCents: 8000,
+    unitAmountCents: 80000,
     stockQuantity: 2,
     createdAtMs: 250,
     cartProduct: null,
@@ -78,8 +78,8 @@ describe("ciseco collections helpers", () => {
       collectionSlug: "living",
       colorIds: ["oak"],
       sizeIds: ["m"],
-      minPriceCents: 10000,
-      maxPriceCents: 15000,
+      minPriceCents: 100000,
+      maxPriceCents: 150000,
     });
 
     expect(filtered.map((item) => item.id)).toEqual(["p1"]);
@@ -88,7 +88,8 @@ describe("ciseco collections helpers", () => {
   it("normalizes flexible price inputs before filtering", () => {
     expect(normalizeCollectionPriceInput(" 1 500,5 ")).toBe("1500.5");
     expect(normalizeCollectionPriceInput("TND 1,500.50")).toBe("1500.50");
-    expect(parseCollectionPriceToCents("1500.50")).toBe(150050);
+    expect(normalizeCollectionPriceInput("TND 1,500.500")).toBe("1500.500");
+    expect(parseCollectionPriceToCents("1500.50")).toBe(1500500);
     expect(normalizeCollectionPriceInput("abc")).toBe("");
   });
 

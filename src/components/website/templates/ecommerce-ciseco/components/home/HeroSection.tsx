@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
+import { Button } from "@/components/ui/button";
 import {
   clampHomeHeroSliderInterval,
   resolveHomeHeroContentBackground,
@@ -206,9 +207,6 @@ function ArrowIcon({ direction }: { direction: "left" | "right" }) {
   );
 }
 
-const HERO_SOLID_BUTTON_BASE_CLASS =
-  "inline-flex min-h-12 items-center justify-center gap-1.5 px-4 py-2.5 text-base font-medium leading-6 shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-white";
-
 const CONTENT_BACKGROUND_STYLES: Record<
   HomeHeroContentBackground,
   {
@@ -329,28 +327,28 @@ function SlideButtons({
               }),
             );
             return (
-              <a
+              <Button
                 key={button.id}
-                href={href}
+                asChild
+                variant="ghost"
                 className={clsx(
-                  HERO_SOLID_BUTTON_BASE_CLASS,
                   theme.buttonShape,
                   "min-h-10 max-w-full px-4 text-sm leading-5 shadow-none whitespace-normal sm:min-h-11 sm:px-5",
                   isImageTone
                     ? button.style === "secondary"
-                      ? "border border-white/22 bg-white/12 text-white hover:bg-white/18"
-                      : "bg-white text-slate-950 hover:bg-white/92"
+                      ? "border border-white/22 bg-white/12 text-white hover:bg-white/18 dark:!border-white/22 dark:!bg-white/12 dark:!text-white dark:hover:!bg-white/18"
+                      : "bg-white text-slate-950 hover:bg-white/92 dark:!bg-white dark:!text-slate-950 dark:hover:!bg-white/92"
                     : isDarkContentTone
                       ? button.style === "secondary"
-                        ? "border border-white/24 bg-white/10 text-white hover:bg-white/16"
-                        : "bg-white text-slate-950 hover:bg-white/92"
+                        ? "border border-white/24 bg-white/10 text-white hover:bg-white/16 dark:!border-white/24 dark:!bg-white/10 dark:!text-white dark:hover:!bg-white/16"
+                        : "bg-white text-slate-950 hover:bg-white/92 dark:!bg-white dark:!text-slate-950 dark:hover:!bg-white/92"
                       : button.style === "secondary"
-                      ? "border border-slate-300 bg-white text-slate-900 shadow-none hover:bg-slate-100"
-                      : "bg-slate-950 text-white hover:bg-slate-900",
+                      ? "border border-slate-300 bg-white text-slate-900 shadow-none hover:bg-slate-100 dark:!border-slate-300 dark:!bg-white dark:!text-slate-900 dark:hover:!bg-slate-100"
+                      : "bg-slate-950 text-white hover:bg-slate-900 dark:!bg-slate-950 dark:!text-white dark:hover:!bg-slate-900",
                 )}
               >
-                {t(button.label)}
-              </a>
+                <a href={href}>{t(button.label)}</a>
+              </Button>
             );
           })}
         </div>

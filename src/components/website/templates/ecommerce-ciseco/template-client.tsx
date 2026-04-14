@@ -199,6 +199,7 @@ export function EcommerceCisecoHomeTemplateClient({
       slug={data.website.slug}
       initialHref={initialHref}
       initialPath={path}
+      publicBasePath={resolvedByDomain ? "/" : undefined}
       onPrefetchRoute={prefetchLocalPage}
     >
       <CisecoLocaleProvider initialLocale={locale}>
