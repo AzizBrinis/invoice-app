@@ -21,7 +21,7 @@ export type CollectionProduct = {
   sizeCount?: number;
   availabilityLabel?: string | null;
   badge?: string | null;
-  rating?: number;
+  rating?: number | null;
   reviewCount?: number;
   colors?: string[];
   favorite?: boolean;
@@ -49,12 +49,17 @@ export function ProductGridCard({
   const productHref = localizeHref(product.href ?? "#");
   const productName = t(product.name);
   const [showCartFeedback, setShowCartFeedback] = useState(false);
-  const colorSwatches =
-    product.colorOptions?.length
-      ? product.colorOptions.map((option) => option.swatch)
-      : product.colors ?? [];
   const showReviews =
-    typeof product.rating === "number" && typeof product.reviewCount === "number";
+    typeof product.rating === "number" &&
+    Number.isFinite(product.rating) &&
+    typeof product.reviewCount === "number" &&
+    product.reviewCount > 0;
+  const reviewLabel = showReviews
+    ? t("{{reviewCount}} Reviews").replace(
+        "{{reviewCount}}",
+        String(product.reviewCount ?? 0),
+      )
+    : null;
   const showActions = product.showActions !== false;
 
   useEffect(() => {
@@ -178,40 +183,15 @@ export function ProductGridCard({
           >
             {product.price}
           </span>
-          {colorSwatches.length || product.sizeCount || showReviews ? (
+          {showReviews ? (
             <div className="flex flex-wrap items-center gap-2.5 text-[11px] text-slate-500">
-              {showReviews ? (
-                <div className="inline-flex items-center gap-1.5 rounded-full bg-slate-100/80 px-2.5 py-1 font-medium text-slate-600">
-                  <StarIcon className="h-3.5 w-3.5 text-amber-500" />
-                  <span className="tabular-nums text-slate-700">
-                    {product.rating!.toFixed(1)}
-                  </span>
-                  <span className="text-slate-400">
-                    ({product.reviewCount} {t("reviews")})
-                  </span>
-                </div>
-              ) : null}
-              {colorSwatches.length ? (
-                <div className="flex items-center gap-1.5 rounded-full bg-slate-100/80 px-2.5 py-1">
-                  {colorSwatches.slice(0, 5).map((color, index) => (
-                    <span
-                      key={`${product.id}-color-${index}`}
-                      className="h-2.5 w-2.5 rounded-full ring-1 ring-black/10 transition-transform duration-300 group-hover:scale-110"
-                      style={{ backgroundColor: color }}
-                    />
-                  ))}
-                  {product.colorOptions && product.colorOptions.length > 5 ? (
-                    <span className="text-[10px] font-medium text-slate-400">
-                      +{product.colorOptions.length - 5}
-                    </span>
-                  ) : null}
-                </div>
-              ) : null}
-              {product.sizeCount ? (
-                <span className="rounded-full bg-slate-100/80 px-2.5 py-1 font-medium text-slate-600">
-                  {product.sizeCount} {t(product.sizeCount === 1 ? "Size" : "Sizes")}
+              <div className="inline-flex items-center gap-1.5 rounded-full bg-slate-100/80 px-2.5 py-1 font-medium text-slate-600">
+                <StarIcon className="h-3.5 w-3.5 text-amber-500" />
+                <span className="tabular-nums text-slate-700">
+                  {product.rating!.toFixed(1)}
                 </span>
-              ) : null}
+                <span className="text-slate-400">{reviewLabel}</span>
+              </div>
             </div>
           ) : null}
         </div>

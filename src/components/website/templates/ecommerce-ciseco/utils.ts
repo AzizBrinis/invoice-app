@@ -18,16 +18,6 @@ import type { HomeProduct, PageDescriptor, ProductColorOption, ProductGalleryIma
 
 const CISECO_CURRENCY_CODE = "TND";
 const DEFAULT_PRICE_LABEL = "Price on request";
-const SWATCH_PALETTES = [
-  ["#e2e8f0", "#94a3b8", "#0f172a"],
-  ["#fecaca", "#fda4af", "#fb7185"],
-  ["#bbf7d0", "#86efac", "#22c55e"],
-  ["#e5e7eb", "#cbd5f5", "#6366f1"],
-  ["#fef9c3", "#fde68a", "#f59e0b"],
-  ["#dbeafe", "#93c5fd", "#1d4ed8"],
-  ["#fecdd3", "#f472b6", "#db2777"],
-  ["#ddd6fe", "#c4b5fd", "#8b5cf6"],
-];
 const VARIANT_COLOR_KEYS = ["color", "colour", "couleur"];
 const VARIANT_SIZE_KEYS = ["size", "taille"];
 const DEFAULT_COLOR_SWATCHES = [
@@ -652,6 +642,33 @@ export function formatCisecoPrice(options: {
   return DEFAULT_PRICE_LABEL;
 }
 
+function resolveApprovedReviewSummary(
+  reviews: CatalogPayload["products"]["all"][number]["reviews"],
+) {
+  const approvedReviews = (reviews ?? []).filter(
+    (review) =>
+      Number.isFinite(review.rating) &&
+      review.rating >= 1 &&
+      review.rating <= 5,
+  );
+
+  if (!approvedReviews.length) {
+    return {
+      rating: null,
+      reviewCount: 0,
+    };
+  }
+
+  const averageRating =
+    approvedReviews.reduce((sum, review) => sum + review.rating, 0) /
+    approvedReviews.length;
+
+  return {
+    rating: Number(averageRating.toFixed(1)),
+    reviewCount: approvedReviews.length,
+  };
+}
+
 export function buildHomeProducts(options: {
   products: CatalogPayload["products"]["all"];
   showPrices: boolean;
@@ -659,11 +676,11 @@ export function buildHomeProducts(options: {
   if (!options.products.length) return [];
   return options.products.map((product, index) => {
     const category = formatCisecoLabel(product.category, "General");
-    const rating = Math.max(4.3, 4.9 - index * 0.06);
     const unitPriceHTCents =
       product.saleMode === "INSTANT" ? product.priceHTCents : null;
     const vatRate = product.saleMode === "INSTANT" ? product.vatRate : null;
     const discount = resolveProductDiscount(product);
+    const reviewSummary = resolveApprovedReviewSummary(product.reviews);
     const unitAmountCents = resolveUnitAmountCents({
       saleMode: product.saleMode,
       priceTTCCents: product.priceTTCCents ?? null,
@@ -681,9 +698,10 @@ export function buildHomeProducts(options: {
         showPrices: options.showPrices,
         amountCents: unitAmountCents,
       }),
-      rating: Number(rating.toFixed(1)),
+      rating: reviewSummary.rating,
+      reviewCount: reviewSummary.reviewCount,
       image: resolveProductImage(product, index),
-      colors: SWATCH_PALETTES[index % SWATCH_PALETTES.length],
+      colors: [],
       badge: index < 2 ? "New" : index === 2 ? "Featured" : undefined,
       slug: resolveProductSlug(product),
       saleMode: product.saleMode,

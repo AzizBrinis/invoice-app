@@ -84,6 +84,10 @@ import {
   listApprovedProductReviewsForProducts,
   type PublicProductReview,
 } from "@/server/product-review-queries";
+import {
+  listApprovedSiteReviews,
+  type PublicSiteReview,
+} from "@/server/site-review-queries";
 import type { CatalogViewerState } from "@/lib/catalog-viewer";
 
 const slugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -740,6 +744,7 @@ export type CatalogPayload = {
     featured: CatalogProduct[];
     all: CatalogProduct[];
   };
+  siteReviews: PublicSiteReview[];
   currentCmsPage: CatalogWebsiteCmsPage | null;
   viewer?: CatalogViewerState;
 };
@@ -4325,10 +4330,16 @@ const readCatalogProductsCached = cache(
     listCatalogProducts(userId, { includeInactive }),
 );
 
+const readCatalogSiteReviewsCached = cache(
+  async (userId: string, websiteId: string) =>
+    listApprovedSiteReviews({ userId, websiteId }),
+);
+
 async function getCatalogDataForWebsite(website: WebsiteConfig) {
-  const [settings, products] = await Promise.all([
+  const [settings, products, siteReviews] = await Promise.all([
     getSettings(website.userId),
     readCatalogProductsCached(website.userId, website.showInactiveProducts),
+    readCatalogSiteReviewsCached(website.userId, website.id),
   ]);
   const ecommerceSettings = resolveEcommerceSettingsFromWebsite(website, {
     includeSecrets: true,
@@ -4341,6 +4352,7 @@ async function getCatalogDataForWebsite(website: WebsiteConfig) {
     settings,
     products,
     featured,
+    siteReviews,
   };
 }
 
@@ -4384,7 +4396,7 @@ async function buildCatalogPayloadFromWebsite(
   website: WebsiteConfig,
   options?: { path?: string | null },
 ) {
-  const [{ settings, products, featured }, cmsPages, currentCmsPage] =
+  const [{ settings, products, featured, siteReviews }, cmsPages, currentCmsPage] =
     await Promise.all([
       getCatalogDataForWebsite(website),
       listCatalogWebsiteCmsPageLinks(website.id),
@@ -4443,6 +4455,7 @@ async function buildCatalogPayloadFromWebsite(
       featured,
       all: products,
     },
+    siteReviews,
     currentCmsPage,
   } satisfies CatalogPayload;
 }

@@ -261,6 +261,8 @@ export function CollectionsPage({
         name: product.name,
         subtitle: product.categoryLabel,
         price: product.price,
+        rating: product.rating ?? undefined,
+        reviewCount: product.reviewCount,
         href: buildCisecoHref(homeHref, `/produit/${product.slug}`),
         cartProduct: product.cartProduct,
         saleMode: product.saleMode,

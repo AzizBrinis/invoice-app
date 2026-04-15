@@ -40,6 +40,7 @@ function createPayload(): CatalogPayload {
       accentColor: "#22c55e",
       theme: WebsiteThemeMode.LIGHT,
       showPrices: true,
+      faviconUrl: null,
       ecommerceSettings: {
         payments: {
           methods: {
@@ -188,6 +189,7 @@ function createPayload(): CatalogPayload {
         },
       ],
     },
+    siteReviews: [],
     currentCmsPage: null,
   };
 }

@@ -36,6 +36,8 @@ export type CollectionCatalogItem = {
   categoryLabel: string;
   categorySlug: string;
   price: string;
+  rating: number | null;
+  reviewCount: number;
   image: string;
   saleMode: CatalogPayload["products"]["all"][number]["saleMode"];
   unitAmountCents: number | null;
@@ -252,6 +254,8 @@ export function buildCollectionCatalogItems(options: {
         categoryLabel,
         categorySlug,
         price: homeProduct.price,
+        rating: homeProduct.rating ?? null,
+        reviewCount: homeProduct.reviewCount ?? 0,
         image: homeProduct.image,
         saleMode: product.saleMode,
         unitAmountCents: homeProduct.unitAmountCents,

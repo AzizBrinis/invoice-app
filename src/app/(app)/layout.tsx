@@ -72,7 +72,8 @@ const FULL_APP_NAV_ITEMS: NavItem[] = [
       { label: "Commandes", href: "/site-web/commandes" },
       { label: "Demandes de devis", href: "/site-web/demandes-de-devis" },
       { label: "Messages de contact", href: "/site-web/messages-contact" },
-      { label: "Avis produits", href: "/site-web/avis" },
+      { label: "Avis du site", href: "/site-web/avis" },
+      { label: "Avis produits", href: "/site-web/avis-produits" },
       {
         label: "Personnalisation avancée",
         href: "/site-web/personnalisation-avancee",

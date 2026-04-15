@@ -4,6 +4,7 @@ import type {
   WebsiteBuilderMediaAsset,
   WebsiteBuilderSection,
 } from "@/lib/website/builder";
+import type { CatalogPayload } from "@/server/website";
 import type { HomeProduct, HomeProductStatus, ThemeTokens } from "../../types";
 import { useAccountProfile } from "../../hooks/useAccountProfile";
 import { useCisecoI18n } from "../../i18n";
@@ -34,6 +35,7 @@ type HomeSectionsProps = {
   baseLink: (target: string) => string;
   sections: WebsiteBuilderSection[];
   mediaLibrary: WebsiteBuilderMediaAsset[];
+  siteReviews: CatalogPayload["siteReviews"];
   hasBuilder: boolean;
 };
 
@@ -47,6 +49,7 @@ export function HomeSections({
   baseLink,
   sections,
   mediaLibrary,
+  siteReviews,
   hasBuilder,
 }: HomeSectionsProps) {
   const { t } = useCisecoI18n();
@@ -234,6 +237,7 @@ export function HomeSections({
             theme={theme}
             section={section}
             mediaLibrary={mediaLibrary}
+            siteReviews={siteReviews}
           />
         );
       default:
@@ -304,6 +308,7 @@ export function HomeSections({
                 theme={theme}
                 section={section}
                 mediaLibrary={mediaLibrary}
+                siteReviews={siteReviews}
               />
             );
           case "products":
@@ -375,7 +380,7 @@ export function HomeSections({
           emptyMessage={emptyMessage}
           errorMessage={errorMessage}
         />
-        <TestimonialsSection theme={theme} />
+        <TestimonialsSection theme={theme} siteReviews={siteReviews} />
       </>
     );
   }

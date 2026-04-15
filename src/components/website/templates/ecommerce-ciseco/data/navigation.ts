@@ -16,39 +16,39 @@ export const HERO_BADGES = [
 
 export const FOOTER_LINKS: FooterLinkGroup[] = [
   {
-    title: "Browse",
+    title: "Parcourir",
     links: [
-      { label: "Home", href: "/" },
+      { label: "Accueil", href: "/" },
       { label: "Collections", href: "/collections" },
-      { label: "Search", href: "/search" },
-      { label: "Cart", href: "/cart" },
+      { label: "Recherche", href: "/search" },
+      { label: "Panier", href: "/cart" },
     ],
   },
   {
-    title: "Company",
+    title: "Entreprise",
     links: [
-      { label: "About Us", href: "/about" },
+      { label: "À propos", href: "/about" },
       { label: "Blog", href: "/blog" },
       { label: "Contact", href: "/contact" },
-      { label: "Checkout", href: "/checkout" },
+      { label: "Paiement", href: "/checkout" },
     ],
   },
   {
-    title: "Account",
+    title: "Compte",
     links: [
-      { label: "Sign In", href: "/login" },
-      { label: "Create Account", href: "/signup" },
-      { label: "Wishlists", href: "/account/wishlists" },
-      { label: "Orders", href: "/account/orders" },
+      { label: "Connexion", href: "/login" },
+      { label: "Créer un compte", href: "/signup" },
+      { label: "Favoris", href: "/account/wishlists" },
+      { label: "Commandes", href: "/account/orders" },
     ],
   },
   {
-    title: "More",
+    title: "Plus",
     links: [
       { label: "Collections", href: "/collections" },
-      { label: "Search", href: "/search" },
+      { label: "Recherche", href: "/search" },
       { label: "Contact", href: "/contact" },
-      { label: "About Us", href: "/about" },
+      { label: "À propos", href: "/about" },
     ],
   },
 ];

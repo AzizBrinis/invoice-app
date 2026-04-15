@@ -62,6 +62,8 @@ const FRENCH_TRANSLATIONS: Record<string, string> = {
   "Hero illustration": "Illustration principale",
   "Previous slide": "Diapositive précédente",
   "Next slide": "Diapositive suivante",
+  "Previous testimonial": "Témoignage précédent",
+  "Next testimonial": "Témoignage suivant",
   "Latest additions": "Dernières nouveautés",
   "Fresh placeholder cards": "Nouvelles cartes de démonstration",
   "A clean set of reusable sample items ready to be replaced with real catalog content.":
@@ -327,6 +329,12 @@ const FRENCH_TRANSLATIONS: Record<string, string> = {
   "People love our products": "Les gens adorent nos produits",
   "Neutral testimonials make it easy to preview social proof placement.":
     "Des témoignages neutres facilitent l'aperçu de la preuve sociale.",
+  "Approved customer testimonials appear here once you publish them.":
+    "Les témoignages clients approuvés apparaissent ici après publication.",
+  "No testimonials are published yet.":
+    "Aucun témoignage n'est publié pour le moment.",
+  "Approved site reviews will appear here.":
+    "Les avis site approuvés apparaîtront ici.",
   "Featured highlight": "Mise en avant",
   "Highlight an announcement or offer":
     "Mettez en avant une annonce ou une offre",
@@ -519,6 +527,7 @@ const FRENCH_TRANSLATIONS: Record<string, string> = {
   Brown: "Marron",
   Green: "Vert",
   "Go to slide": "Aller à la diapositive",
+  "Go to testimonial": "Aller au témoignage",
   "Please sign in.": "Veuillez vous connecter.",
   "Name is required.": "Le nom est obligatoire.",
   "Invalid email address.": "Adresse e-mail invalide.",
@@ -743,6 +752,10 @@ const EN_TRANSLATIONS: Record<string, string> = {
   "Langue": "Language",
   Devise: "Currency",
   "À propos": "About",
+  "Aucun témoignage n'est publié pour le moment.":
+    "No testimonials are published yet.",
+  "Les avis site approuvés apparaîtront ici.":
+    "Approved site reviews will appear here.",
   "Voir les détails": "View details",
   "Écrire un avis": "Write a review",
   "{{reviewCount}} avis": "{{reviewCount}} Reviews",

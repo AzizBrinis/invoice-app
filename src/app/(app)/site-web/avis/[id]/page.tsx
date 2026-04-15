@@ -8,16 +8,18 @@ import {
   type FlashMessage,
 } from "@/components/ui/flash-messages";
 import { FormSubmitButton } from "@/components/ui/form-submit-button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  approveProductReviewAction,
-  declineProductReviewAction,
-  markProductReviewPendingAction,
+  approveSiteReviewAction,
+  declineSiteReviewAction,
+  markSiteReviewPendingAction,
+  updateSiteReviewAction,
 } from "@/app/(app)/site-web/avis/actions";
 import {
-  getProductReview,
-  type ProductReviewStatus,
-} from "@/server/product-reviews";
+  getSiteReview,
+  type SiteReviewStatus,
+} from "@/server/site-reviews";
 
 export const dynamic = "force-dynamic";
 
@@ -28,13 +30,13 @@ type ReviewDetailPageProps = {
   searchParams?: Promise<SearchParams>;
 };
 
-const STATUS_LABELS: Record<ProductReviewStatus, string> = {
+const STATUS_LABELS: Record<SiteReviewStatus, string> = {
   PENDING: "En attente",
   APPROVED: "Approuvé",
   DECLINED: "Refusé",
 };
 
-const STATUS_VARIANTS: Record<ProductReviewStatus, "success" | "warning" | "danger"> = {
+const STATUS_VARIANTS: Record<SiteReviewStatus, "success" | "warning" | "danger"> = {
   PENDING: "warning",
   APPROVED: "success",
   DECLINED: "danger",
@@ -48,13 +50,13 @@ function resolveMessage(
   return Array.isArray(value) ? value[0] ?? null : value ?? null;
 }
 
-export default async function ReviewDetailPage({
+export default async function SiteReviewDetailPage({
   params,
   searchParams,
 }: ReviewDetailPageProps) {
   const { id } = await params;
   const resolvedSearchParams: SearchParams = (await searchParams) ?? {};
-  const review = await getProductReview(id);
+  const review = await getSiteReview(id);
   if (!review) {
     notFound();
   }
@@ -77,10 +79,10 @@ export default async function ReviewDetailPage({
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100">
-            Avis produit
+            Avis du site
           </h1>
           <p className="text-sm text-zinc-600 dark:text-zinc-300">
-            Reçu le{" "}
+            Créé le{" "}
             {review.createdAt.toLocaleString("fr-FR", {
               dateStyle: "full",
               timeStyle: "short",
@@ -99,92 +101,142 @@ export default async function ReviewDetailPage({
 
       <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
         <section className="card space-y-6 p-6">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-zinc-500 dark:text-zinc-400">
-                Produit
-              </p>
-              <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                {review.productName}
-              </p>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                {review.productSku}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-zinc-500 dark:text-zinc-400">
-                Note
-              </p>
-              <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                {review.rating}/5
-              </p>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-zinc-500 dark:text-zinc-400">
-                Auteur
-              </p>
-              <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                {review.authorName}
-              </p>
-              {review.authorEmail ? (
-                <a
-                  className="text-xs font-medium text-[var(--site-accent)] hover:underline"
-                  href={`mailto:${review.authorEmail}`}
-                >
-                  {review.authorEmail}
-                </a>
-              ) : null}
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-zinc-500 dark:text-zinc-400">
-                Client lié
-              </p>
-              <p className="text-sm text-zinc-700 dark:text-zinc-200">
-                {review.clientName ?? review.clientEmail ?? "Invité"}
-              </p>
-            </div>
-            {review.sourcePath ? (
-              <div>
-                <p className="text-xs uppercase tracking-[0.3em] text-zinc-500 dark:text-zinc-400">
-                  Page source
-                </p>
-                <p className="text-sm text-zinc-700 dark:text-zinc-200">
-                  {review.sourcePath}
-                </p>
-              </div>
-            ) : null}
-            {review.sourceDomain || review.sourceSlug ? (
-              <div>
-                <p className="text-xs uppercase tracking-[0.3em] text-zinc-500 dark:text-zinc-400">
-                  Site
-                </p>
-                <p className="text-sm text-zinc-700 dark:text-zinc-200">
-                  {review.sourceDomain ?? review.sourceSlug}
-                </p>
-              </div>
-            ) : null}
+          <div>
+            <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+              Contenu affiché
+            </h2>
+            <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+              Les champs ci-dessous alimentent uniquement les témoignages généraux du site.
+            </p>
           </div>
 
-          <div>
-            <p className="text-xs uppercase tracking-[0.3em] text-zinc-500 dark:text-zinc-400">
-              Avis
-            </p>
-            <div className="mt-2 space-y-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100">
-              {review.title ? (
-                <p className="font-semibold">{review.title}</p>
-              ) : null}
-              <p className="whitespace-pre-line">{review.body}</p>
+          <form
+            action={updateSiteReviewAction.bind(null, review.id)}
+            className="grid gap-4 sm:grid-cols-2"
+          >
+            <input type="hidden" name="redirectTo" value={redirectBase} />
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                Nom
+              </label>
+              <Input
+                name="authorName"
+                required
+                defaultValue={review.authorName}
+              />
             </div>
-          </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                Email
+              </label>
+              <Input
+                name="authorEmail"
+                type="email"
+                defaultValue={review.authorEmail ?? ""}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                Rôle / contexte
+              </label>
+              <Input
+                name="authorRole"
+                defaultValue={review.authorRole ?? ""}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                Photo
+              </label>
+              <Input
+                name="avatarUrl"
+                defaultValue={review.avatarUrl ?? ""}
+                placeholder="https://... ou /images/..."
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                Note
+              </label>
+              <select
+                name="rating"
+                defaultValue={String(review.rating)}
+                className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 text-sm text-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100"
+              >
+                {[5, 4, 3, 2, 1].map((value) => (
+                  <option key={value} value={value}>
+                    {value}/5
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                Statut
+              </label>
+              <select
+                name="status"
+                defaultValue={review.status}
+                className="h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 text-sm text-zinc-900 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100"
+              >
+                {(["PENDING", "APPROVED", "DECLINED"] as const).map((value) => (
+                  <option key={value} value={value}>
+                    {STATUS_LABELS[value]}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1 sm:col-span-2">
+              <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                Page source
+              </label>
+              <Input
+                name="sourcePath"
+                defaultValue={review.sourcePath ?? ""}
+                placeholder="/"
+              />
+            </div>
+            <div className="space-y-1 sm:col-span-2">
+              <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                Titre optionnel
+              </label>
+              <Input name="title" defaultValue={review.title ?? ""} />
+            </div>
+            <div className="space-y-1 sm:col-span-2">
+              <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                Avis
+              </label>
+              <Textarea
+                name="body"
+                required
+                minLength={10}
+                maxLength={2000}
+                defaultValue={review.body}
+              />
+            </div>
+            <div className="space-y-1 sm:col-span-2">
+              <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                Motif interne
+              </label>
+              <Textarea
+                name="reason"
+                defaultValue={review.moderationReason ?? ""}
+                placeholder="Visible uniquement côté administration"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <FormSubmitButton>Enregistrer</FormSubmitButton>
+            </div>
+          </form>
         </section>
 
         <aside className="card h-fit space-y-4 p-6">
           <div>
             <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-              Modération
+              Modération site
             </h2>
             <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-              Seuls les avis approuvés sont visibles sur la fiche produit et dans les données SEO.
+              Seuls les avis approuvés sont visibles dans les témoignages Accueil et À propos.
             </p>
           </div>
           {review.moderatedAt ? (
@@ -197,7 +249,7 @@ export default async function ReviewDetailPage({
             </p>
           ) : null}
           <form
-            action={approveProductReviewAction.bind(null, review.id)}
+            action={approveSiteReviewAction.bind(null, review.id)}
             className="space-y-3"
           >
             <input type="hidden" name="redirectTo" value={redirectBase} />
@@ -209,7 +261,7 @@ export default async function ReviewDetailPage({
             </FormSubmitButton>
           </form>
           <form
-            action={declineProductReviewAction.bind(null, review.id)}
+            action={declineSiteReviewAction.bind(null, review.id)}
             className="space-y-3"
           >
             <Textarea
@@ -227,7 +279,7 @@ export default async function ReviewDetailPage({
             </FormSubmitButton>
           </form>
           <form
-            action={markProductReviewPendingAction.bind(null, review.id)}
+            action={markSiteReviewPendingAction.bind(null, review.id)}
             className="space-y-3"
           >
             <input type="hidden" name="redirectTo" value={redirectBase} />
@@ -239,6 +291,11 @@ export default async function ReviewDetailPage({
               Remettre en attente
             </FormSubmitButton>
           </form>
+
+          <div className="border-t border-zinc-200 pt-4 text-xs text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
+            <p>Site : {review.sourceDomain ?? review.sourceSlug ?? review.websiteSlug}</p>
+            <p>Client lié : {review.clientName ?? review.clientEmail ?? "Aucun"}</p>
+          </div>
         </aside>
       </div>
     </div>

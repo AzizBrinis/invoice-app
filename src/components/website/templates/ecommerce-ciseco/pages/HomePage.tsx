@@ -53,6 +53,7 @@ type HomePageProps = {
   catalogSlug: string;
   baseLink: (target: string) => string;
   products: CatalogPayload["products"];
+  siteReviews?: CatalogPayload["siteReviews"];
   showPrices: boolean;
   builder?: WebsiteBuilderPageConfig | null;
 };
@@ -70,6 +71,7 @@ export function HomePage({
   catalogSlug,
   baseLink,
   products,
+  siteReviews = [],
   showPrices,
   builder,
 }: HomePageProps) {
@@ -118,6 +120,9 @@ export function HomePage({
     () =>
       PRODUCT_CARDS.map((product, index) => ({
         ...product,
+        rating: null,
+        reviewCount: 0,
+        colors: [],
         slug: `fallback-${index + 1}`,
         saleMode: "INSTANT" as const,
         unitAmountCents: null,
@@ -176,6 +181,7 @@ export function HomePage({
           baseLink={baseLink}
           sections={builder?.sections ?? []}
           mediaLibrary={builder?.mediaLibrary ?? []}
+          siteReviews={siteReviews}
           hasBuilder={Boolean(builder)}
         />
       </main>

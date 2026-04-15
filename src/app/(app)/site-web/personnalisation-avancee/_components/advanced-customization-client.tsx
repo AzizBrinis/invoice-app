@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { CatalogPage } from "@/components/website/catalog-page";
+import { FOOTER_SHORTCUT_ICON_OPTIONS } from "@/components/website/templates/ecommerce-ciseco/data/footer";
 import NextImage from "next/image";
 import type { CatalogPayload, SignupSettingsInput } from "@/server/website";
 import {
@@ -19,6 +20,10 @@ import type {
   WebsiteBuilderSection,
   WebsiteBuilderMediaAsset,
   WebsiteBuilderButton,
+  WebsiteBuilderFooter,
+  WebsiteBuilderFooterLink,
+  WebsiteBuilderFooterLinkGroup,
+  WebsiteBuilderFooterShortcut,
   WebsiteBuilderItem,
 } from "@/lib/website/builder";
 import { WEBSITE_MEDIA_PLACEHOLDERS } from "@/lib/website/placeholders";
@@ -1553,6 +1558,144 @@ export function AdvancedCustomizationClient({
     }));
   }
 
+  function updateFooter(
+    updater: (footer: WebsiteBuilderFooter) => WebsiteBuilderFooter,
+  ) {
+    markBuilderDirty();
+    setConfig((prev) => ({
+      ...prev,
+      footer: updater(prev.footer),
+    }));
+  }
+
+  function updateFooterShortcut(
+    shortcutId: string,
+    changes: Partial<WebsiteBuilderFooterShortcut>,
+  ) {
+    updateFooter((footer) => ({
+      ...footer,
+      shortcuts: footer.shortcuts.map((shortcut) =>
+        shortcut.id === shortcutId ? { ...shortcut, ...changes } : shortcut,
+      ),
+    }));
+  }
+
+  function addFooterShortcut() {
+    const fallbackIcon = FOOTER_SHORTCUT_ICON_OPTIONS[0];
+    if (!fallbackIcon || config.footer.shortcuts.length >= 8) {
+      return;
+    }
+    updateFooter((footer) => ({
+      ...footer,
+      shortcuts: [
+        ...footer.shortcuts,
+        {
+          id: generateId("footer-shortcut"),
+          label: fallbackIcon.label,
+          href: "/",
+          icon: fallbackIcon.value,
+        },
+      ],
+    }));
+  }
+
+  function removeFooterShortcut(shortcutId: string) {
+    updateFooter((footer) => ({
+      ...footer,
+      shortcuts: footer.shortcuts.filter((shortcut) => shortcut.id !== shortcutId),
+    }));
+  }
+
+  function updateFooterGroup(
+    groupId: string,
+    changes: Partial<WebsiteBuilderFooterLinkGroup>,
+  ) {
+    updateFooter((footer) => ({
+      ...footer,
+      linkGroups: footer.linkGroups.map((group) =>
+        group.id === groupId ? { ...group, ...changes } : group,
+      ),
+    }));
+  }
+
+  function addFooterGroup() {
+    if (config.footer.linkGroups.length >= 6) {
+      return;
+    }
+    updateFooter((footer) => ({
+      ...footer,
+      linkGroups: [
+        ...footer.linkGroups,
+        {
+          id: generateId("footer-group"),
+          title: "Nouveau groupe",
+          links: [],
+        },
+      ],
+    }));
+  }
+
+  function removeFooterGroup(groupId: string) {
+    updateFooter((footer) => ({
+      ...footer,
+      linkGroups: footer.linkGroups.filter((group) => group.id !== groupId),
+    }));
+  }
+
+  function updateFooterGroupLink(
+    groupId: string,
+    linkIndex: number,
+    changes: Partial<WebsiteBuilderFooterLink>,
+  ) {
+    updateFooter((footer) => ({
+      ...footer,
+      linkGroups: footer.linkGroups.map((group) =>
+        group.id !== groupId
+          ? group
+          : {
+              ...group,
+              links: group.links.map((link, index) =>
+                index === linkIndex ? { ...link, ...changes } : link,
+              ),
+            },
+      ),
+    }));
+  }
+
+  function addFooterGroupLink(groupId: string) {
+    updateFooter((footer) => ({
+      ...footer,
+      linkGroups: footer.linkGroups.map((group) =>
+        group.id !== groupId || group.links.length >= 8
+          ? group
+          : {
+              ...group,
+              links: [
+                ...group.links,
+                {
+                  label: "Nouveau lien",
+                  href: "/",
+                },
+              ],
+            },
+      ),
+    }));
+  }
+
+  function removeFooterGroupLink(groupId: string, linkIndex: number) {
+    updateFooter((footer) => ({
+      ...footer,
+      linkGroups: footer.linkGroups.map((group) =>
+        group.id !== groupId
+          ? group
+          : {
+              ...group,
+              links: group.links.filter((_, index) => index !== linkIndex),
+            },
+      ),
+    }));
+  }
+
   function updateMediaAsset(assetId: string, changes: Partial<WebsiteBuilderMediaAsset>) {
     updateActivePage((page) => ({
       ...page,
@@ -2796,7 +2939,7 @@ export function AdvancedCustomizationClient({
             <section className="card space-y-4 p-6">
               <div>
                 <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                  Signup
+                  Inscription
                 </h2>
                 <p className="text-xs text-zinc-500 dark:text-zinc-400">
                   Activez les fournisseurs sociaux et la redirection après inscription.
@@ -2891,6 +3034,272 @@ export function AdvancedCustomizationClient({
                     </div>
                   );
                 })}
+              </div>
+            </section>
+          ) : null}
+
+          {isCisecoTemplate ? (
+            <section className="card space-y-5 p-6">
+              <div>
+                <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                  Pied de page
+                </h2>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Personnalisez l’accroche, les raccourcis, les colonnes de liens et la ligne
+                  légale du bas.
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                <Textarea
+                  value={config.footer.description}
+                  placeholder="Texte d’introduction du footer"
+                  rows={3}
+                  onChange={(event) =>
+                    updateFooter((footer) => ({
+                      ...footer,
+                      description: event.target.value,
+                    }))
+                  }
+                />
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Input
+                    value={config.footer.infoTitle}
+                    placeholder="Titre du bloc informations"
+                    onChange={(event) =>
+                      updateFooter((footer) => ({
+                        ...footer,
+                        infoTitle: event.target.value,
+                      }))
+                    }
+                  />
+                  <Input
+                    value={config.footer.cmsTitle}
+                    placeholder="Titre des pages CMS"
+                    onChange={(event) =>
+                      updateFooter((footer) => ({
+                        ...footer,
+                        cmsTitle: event.target.value,
+                      }))
+                    }
+                  />
+                </div>
+                <Textarea
+                  value={config.footer.infoBody}
+                  placeholder={[
+                    "Techno Smart",
+                    "Rue Habib Bourguiba, Immeuble La Jarre",
+                    "8000 Nabeul",
+                    "Tunisie",
+                    "Appelez-nous : 99 699 280",
+                    "Envoyez-nous un e-mail : support@techno-smart.tn",
+                  ].join("\n")}
+                  rows={7}
+                  onChange={(event) =>
+                    updateFooter((footer) => ({
+                      ...footer,
+                      infoBody: event.target.value,
+                    }))
+                  }
+                />
+                <div className="grid gap-4 md:grid-cols-1">
+                  <Input
+                    value={config.footer.bottomText}
+                    placeholder="{{companyName}}. Tous droits réservés."
+                    onChange={(event) =>
+                      updateFooter((footer) => ({
+                        ...footer,
+                        bottomText: event.target.value,
+                      }))
+                    }
+                  />
+                </div>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Variables disponibles dans la ligne légale: <code>{"{{companyName}}"}</code>{" "}
+                  et <code>{"{{year}}"}</code>.
+                </p>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.3em] text-zinc-500 dark:text-zinc-400">
+                      Raccourcis icônes
+                    </p>
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                      Icônes rondes affichées sous le texte du footer.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="text-xs text-[var(--site-accent)] disabled:text-zinc-400 dark:disabled:text-zinc-600"
+                    disabled={config.footer.shortcuts.length >= 8}
+                    onClick={addFooterShortcut}
+                  >
+                    Ajouter un raccourci
+                  </button>
+                </div>
+                {config.footer.shortcuts.length ? (
+                  <div className="space-y-3">
+                    {config.footer.shortcuts.map((shortcut) => (
+                      <div
+                        key={shortcut.id}
+                        className="rounded-2xl border border-zinc-200 p-4 dark:border-zinc-800"
+                      >
+                        <div className="flex items-center justify-between text-xs">
+                          <p className="font-medium text-zinc-700 dark:text-zinc-200">
+                            {shortcut.label || "Raccourci"}
+                          </p>
+                          <button
+                            type="button"
+                            className="text-red-500"
+                            onClick={() => removeFooterShortcut(shortcut.id)}
+                          >
+                            Supprimer
+                          </button>
+                        </div>
+                        <div className="mt-3 grid gap-3 md:grid-cols-[1fr_1fr_180px]">
+                          <Input
+                            placeholder="Libellé"
+                            value={shortcut.label}
+                            onChange={(event) =>
+                              updateFooterShortcut(shortcut.id, {
+                                label: event.target.value,
+                              })
+                            }
+                          />
+                          <Input
+                            placeholder="/contact"
+                            value={shortcut.href}
+                            onChange={(event) =>
+                              updateFooterShortcut(shortcut.id, {
+                                href: event.target.value,
+                              })
+                            }
+                          />
+                          <select
+                            className="input"
+                            value={shortcut.icon}
+                            onChange={(event) =>
+                              updateFooterShortcut(shortcut.id, {
+                                icon: event.target
+                                  .value as WebsiteBuilderFooterShortcut["icon"],
+                              })
+                            }
+                          >
+                            {FOOTER_SHORTCUT_ICON_OPTIONS.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-zinc-200 p-4 text-sm text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
+                    Supprimez tous les raccourcis pour masquer cette rangée.
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.3em] text-zinc-500 dark:text-zinc-400">
+                      Colonnes de liens
+                    </p>
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                      Titres et liens de navigation affichés dans le footer.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="text-xs text-[var(--site-accent)] disabled:text-zinc-400 dark:disabled:text-zinc-600"
+                    disabled={config.footer.linkGroups.length >= 6}
+                    onClick={addFooterGroup}
+                  >
+                    Ajouter une colonne
+                  </button>
+                </div>
+                {config.footer.linkGroups.map((group) => (
+                  <div
+                    key={group.id}
+                    className="space-y-3 rounded-2xl border border-zinc-200 p-4 dark:border-zinc-800"
+                  >
+                    <div className="flex items-center justify-between text-xs">
+                      <p className="font-medium text-zinc-700 dark:text-zinc-200">
+                        {group.title || "Colonne"}
+                      </p>
+                      <button
+                        type="button"
+                        className="text-red-500"
+                        onClick={() => removeFooterGroup(group.id)}
+                      >
+                        Supprimer
+                      </button>
+                    </div>
+                    <Input
+                      placeholder="Titre de la colonne"
+                      value={group.title}
+                      onChange={(event) =>
+                        updateFooterGroup(group.id, {
+                          title: event.target.value,
+                        })
+                      }
+                    />
+                    <div className="space-y-3">
+                      {group.links.map((link, linkIndex) => (
+                        <div
+                          key={`${group.id}-link-${linkIndex}`}
+                          className="rounded-2xl border border-zinc-200 p-4 dark:border-zinc-900"
+                        >
+                          <div className="flex items-center justify-between text-xs">
+                            <p className="font-medium text-zinc-700 dark:text-zinc-200">
+                              {link.label || `Lien ${linkIndex + 1}`}
+                            </p>
+                            <button
+                              type="button"
+                              className="text-red-500"
+                              onClick={() => removeFooterGroupLink(group.id, linkIndex)}
+                            >
+                              Supprimer
+                            </button>
+                          </div>
+                          <div className="mt-3 grid gap-3 md:grid-cols-2">
+                            <Input
+                              placeholder="Libellé"
+                              value={link.label}
+                              onChange={(event) =>
+                                updateFooterGroupLink(group.id, linkIndex, {
+                                  label: event.target.value,
+                                })
+                              }
+                            />
+                            <Input
+                              placeholder="/collections"
+                              value={link.href}
+                              onChange={(event) =>
+                                updateFooterGroupLink(group.id, linkIndex, {
+                                  href: event.target.value,
+                                })
+                              }
+                            />
+                          </div>
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        className="text-xs text-[var(--site-accent)] disabled:text-zinc-400 dark:disabled:text-zinc-600"
+                        disabled={group.links.length >= 8}
+                        onClick={() => addFooterGroupLink(group.id)}
+                      >
+                        Ajouter un lien
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
             </section>
           ) : null}

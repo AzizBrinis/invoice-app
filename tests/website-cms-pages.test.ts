@@ -172,6 +172,7 @@ function createPayload(path: string) {
       featured: [],
       all: [],
     },
+    siteReviews: [],
     currentCmsPage: {
       id: "cms-delivery",
       title: "Delivery information",

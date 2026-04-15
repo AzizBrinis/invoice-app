@@ -5,9 +5,12 @@ import { redirect } from "next/navigation";
 import { isRedirectError } from "@/lib/next";
 import { requireAppSectionAccess } from "@/lib/authorization";
 import {
-  updateProductReviewStatus,
-  type ProductReviewStatus,
-} from "@/server/product-reviews";
+  createSiteReview,
+  updateSiteReview,
+  updateSiteReviewStatus,
+  type SiteReviewInput,
+  type SiteReviewStatus,
+} from "@/server/site-reviews";
 
 function resolveRedirectTarget(formData: FormData | undefined, fallback: string) {
   const redirectTo = formData?.get("redirectTo")?.toString();
@@ -35,47 +38,111 @@ async function requireWebsiteAccess() {
   await requireAppSectionAccess("website");
 }
 
-async function moderateReviewAction(
-  id: string,
-  status: ProductReviewStatus,
-  formData?: FormData,
-) {
-  const redirectTarget = resolveRedirectTarget(formData, `/site-web/avis/${id}`);
+function formText(formData: FormData, key: string) {
+  return formData.get(key)?.toString() ?? "";
+}
+
+function readReviewInput(formData: FormData): SiteReviewInput {
+  return {
+    authorName: formText(formData, "authorName"),
+    authorEmail: formText(formData, "authorEmail"),
+    authorRole: formText(formData, "authorRole"),
+    avatarUrl: formText(formData, "avatarUrl"),
+    rating: formText(formData, "rating"),
+    title: formText(formData, "title"),
+    body: formText(formData, "body"),
+    status: formText(formData, "status") as SiteReviewStatus,
+    sourcePath: formText(formData, "sourcePath"),
+  };
+}
+
+function resolveErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  return "Impossible de traiter l'avis site.";
+}
+
+export async function createSiteReviewAction(formData: FormData) {
   try {
     await requireWebsiteAccess();
-    await updateProductReviewStatus(id, status, {
-      reason: formData?.get("reason")?.toString() ?? null,
-    });
-    redirectWithFeedback(redirectTarget, {
-      message:
-        status === "APPROVED"
-          ? "Avis approuvé"
-          : status === "DECLINED"
-            ? "Avis refusé"
-            : "Avis remis en attente",
+    await createSiteReview(readReviewInput(formData));
+    redirectWithFeedback("/site-web/avis", {
+      message: "Avis site créé",
     });
   } catch (error) {
     if (isRedirectError(error)) {
       throw error;
     }
-    console.error("[moderateReviewAction] Unable to update review", error);
-    redirectWithFeedback(redirectTarget, {
-      error: "Impossible de mettre à jour l'avis.",
+    console.error("[createSiteReviewAction] Unable to create review", error);
+    redirectWithFeedback("/site-web/avis", {
+      error: resolveErrorMessage(error),
     });
   }
 }
 
-export async function approveProductReviewAction(id: string, formData?: FormData) {
-  await moderateReviewAction(id, "APPROVED", formData);
+export async function updateSiteReviewAction(id: string, formData: FormData) {
+  const redirectTarget = resolveRedirectTarget(formData, `/site-web/avis/${id}`);
+  try {
+    await requireWebsiteAccess();
+    await updateSiteReview(id, readReviewInput(formData), {
+      reason: formData.get("reason")?.toString() ?? null,
+    });
+    redirectWithFeedback(redirectTarget, {
+      message: "Avis site mis à jour",
+    });
+  } catch (error) {
+    if (isRedirectError(error)) {
+      throw error;
+    }
+    console.error("[updateSiteReviewAction] Unable to update review", error);
+    redirectWithFeedback(redirectTarget, {
+      error: resolveErrorMessage(error),
+    });
+  }
 }
 
-export async function declineProductReviewAction(id: string, formData?: FormData) {
-  await moderateReviewAction(id, "DECLINED", formData);
+async function moderateSiteReviewAction(
+  id: string,
+  status: SiteReviewStatus,
+  formData?: FormData,
+) {
+  const redirectTarget = resolveRedirectTarget(formData, `/site-web/avis/${id}`);
+  try {
+    await requireWebsiteAccess();
+    await updateSiteReviewStatus(id, status, {
+      reason: formData?.get("reason")?.toString() ?? null,
+    });
+    redirectWithFeedback(redirectTarget, {
+      message:
+        status === "APPROVED"
+          ? "Avis site approuvé"
+          : status === "DECLINED"
+            ? "Avis site refusé"
+            : "Avis site remis en attente",
+    });
+  } catch (error) {
+    if (isRedirectError(error)) {
+      throw error;
+    }
+    console.error("[moderateSiteReviewAction] Unable to update review", error);
+    redirectWithFeedback(redirectTarget, {
+      error: resolveErrorMessage(error),
+    });
+  }
 }
 
-export async function markProductReviewPendingAction(
+export async function approveSiteReviewAction(id: string, formData?: FormData) {
+  await moderateSiteReviewAction(id, "APPROVED", formData);
+}
+
+export async function declineSiteReviewAction(id: string, formData?: FormData) {
+  await moderateSiteReviewAction(id, "DECLINED", formData);
+}
+
+export async function markSiteReviewPendingAction(
   id: string,
   formData?: FormData,
 ) {
-  await moderateReviewAction(id, "PENDING", formData);
+  await moderateSiteReviewAction(id, "PENDING", formData);
 }

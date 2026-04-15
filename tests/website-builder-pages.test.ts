@@ -1,4 +1,9 @@
-import { createElement } from "react";
+import {
+  createElement,
+  type ComponentProps,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 import { load } from "cheerio";
 import { renderToStaticMarkup } from "react-dom/server";
 import { WebsiteDomainStatus, WebsiteThemeMode } from "@/lib/db/prisma";
@@ -42,6 +47,62 @@ import {
   sanitizeBuilderPages,
 } from "@/lib/website/builder";
 
+const HOME_SITE_REVIEWS: CatalogPayload["siteReviews"] = [
+  {
+    id: "site-review-home-1",
+    authorName: "Alex Morgan",
+    authorRole: "Operations lead",
+    avatarUrl: "/images/placeholders/portrait-1.svg",
+    rating: 5,
+    title: "Polished starting point",
+    body: "The neutral defaults gave us a polished starting point for our customer experience.",
+    createdAt: "2026-04-13T10:00:00.000Z",
+  },
+  {
+    id: "site-review-home-2",
+    authorName: "Priya Shah",
+    authorRole: "Retail founder",
+    avatarUrl: "/images/placeholders/portrait-2.svg",
+    rating: 5,
+    title: null,
+    body: "The site made our collections feel clear and trustworthy.",
+    createdAt: "2026-04-12T10:00:00.000Z",
+  },
+  {
+    id: "site-review-home-3",
+    authorName: "Noah Lee",
+    authorRole: "Studio owner",
+    avatarUrl: "/images/placeholders/portrait-3.svg",
+    rating: 4,
+    title: null,
+    body: "It was easy to publish a clean buying experience.",
+    createdAt: "2026-04-11T10:00:00.000Z",
+  },
+];
+
+const ABOUT_SITE_REVIEWS: CatalogPayload["siteReviews"] = [
+  {
+    id: "site-review-about-1",
+    authorName: "Lennie Swiffan",
+    authorRole: null,
+    avatarUrl: "https://images.unsplash.com/photo-1494790108377-be9c29b29330",
+    rating: 5,
+    title: "Great quality",
+    body: "Great quality products, affordable prices, fast and friendly delivery.",
+    createdAt: "2026-04-13T10:00:00.000Z",
+  },
+  {
+    id: "site-review-about-2",
+    authorName: "Sam Colton",
+    authorRole: null,
+    avatarUrl: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e",
+    rating: 5,
+    title: null,
+    body: "The experience felt personal from start to finish.",
+    createdAt: "2026-04-12T10:00:00.000Z",
+  },
+];
+
 function createCisecoConfig() {
   return ensureCisecoPageConfigs(
     createDefaultBuilderConfig({
@@ -71,6 +132,7 @@ function createCisecoCatalogPayload(
       accentColor: "#22c55e",
       theme: WebsiteThemeMode.LIGHT,
       showPrices: true,
+      faviconUrl: null,
       ecommerceSettings: {
         payments: {
           methods: {
@@ -157,17 +219,26 @@ function createCisecoCatalogPayload(
       featured: [],
       all: [],
     },
+    siteReviews: HOME_SITE_REVIEWS,
     currentCmsPage: null,
   };
 }
 
-function renderAboutPage(config: ReturnType<typeof createCisecoConfig>) {
-  const theme = buildCisecoTheme(config.theme?.accentColor ?? "#22c55e");
+function renderAboutPage(
+  config: ReturnType<typeof createCisecoConfig>,
+  siteReviews: CatalogPayload["siteReviews"] = ABOUT_SITE_REVIEWS,
+) {
+  const theme = buildCisecoTheme(config.theme?.accent ?? "#22c55e");
   const inlineStyles = buildCisecoInlineStyles(theme);
+  const NavigationProvider = CisecoNavigationProvider as unknown as (
+    props: Omit<ComponentProps<typeof CisecoNavigationProvider>, "children"> & {
+      children?: ReactNode;
+    },
+  ) => ReactElement;
 
   return renderToStaticMarkup(
     createElement(
-      CisecoNavigationProvider,
+      NavigationProvider,
       {
         mode: "preview",
         slug: "demo",
@@ -180,6 +251,7 @@ function renderAboutPage(config: ReturnType<typeof createCisecoConfig>) {
         inlineStyles,
         companyName: "Demo",
         homeHref: "/preview?path=%2F&lang=fr",
+        siteReviews,
         builder: config.pages.about,
       }),
     ),
@@ -1058,6 +1130,93 @@ describe("website builder page persistence", () => {
     expect(html).toContain("Browse collections");
   });
 
+  it("renders the ciseco footer from the customizable builder config", () => {
+    const config = createCisecoConfig();
+    config.footer = {
+      description: "Support, nouveautés et pages clés dans un footer sur mesure.",
+      infoTitle: "Informations",
+      infoBody: [
+        "Techno Smart",
+        "Rue Habib Bourguiba, Immeuble La Jarre",
+        "8000 Nabeul",
+        "Tunisie",
+        "Appelez-nous : 99 699 280",
+        "Envoyez-nous un e-mail : support@techno-smart.tn",
+      ].join("\n"),
+      cmsTitle: "Ressources",
+      bottomText: "Ligne légale pour {{companyName}}",
+      shortcuts: [
+        {
+          id: "footer-shortcut-search",
+          label: "Recherche",
+          href: "/search",
+          icon: "search",
+        },
+      ],
+      linkGroups: [
+        {
+          id: "footer-group-support",
+          title: "Support",
+          links: [
+            {
+              label: "FAQ",
+              href: "/faq-personnalisee",
+            },
+            {
+              label: "Contact expert",
+              href: "/contact",
+            },
+          ],
+        },
+      ],
+    };
+    const payload = createCisecoCatalogPayload(config);
+    payload.website.cmsPages = [
+      {
+        id: "cms-shipping",
+        title: "Livraison",
+        path: "/livraison",
+        showInFooter: true,
+      },
+    ];
+
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const html = (() => {
+      try {
+        return renderToStaticMarkup(
+          createElement(CatalogPage, {
+            data: payload,
+            mode: "preview",
+            path: "/",
+          }),
+        );
+      } finally {
+        consoleErrorSpy.mockRestore();
+      }
+    })();
+
+    expect(html).toContain(
+      "Support, nouveautés et pages clés dans un footer sur mesure.",
+    );
+    expect(html).toContain("Informations");
+    expect(html).toContain("Techno Smart");
+    expect(html).toContain("Rue Habib Bourguiba, Immeuble La Jarre");
+    expect(html).toContain("8000 Nabeul");
+    expect(html).toContain("Tunisie");
+    expect(html).toContain("Appelez-nous : 99 699 280");
+    expect(html).toContain("Envoyez-nous un e-mail : support@techno-smart.tn");
+    expect(html).toContain("Support");
+    expect(html).toContain("FAQ");
+    expect(html).toContain("path=%2Ffaq-personnalisee");
+    expect(html).toContain("Ressources");
+    expect(html).toContain("Livraison");
+    expect(html).toContain("Ligne légale pour Demo");
+    expect(html).not.toContain("All rights reserved.");
+    expect(html).not.toContain(">Browse<");
+  });
+
   it("renders customer photos in the home testimonials section by default", () => {
     const config = createCisecoConfig();
 
@@ -1120,6 +1279,34 @@ describe("website builder page persistence", () => {
     expect(html).not.toContain("/images/placeholders/portrait-3.svg");
   });
 
+  it("renders an empty home testimonials state when no site reviews are approved", () => {
+    const config = createCisecoConfig();
+    const payload = {
+      ...createCisecoCatalogPayload(config),
+      siteReviews: [],
+    };
+
+    const consoleErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const html = (() => {
+      try {
+        return renderToStaticMarkup(
+          createElement(CatalogPage, {
+            data: payload,
+            mode: "preview",
+            path: "/",
+          }),
+        );
+      } finally {
+        consoleErrorSpy.mockRestore();
+      }
+    })();
+
+    expect(html).toContain("No testimonials are published yet.");
+    expect(html).not.toContain("Alex Morgan");
+  });
+
   it("renders testimonial photos on the about page by default", () => {
     const config = createCisecoConfig();
 
@@ -1177,8 +1364,8 @@ describe("website builder page persistence", () => {
       "https://images.unsplash.com/photo-1500648767791-00dcc994a43e",
     );
     expect(html).not.toContain('alt="Lennie Swiffan"');
-    expect(html).toContain("relative mx-auto max-w-3xl pt-2");
-    expect(html).toContain("py-8 sm:py-10");
+    expect(html).toContain("relative mx-auto max-w-[72rem] pt-2");
+    expect(html).toContain("py-6 sm:py-7");
   });
 
   it("renders an added generic extra section on contact pages", () => {

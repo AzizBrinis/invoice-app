@@ -37,6 +37,16 @@ export function ProductCard({
   const productCategory = t(product.category);
   const productBadge = product.badge ? t(product.badge) : null;
   const productHref = localizeHref(href ?? "#");
+  const showReviews =
+    typeof product.rating === "number" &&
+    Number.isFinite(product.rating) &&
+    (product.reviewCount ?? 0) > 0;
+  const reviewLabel = showReviews
+    ? t("{{reviewCount}} Reviews").replace(
+        "{{reviewCount}}",
+        String(product.reviewCount ?? 0),
+      )
+    : null;
 
   useEffect(() => {
     if (!showCartFeedback) return;
@@ -158,28 +168,22 @@ export function ProductCard({
           </a>
         </h3>
 
-        <div className="mt-auto flex flex-wrap items-center justify-between gap-3 pt-3 text-[11px] text-slate-600">
-          <div className="flex items-center gap-1.5 rounded-full bg-slate-100/80 px-2.5 py-1 font-medium text-slate-600">
-            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 text-amber-500">
-              <path
-                d="M12 3l2.6 5.3 5.9.9-4.2 4.1 1 5.9L12 16.6 6.7 19l1-5.9L3.5 9.2l5.9-.9L12 3z"
-                fill="currentColor"
-              />
-            </svg>
-            <span className="tabular-nums text-slate-700">
-              {product.rating.toFixed(1)}
-            </span>
+        {showReviews ? (
+          <div className="mt-auto flex flex-wrap items-center gap-3 pt-3 text-[11px] text-slate-600">
+            <div className="flex items-center gap-1.5 rounded-full bg-slate-100/80 px-2.5 py-1 font-medium text-slate-600">
+              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 text-amber-500">
+                <path
+                  d="M12 3l2.6 5.3 5.9.9-4.2 4.1 1 5.9L12 16.6 6.7 19l1-5.9L3.5 9.2l5.9-.9L12 3z"
+                  fill="currentColor"
+                />
+              </svg>
+              <span className="tabular-nums text-slate-700">
+                {product.rating!.toFixed(1)}
+              </span>
+              <span className="text-slate-400">{reviewLabel}</span>
+            </div>
           </div>
-          <div className="flex items-center gap-1.5">
-            {product.colors.map((color, colorIndex) => (
-              <span
-                key={`${product.id}-color-${colorIndex}`}
-                className="h-2.5 w-2.5 rounded-full ring-1 ring-black/10 transition-transform duration-300 group-hover:scale-110"
-                style={{ backgroundColor: color }}
-              />
-            ))}
-          </div>
-        </div>
+        ) : null}
 
         <div className="relative z-20 mt-3.5 flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
           <a
@@ -239,11 +243,7 @@ export function ProductCardSkeleton({
         <div className="mt-2 h-5 w-36 rounded-full bg-slate-100" />
         <div className="mt-auto flex items-center justify-between pt-3">
           <div className="h-7 w-16 rounded-full bg-slate-100" />
-          <div className="flex items-center gap-1">
-            <span className="h-2.5 w-2.5 rounded-full bg-slate-100" />
-            <span className="h-2.5 w-2.5 rounded-full bg-slate-100" />
-            <span className="h-2.5 w-2.5 rounded-full bg-slate-100" />
-          </div>
+          <div className="h-7 w-28 rounded-full bg-slate-100" />
         </div>
         <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="h-3 w-20 rounded-full bg-slate-100" />

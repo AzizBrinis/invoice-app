@@ -258,7 +258,7 @@ export async function createPublicProductReview(input: PublicReviewInput) {
     throw error;
   }
 
-  revalidatePath("/site-web/avis");
+  revalidatePath("/site-web/avis-produits");
   return { status: "created" as const, id: rows[0]?.id ?? id };
 }
 
@@ -448,8 +448,8 @@ export async function updateProductReviewStatus(
   if (!updated) {
     throw new Error("Avis introuvable.");
   }
-  revalidatePath("/site-web/avis");
-  revalidatePath(`/site-web/avis/${id}`);
+  revalidatePath("/site-web/avis-produits");
+  revalidatePath(`/site-web/avis-produits/${id}`);
   revalidatePath(`/catalogue/${updated.websiteSlug}`);
   return updated;
 }

@@ -48,6 +48,7 @@
     "@types/ua-parser-js": "^0.7.39",
     "eslint": "^9",
     "eslint-config-next": "^16.0.8",
+    "jsdom": "^27.0.1",
     "tailwindcss": "^4",
     "ts-node": "^10.9.2",
     "tsx": "^4.20.6",

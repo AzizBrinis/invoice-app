@@ -151,6 +151,7 @@ function createPayload() {
         },
       ],
     },
+    siteReviews: [],
   } as const;
 }
 
@@ -413,6 +414,18 @@ describe("catalog metadata - product seo templates", () => {
         ...payload.products,
         all: [reviewedProduct],
       },
+      siteReviews: [
+        {
+          id: "site-review-1",
+          authorName: "General author",
+          authorRole: null,
+          avatarUrl: null,
+          rating: 5,
+          title: "General site review",
+          body: "This general review must not be attached to the product.",
+          createdAt: "2026-04-11T10:00:00.000Z",
+        },
+      ],
     };
 
     const structuredData = resolveCatalogStructuredData({
@@ -452,5 +465,6 @@ describe("catalog metadata - product seo templates", () => {
         },
       ],
     });
+    expect(JSON.stringify(structuredData[1])).not.toContain("General site review");
   });
 });

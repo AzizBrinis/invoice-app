@@ -16,6 +16,7 @@ import {
 } from "./navigation";
 import { AccountProfileProvider } from "./hooks/useAccountProfile";
 import { CisecoCmsPagesProvider } from "./cms-context";
+import { CisecoFooterProvider } from "./footer-context";
 import { HomePage } from "./pages/HomePage";
 import { buildPublicWebsiteHref } from "@/lib/website/custom-domain";
 import { buildCisecoInlineStyles, buildCisecoTheme, type TemplateProps, type TemplateStyleVars } from "./template-shared";
@@ -204,21 +205,23 @@ export function EcommerceCisecoHomeTemplateClient({
     >
       <CisecoLocaleProvider initialLocale={locale}>
         <CisecoCmsPagesProvider links={data.website.cmsPages}>
-          <CartProvider storageKey={cartStorageKey} catalog={cartCatalog}>
-            <AccountProfileProvider initialViewer={data.viewer}>
-              <TemplateContent
-                data={data}
-                mode={mode}
-                inlineStyles={inlineStyles}
-                theme={theme}
-                companyName={companyName}
-                homeHref={homeHref}
-                baseLink={baseLink}
-                path={path}
-                cmsPaths={cmsPaths}
-              />
-            </AccountProfileProvider>
-          </CartProvider>
+          <CisecoFooterProvider config={data.website.builder?.footer}>
+            <CartProvider storageKey={cartStorageKey} catalog={cartCatalog}>
+              <AccountProfileProvider initialViewer={data.viewer}>
+                <TemplateContent
+                  data={data}
+                  mode={mode}
+                  inlineStyles={inlineStyles}
+                  theme={theme}
+                  companyName={companyName}
+                  homeHref={homeHref}
+                  baseLink={baseLink}
+                  path={path}
+                  cmsPaths={cmsPaths}
+                />
+              </AccountProfileProvider>
+            </CartProvider>
+          </CisecoFooterProvider>
         </CisecoCmsPagesProvider>
       </CisecoLocaleProvider>
     </CisecoNavigationProvider>
@@ -484,6 +487,7 @@ function TemplateContent({
         inlineStyles={inlineStyles}
         companyName={companyName}
         homeHref={homeHref}
+        siteReviews={data.siteReviews}
         builder={pageBuilder}
       />
     );
@@ -534,6 +538,7 @@ function TemplateContent({
       catalogSlug={data.website.slug}
       baseLink={baseLink}
       products={data.products}
+      siteReviews={data.siteReviews}
       showPrices={data.website.showPrices}
       builder={pageBuilder}
     />

@@ -5,6 +5,7 @@ import type {
   WebsiteBuilderPageConfig,
 } from "@/lib/website/builder";
 import { WEBSITE_MEDIA_PLACEHOLDERS } from "@/lib/website/placeholders";
+import type { CatalogPayload } from "@/server/website";
 import type { ThemeTokens } from "../types";
 import {
   resolveBuilderMedia,
@@ -29,9 +30,7 @@ import {
   ABOUT_HERO_IMAGES,
   ABOUT_PROMO_COPY,
   ABOUT_PROMO_ILLUSTRATION,
-  ABOUT_TESTIMONIAL,
   ABOUT_TESTIMONIALS_COPY,
-  ABOUT_TESTIMONIAL_AVATARS,
 } from "../data/about";
 
 type AboutPageProps = {
@@ -39,6 +38,7 @@ type AboutPageProps = {
   inlineStyles: CSSProperties;
   companyName: string;
   homeHref: string;
+  siteReviews?: CatalogPayload["siteReviews"];
   builder?: WebsiteBuilderPageConfig | null;
 };
 
@@ -47,6 +47,7 @@ export function AboutPage({
   inlineStyles,
   companyName,
   homeHref,
+  siteReviews = [],
   builder,
 }: AboutPageProps) {
   const hasBuilder = Boolean(builder);
@@ -157,50 +158,20 @@ export function AboutPage({
       }));
 
   const testimonialItems = testimonialsSection?.items ?? [];
-  const [primaryTestimonial, ...orbitItems] = testimonialItems;
   const showTestimonialPhotos = resolveSectionCustomerPhotosVisibility(
     testimonialsSection,
   );
-  const testimonialAvatar = resolveBuilderMedia(
-    primaryTestimonial?.mediaId,
-    mediaLibrary,
-  );
-  const mainTestimonial =
-    primaryTestimonial
-      ? {
-          quote: primaryTestimonial.description ?? ABOUT_TESTIMONIAL.quote,
-          name: primaryTestimonial.title ?? ABOUT_TESTIMONIAL.name,
-          role: primaryTestimonial.tag ?? null,
-          rating: ABOUT_TESTIMONIAL.rating,
-          avatar: testimonialAvatar?.src ?? ABOUT_TESTIMONIAL.avatar,
-        }
-      : {
-          quote: ABOUT_TESTIMONIAL.quote,
-          name: ABOUT_TESTIMONIAL.name,
-          role: null,
-          rating: ABOUT_TESTIMONIAL.rating,
-          avatar: ABOUT_TESTIMONIAL.avatar,
-        };
-
-  const orbitAvatars =
-    showTestimonialPhotos && orbitItems.length > 0
-      ? orbitItems.map((item, index) => {
-          const asset = resolveBuilderMedia(item.mediaId, mediaLibrary);
-          const defaultOrbit = ABOUT_TESTIMONIAL_AVATARS[index];
-          const fallback =
-            defaultOrbit?.image ??
-            WEBSITE_MEDIA_PLACEHOLDERS.team[
-              index % WEBSITE_MEDIA_PLACEHOLDERS.team.length
-            ];
-          return {
-            id: item.id,
-            image: asset?.src ?? fallback,
-          };
-        })
-      : ABOUT_TESTIMONIAL_AVATARS.map((avatar) => ({
-          id: avatar.id,
-          image: avatar.image,
-        }));
+  const testimonials = siteReviews.map((review, index) => {
+    const asset = resolveBuilderMedia(testimonialItems[index]?.mediaId, mediaLibrary);
+    return {
+      id: review.id,
+      quote: review.body,
+      name: review.authorName,
+      role: review.authorRole ?? review.title ?? null,
+      rating: review.rating,
+      avatar: asset?.src ?? review.avatarUrl ?? null,
+    };
+  });
 
   const promoImage = resolveBuilderMedia(promoSection?.mediaId, mediaLibrary);
   const promoTitleRaw = promoSection?.title ?? ABOUT_PROMO_COPY.title;
@@ -301,8 +272,7 @@ export function AboutPage({
                 testimonialsSection?.description ??
                 ABOUT_TESTIMONIALS_COPY.subtitle
               }
-              testimonial={mainTestimonial}
-              avatars={orbitAvatars}
+              testimonials={testimonials}
               showCustomerPhotos={showTestimonialPhotos}
               sectionId={testimonialsSection?.id}
             />

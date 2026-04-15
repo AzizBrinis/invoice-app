@@ -120,6 +120,11 @@ export const enumValues = {
     "APPROVED",
     "DECLINED"
   ],
+  "SiteReviewStatus": [
+    "PENDING",
+    "APPROVED",
+    "DECLINED"
+  ],
   "OrderStatus": [
     "PENDING",
     "PAID",
@@ -11032,6 +11037,338 @@ export const modelSchema = {
       }
     }
   },
+  "SiteReview": {
+    "tableName": "SiteReview",
+    "primaryKey": [
+      "id"
+    ],
+    "uniqueFields": [],
+    "fields": {
+      "id": {
+        "name": "id",
+        "kind": "scalar",
+        "type": "String",
+        "isList": false,
+        "isRequired": true,
+        "isUnique": false,
+        "isId": true,
+        "hasDefaultValue": false,
+        "default": null,
+        "isUpdatedAt": false,
+        "relationName": null,
+        "relationFromFields": [],
+        "relationToFields": [],
+        "relationOnDelete": null
+      },
+      "userId": {
+        "name": "userId",
+        "kind": "scalar",
+        "type": "String",
+        "isList": false,
+        "isRequired": true,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": false,
+        "default": null,
+        "isUpdatedAt": false,
+        "relationName": null,
+        "relationFromFields": [],
+        "relationToFields": [],
+        "relationOnDelete": null
+      },
+      "websiteId": {
+        "name": "websiteId",
+        "kind": "scalar",
+        "type": "String",
+        "isList": false,
+        "isRequired": true,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": false,
+        "default": null,
+        "isUpdatedAt": false,
+        "relationName": null,
+        "relationFromFields": [],
+        "relationToFields": [],
+        "relationOnDelete": null
+      },
+      "clientId": {
+        "name": "clientId",
+        "kind": "scalar",
+        "type": "String",
+        "isList": false,
+        "isRequired": false,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": false,
+        "default": null,
+        "isUpdatedAt": false,
+        "relationName": null,
+        "relationFromFields": [],
+        "relationToFields": [],
+        "relationOnDelete": null
+      },
+      "rating": {
+        "name": "rating",
+        "kind": "scalar",
+        "type": "Int",
+        "isList": false,
+        "isRequired": true,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": false,
+        "default": null,
+        "isUpdatedAt": false,
+        "relationName": null,
+        "relationFromFields": [],
+        "relationToFields": [],
+        "relationOnDelete": null
+      },
+      "title": {
+        "name": "title",
+        "kind": "scalar",
+        "type": "String",
+        "isList": false,
+        "isRequired": false,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": false,
+        "default": null,
+        "isUpdatedAt": false,
+        "relationName": null,
+        "relationFromFields": [],
+        "relationToFields": [],
+        "relationOnDelete": null
+      },
+      "body": {
+        "name": "body",
+        "kind": "scalar",
+        "type": "String",
+        "isList": false,
+        "isRequired": true,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": false,
+        "default": null,
+        "isUpdatedAt": false,
+        "relationName": null,
+        "relationFromFields": [],
+        "relationToFields": [],
+        "relationOnDelete": null
+      },
+      "authorName": {
+        "name": "authorName",
+        "kind": "scalar",
+        "type": "String",
+        "isList": false,
+        "isRequired": true,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": false,
+        "default": null,
+        "isUpdatedAt": false,
+        "relationName": null,
+        "relationFromFields": [],
+        "relationToFields": [],
+        "relationOnDelete": null
+      },
+      "authorEmail": {
+        "name": "authorEmail",
+        "kind": "scalar",
+        "type": "String",
+        "isList": false,
+        "isRequired": false,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": false,
+        "default": null,
+        "isUpdatedAt": false,
+        "relationName": null,
+        "relationFromFields": [],
+        "relationToFields": [],
+        "relationOnDelete": null
+      },
+      "authorRole": {
+        "name": "authorRole",
+        "kind": "scalar",
+        "type": "String",
+        "isList": false,
+        "isRequired": false,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": false,
+        "default": null,
+        "isUpdatedAt": false,
+        "relationName": null,
+        "relationFromFields": [],
+        "relationToFields": [],
+        "relationOnDelete": null
+      },
+      "avatarUrl": {
+        "name": "avatarUrl",
+        "kind": "scalar",
+        "type": "String",
+        "isList": false,
+        "isRequired": false,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": false,
+        "default": null,
+        "isUpdatedAt": false,
+        "relationName": null,
+        "relationFromFields": [],
+        "relationToFields": [],
+        "relationOnDelete": null
+      },
+      "status": {
+        "name": "status",
+        "kind": "enum",
+        "type": "SiteReviewStatus",
+        "isList": false,
+        "isRequired": true,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": true,
+        "default": "PENDING",
+        "isUpdatedAt": false,
+        "relationName": null,
+        "relationFromFields": [],
+        "relationToFields": [],
+        "relationOnDelete": null
+      },
+      "moderationReason": {
+        "name": "moderationReason",
+        "kind": "scalar",
+        "type": "String",
+        "isList": false,
+        "isRequired": false,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": false,
+        "default": null,
+        "isUpdatedAt": false,
+        "relationName": null,
+        "relationFromFields": [],
+        "relationToFields": [],
+        "relationOnDelete": null
+      },
+      "moderatedAt": {
+        "name": "moderatedAt",
+        "kind": "scalar",
+        "type": "DateTime",
+        "isList": false,
+        "isRequired": false,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": false,
+        "default": null,
+        "isUpdatedAt": false,
+        "relationName": null,
+        "relationFromFields": [],
+        "relationToFields": [],
+        "relationOnDelete": null
+      },
+      "moderatedByUserId": {
+        "name": "moderatedByUserId",
+        "kind": "scalar",
+        "type": "String",
+        "isList": false,
+        "isRequired": false,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": false,
+        "default": null,
+        "isUpdatedAt": false,
+        "relationName": null,
+        "relationFromFields": [],
+        "relationToFields": [],
+        "relationOnDelete": null
+      },
+      "sourcePath": {
+        "name": "sourcePath",
+        "kind": "scalar",
+        "type": "String",
+        "isList": false,
+        "isRequired": false,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": false,
+        "default": null,
+        "isUpdatedAt": false,
+        "relationName": null,
+        "relationFromFields": [],
+        "relationToFields": [],
+        "relationOnDelete": null
+      },
+      "sourceDomain": {
+        "name": "sourceDomain",
+        "kind": "scalar",
+        "type": "String",
+        "isList": false,
+        "isRequired": false,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": false,
+        "default": null,
+        "isUpdatedAt": false,
+        "relationName": null,
+        "relationFromFields": [],
+        "relationToFields": [],
+        "relationOnDelete": null
+      },
+      "sourceSlug": {
+        "name": "sourceSlug",
+        "kind": "scalar",
+        "type": "String",
+        "isList": false,
+        "isRequired": false,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": false,
+        "default": null,
+        "isUpdatedAt": false,
+        "relationName": null,
+        "relationFromFields": [],
+        "relationToFields": [],
+        "relationOnDelete": null
+      },
+      "createdAt": {
+        "name": "createdAt",
+        "kind": "scalar",
+        "type": "DateTime",
+        "isList": false,
+        "isRequired": true,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": true,
+        "default": {
+          "name": "now",
+          "args": []
+        },
+        "isUpdatedAt": false,
+        "relationName": null,
+        "relationFromFields": [],
+        "relationToFields": [],
+        "relationOnDelete": null
+      },
+      "updatedAt": {
+        "name": "updatedAt",
+        "kind": "scalar",
+        "type": "DateTime",
+        "isList": false,
+        "isRequired": true,
+        "isUnique": false,
+        "isId": false,
+        "hasDefaultValue": false,
+        "default": null,
+        "isUpdatedAt": true,
+        "relationName": null,
+        "relationFromFields": [],
+        "relationToFields": [],
+        "relationOnDelete": null
+      }
+    }
+  },
   "Order": {
     "tableName": "Order",
     "primaryKey": [
@@ -16185,6 +16522,9 @@ export const ProductSaleMode = Object.freeze(Object.fromEntries(enumValues.Produ
 export type ProductReviewStatus = (typeof enumValues)["ProductReviewStatus"][number];
 export const ProductReviewStatus = Object.freeze(Object.fromEntries(enumValues.ProductReviewStatus.map((value) => [value, value])) as Record<(typeof enumValues)["ProductReviewStatus"][number], (typeof enumValues)["ProductReviewStatus"][number]>);
 
+export type SiteReviewStatus = (typeof enumValues)["SiteReviewStatus"][number];
+export const SiteReviewStatus = Object.freeze(Object.fromEntries(enumValues.SiteReviewStatus.map((value) => [value, value])) as Record<(typeof enumValues)["SiteReviewStatus"][number], (typeof enumValues)["SiteReviewStatus"][number]>);
+
 export type OrderStatus = (typeof enumValues)["OrderStatus"][number];
 export const OrderStatus = Object.freeze(Object.fromEntries(enumValues.OrderStatus.map((value) => [value, value])) as Record<(typeof enumValues)["OrderStatus"][number], (typeof enumValues)["OrderStatus"][number]>);
 
@@ -16262,6 +16602,7 @@ export type ClientPayment = AnyRow;
 export type ClientPaymentService = AnyRow;
 export type Product = AnyRow;
 export type ProductReview = AnyRow;
+export type SiteReview = AnyRow;
 export type Order = AnyRow;
 export type OrderItem = AnyRow;
 export type OrderPayment = AnyRow;

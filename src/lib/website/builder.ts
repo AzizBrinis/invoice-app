@@ -26,6 +26,14 @@ import {
   HOME_HERO_SLIDES,
   TESTIMONIALS,
 } from "@/components/website/templates/ecommerce-ciseco/data/home";
+import {
+  BUILDER_FOOTER_SHORTCUT_ICONS,
+  DEFAULT_FOOTER_BOTTOM_TEXT,
+  DEFAULT_FOOTER_CMS_TITLE,
+  DEFAULT_FOOTER_DESCRIPTION,
+  DEFAULT_FOOTER_SHORTCUTS,
+} from "@/components/website/templates/ecommerce-ciseco/data/footer";
+import { FOOTER_LINKS } from "@/components/website/templates/ecommerce-ciseco/data/navigation";
 import { CISECO_PAGE_DEFINITIONS, type CisecoPageKey } from "@/lib/website/ciseco-pages";
 
 // This module is imported by public website client components for builder
@@ -176,6 +184,82 @@ const builderPageSeoSchema = z.object({
   description: z.string().max(260).nullable().optional(),
   keywords: z.string().max(260).nullable().optional(),
   imageId: z.string().nullable().optional(),
+});
+
+const builderFooterShortcutIconSchema = z.enum(
+  BUILDER_FOOTER_SHORTCUT_ICONS,
+);
+
+const builderFooterLinkSchema = z.object({
+  label: z.string().max(80),
+  href: z
+    .string()
+    .max(200)
+    .transform((value) =>
+      sanitizePublicHref(value, {
+        allowExternalHttp: true,
+        allowHash: true,
+        allowMailto: true,
+        allowRelativePath: true,
+        allowTel: true,
+      }),
+    )
+    .default("#"),
+});
+
+const builderFooterShortcutSchema = z.object({
+  id: z.string().default(() => generateId("footer-shortcut")),
+  label: z.string().max(80),
+  href: z
+    .string()
+    .max(200)
+    .transform((value) =>
+      sanitizePublicHref(value, {
+        allowExternalHttp: true,
+        allowHash: true,
+        allowMailto: true,
+        allowRelativePath: true,
+        allowTel: true,
+      }),
+    )
+    .default("#"),
+  icon: builderFooterShortcutIconSchema.default("contact"),
+});
+
+const builderFooterLinkGroupSchema = z.object({
+  id: z.string().default(() => generateId("footer-group")),
+  title: z.string().max(80),
+  links: z.array(builderFooterLinkSchema).max(8).default([]),
+});
+
+const builderFooterSchema = z.object({
+  description: z.string().max(400).default(DEFAULT_FOOTER_DESCRIPTION),
+  infoTitle: z.string().max(80).default(""),
+  infoBody: z.string().max(1200).default(""),
+  shortcuts: z
+    .array(builderFooterShortcutSchema)
+    .max(8)
+    .default(() =>
+      DEFAULT_FOOTER_SHORTCUTS.map((shortcut) => ({
+        id: generateId("footer-shortcut"),
+        ...shortcut,
+      })),
+    ),
+  linkGroups: z
+    .array(builderFooterLinkGroupSchema)
+    .max(6)
+    .default(() =>
+      FOOTER_LINKS.map((group) => ({
+        id: generateId("footer-group"),
+        title: group.title,
+        links: group.links.map((link) => ({
+          label: link.label,
+          href: link.href,
+        })),
+      })),
+    ),
+  cmsTitle: z.string().max(80).default(DEFAULT_FOOTER_CMS_TITLE),
+  bottomText: z.string().max(200).default(DEFAULT_FOOTER_BOTTOM_TEXT),
 });
 
 const builderItemSchema = z.object({
@@ -420,6 +504,7 @@ export const builderConfigSchema = z.object({
   sections: z.array(builderSectionSchema).default([]),
   mediaLibrary: z.array(builderMediaAssetSchema).default([]),
   pages: builderPagesSchema,
+  footer: builderFooterSchema.default(() => builderFooterSchema.parse({})),
   site: builderSiteSchema.default({ faviconUrl: null }),
   theme: builderThemeSchema.default(() =>
     builderThemeSchema.parse({ accent: "#2563eb" }),
@@ -447,6 +532,17 @@ type WebsiteBuilderVersionEntrySchemaValue = z.infer<
 export type WebsiteBuilderButton = WebsiteBuilderButtonSchemaValue;
 export type WebsiteBuilderStatistic = z.infer<typeof builderStatisticSchema>;
 export type WebsiteBuilderMediaAsset = z.infer<typeof builderMediaAssetSchema>;
+export type WebsiteBuilderFooterLink = z.infer<typeof builderFooterLinkSchema>;
+export type WebsiteBuilderFooterShortcutIcon = z.infer<
+  typeof builderFooterShortcutIconSchema
+>;
+export type WebsiteBuilderFooterShortcut = z.infer<
+  typeof builderFooterShortcutSchema
+>;
+export type WebsiteBuilderFooterLinkGroup = z.infer<
+  typeof builderFooterLinkGroupSchema
+>;
+export type WebsiteBuilderFooter = z.infer<typeof builderFooterSchema>;
 export type WebsiteBuilderItem = Omit<
   WebsiteBuilderItemSchemaValue,
   "href" | "buttons" | "stats"
@@ -1238,6 +1334,7 @@ export function createDefaultBuilderConfig(
     updatedAt: timestamp,
     mediaLibrary,
     pages: {},
+    footer: builderFooterSchema.parse({}),
     site: {
       faviconUrl: null,
     },
