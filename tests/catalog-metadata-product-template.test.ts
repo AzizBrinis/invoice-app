@@ -24,7 +24,7 @@ function createBaseBuilder() {
   );
 }
 
-function createPayload() {
+function createPayload(): CatalogPayload {
   const builder = createBaseBuilder();
   builder.pages.product = {
     ...builder.pages.product,
@@ -104,7 +104,11 @@ function createPayload() {
       builder,
       contact: {
         companyName: "Acme Store",
+        email: null,
+        phone: null,
         address: "Tunis, Tunisie",
+        logoUrl: null,
+        logoData: null,
       },
       metadata: {
         title: "Catalogue Acme",
@@ -152,7 +156,8 @@ function createPayload() {
       ],
     },
     siteReviews: [],
-  } as const;
+    currentCmsPage: null,
+  } as unknown as CatalogPayload;
 }
 
 describe("catalog metadata - product seo templates", () => {

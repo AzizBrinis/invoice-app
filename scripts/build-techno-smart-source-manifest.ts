@@ -235,7 +235,10 @@ function extractDescriptionImageUrls(
     }
     const $ = load(`<div>${html}</div>`);
     $("img[src]").each((_index, element) => {
-      urls.push(asAbsoluteUrl($(element).attr("src"), baseUrl));
+      const imageUrl = asAbsoluteUrl($(element).attr("src"), baseUrl);
+      if (imageUrl) {
+        urls.push(imageUrl);
+      }
     });
   });
   return uniqueStrings(urls);

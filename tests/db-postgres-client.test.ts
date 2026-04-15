@@ -30,6 +30,7 @@ vi.mock("@/lib/db/runtime-config", () => ({
 
 describe("db postgres client caching", () => {
   const originalNodeEnv = process.env.NODE_ENV;
+  const mutableEnv = process.env as Record<string, string | undefined>;
 
   beforeEach(() => {
     vi.resetModules();
@@ -37,11 +38,11 @@ describe("db postgres client caching", () => {
     runtimeConfigMock.mockClear();
     delete (globalThis as { dbSql?: unknown }).dbSql;
     delete (globalThis as { dbSqlConfigKey?: unknown }).dbSqlConfigKey;
-    process.env.NODE_ENV = "production";
+    mutableEnv.NODE_ENV = "production";
   });
 
   afterEach(() => {
-    process.env.NODE_ENV = originalNodeEnv;
+    mutableEnv.NODE_ENV = originalNodeEnv;
     delete (globalThis as { dbSql?: unknown }).dbSql;
     delete (globalThis as { dbSqlConfigKey?: unknown }).dbSqlConfigKey;
   });

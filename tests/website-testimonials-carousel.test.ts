@@ -12,7 +12,8 @@ import { TestimonialsSection } from "@/components/website/templates/ecommerce-ci
 import type { ThemeTokens } from "@/components/website/templates/ecommerce-ciseco/types";
 import type { CatalogPayload } from "@/server/website";
 
-globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
+  .IS_REACT_ACT_ENVIRONMENT = true;
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
@@ -155,8 +156,11 @@ function renderWithProviders(element: ReturnType<typeof createElement>): Rendere
           initialHref: "/preview?path=%2F&lang=en",
           initialPath: "/",
           serverRoutedPaths: ["/", "/about"],
+          children: createElement(CisecoLocaleProvider, {
+            initialLocale: "en",
+            children: element,
+          }),
         },
-        createElement(CisecoLocaleProvider, { initialLocale: "en" }, element),
       ),
     );
   });

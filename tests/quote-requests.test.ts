@@ -271,7 +271,8 @@ describe("catalog routing", () => {
     expect(metadata.title).toBe("Catalog Title");
     expect(metadata.alternates?.canonical).toBe("https://example.com/catalog");
     expect(metadata.openGraph?.siteName).toBe("Test Co");
-    expect(metadata.icons?.icon).toEqual([
+    const icons = metadata.icons as { icon?: Array<{ url: string }> } | undefined;
+    expect(icons?.icon).toEqual([
       {
         url: `/api/catalogue/site-favicon?v=${faviconVersion}`,
       },

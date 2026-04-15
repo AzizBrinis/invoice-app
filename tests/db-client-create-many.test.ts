@@ -42,7 +42,8 @@ describe("db client createMany compatibility", () => {
 
     expect(result).toEqual({ count: 1 });
     expect(sqlClient.unsafe).toHaveBeenCalledOnce();
-    expect(String(sqlClient.unsafe.mock.calls[0]?.[0] ?? "")).toContain(
+    const firstUnsafeQuery = (sqlClient.unsafe.mock.calls[0] as unknown[] | undefined)?.[0];
+    expect(String(firstUnsafeQuery ?? "")).toContain(
       'INSERT INTO "public"."Session"',
     );
   });
