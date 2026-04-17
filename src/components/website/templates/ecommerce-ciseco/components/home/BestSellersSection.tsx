@@ -85,6 +85,7 @@ export function BestSellersSection({
                     <ProductCard
                       product={card}
                       href={productHref(card.slug)}
+                      priority={index === 0}
                       isWishlisted={isWishlisted(card.id)}
                       isWishlistBusy={pendingIds.has(card.id)}
                       onToggleWishlist={() => onToggleWishlist(card.id)}

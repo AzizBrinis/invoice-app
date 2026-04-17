@@ -32,6 +32,7 @@ import {
 } from "@/lib/website/templates";
 import { resolvePage as resolveCisecoPage } from "@/components/website/templates/ecommerce-ciseco/utils";
 import {
+  translateCisecoText,
   type CisecoLocale,
 } from "@/components/website/templates/ecommerce-ciseco/locale";
 import {
@@ -45,7 +46,7 @@ import {
 } from "@/lib/website/custom-domain";
 import { slugify } from "@/lib/slug";
 import { fromCents } from "@/lib/money";
-import { stripProductHtml } from "@/lib/product-html";
+import { sanitizeProductHtml, stripProductHtml } from "@/lib/product-html";
 import {
   buildProductFaqStructuredData,
   normalizeProductFaqItems,
@@ -1934,18 +1935,67 @@ function titleizeCategorySlug(value: string) {
     .join(" ");
 }
 
-function resolveCategoryLabel(products: CatalogProduct[], slug: string) {
+function translateCatalogLabel(
+  locale: CisecoLocale | null,
+  value: string,
+) {
+  return locale ? translateCisecoText(locale, value) : value;
+}
+
+function resolveCategoryLabel(
+  products: CatalogProduct[],
+  slug: string,
+  locale?: CisecoLocale | null,
+) {
   const match = products.find(
     (product) => product.category && slugify(product.category) === slug,
   );
   if (match?.category) {
-    return match.category;
+    return translateCatalogLabel(locale ?? null, match.category);
   }
-  return titleizeCategorySlug(slug);
+  return translateCatalogLabel(locale ?? null, titleizeCategorySlug(slug));
 }
 
 function trimCatalogText(value?: string | null) {
   return value?.replace(/\s+/g, " ").trim() ?? "";
+}
+
+function normalizeCatalogTextToken(value?: string | null) {
+  return trimCatalogText(value)
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function matchesCatalogPlaceholder(
+  value: string | null,
+  candidates: readonly string[],
+) {
+  const normalizedValue = normalizeCatalogTextToken(value);
+  if (!normalizedValue) {
+    return false;
+  }
+  return candidates.some(
+    (candidate) => normalizeCatalogTextToken(candidate) === normalizedValue,
+  );
+}
+
+function appendCatalogCompanyName(
+  title: string,
+  companyName: string,
+) {
+  const normalizedTitle = normalizeCatalogTextToken(title);
+  const normalizedCompany = normalizeCatalogTextToken(companyName);
+  if (
+    normalizedCompany &&
+    normalizedTitle &&
+    normalizedTitle.includes(normalizedCompany)
+  ) {
+    return title;
+  }
+  return `${title} — ${companyName}`;
 }
 
 function normalizeStructuredDataCountryCode(value?: string | null) {
@@ -2461,6 +2511,81 @@ function translateCatalogCopy(
   return locale === "en" ? english : french;
 }
 
+const ABOUT_PLACEHOLDER_TITLES = [
+  "👋 About Us.",
+  "About us",
+  "About Us",
+  "👋 À propos de nous.",
+] as const;
+
+const ABOUT_PLACEHOLDER_DESCRIPTIONS = [
+  "We're impartial and independent, and every day we create distinctive, world-class programmes and content which inform, educate and entertain millions of people in around the world.",
+  "Nous sommes impartiaux et indépendants, et chaque jour nous créons des programmes et des contenus distinctifs de classe mondiale qui informent, éduquent et divertissent des millions de personnes dans le monde.",
+] as const;
+
+const COLLECTIONS_PLACEHOLDER_DESCRIPTIONS = [
+  "Présentez vos sélections favorites.",
+  "Showcase your favourite selections.",
+] as const;
+
+const BLOG_PLACEHOLDER_TITLES = ["Journal"] as const;
+
+const BLOG_PLACEHOLDER_DESCRIPTIONS = [
+  "Suivez nos dernières actualités et inspirations.",
+  "Follow our latest news and inspiration.",
+] as const;
+
+function normalizeCatalogStaticHeroTitle(
+  routeKind: CatalogRouteInfo["kind"],
+  value: string | null,
+) {
+  if (!value) {
+    return null;
+  }
+
+  if (routeKind === "about" && matchesCatalogPlaceholder(value, ABOUT_PLACEHOLDER_TITLES)) {
+    return null;
+  }
+
+  if (routeKind === "blog" && matchesCatalogPlaceholder(value, BLOG_PLACEHOLDER_TITLES)) {
+    return null;
+  }
+
+  return value;
+}
+
+function normalizeCatalogStaticHeroDescription(
+  routeKind: CatalogRouteInfo["kind"],
+  value: string | null,
+) {
+  if (!value) {
+    return null;
+  }
+
+  if (
+    routeKind === "about" &&
+    matchesCatalogPlaceholder(value, ABOUT_PLACEHOLDER_DESCRIPTIONS)
+  ) {
+    return null;
+  }
+
+  if (
+    routeKind === "collections" &&
+    matchesCatalogPlaceholder(value, COLLECTIONS_PLACEHOLDER_DESCRIPTIONS)
+  ) {
+    return null;
+  }
+
+  if (
+    routeKind === "blog" &&
+    matchesCatalogPlaceholder(value, BLOG_PLACEHOLDER_DESCRIPTIONS)
+  ) {
+    return null;
+  }
+
+  return value;
+}
+
 function resolveCatalogSeoLocale(
   payload: CatalogPayload,
   locale?: CisecoLocale | null,
@@ -2688,6 +2813,68 @@ function normalizeBlogSeoSlug(value?: string | null) {
   return normalized ? slugify(normalized) : null;
 }
 
+function buildCatalogPublicApiUrl(
+  website: Pick<CatalogWebsiteSummary, "slug" | "customDomain" | "domainStatus">,
+  path: string,
+  query?: URLSearchParams | null,
+) {
+  const customDomainUrl = buildActiveCustomDomainUrl({
+    customDomain: website.customDomain,
+    domainStatus: website.domainStatus,
+    path,
+  });
+  const url = new URL(
+    customDomainUrl ?? new URL(path, getAppBaseUrl()).toString(),
+  );
+  const params = query
+    ? new URLSearchParams(query.toString())
+    : new URLSearchParams();
+
+  if (!customDomainUrl) {
+    params.set("slug", website.slug);
+  }
+
+  url.search = params.toString();
+  return url.toString();
+}
+
+function resolveCatalogBlogImageUrl(
+  payload: CatalogPayload,
+  options: {
+    slug: string;
+    socialImageUrl?: string | null;
+    coverImageUrl?: string | null;
+  },
+) {
+  const source =
+    trimCatalogText(options.socialImageUrl) ||
+    trimCatalogText(options.coverImageUrl);
+  if (!source) {
+    return null;
+  }
+
+  const absoluteUrl = resolveCatalogAbsoluteUrl(payload.website, source);
+  if (absoluteUrl) {
+    return absoluteUrl;
+  }
+
+  if (!isInlineCatalogImageSource(source)) {
+    return null;
+  }
+
+  try {
+    const query = new URLSearchParams();
+    query.set("post", options.slug);
+    return buildCatalogPublicApiUrl(
+      payload.website,
+      "/api/catalogue/blog/image",
+      query,
+    );
+  } catch {
+    return null;
+  }
+}
+
 function collectCatalogBlogSeoEntries(
   payload: CatalogPayload,
 ) {
@@ -2705,11 +2892,11 @@ function collectCatalogBlogSeoEntries(
         null,
       author: trimCatalogText(post.authorName) || null,
       publishedAt: trimCatalogText(post.publishDate) || null,
-      imageUrl:
-        resolveCatalogAbsoluteUrl(
-          payload.website,
-          post.socialImageUrl ?? post.coverImageUrl,
-        ) ?? null,
+      imageUrl: resolveCatalogBlogImageUrl(payload, {
+        slug: post.slug,
+        socialImageUrl: post.socialImageUrl,
+        coverImageUrl: post.coverImageUrl,
+      }),
     })) satisfies CatalogBlogSeoEntry[];
   }
 
@@ -3282,9 +3469,13 @@ function resolveCatalogStaticPageMetadata(options: {
   categoryLabel?: string | null;
 }) {
   const heroSection = resolveBuilderPageHeroSection(options.pageConfig);
-  const heroTitle = trimCatalogText(heroSection?.title);
-  const heroDescription = trimCatalogText(
-    heroSection?.subtitle ?? heroSection?.description,
+  const heroTitle = normalizeCatalogStaticHeroTitle(
+    options.route.kind,
+    trimCatalogText(heroSection?.title),
+  );
+  const heroDescription = normalizeCatalogStaticHeroDescription(
+    options.route.kind,
+    trimCatalogText(heroSection?.subtitle ?? heroSection?.description),
   );
   const companyName = options.companyName;
 
@@ -3300,15 +3491,17 @@ function resolveCatalogStaticPageMetadata(options: {
       } satisfies Partial<CatalogWebsiteMetadata>;
     case "collections":
       return {
-        title:
+        title: appendCatalogCompanyName(
           heroTitle ||
-          `${translateCatalogCopy(options.locale, "Collections", "Collections")} — ${companyName}`,
+            translateCatalogCopy(options.locale, "Collections", "Collections"),
+          companyName,
+        ),
         description:
           heroDescription ||
           translateCatalogCopy(
             options.locale,
-            "Explorez toutes les collections et catégories du catalogue.",
-            "Browse every collection and category in the catalogue.",
+            "Explorez les collections, catégories et produits actuellement disponibles dans le catalogue.",
+            "Browse the collections, categories, and products currently available in the catalogue.",
           ),
         socialImageUrl:
           resolveBuilderPageSocialImage(options.payload, options.pageConfig) ??
@@ -3358,15 +3551,19 @@ function resolveCatalogStaticPageMetadata(options: {
     }
     case "about":
       return {
-        title:
-          heroTitle ||
-          `${translateCatalogCopy(options.locale, "À propos", "About us")} — ${companyName}`,
+        title: heroTitle
+          ? appendCatalogCompanyName(heroTitle, companyName)
+          : translateCatalogCopy(
+              options.locale,
+              `À propos de ${companyName}`,
+              `About ${companyName}`,
+            ),
         description:
           heroDescription ||
           translateCatalogCopy(
             options.locale,
-            "Découvrez notre histoire, notre approche et ce qui distingue la marque.",
-            "Learn about our story, our approach, and what makes the brand stand out.",
+            "Découvrez l’activité, l’approche et les engagements qui guident la boutique.",
+            "Learn about the store, its approach, and the commitments behind the catalogue.",
           ),
         socialImageUrl:
           resolveBuilderPageSocialImage(options.payload, options.pageConfig) ??
@@ -3375,15 +3572,21 @@ function resolveCatalogStaticPageMetadata(options: {
       } satisfies Partial<CatalogWebsiteMetadata>;
     case "blog":
       return {
-        title:
+        title: appendCatalogCompanyName(
           heroTitle ||
-          `${translateCatalogCopy(options.locale, "Blog", "Blog")} — ${companyName}`,
+            translateCatalogCopy(
+              options.locale,
+              "Guides, conseils et actualités",
+              "Guides, advice, and updates",
+            ),
+          companyName,
+        ),
         description:
           heroDescription ||
           translateCatalogCopy(
             options.locale,
-            "Retrouvez nos actualités, guides et contenus éditoriaux.",
-            "Read our latest articles, guides, and editorial updates.",
+            "Retrouvez nos guides pratiques, conseils produit et dernières actualités publiés par la boutique.",
+            "Read practical guides, product advice, and the latest updates published by the store.",
           ),
         socialImageUrl:
           resolveBuilderPageSocialImage(options.payload, options.pageConfig) ??
@@ -3391,23 +3594,43 @@ function resolveCatalogStaticPageMetadata(options: {
         keywords: options.base.keywords,
       } satisfies Partial<CatalogWebsiteMetadata>;
     case "blog-detail":
-      return {
-        title: `${options.route.blogEntry?.title ?? heroTitle ?? translateCatalogCopy(options.locale, "Article", "Article")} — ${companyName}`,
-        description:
-          options.route.blogEntry?.description ??
-          heroDescription ??
-          options.base.description,
-        socialImageUrl:
-          options.route.blogEntry?.imageUrl ??
-          resolveBuilderPageSocialImage(options.payload, options.pageConfig) ??
-          options.base.socialImageUrl,
-        keywords: options.base.keywords,
-      } satisfies Partial<CatalogWebsiteMetadata>;
+      {
+        const currentPostImage = options.payload.currentBlogPost
+          ? resolveCatalogBlogImageUrl(options.payload, {
+              slug: options.payload.currentBlogPost.slug,
+              socialImageUrl: options.payload.currentBlogPost.socialImageUrl,
+              coverImageUrl: options.payload.currentBlogPost.coverImageUrl,
+            })
+          : null;
+        const blogTitle =
+          options.route.blogEntry?.title ??
+          trimCatalogText(options.payload.currentBlogPost?.metaTitle) ??
+          trimCatalogText(options.payload.currentBlogPost?.title) ??
+          heroTitle ??
+          translateCatalogCopy(options.locale, "Article", "Article");
+        return {
+          title: appendCatalogCompanyName(blogTitle, companyName),
+          description:
+            options.route.blogEntry?.description ??
+            trimCatalogText(options.payload.currentBlogPost?.metaDescription) ??
+            trimCatalogText(options.payload.currentBlogPost?.excerpt) ??
+            heroDescription ??
+            options.base.description,
+          socialImageUrl:
+            options.route.blogEntry?.imageUrl ??
+            currentPostImage ??
+            resolveBuilderPageSocialImage(options.payload, options.pageConfig) ??
+            options.base.socialImageUrl,
+          keywords: options.base.keywords,
+        } satisfies Partial<CatalogWebsiteMetadata>;
+      }
     case "contact":
       return {
-        title:
+        title: appendCatalogCompanyName(
           heroTitle ||
-          `${translateCatalogCopy(options.locale, "Contact", "Contact")} — ${companyName}`,
+            translateCatalogCopy(options.locale, "Contact", "Contact"),
+          companyName,
+        ),
         description:
           heroDescription ||
           translateCatalogCopy(
@@ -3422,7 +3645,10 @@ function resolveCatalogStaticPageMetadata(options: {
       } satisfies Partial<CatalogWebsiteMetadata>;
     case "cms":
       return {
-        title: `${options.payload.currentCmsPage?.title ?? heroTitle ?? companyName} — ${companyName}`,
+        title: appendCatalogCompanyName(
+          options.payload.currentCmsPage?.title ?? heroTitle ?? companyName,
+          companyName,
+        ),
         description:
           options.payload.currentCmsPage?.excerpt ??
           heroDescription ??
@@ -3651,7 +3877,11 @@ export function resolveCatalogSeo(options: {
   } else {
     const categoryLabel =
       canonicalTarget.kind === "category"
-        ? resolveCategoryLabel(payload.products.all, canonicalTarget.slug)
+        ? resolveCategoryLabel(
+            payload.products.all,
+            canonicalTarget.slug,
+            seoContext.locale,
+          )
         : null;
     const staticMetadata = resolveCatalogStaticPageMetadata({
       payload,
@@ -3795,7 +4025,11 @@ function buildCatalogBreadcrumbItems(options: {
       });
       if (slug) {
         items.push({
-          name: resolveCategoryLabel(options.payload.products.all, slug),
+          name: resolveCategoryLabel(
+            options.payload.products.all,
+            slug,
+            options.locale,
+          ),
           item: buildCatalogCanonicalUrl({
             payload: options.payload,
             path: `/collections/${slug}`,
@@ -4383,6 +4617,16 @@ async function listCatalogProducts(userId: string, options?: { includeInactive?:
   );
   return catalogProducts.map((product) => ({
     ...product,
+    descriptionHtml: product.descriptionHtml
+      ? sanitizeProductHtml(product.descriptionHtml, {
+          imageAltFallback: product.name,
+        })
+      : null,
+    shortDescriptionHtml: product.shortDescriptionHtml
+      ? sanitizeProductHtml(product.shortDescriptionHtml, {
+          imageAltFallback: product.name,
+        })
+      : null,
     reviews: reviewsByProduct.get(product.id) ?? [],
   }));
 }

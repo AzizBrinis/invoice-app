@@ -43,7 +43,16 @@ const BLOG_SANITIZE_OPTIONS: IOptions = {
   ],
   allowedAttributes: {
     a: ["href", "target", "rel"],
-    img: ["src", "alt", "title", "width", "height", "loading"],
+    img: [
+      "src",
+      "alt",
+      "title",
+      "width",
+      "height",
+      "loading",
+      "decoding",
+      "fetchpriority",
+    ],
     th: ["colspan", "rowspan"],
     td: ["colspan", "rowspan"],
     "*": [],
@@ -54,6 +63,35 @@ const BLOG_SANITIZE_OPTIONS: IOptions = {
       rel: "noopener noreferrer",
     }),
     h1: "h2",
+    img: (tagName, attribs) => {
+      const src = attribs.src?.trim();
+      if (!src) {
+        return {
+          tagName: "span",
+          text: "",
+        };
+      }
+
+      return {
+        tagName,
+        attribs: {
+          src,
+          alt: attribs.alt?.trim() || attribs.title?.trim() || "",
+          ...(attribs.title?.trim()
+            ? { title: attribs.title.trim() }
+            : {}),
+          ...(attribs.width?.trim()
+            ? { width: attribs.width.trim() }
+            : {}),
+          ...(attribs.height?.trim()
+            ? { height: attribs.height.trim() }
+            : {}),
+          loading: attribs.loading?.trim() === "eager" ? "eager" : "lazy",
+          decoding: "async",
+          fetchpriority: "low",
+        },
+      };
+    },
   },
 };
 
@@ -136,7 +174,7 @@ export function renderWebsiteBlogContent(
       return;
     }
 
-    let idBase = slugify(text) || `heading-${headings.length + 1}`;
+    const idBase = slugify(text) || `heading-${headings.length + 1}`;
     let id = idBase;
     let suffix = 2;
     while (seenIds.has(id)) {

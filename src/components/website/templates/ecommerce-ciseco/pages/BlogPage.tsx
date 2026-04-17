@@ -149,6 +149,29 @@ const LEGACY_ARTICLES: BlogArticle[] = [
 
 const ARTICLES_PER_PAGE = 6;
 
+const DEFAULT_BLOG_HERO_TITLES = ["Journal"] as const;
+const DEFAULT_BLOG_HERO_SUBTITLES = [
+  "Suivez nos dernières actualités et inspirations.",
+  "Follow our latest news and inspiration.",
+] as const;
+
+function normalizeBlogText(value?: string | null) {
+  return value?.replace(/\s+/g, " ").trim().toLocaleLowerCase() ?? "";
+}
+
+function matchesDefaultBlogCopy(
+  value: string | null | undefined,
+  candidates: readonly string[],
+) {
+  const normalized = normalizeBlogText(value);
+  if (!normalized) {
+    return false;
+  }
+  return candidates.some(
+    (candidate) => normalizeBlogText(candidate) === normalized,
+  );
+}
+
 function resolveReadTimeLabel(
   minutes: number | null | undefined,
   locale: "fr" | "en",
@@ -325,6 +348,19 @@ export function BlogPage({
     currentPage === 1 ? currentPagePosts.slice(3) : currentPagePosts;
   const paginationPages = Array.from({ length: totalPages }, (_, index) => index + 1);
   const heroSubtitle = heroSection?.subtitle ?? heroSection?.description ?? null;
+  const resolvedHeroEyebrow = heroSection?.eyebrow ?? "Blog";
+  const resolvedHeroTitle =
+    heroSection?.title && !matchesDefaultBlogCopy(heroSection.title, DEFAULT_BLOG_HERO_TITLES)
+      ? heroSection.title
+      : locale === "en"
+        ? "Guides, advice, and updates"
+        : "Guides, conseils et actualités";
+  const resolvedHeroSubtitle =
+    heroSubtitle && !matchesDefaultBlogCopy(heroSubtitle, DEFAULT_BLOG_HERO_SUBTITLES)
+      ? heroSubtitle
+      : locale === "en"
+        ? "Read practical guides, product advice, and the latest updates published by the store."
+        : "Retrouvez des guides pratiques, des conseils produit et les dernières actualités publiés par la boutique.";
   const promoImage = resolveBuilderMedia(promoSection?.mediaId, mediaLibrary);
   const promoButtonHref = resolveCisecoNavigationHref({
     href: promoSection?.buttons?.[0]?.href ?? "/contact",
@@ -356,16 +392,13 @@ export function BlogPage({
           {(Boolean(heroSection) || !hasBuilder) && (
             <div className="mb-10 max-w-3xl space-y-3" data-builder-section={heroSection?.id}>
               <p className="text-xs font-semibold uppercase tracking-[0.32em] text-[var(--site-accent)]">
-                {t(heroSection?.eyebrow ?? "Journal")}
+                {t(resolvedHeroEyebrow)}
               </p>
               <h1 className="font-[family:var(--ciseco-font-display)] text-4xl font-semibold tracking-[-0.04em] text-slate-950 sm:text-5xl">
-                {t(heroSection?.title ?? "Stories, advice, and product thinking")}
+                {t(resolvedHeroTitle)}
               </h1>
               <p className="max-w-2xl text-sm leading-7 text-slate-600 sm:text-base">
-                {t(
-                  heroSubtitle ??
-                    "Read new launches, practical guides, and editorial updates published by the store.",
-                )}
+                {t(resolvedHeroSubtitle)}
               </p>
             </div>
           )}

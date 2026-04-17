@@ -12,6 +12,9 @@ import {
   buildCatalogUrl,
   resolveCatalogWebsite,
 } from "@/server/website";
+import {
+  listPublicSiteBlogPostSummaries,
+} from "@/server/site-blog-posts";
 
 type SitemapWebsite = {
   id: string;
@@ -35,6 +38,12 @@ type SitemapCmsPage = {
   websiteId: string;
   path: string;
   updatedAt: Date;
+};
+
+type SitemapBlogPost = {
+  websiteId: string;
+  slug: string;
+  publishDate: string | null;
 };
 
 function buildCatalogLocalizedUrl(options: {
@@ -182,7 +191,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   }
 
   const userIds = websites.map((website) => website.userId);
-  const [products, cmsPages] = await Promise.all([
+  const [products, cmsPages, blogPostsByWebsiteEntries] = await Promise.all([
     prisma.product.findMany({
       where: {
         userId: { in: userIds },
@@ -206,11 +215,30 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         updatedAt: true,
       },
     }),
+    Promise.all(
+      websites.map(async (website) => [
+        website.id,
+        await listPublicSiteBlogPostSummaries({
+          websiteId: website.id,
+          preview: false,
+        }),
+      ] as const),
+    ),
   ]);
 
   const productsByUser = new Map<string, SitemapProduct[]>();
   const categoriesByUser = new Map<string, Set<string>>();
   const cmsPagesByWebsite = new Map<string, SitemapCmsPage[]>();
+  const blogPostsByWebsite = new Map<string, SitemapBlogPost[]>(
+    blogPostsByWebsiteEntries.map(([websiteId, posts]) => [
+      websiteId,
+      posts.map((post) => ({
+        websiteId,
+        slug: post.slug,
+        publishDate: post.publishDate,
+      })),
+    ]),
+  );
 
   products.forEach((product) => {
     const existing = productsByUser.get(product.userId) ?? [];
@@ -238,23 +266,29 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   return websites.flatMap((website) => {
     const baseUpdatedAt = website.updatedAt ?? new Date();
     const entries: MetadataRoute.Sitemap = [];
+    const seenPaths = new Set<string>();
+    const pushUniqueEntry = (path: string, lastModified: Date) => {
+      if (seenPaths.has(path)) {
+        return;
+      }
+      seenPaths.add(path);
+      pushEntry(entries, website, path, lastModified);
+    };
 
     collectTemplateStaticPaths(website).forEach((path) => {
-      pushEntry(entries, website, path, baseUpdatedAt);
+      pushUniqueEntry(path, baseUpdatedAt);
     });
 
     const categorySlugs = Array.from(
       categoriesByUser.get(website.userId) ?? [],
     );
     categorySlugs.forEach((categorySlug) => {
-      pushEntry(entries, website, `/collections/${categorySlug}`, baseUpdatedAt);
+      pushUniqueEntry(`/collections/${categorySlug}`, baseUpdatedAt);
     });
 
     const websiteProducts = productsByUser.get(website.userId) ?? [];
     websiteProducts.forEach((product) => {
-      pushEntry(
-        entries,
-        website,
+      pushUniqueEntry(
         `/produit/${product.publicSlug}`,
         product.updatedAt ?? baseUpdatedAt,
       );
@@ -262,7 +296,20 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
     const websiteCmsPages = cmsPagesByWebsite.get(website.id) ?? [];
     websiteCmsPages.forEach((page) => {
-      pushEntry(entries, website, page.path, page.updatedAt);
+      pushUniqueEntry(page.path, page.updatedAt);
+    });
+
+    const websiteBlogPosts = blogPostsByWebsite.get(website.id) ?? [];
+    websiteBlogPosts.forEach((post) => {
+      const publishDate = post.publishDate
+        ? new Date(`${post.publishDate}T00:00:00.000Z`)
+        : null;
+      pushUniqueEntry(
+        `/blog/${post.slug}`,
+        publishDate && !Number.isNaN(publishDate.getTime())
+          ? publishDate
+          : baseUpdatedAt,
+      );
     });
 
     return entries;

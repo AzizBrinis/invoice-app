@@ -11,6 +11,7 @@ type ProductCardProps = {
   product: ProductCardData;
   variant?: "default" | "compact";
   href?: string;
+  priority?: boolean;
   onAddToCart?: () => boolean;
   onToggleWishlist?: () => Promise<boolean> | void;
   isWishlisted?: boolean;
@@ -25,6 +26,7 @@ export function ProductCard({
   product,
   variant = "default",
   href,
+  priority = false,
   onAddToCart,
   onToggleWishlist,
   isWishlisted = false,
@@ -96,7 +98,8 @@ export function ProductCard({
                   ? "(min-width: 1024px) 16vw, (min-width: 640px) 24vw, 42vw"
                   : "(min-width: 1024px) 22vw, (min-width: 640px) 44vw, 92vw"
               }
-              loading="lazy"
+              priority={priority}
+              loading={priority ? "eager" : "lazy"}
             />
           </div>
         </a>

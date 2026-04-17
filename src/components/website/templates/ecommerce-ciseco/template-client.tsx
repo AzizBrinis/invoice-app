@@ -517,6 +517,15 @@ function TemplateContent({
         homeHref={homeHref}
         siteReviews={data.siteReviews}
         builder={pageBuilder}
+        productCount={data.products.all.length}
+        categoryCount={
+          new Set(
+            data.products.all
+              .map((product) => product.category?.trim())
+              .filter((value): value is string => Boolean(value)),
+          ).size
+        }
+        blogPostCount={data.blogPosts?.length ?? 0}
       />
     );
   }

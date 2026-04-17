@@ -21,6 +21,8 @@ const FRENCH_TRANSLATIONS: Record<string, string> = {
   Home: "Accueil",
   Information: "Informations",
   Collections: "Collections",
+  Software: "Logiciels",
+  Logiciels: "Logiciels",
   "About Us": "À propos",
   Blog: "Blog",
   Contact: "Contact",
@@ -764,6 +766,7 @@ const FRENCH_TRANSLATIONS: Record<string, string> = {
 };
 
 const EN_TRANSLATIONS: Record<string, string> = {
+  Logiciels: "Software",
   "Rupture de stock": "Out of stock",
   Disponible: "In stock",
   "Requête bloquée.": "Request blocked.",

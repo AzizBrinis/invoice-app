@@ -20,6 +20,7 @@ import { ExtraSections } from "../components/builder/ExtraSections";
 import { Footer } from "../components/layout/Footer";
 import { Navbar } from "../components/layout/Navbar";
 import { PageShell } from "../components/layout/PageShell";
+import { useCisecoI18n } from "../i18n";
 import { resolveSectionCustomerPhotosVisibility } from "@/lib/website/builder";
 import {
   ABOUT_FAST_FACTS,
@@ -40,7 +41,64 @@ type AboutPageProps = {
   homeHref: string;
   siteReviews?: CatalogPayload["siteReviews"];
   builder?: WebsiteBuilderPageConfig | null;
+  productCount?: number;
+  categoryCount?: number;
+  blogPostCount?: number;
 };
+
+function normalizeAboutText(value?: string | null) {
+  return value?.replace(/\s+/g, " ").trim().toLocaleLowerCase() ?? "";
+}
+
+function matchesAboutCopy(
+  value: string | null | undefined,
+  candidates: readonly string[],
+) {
+  const normalized = normalizeAboutText(value);
+  if (!normalized) {
+    return false;
+  }
+  return candidates.some(
+    (candidate) => normalizeAboutText(candidate) === normalized,
+  );
+}
+
+function isDefaultAboutTeamSection(section?: WebsiteBuilderSection | null) {
+  if (!section) {
+    return true;
+  }
+
+  if (section.items.length !== ABOUT_FOUNDERS.length) {
+    return false;
+  }
+
+  return section.items.every((item, index) => {
+    const expectedFounder = ABOUT_FOUNDERS[index];
+    return (
+      normalizeAboutText(item.title) === normalizeAboutText(expectedFounder?.name) &&
+      normalizeAboutText(item.tag) === normalizeAboutText(expectedFounder?.role)
+    );
+  });
+}
+
+function isDefaultAboutFactsSection(section?: WebsiteBuilderSection | null) {
+  if (!section) {
+    return true;
+  }
+
+  if (section.items.length !== ABOUT_FAST_FACTS.length) {
+    return false;
+  }
+
+  return section.items.every((item, index) => {
+    const expectedFact = ABOUT_FAST_FACTS[index];
+    return (
+      normalizeAboutText(item.title) === normalizeAboutText(expectedFact?.value) &&
+      normalizeAboutText(item.description) ===
+        normalizeAboutText(expectedFact?.description)
+    );
+  });
+}
 
 export function AboutPage({
   theme,
@@ -49,7 +107,11 @@ export function AboutPage({
   homeHref,
   siteReviews = [],
   builder,
+  productCount = 0,
+  categoryCount = 0,
+  blogPostCount = 0,
 }: AboutPageProps) {
+  const { locale } = useCisecoI18n();
   const hasBuilder = Boolean(builder);
   const sections = builder?.sections ?? [];
   const mediaLibrary = builder?.mediaLibrary ?? [];
@@ -79,7 +141,10 @@ export function AboutPage({
     layouts: ["banner", "split"],
   });
   const showHero = heroSection ? heroSection.visible !== false : !hasBuilder;
-  const showTeam = teamSection ? teamSection.visible !== false : !hasBuilder;
+  const showTeam =
+    teamSection != null &&
+    teamSection.visible !== false &&
+    !isDefaultAboutTeamSection(teamSection);
   const showAbout = aboutSection ? aboutSection.visible !== false : !hasBuilder;
   const showTestimonials = testimonialsSection
     ? testimonialsSection.visible !== false
@@ -143,19 +208,53 @@ export function AboutPage({
         image: { src: founder.image, alt: founder.name },
       }));
 
-  const facts = aboutSection
-    ? aboutSection.items.length > 0
+  const numberFormatter = new Intl.NumberFormat(locale === "fr" ? "fr-FR" : "en-US");
+  const resolvedProductCount = Math.max(0, productCount);
+  const resolvedCategoryCount = Math.max(0, categoryCount);
+  const secondaryCount = blogPostCount > 0 ? blogPostCount : siteReviews.length;
+  const usesPublishedArticles = blogPostCount > 0;
+  const useLiveFacts = isDefaultAboutFactsSection(aboutSection);
+  const facts = useLiveFacts
+    ? [
+        {
+          id: "catalog-products",
+          value: numberFormatter.format(resolvedProductCount),
+          description:
+            locale === "en"
+              ? "Products and digital licences currently available in the catalogue."
+              : "Produits et licences numériques actuellement disponibles dans le catalogue.",
+        },
+        {
+          id: "catalog-categories",
+          value: numberFormatter.format(resolvedCategoryCount),
+          description:
+            locale === "en"
+              ? "Categories available to browse across the shop."
+              : "Catégories actuellement disponibles à parcourir dans la boutique.",
+        },
+        {
+          id: usesPublishedArticles ? "published-articles" : "customer-reviews",
+          value: numberFormatter.format(Math.max(0, secondaryCount)),
+          description: usesPublishedArticles
+            ? locale === "en"
+              ? "Published buying guides and articles to help customers choose the right product."
+              : "Guides d’achat et articles publiés pour aider les clients à choisir le bon produit."
+            : locale === "en"
+              ? "Published customer reviews currently visible on the site."
+              : "Avis clients publiés et actuellement visibles sur le site.",
+        },
+      ]
+    : aboutSection
       ? aboutSection.items.map((item, index) => ({
           id: item.id ?? `fact-${index + 1}`,
           value: item.title ?? "0",
           description: item.description ?? "",
         }))
-      : []
-    : ABOUT_FAST_FACTS.map((fact) => ({
-        id: fact.id,
-        value: fact.value,
-        description: fact.description,
-      }));
+      : ABOUT_FAST_FACTS.map((fact) => ({
+          id: fact.id,
+          value: fact.value,
+          description: fact.description,
+        }));
 
   const testimonialItems = testimonialsSection?.items ?? [];
   const showTestimonialPhotos = resolveSectionCustomerPhotosVisibility(
@@ -173,27 +272,102 @@ export function AboutPage({
     };
   });
 
+  const defaultHeroTitle =
+    locale === "en" ? `About ${companyName}` : `À propos de ${companyName}`;
+  const defaultHeroDescription =
+    locale === "en"
+      ? `${companyName} helps individuals and businesses find official software, digital licences, and practical solutions with clear guidance and responsive support.`
+      : `${companyName} aide les particuliers et les professionnels à trouver des logiciels officiels, des licences numériques et des solutions pratiques avec des conseils clairs et un accompagnement réactif.`;
+  const heroTitle =
+    heroSection?.title && !matchesAboutCopy(heroSection.title, [ABOUT_HERO_COPY.title, "About us", "About Us"])
+      ? heroSection.title
+      : defaultHeroTitle;
+  const heroDescription =
+    heroSection?.description &&
+    !matchesAboutCopy(heroSection.description, [ABOUT_HERO_COPY.description])
+      ? heroSection.description
+      : heroSection?.subtitle &&
+          !matchesAboutCopy(heroSection.subtitle, [ABOUT_HERO_COPY.description])
+        ? heroSection.subtitle
+        : defaultHeroDescription;
+
+  const factsTitle =
+    aboutSection?.title &&
+    !matchesAboutCopy(aboutSection.title, [ABOUT_FAST_FACTS_COPY.title])
+      ? aboutSection.title
+      : locale === "en"
+        ? "Catalogue snapshot"
+        : "Aperçu du catalogue";
+  const factsDescription =
+    aboutSection?.description &&
+    !matchesAboutCopy(aboutSection.description, [ABOUT_FAST_FACTS_COPY.description])
+      ? aboutSection.description
+      : aboutSection?.subtitle &&
+          !matchesAboutCopy(aboutSection.subtitle, [ABOUT_FAST_FACTS_COPY.description])
+        ? aboutSection.subtitle
+        : locale === "en"
+          ? "A quick look at what is currently available across the catalogue and customer resources."
+          : "Un aperçu rapide de ce qui est actuellement disponible dans le catalogue et les ressources clients.";
+
+  const testimonialsTitle =
+    testimonialsSection?.title &&
+    !matchesAboutCopy(testimonialsSection.title, [ABOUT_TESTIMONIALS_COPY.title])
+      ? testimonialsSection.title
+      : locale === "en"
+        ? "Customer reviews"
+        : "Avis clients";
+  const testimonialsSubtitle =
+    testimonialsSection?.subtitle &&
+    !matchesAboutCopy(testimonialsSection.subtitle, [ABOUT_TESTIMONIALS_COPY.subtitle])
+      ? testimonialsSection.subtitle
+      : testimonialsSection?.description &&
+          !matchesAboutCopy(testimonialsSection.description, [ABOUT_TESTIMONIALS_COPY.subtitle])
+        ? testimonialsSection.description
+        : locale === "en"
+          ? `See what customers say about their experience with ${companyName}.`
+          : `Découvrez ce que les clients disent de leur expérience avec ${companyName}.`;
+
   const promoImage = resolveBuilderMedia(promoSection?.mediaId, mediaLibrary);
-  const promoTitleRaw = promoSection?.title ?? ABOUT_PROMO_COPY.title;
   const promoTitle =
-    promoTitleRaw === ABOUT_PROMO_COPY.title
-      ? promoTitleRaw.replaceAll("Ciseco", companyName)
-      : promoTitleRaw;
-  const promoDescriptionRaw =
-    promoSection?.description ?? promoSection?.subtitle ?? ABOUT_PROMO_COPY.description;
+    promoSection?.title &&
+    !matchesAboutCopy(promoSection.title, [ABOUT_PROMO_COPY.title])
+      ? promoSection.title
+      : locale === "en"
+        ? "Need help choosing the right product?"
+        : "Besoin d'aide pour choisir le bon produit ?";
   const promoDescription =
-    promoDescriptionRaw === ABOUT_PROMO_COPY.description
-      ? promoDescriptionRaw.replaceAll("Ciseco", companyName)
-      : promoDescriptionRaw;
+    promoSection?.description &&
+    !matchesAboutCopy(promoSection.description, [ABOUT_PROMO_COPY.description])
+      ? promoSection.description
+      : promoSection?.subtitle &&
+          !matchesAboutCopy(promoSection.subtitle, [ABOUT_PROMO_COPY.description])
+        ? promoSection.subtitle
+        : locale === "en"
+          ? "We help you compare options, identify the right licence, and order with confidence."
+          : "Nous vous aidons à comparer les options, identifier la bonne licence et commander en toute confiance.";
   const promoButtons =
-    promoSection?.buttons?.length
+    promoSection?.buttons?.length &&
+    !promoSection.buttons.every((button, index) =>
+      matchesAboutCopy(
+        button.label,
+        index === 0
+          ? [ABOUT_PROMO_COPY.primaryCta]
+          : [ABOUT_PROMO_COPY.secondaryCta],
+      ),
+    )
       ? promoSection.buttons.map((button) => ({
           label: button.label ?? "CTA",
           href: button.href ?? "#",
         }))
       : [
-          { label: ABOUT_PROMO_COPY.primaryCta, href: "#" },
-          { label: ABOUT_PROMO_COPY.secondaryCta, href: "#" },
+          {
+            label: locale === "en" ? "Browse collections" : "Voir les collections",
+            href: "/collections",
+          },
+          {
+            label: locale === "en" ? "Contact us" : "Nous contacter",
+            href: "/contact",
+          },
         ];
   const consumedIds = new Set(
     [heroSection, teamSection, aboutSection, testimonialsSection, promoSection]
@@ -212,12 +386,8 @@ export function AboutPage({
         {showHero ? (
           <AboutHero
             theme={theme}
-            title={heroSection?.title ?? ABOUT_HERO_COPY.title}
-            description={
-              heroSection?.description ??
-              heroSection?.subtitle ??
-              ABOUT_HERO_COPY.description
-            }
+            title={heroTitle}
+            description={heroDescription}
             images={heroImages}
             sectionId={heroSection?.id}
           />
@@ -244,16 +414,8 @@ export function AboutPage({
             {showDividerBeforeFacts ? <SectionDivider theme={theme} /> : null}
             <FastFacts
               theme={theme}
-              title={
-                aboutSection?.eyebrow ??
-                aboutSection?.title ??
-                ABOUT_FAST_FACTS_COPY.title
-              }
-              description={
-                aboutSection?.description ??
-                aboutSection?.subtitle ??
-                ABOUT_FAST_FACTS_COPY.description
-              }
+              title={aboutSection?.eyebrow ?? factsTitle}
+              description={factsDescription}
               facts={facts}
               sectionId={aboutSection?.id}
             />
@@ -266,12 +428,8 @@ export function AboutPage({
             ) : null}
             <TestimonialsOrbit
               theme={theme}
-              title={testimonialsSection?.title ?? ABOUT_TESTIMONIALS_COPY.title}
-              subtitle={
-                testimonialsSection?.subtitle ??
-                testimonialsSection?.description ??
-                ABOUT_TESTIMONIALS_COPY.subtitle
-              }
+              title={testimonialsTitle}
+              subtitle={testimonialsSubtitle}
               testimonials={testimonials}
               showCustomerPhotos={showTestimonialPhotos}
               sectionId={testimonialsSection?.id}

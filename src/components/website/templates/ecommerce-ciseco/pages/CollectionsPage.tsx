@@ -65,6 +65,25 @@ function titleizeSlug(value: string) {
     .join(" ");
 }
 
+const DEFAULT_COLLECTIONS_HERO_SUBTITLES = [
+  "Présentez vos sélections favorites.",
+  "Showcase your favourite selections.",
+] as const;
+
+function normalizeCollectionText(value?: string | null) {
+  return value?.replace(/\s+/g, " ").trim().toLocaleLowerCase() ?? "";
+}
+
+function isDefaultCollectionsHeroSubtitle(value?: string | null) {
+  const normalized = normalizeCollectionText(value);
+  if (!normalized) {
+    return false;
+  }
+  return DEFAULT_COLLECTIONS_HERO_SUBTITLES.some(
+    (candidate) => normalizeCollectionText(candidate) === normalized,
+  );
+}
+
 function resolveAvailabilityLabel(product: {
   saleMode: "INSTANT" | "QUOTE";
   stockQuantity: number | null;
@@ -94,7 +113,7 @@ export function CollectionsPage({
   builder,
   customizeHref,
 }: CollectionsPageProps) {
-  const { t, localizeHref } = useCisecoI18n();
+  const { t, locale, localizeHref } = useCisecoI18n();
   const { authStatus } = useAccountProfile({
     redirectOnUnauthorized: false,
     loadStrategy: "manual",
@@ -448,9 +467,9 @@ export function CollectionsPage({
   }, [buildCollectionsHref, navigateTo]);
 
   const collectionTitle = selectedCollection
-    ? `${t(selectedCollection.label)} ${t("collection")}`
+    ? t(selectedCollection.label)
     : selectedCollectionSlug
-      ? `${t(titleizeSlug(selectedCollectionSlug))} ${t("collection")}`
+      ? t(titleizeSlug(selectedCollectionSlug))
       : t(heroSection?.title ?? "Collections");
   const collectionSubtitle =
     selectedCollectionSlug
@@ -459,10 +478,15 @@ export function CollectionsPage({
             collectionScopedProducts.length === 1 ? "item" : "items",
           )} ${t("in this collection.")}`
         : t("No products are currently assigned to this collection.")
-      : heroSubtitle ??
-        `${t("Discover")} ${allProducts.length} ${t(
-          allProducts.length === 1 ? "item" : "items",
-        )}`;
+      : heroSubtitle && !isDefaultCollectionsHeroSubtitle(heroSubtitle)
+        ? t(heroSubtitle)
+        : locale === "en"
+          ? `Browse ${allProducts.length} ${
+              allProducts.length === 1 ? "item" : "items"
+            } across the current catalogue collections.`
+          : `Parcourez ${allProducts.length} ${
+              allProducts.length === 1 ? "article" : "articles"
+            } dans les collections actuellement disponibles.`;
   const consumedIds = new Set(
     [heroSection]
       .filter((section): section is WebsiteBuilderSection => Boolean(section))
@@ -588,7 +612,7 @@ export function CollectionsPage({
                 {selectedCollectionSlug ? collectionTitle : t(heroSection?.title ?? collectionTitle)}
               </h1>
               <p className="text-sm text-slate-500 sm:text-base">
-                {selectedCollectionSlug ? collectionSubtitle : t(heroSubtitle ?? collectionSubtitle)}
+                {collectionSubtitle}
               </p>
             </div>
             {customizeHref ? (
