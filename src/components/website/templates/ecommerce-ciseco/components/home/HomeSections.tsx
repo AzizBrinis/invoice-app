@@ -36,6 +36,7 @@ type HomeSectionsProps = {
   sections: WebsiteBuilderSection[];
   mediaLibrary: WebsiteBuilderMediaAsset[];
   siteReviews: CatalogPayload["siteReviews"];
+  blogPosts?: CatalogPayload["blogPosts"];
   hasBuilder: boolean;
 };
 
@@ -50,6 +51,7 @@ export function HomeSections({
   sections,
   mediaLibrary,
   siteReviews,
+  blogPosts,
   hasBuilder,
 }: HomeSectionsProps) {
   const { t } = useCisecoI18n();
@@ -228,6 +230,7 @@ export function HomeSections({
             section={section}
             mediaLibrary={mediaLibrary}
             homeHref={homeHref}
+            blogPosts={blogPosts}
           />
         );
       case "home-testimonials":
@@ -299,6 +302,7 @@ export function HomeSections({
                 section={section}
                 mediaLibrary={mediaLibrary}
                 homeHref={homeHref}
+                blogPosts={blogPosts}
               />
             );
           case "testimonials":

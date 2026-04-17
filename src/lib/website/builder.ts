@@ -2758,6 +2758,11 @@ function createCisecoPageDefaults(): Record<CisecoPageKey, WebsiteBuilderPageCon
     title: "Commandes",
     subtitle: "Suivi complet des achats précédents.",
   });
+  basePages["account-billing"] = createCisecoSimplePageConfig({
+    id: "ciseco-account-billing-hero",
+    title: "Facturation",
+    subtitle: "Permettez à vos clients de demander leurs factures.",
+  });
   basePages["account-order-detail"] = createCisecoSimplePageConfig({
     id: "ciseco-account-order-detail-hero",
     title: "Détail commande",

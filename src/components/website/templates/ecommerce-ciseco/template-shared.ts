@@ -65,6 +65,7 @@ export const CISECO_HOME_SERVER_ROUTED_PATHS = [
   "/account",
   "/account/orders",
   "/account/orders-history",
+  "/account/billing",
   "/account/wishlists",
   "/account/change-password",
 ];

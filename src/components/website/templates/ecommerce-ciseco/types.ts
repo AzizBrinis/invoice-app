@@ -123,6 +123,7 @@ export type PageDescriptor =
   | { page: "account" }
   | { page: "account-wishlists" }
   | { page: "account-orders-history" }
+  | { page: "account-billing" }
   | { page: "account-change-password" }
   | { page: "account-order-detail"; orderId?: string };
 

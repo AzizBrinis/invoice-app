@@ -1,6 +1,5 @@
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
-import { generateId } from "@/lib/id";
 import { calculateLineTotals } from "@/lib/documents";
 import {
   ClientSource,
@@ -16,6 +15,10 @@ import {
   queueOrderPaymentReceivedEmailJob,
   queueOrderTransferProofReceivedEmailJob,
 } from "@/server/order-email-jobs";
+import {
+  createWithUniqueOrderNumber,
+  isOrderNumberUniqueConstraintViolation,
+} from "@/server/order-numbers";
 
 const orderItemInputSchema = z.object({
   id: z.string().optional(),
@@ -114,6 +117,7 @@ const orderListSelect = Prisma.validator<Prisma.OrderSelect>()({
   orderNumber: true,
   status: true,
   paymentStatus: true,
+  invoiceId: true,
   customerName: true,
   customerEmail: true,
   totalTTCCents: true,
@@ -284,10 +288,6 @@ async function assertProductsOwnership(
   if (count !== ids.length) {
     throw new Error("Produit introuvable");
   }
-}
-
-function generateOrderNumber() {
-  return generateId("cmd");
 }
 
 function computeOrderTotals(items: OrderItemInput[]) {
@@ -795,7 +795,7 @@ export async function createOrder(input: OrderInput, providedUserId?: string) {
   );
 
   const { computedLines, totals } = computeOrderTotals(payload.items);
-  const orderNumber = payload.orderNumber ?? generateOrderNumber();
+  const providedOrderNumber = payload.orderNumber?.trim() || null;
   const paymentMethod = payload.paymentMethod ?? null;
   const paymentCreate = paymentMethod
     ? {
@@ -810,49 +810,71 @@ export async function createOrder(input: OrderInput, providedUserId?: string) {
       }
     : undefined;
 
-  const created = await prisma.order.create({
-    data: {
-      userId,
-      orderNumber,
-      status: payload.status,
-      paymentStatus: payload.paymentStatus,
-      currency: payload.currency,
-      clientId: client.id,
-      customerName: payload.customer.name.trim(),
-      customerEmail: normalizedEmail,
-      customerPhone: payload.customer.phone ?? null,
-      customerCompany: payload.customer.company ?? null,
-      customerAddress: payload.customer.address ?? null,
-      notes: payload.notes ?? null,
-      internalNotes: payload.internalNotes ?? null,
-      subtotalHTCents: totals.subtotalHTCents,
-      totalDiscountCents: totals.totalDiscountCents,
-      totalTVACents: totals.totalTVACents,
-      totalTTCCents: totals.totalTTCCents,
-      amountPaidCents: 0,
-      quoteId: payload.quoteId ?? null,
-      invoiceId: payload.invoiceId ?? null,
-      items: {
-        createMany: {
-          data: payload.items.map((line, index) => ({
-            productId: line.productId ?? null,
-            description: line.description,
-            quantity: line.quantity,
-            unit: line.unit,
-            unitPriceHTCents: line.unitPriceHTCents,
-            vatRate: line.vatRate,
-            discountRate: computedLines[index].discountRate ?? null,
-            discountAmountCents: computedLines[index].discountAmountCents,
-            totalHTCents: computedLines[index].totalHTCents,
-            totalTVACents: computedLines[index].totalTVACents,
-            totalTTCCents: computedLines[index].totalTTCCents,
-            position: line.position ?? index,
-          })),
+  const createOrderRecord = (orderNumber: string) =>
+    prisma.order.create({
+      data: {
+        userId,
+        orderNumber,
+        status: payload.status,
+        paymentStatus: payload.paymentStatus,
+        currency: payload.currency,
+        clientId: client.id,
+        customerName: payload.customer.name.trim(),
+        customerEmail: normalizedEmail,
+        customerPhone: payload.customer.phone ?? null,
+        customerCompany: payload.customer.company ?? null,
+        customerAddress: payload.customer.address ?? null,
+        notes: payload.notes ?? null,
+        internalNotes: payload.internalNotes ?? null,
+        subtotalHTCents: totals.subtotalHTCents,
+        totalDiscountCents: totals.totalDiscountCents,
+        totalTVACents: totals.totalTVACents,
+        totalTTCCents: totals.totalTTCCents,
+        amountPaidCents: 0,
+        quoteId: payload.quoteId ?? null,
+        invoiceId: payload.invoiceId ?? null,
+        items: {
+          createMany: {
+            data: payload.items.map((line, index) => ({
+              productId: line.productId ?? null,
+              description: line.description,
+              quantity: line.quantity,
+              unit: line.unit,
+              unitPriceHTCents: line.unitPriceHTCents,
+              vatRate: line.vatRate,
+              discountRate: computedLines[index].discountRate ?? null,
+              discountAmountCents: computedLines[index].discountAmountCents,
+              totalHTCents: computedLines[index].totalHTCents,
+              totalTVACents: computedLines[index].totalTVACents,
+              totalTTCCents: computedLines[index].totalTTCCents,
+              position: line.position ?? index,
+            })),
+          },
         },
+        payments: paymentCreate,
       },
-      payments: paymentCreate,
-    },
-  });
+    });
+
+  const created = providedOrderNumber
+    ? await createOrderRecord(providedOrderNumber).catch((error) => {
+        if (isOrderNumberUniqueConstraintViolation(error)) {
+          throw new Error("Numero de commande deja utilise.");
+        }
+        throw error;
+      })
+    : await createWithUniqueOrderNumber({
+        isAvailable: async (orderNumber) => {
+          const existing = await prisma.order.findFirst({
+            where: {
+              userId,
+              orderNumber,
+            },
+            select: { id: true },
+          });
+          return !existing;
+        },
+        create: createOrderRecord,
+      });
 
   queueOrderCreatedEmailJob({
     userId,
@@ -904,46 +926,54 @@ export async function updateOrder(id: string, input: OrderInput) {
     await tx.orderItem.deleteMany({
       where: { orderId: id },
     });
-    return tx.order.update({
-      where: { id },
-      data: {
-        orderNumber,
-        status: payload.status,
-        paymentStatus: payload.paymentStatus,
-        currency: payload.currency,
-        clientId: client.id,
-        customerName: payload.customer.name.trim(),
-        customerEmail: normalizedEmail,
-        customerPhone: payload.customer.phone ?? null,
-        customerCompany: payload.customer.company ?? null,
-        customerAddress: payload.customer.address ?? null,
-        notes: payload.notes ?? null,
-        internalNotes: payload.internalNotes ?? null,
-        subtotalHTCents: totals.subtotalHTCents,
-        totalDiscountCents: totals.totalDiscountCents,
-        totalTVACents: totals.totalTVACents,
-        totalTTCCents: totals.totalTTCCents,
-        quoteId: payload.quoteId ?? existing.quoteId ?? null,
-        invoiceId: payload.invoiceId ?? existing.invoiceId ?? null,
-        items: {
-          createMany: {
-            data: payload.items.map((line, index) => ({
-              productId: line.productId ?? null,
-              description: line.description,
-              quantity: line.quantity,
-              unit: line.unit,
-              unitPriceHTCents: line.unitPriceHTCents,
-              vatRate: line.vatRate,
-              discountRate: computedLines[index].discountRate ?? null,
-              discountAmountCents: computedLines[index].discountAmountCents,
-              totalHTCents: computedLines[index].totalHTCents,
-              totalTVACents: computedLines[index].totalTVACents,
-              totalTTCCents: computedLines[index].totalTTCCents,
-              position: line.position ?? index,
-            })),
+
+    try {
+      return await tx.order.update({
+        where: { id },
+        data: {
+          orderNumber,
+          status: payload.status,
+          paymentStatus: payload.paymentStatus,
+          currency: payload.currency,
+          clientId: client.id,
+          customerName: payload.customer.name.trim(),
+          customerEmail: normalizedEmail,
+          customerPhone: payload.customer.phone ?? null,
+          customerCompany: payload.customer.company ?? null,
+          customerAddress: payload.customer.address ?? null,
+          notes: payload.notes ?? null,
+          internalNotes: payload.internalNotes ?? null,
+          subtotalHTCents: totals.subtotalHTCents,
+          totalDiscountCents: totals.totalDiscountCents,
+          totalTVACents: totals.totalTVACents,
+          totalTTCCents: totals.totalTTCCents,
+          quoteId: payload.quoteId ?? existing.quoteId ?? null,
+          invoiceId: payload.invoiceId ?? existing.invoiceId ?? null,
+          items: {
+            createMany: {
+              data: payload.items.map((line, index) => ({
+                productId: line.productId ?? null,
+                description: line.description,
+                quantity: line.quantity,
+                unit: line.unit,
+                unitPriceHTCents: line.unitPriceHTCents,
+                vatRate: line.vatRate,
+                discountRate: computedLines[index].discountRate ?? null,
+                discountAmountCents: computedLines[index].discountAmountCents,
+                totalHTCents: computedLines[index].totalHTCents,
+                totalTVACents: computedLines[index].totalTVACents,
+                totalTTCCents: computedLines[index].totalTTCCents,
+                position: line.position ?? index,
+              })),
+            },
           },
         },
-      },
-    });
+      });
+    } catch (error) {
+      if (isOrderNumberUniqueConstraintViolation(error)) {
+        throw new Error("Numero de commande deja utilise.");
+      }
+      throw error;
+    }
   });
 }

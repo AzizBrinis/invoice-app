@@ -1,6 +1,7 @@
 import { listOrders } from "@/server/orders";
 import type { OrderStatus, OrderPaymentStatus } from "@/lib/db/prisma";
 import { OrdersTableClient } from "@/app/(app)/site-web/commandes/orders-table-client";
+import { listAdminInvoiceRequestSummariesForOrders } from "@/server/invoice-requests";
 
 export const dynamic = "force-dynamic";
 
@@ -142,10 +143,21 @@ export default async function CommandesPage({
     createdTo: parseDateInput(createdTo),
     page,
   });
+  const invoiceRequestSummaries = await listAdminInvoiceRequestSummariesForOrders(
+    orders.items.map((order) => ({
+      id: order.id,
+      createdAt: order.createdAt,
+      invoiceId: order.invoiceId,
+    })),
+  );
+  const invoiceRequestByOrderId = new Map(
+    invoiceRequestSummaries.map((summary) => [summary.orderId, summary]),
+  );
 
   const tableOrders = orders.items.map((order) => {
     const latestPayment = order.payments[0] ?? null;
     const latestPaymentMethod = latestPayment?.method ?? null;
+    const invoiceRequestSummary = invoiceRequestByOrderId.get(order.id) ?? null;
 
     return {
       id: order.id,
@@ -163,6 +175,11 @@ export default async function CommandesPage({
       totalTTCCents: order.totalTTCCents,
       currency: order.currency,
       createdAt: order.createdAt.toISOString(),
+      invoiceId:
+        order.invoiceId ?? invoiceRequestSummary?.invoiceRequest?.invoiceId ?? null,
+      invoiceRequestStatus: invoiceRequestSummary?.invoiceRequest?.status ?? null,
+      invoiceRequestRequestedAt:
+        invoiceRequestSummary?.invoiceRequest?.requestedAt ?? null,
     };
   });
 

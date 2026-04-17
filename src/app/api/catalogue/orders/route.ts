@@ -2,7 +2,6 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { resolveCatalogDomainFromHeaders } from "@/lib/catalog-host";
-import { generateId } from "@/lib/id";
 import { prisma } from "@/lib/db";
 import { calculateLineTotals } from "@/lib/documents";
 import { createConfirmationToken } from "@/lib/confirmation-token";
@@ -36,6 +35,12 @@ import {
   resolveCatalogCurrencyCode,
   resolveCatalogWebsite,
 } from "@/server/website";
+import {
+  listCatalogClientOrders,
+  requireCatalogClientContext,
+} from "@/server/catalogue-orders";
+import { generateOrderNumberCandidate } from "@/server/order-numbers";
+import { OrderStatus } from "@/lib/db/prisma-server";
 
 const MAX_ORDER_ITEMS = 50;
 
@@ -90,6 +95,14 @@ const orderPayloadSchema = z.object({
   path: z.string().max(180).nullable().optional(),
 });
 
+const orderHistoryQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(24).default(6),
+  status: z
+    .union([z.nativeEnum(OrderStatus), z.literal("all")])
+    .default("all"),
+});
+
 function normalizeOptional(value: string | null | undefined) {
   if (!value) return null;
   const trimmed = value.trim();
@@ -106,6 +119,48 @@ async function resolveAuthenticatedClientId(websiteUserId: string) {
     return null;
   }
   return client.id;
+}
+
+export async function GET(request: NextRequest) {
+  const { t } = createCisecoRequestTranslator(request);
+  try {
+    const context = await requireCatalogClientContext(request, t);
+    if ("error" in context) {
+      return NextResponse.json(
+        { error: context.error },
+        { status: context.status },
+      );
+    }
+
+    const query = orderHistoryQuerySchema.parse({
+      page: request.nextUrl.searchParams.get("page") ?? "1",
+      pageSize: request.nextUrl.searchParams.get("pageSize") ?? "6",
+      status: request.nextUrl.searchParams.get("status") ?? "all",
+    });
+
+    const result = await listCatalogClientOrders({
+      tenantUserId: context.website.userId,
+      clientId: context.client.id,
+      customerEmail: context.client.email,
+      page: query.page,
+      pageSize: query.pageSize,
+      status: query.status,
+    });
+
+    return NextResponse.json(result, {
+      headers: {
+        "Cache-Control": "private, no-store",
+      },
+    });
+  } catch (error) {
+    const message =
+      error instanceof z.ZodError
+        ? t(error.issues[0]?.message ?? "Unable to load orders.")
+        : error instanceof Error
+          ? t(error.message)
+          : t("Unable to load orders.");
+    return NextResponse.json({ error: message }, { status: 400 });
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -321,7 +376,7 @@ export async function POST(request: NextRequest) {
         message: t("Preview mode: no order recorded."),
         order: {
           id: null,
-          orderNumber: generateId("cmd-preview"),
+          orderNumber: generateOrderNumberCandidate(),
           currency: currencyCode,
           totalTTCCents: totals.totalTTCCents,
           confirmationToken: null,

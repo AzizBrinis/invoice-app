@@ -1,15 +1,18 @@
 import clsx from "clsx";
-import type { CSSProperties } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import type { WebsiteBuilderPageConfig, WebsiteBuilderSection } from "@/lib/website/builder";
+import type { CatalogPayload } from "@/server/website";
 import type { ThemeTokens } from "../types";
 import {
   resolveBuilderMedia,
   resolveBuilderSectionBySignature,
 } from "../builder-helpers";
 import { ExtraSections } from "../components/builder/ExtraSections";
+import { CatalogImage } from "../components/shared/CatalogImage";
 import { Footer } from "../components/layout/Footer";
 import { Navbar } from "../components/layout/Navbar";
 import { PageShell } from "../components/layout/PageShell";
+import { Reveal } from "../components/shared/Reveal";
 import { useCisecoI18n } from "../i18n";
 import { formatCisecoDate } from "../locale";
 
@@ -19,125 +22,204 @@ type BlogDetailPageProps = {
   companyName: string;
   homeHref: string;
   baseLink: (target: string) => string;
+  catalogSlug: string;
+  mode: "public" | "preview";
+  postSlug?: string;
+  post: CatalogPayload["currentBlogPost"] | null;
+  blogPosts?: CatalogPayload["blogPosts"];
+  requiresClientPostData?: boolean;
   builder?: WebsiteBuilderPageConfig | null;
 };
 
-type Author = {
-  name: string;
-  avatar: string;
-  date: string;
-  readTime: string;
-};
+type BlogDetailStatus = "loading" | "error" | "ready" | "not-found";
 
-type RelatedPost = {
-  id: string;
-  slug: string;
-  title: string;
-  excerpt: string;
-  image: string;
-  author: Author;
-};
+const BLOG_DETAIL_CACHE = new Map<
+  string,
+  CatalogPayload["currentBlogPost"] | null
+>();
+const BLOG_DETAIL_REQUEST_CACHE = new Map<
+  string,
+  Promise<CatalogPayload["currentBlogPost"] | null>
+>();
 
-const ARTICLE_AUTHOR: Author = {
-  name: "Scott Wolkowski",
-  avatar:
-    "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=120&q=80",
-  date: "Mar 18, 2020",
-  readTime: "5 min read",
-};
-
-const ARTICLE_IMAGE =
-  "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1400&q=80";
-
-const RELATED_POSTS: RelatedPost[] = [
-  {
-    id: "related-graduation",
-    slug: "graduation-dresses-style-guide",
+const LEGACY_POSTS: Record<string, NonNullable<CatalogPayload["currentBlogPost"]>> = {
+  "graduation-dresses-style-guide": {
+    id: "legacy-blog-1",
     title: "Graduation Dresses: A Style Guide",
+    slug: "graduation-dresses-style-guide",
     excerpt:
-      "Illo sint voluptates. Error voluptates culpa eligendi. Hic vel totam vitae illo.",
-    image:
-      "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=900&q=80",
-    author: ARTICLE_AUTHOR,
+      "Illo sint voluptates. Error voluptates culpa eligendi. Hic vel totam vitae illo. Non aliquid explicabo necessitatibus unde.",
+    coverImageUrl:
+      "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1400&q=80",
+    socialImageUrl: null,
+    category: "Editorial",
+    tags: ["Style", "Guide"],
+    authorName: "Scott Wolkowski",
+    publishDate: "2025-09-30",
+    featured: true,
+    readingTimeMinutes: 5,
+    wordCount: 880,
+    metaTitle: null,
+    metaDescription: null,
+    bodyHtml: [
+      "<p>Lorem ipsum dolor sit amet, consectetur adipisicing elit. Illo vel voluptas ipsum placeat, ipsum quaerat neque doloribus eaque voluptate.</p>",
+      "<h2 id=\"typography-should-be-easy\">Typography should be easy</h2>",
+      "<p>So that’s another reason you’ll see why the UI doesn’t even come close to what we set out in this story.</p>",
+      "<h3 id=\"code-should-look-okay\">Code should look okay by default</h3>",
+      "<p>I think most people are going to use highlightjs or prism or something if they want to style their code blocks.</p>",
+      "<blockquote><p>Editorial content should answer buyer questions before they become objections.</p></blockquote>",
+      "<h2 id=\"closing-thoughts\">Closing thoughts</h2>",
+      "<p>Let’s also add a closing paragraph here so this can act as a decent-sized block of text for the fallback article experience.</p>",
+    ].join(""),
+    headings: [
+      { id: "typography-should-be-easy", text: "Typography should be easy", level: 2 },
+      { id: "code-should-look-okay", text: "Code should look okay by default", level: 3 },
+      { id: "closing-thoughts", text: "Closing thoughts", level: 2 },
+    ],
   },
-  {
-    id: "related-eid",
-    slug: "eid-pieces-all-year",
+  "eid-pieces-all-year": {
+    id: "legacy-blog-2",
     title: "How to Wear Your Eid Pieces All Year Long",
+    slug: "eid-pieces-all-year",
     excerpt:
-      "Illo sint voluptates. Error voluptates culpa eligendi. Hic vel totam vitae illo.",
-    image:
-      "https://images.unsplash.com/photo-1500534314209-a25ddb2bd429?auto=format&fit=crop&w=900&q=80",
-    author: {
-      name: "Erica Alexander",
-      avatar:
-        "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=120&q=80",
-      date: "Mar 16, 2020",
-      readTime: "6 min read",
-    },
+      "Practical styling notes and product pairing ideas for keeping seasonal pieces in daily rotation.",
+    coverImageUrl:
+      "https://images.unsplash.com/photo-1500534314209-a25ddb2bd429?auto=format&fit=crop&w=1400&q=80",
+    socialImageUrl: null,
+    category: "Guide",
+    tags: ["Wardrobe", "Guide"],
+    authorName: "Erica Alexander",
+    publishDate: "2025-09-24",
+    featured: false,
+    readingTimeMinutes: 6,
+    wordCount: 1040,
+    metaTitle: null,
+    metaDescription: null,
+    bodyHtml: "<p>This is a legacy fallback article body used when no managed blog posts are configured yet.</p>",
+    headings: [],
   },
-  {
-    id: "related-hijabi-2024",
+  "hijabi-friendly-fabrics-2024": {
+    id: "legacy-blog-3",
+    title: "The Must-Have Hijabi Friendly Fabrics For 2024",
     slug: "hijabi-friendly-fabrics-2024",
-    title: "The Must-Have Hijabi Friendly Fabrics for 2024",
     excerpt:
-      "Illo sint voluptates. Error voluptates culpa eligendi. Hic vel totam vitae illo.",
-    image:
-      "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=900&q=80",
-    author: {
-      name: "Willie Edwards",
-      avatar:
-        "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=120&q=80",
-      date: "Mar 16, 2020",
-      readTime: "6 min read",
-    },
+      "A quick overview of breathable fabrics, weight, drape, and layering choices for the season.",
+    coverImageUrl:
+      "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1400&q=80",
+    socialImageUrl: null,
+    category: "Insight",
+    tags: ["Textiles"],
+    authorName: "Willie Edwards",
+    publishDate: "2025-09-16",
+    featured: false,
+    readingTimeMinutes: 4,
+    wordCount: 720,
+    metaTitle: null,
+    metaDescription: null,
+    bodyHtml: "<p>This is a legacy fallback article body used when no managed blog posts are configured yet.</p>",
+    headings: [],
   },
-  {
-    id: "related-hijabi-2025",
+  "hijabi-friendly-fabrics-2025": {
+    id: "legacy-blog-4",
+    title: "The Hijabi Friendly Fabrics For 2025",
     slug: "hijabi-friendly-fabrics-2025",
-    title: "The Hijabi Friendly Fabrics for 2025",
     excerpt:
-      "Illo sint voluptates. Error voluptates culpa eligendi. Hic vel totam vitae illo.",
-    image:
-      "https://images.unsplash.com/photo-1501785888041-af3ef285b470?auto=format&fit=crop&w=900&q=80",
-    author: {
-      name: "Alex Klein",
-      avatar:
-        "https://images.unsplash.com/photo-1508214751196-bcfd4ca60f91?auto=format&fit=crop&w=120&q=80",
-      date: "Mar 16, 2020",
-      readTime: "6 min read",
+      "An updated editorial note on lightweight materials, texture, and new customer expectations.",
+    coverImageUrl:
+      "https://images.unsplash.com/photo-1501785888041-af3ef285b470?auto=format&fit=crop&w=1400&q=80",
+    socialImageUrl: null,
+    category: "Trend",
+    tags: ["Trend"],
+    authorName: "Alex Klein",
+    publishDate: "2025-09-10",
+    featured: false,
+    readingTimeMinutes: 7,
+    wordCount: 1210,
+    metaTitle: null,
+    metaDescription: null,
+    bodyHtml: "<p>This is a legacy fallback article body used when no managed blog posts are configured yet.</p>",
+    headings: [],
+  },
+};
+
+async function loadBlogPostDetail(options: {
+  catalogSlug: string;
+  mode: "public" | "preview";
+  postSlug: string;
+}) {
+  const cacheKey = `${options.mode}:${options.catalogSlug}:${options.postSlug}`;
+  const cached = BLOG_DETAIL_CACHE.get(cacheKey);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const inflight = BLOG_DETAIL_REQUEST_CACHE.get(cacheKey);
+  if (inflight) {
+    return inflight;
+  }
+
+  const request = fetch(
+    `/api/catalogue/blog?slug=${encodeURIComponent(options.catalogSlug)}&mode=${encodeURIComponent(options.mode)}&post=${encodeURIComponent(options.postSlug)}`,
+    {
+      method: "GET",
+      cache: "no-store",
     },
-  },
-];
+  )
+    .then(async (response) => {
+      const result = (await response.json()) as {
+        post?: CatalogPayload["currentBlogPost"] | null;
+      };
 
-const TAGS = ["Fashion (2)", "Style (4)", "Photography (8)", "Travel (12)"];
+      if (response.status === 404) {
+        BLOG_DETAIL_CACHE.set(cacheKey, null);
+        return null;
+      }
 
-const SOCIAL_LINKS = [
-  {
-    id: "facebook",
-    label: "Facebook",
-    className: "text-blue-600",
-    path: "M13.5 8.5h2.8V6h-2.4C12 6 11 7 11 8.9V11H9v2.5h2V20h2.5v-6.5h2.2l.3-2.5h-2.5V9c0-.3.2-.5.5-.5z",
-  },
-  {
-    id: "twitter",
-    label: "Twitter",
-    className: "text-sky-500",
-    path: "M19.5 7.2a6 6 0 0 1-1.8.5 3.1 3.1 0 0 0 1.4-1.7 6 6 0 0 1-2 .8 3 3 0 0 0-5.2 2c0 .2 0 .5.1.7A8.5 8.5 0 0 1 6 6.5a3 3 0 0 0 .9 4 3 3 0 0 1-1.4-.4v.1c0 1.4 1 2.7 2.4 3a3 3 0 0 1-1.4.1c.4 1.2 1.5 2 2.9 2a6.1 6.1 0 0 1-3.7 1.3h-.7A8.7 8.7 0 0 0 10 19c5.7 0 8.8-4.8 8.8-8.8v-.4c.6-.4 1.2-1 1.6-1.6z",
-  },
-  {
-    id: "instagram",
-    label: "Instagram",
-    className: "text-rose-500",
-    path: "M7.5 4h9A3.5 3.5 0 0 1 20 7.5v9A3.5 3.5 0 0 1 16.5 20h-9A3.5 3.5 0 0 1 4 16.5v-9A3.5 3.5 0 0 1 7.5 4zm4.5 4a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7zm5-2.4a.9.9 0 1 0 0 1.8.9.9 0 0 0 0-1.8z",
-  },
-  {
-    id: "linkedin",
-    label: "LinkedIn",
-    className: "text-slate-700",
-    path: "M6.5 9.5H4V20h2.5V9.5zm9 0h-2.4v1.4h-.1c-.3-.6-1.2-1.6-2.7-1.6-2.9 0-3.4 2-3.4 4.5V20H10v-5.3c0-1.3 0-3 1.8-3 1.8 0 2.1 1.4 2.1 2.9V20h2.6v-6.1c0-3.3-.7-4.4-2.9-4.4zM5.3 8.2a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z",
-  },
-];
+      if (!response.ok) {
+        throw new Error("Unable to load blog post.");
+      }
+
+      const post = result.post ?? null;
+      BLOG_DETAIL_CACHE.set(cacheKey, post);
+      return post;
+    })
+    .finally(() => {
+      BLOG_DETAIL_REQUEST_CACHE.delete(cacheKey);
+    });
+
+  BLOG_DETAIL_REQUEST_CACHE.set(cacheKey, request);
+  return request;
+}
+
+function buildInitials(name: string) {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
+}
+
+function resolveReadTimeLabel(
+  minutes: number | null | undefined,
+  locale: "fr" | "en",
+) {
+  const value = Math.max(1, minutes ?? 1);
+  return locale === "fr" ? `${value} min de lecture` : `${value} min read`;
+}
+
+function resolveFallbackPost(
+  postSlug: string | undefined,
+  blogPosts: CatalogPayload["blogPosts"] | undefined,
+) {
+  if (blogPosts !== undefined) {
+    return null;
+  }
+  if (!postSlug) {
+    return null;
+  }
+  return LEGACY_POSTS[postSlug] ?? null;
+}
 
 export function BlogDetailPage({
   theme,
@@ -145,11 +227,16 @@ export function BlogDetailPage({
   companyName,
   homeHref,
   baseLink,
+  catalogSlug,
+  mode,
+  postSlug,
+  post,
+  blogPosts,
+  requiresClientPostData = false,
   builder,
 }: BlogDetailPageProps) {
-  const { t } = useCisecoI18n();
+  const { localizeHref, t, locale } = useCisecoI18n();
   const container = clsx("mx-auto px-6 sm:px-8", theme.containerClass);
-  const blogHref = (slug: string) => baseLink(`/blog/${slug}`);
   const hasBuilder = Boolean(builder);
   const sections = builder?.sections ?? [];
   const mediaLibrary = builder?.mediaLibrary ?? [];
@@ -168,203 +255,390 @@ export function BlogDetailPage({
     type: "content",
     layouts: "blog-body",
   });
-  const heroImage = resolveBuilderMedia(heroSection?.mediaId, mediaLibrary);
-  const heroSubtitle = heroSection?.subtitle ?? heroSection?.description ?? null;
-  const showHero = Boolean(heroSection) || !hasBuilder;
-  const showBody = Boolean(bodySection) || !hasBuilder;
-  const showRelated = Boolean(relatedSection) || !hasBuilder;
-  const bodyIntro =
-    bodySection?.description ??
-    (!hasBuilder
-      ? "Lorem ipsum dolor sit amet consectetur adipisicing elit. Illo vel voluptas ipsum placeat, ipsum quaerat neque doloribus eaque voluptate."
-      : null);
-  const bodyBlocks =
-    bodySection?.items?.length
-      ? bodySection.items
-      : !hasBuilder
-        ? [
-            {
-              id: "fallback-body-1",
-              title: "Typography should be easy",
-              description:
-                "So that’s another reason you’ll see why the UI doesn’t even come close to what we set out in this story.",
-              stats: [],
-            },
-            {
-              id: "fallback-body-2",
-              title: "Code should look okay by default.",
-              description:
-                "I think most people are going to use highlightjs or prism or something if they want to style their code blocks.",
-              stats: [],
-            },
-            {
-              id: "fallback-body-3",
-              title: "We still need to think about stacked headings though.",
-              description:
-                "Let’s also add a closing paragraph here so this can act as a decent sized block of text.",
-              stats: [],
-            },
-          ]
-        : [];
-  const relatedPosts =
-    relatedSection?.items?.length
-      ? relatedSection.items.map((item, index) => {
-          const fallback = RELATED_POSTS[index];
-          const media = resolveBuilderMedia(item.mediaId, mediaLibrary);
-          return {
-            id: item.id,
-            slug: item.href ?? fallback?.slug ?? "blog",
-            title: item.title ?? fallback?.title ?? "Related post",
-            excerpt: item.description ?? fallback?.excerpt ?? "",
-            image: media?.src ?? fallback?.image ?? "",
-            author: fallback?.author ?? ARTICLE_AUTHOR,
-          } satisfies RelatedPost;
-        })
-      : RELATED_POSTS;
+  const cacheKey = postSlug ? `${mode}:${catalogSlug}:${postSlug}` : null;
+  const fallbackPost = resolveFallbackPost(postSlug, blogPosts);
+  const initialPost =
+    postSlug && post?.slug === postSlug
+      ? post
+      : fallbackPost ?? (cacheKey ? BLOG_DETAIL_CACHE.get(cacheKey) ?? null : null);
+  const [clientPost, setClientPost] = useState<CatalogPayload["currentBlogPost"] | null>(
+    () => initialPost,
+  );
+  const [status, setStatus] = useState<BlogDetailStatus>(() => {
+    if (initialPost) {
+      return "ready";
+    }
+    if (!postSlug) {
+      return "not-found";
+    }
+    if (fallbackPost) {
+      return "ready";
+    }
+    if (cacheKey && BLOG_DETAIL_CACHE.has(cacheKey)) {
+      return BLOG_DETAIL_CACHE.get(cacheKey) ? "ready" : "not-found";
+    }
+    return requiresClientPostData ? "loading" : "not-found";
+  });
+
+  useEffect(() => {
+    if (postSlug && post?.slug === postSlug) {
+      BLOG_DETAIL_CACHE.set(`${mode}:${catalogSlug}:${postSlug}`, post);
+      return;
+    }
+    if (fallbackPost) {
+      return;
+    }
+    if (
+      !requiresClientPostData ||
+      !postSlug ||
+      !cacheKey ||
+      BLOG_DETAIL_CACHE.has(cacheKey)
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+
+    void loadBlogPostDetail({
+      catalogSlug,
+      mode,
+      postSlug,
+    })
+      .then((nextPost) => {
+        if (cancelled) {
+          return;
+        }
+        setClientPost(nextPost);
+        setStatus(nextPost ? "ready" : "not-found");
+      })
+      .catch(() => {
+        if (cancelled) {
+          return;
+        }
+        setClientPost(null);
+        setStatus("error");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    cacheKey,
+    catalogSlug,
+    fallbackPost,
+    mode,
+    post,
+    postSlug,
+    requiresClientPostData,
+  ]);
+
+  const resolvedPost = postSlug && post?.slug === postSlug ? post : clientPost;
+  const relatedPosts = useMemo(() => {
+    if (blogPosts !== undefined) {
+      return (blogPosts ?? [])
+        .filter((entry) => entry.slug !== resolvedPost?.slug)
+        .slice(0, 4);
+    }
+    return Object.values(LEGACY_POSTS)
+      .filter((entry) => entry.slug !== resolvedPost?.slug)
+      .slice(0, 4)
+      .map((entry) => ({
+        id: entry.id,
+        title: entry.title,
+        slug: entry.slug,
+        excerpt: entry.excerpt,
+        coverImageUrl: entry.coverImageUrl,
+        socialImageUrl: entry.socialImageUrl,
+        category: entry.category,
+        tags: entry.tags,
+        authorName: entry.authorName,
+        publishDate: entry.publishDate,
+        featured: entry.featured,
+        readingTimeMinutes: entry.readingTimeMinutes,
+        wordCount: entry.wordCount,
+        metaTitle: entry.metaTitle,
+        metaDescription: entry.metaDescription,
+      }));
+  }, [blogPosts, resolvedPost?.slug]);
+  const heroImage =
+    resolvedPost?.coverImageUrl ??
+    resolveBuilderMedia(heroSection?.mediaId, mediaLibrary)?.src ??
+    "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1400&q=80";
   const consumedIds = new Set(
     [heroSection, relatedSection, bodySection]
       .filter((section): section is WebsiteBuilderSection => Boolean(section))
       .map((section) => section.id),
   );
   const extraSections = sections.filter(
-    (section) =>
-      section.visible !== false && !consumedIds.has(section.id),
+    (section) => section.visible !== false && !consumedIds.has(section.id),
   );
+  const contactHref = baseLink("/contact");
+  const blogHref = baseLink("/blog");
+
+  useEffect(() => {
+    if (status === "error") {
+      console.error("[ciseco-blog] Failed to load blog post.", {
+        postSlug,
+      });
+    }
+  }, [postSlug, status]);
+
+  if (status === "loading") {
+    return (
+      <PageShell inlineStyles={inlineStyles}>
+        <Navbar theme={theme} companyName={companyName} homeHref={homeHref} />
+        <main className="pb-14 pt-8 sm:pb-16 sm:pt-10">
+          <div className={clsx(container, "space-y-6")}>
+            <div className="mx-auto max-w-3xl space-y-4">
+              <div className="h-3 w-28 animate-pulse rounded-full bg-slate-100" />
+              <div className="h-12 w-full max-w-2xl animate-pulse rounded-full bg-slate-200" />
+              <div className="h-5 w-full animate-pulse rounded-full bg-slate-100" />
+            </div>
+            <div className="mx-auto aspect-[16/9] max-w-5xl animate-pulse rounded-[32px] bg-slate-100" />
+            <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px] lg:items-start">
+              <div className="rounded-[30px] border border-black/5 bg-white p-6 shadow-[0_20px_70px_-50px_rgba(15,23,42,0.42)] sm:p-10">
+                <div className="space-y-4">
+                  {Array.from({ length: 8 }).map((_, index) => (
+                    <div
+                      key={`blog-loading-line-${index + 1}`}
+                      className={clsx(
+                        "h-4 animate-pulse rounded-full bg-slate-100",
+                        index % 3 === 0 ? "w-full" : index % 3 === 1 ? "w-11/12" : "w-4/5",
+                      )}
+                    />
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-4">
+                <div className="rounded-[28px] border border-black/5 bg-white p-5 shadow-[0_16px_50px_-44px_rgba(15,23,42,0.45)]">
+                  <div className="h-3 w-32 animate-pulse rounded-full bg-slate-100" />
+                  <div className="mt-4 space-y-3">
+                    {Array.from({ length: 4 }).map((_, index) => (
+                      <div
+                        key={`blog-loading-nav-${index + 1}`}
+                        className="h-10 animate-pulse rounded-2xl bg-slate-100"
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </main>
+        <Footer theme={theme} companyName={companyName} homeHref={homeHref} />
+      </PageShell>
+    );
+  }
+
+  if (status === "error") {
+    return (
+      <StateMessage
+        theme={theme}
+        inlineStyles={inlineStyles}
+        companyName={companyName}
+        homeHref={homeHref}
+        title={t("Something went wrong")}
+        description={t("We could not load this article right now. Please try again.")}
+        href={blogHref}
+        hrefLabel={t("Back to the blog")}
+      />
+    );
+  }
+
+  if (!resolvedPost) {
+    return (
+      <StateMessage
+        theme={theme}
+        inlineStyles={inlineStyles}
+        companyName={companyName}
+        homeHref={homeHref}
+        title={t("Article not found")}
+        description={t("This article is unavailable or has not been published yet.")}
+        href={blogHref}
+        hrefLabel={t("Back to the blog")}
+      />
+    );
+  }
 
   return (
     <PageShell inlineStyles={inlineStyles}>
       <Navbar theme={theme} companyName={companyName} homeHref={homeHref} />
-      <main className="pb-16">
-        {showHero ? (
-          <section className={clsx(container, "pt-8 sm:pt-10 lg:pt-12")}>
-            <div
+      <main className="pb-14 sm:pb-16">
+        <div className={clsx(container, "pt-8 sm:pt-10 lg:pt-12")}>
+          <Reveal>
+            <section
               className="mx-auto max-w-3xl space-y-5"
               data-builder-section={heroSection?.id}
             >
-              <span className="inline-flex rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-600">
-                {t(heroSection?.eyebrow ?? "Marketing")}
+              <span className="inline-flex rounded-full bg-[color:var(--site-accent-soft,#eef8f4)] px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--site-accent)]">
+                {t(resolvedPost.category ?? heroSection?.eyebrow ?? "Article")}
               </span>
-              <h1 className="text-2xl font-semibold text-slate-900 sm:text-3xl lg:text-4xl">
-                {t(heroSection?.title ?? "Graduation Dresses: A Style Guide")}
+              <h1 className="font-[family:var(--ciseco-font-display)] text-3xl font-semibold tracking-[-0.04em] text-slate-950 sm:text-4xl lg:text-[3.35rem] lg:leading-[1.02]">
+                {resolvedPost.title}
               </h1>
-              <p className="text-sm text-slate-500 sm:text-base">
-                {t(
-                  heroSubtitle ??
-                    "Illo sint voluptates. Error voluptates culpa eligendi. Hic vel totam vitae illo. Non aliquid explicabo necessitatibus unde. Sed consequatur dolorem quisquam commodi dolores.",
-                )}
-              </p>
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <AuthorMeta author={ARTICLE_AUTHOR} />
-                <div className="flex items-center gap-3">
-                  {SOCIAL_LINKS.map((item) => (
-                    <a
-                      key={item.id}
-                      href="#"
-                      aria-label={t(item.label)}
-                      className={clsx(
-                        "flex h-9 w-9 items-center justify-center rounded-full border border-black/5 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md",
-                        item.className,
-                      )}
-                    >
-                      <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true">
-                        <path d={item.path} fill="currentColor" />
-                      </svg>
-                    </a>
-                  ))}
-                </div>
+              {resolvedPost.excerpt ? (
+                <p className="max-w-2xl text-base leading-8 text-slate-600 sm:text-lg">
+                  {resolvedPost.excerpt}
+                </p>
+              ) : null}
+              <div className="flex flex-wrap items-center gap-3 text-sm text-slate-500">
+                <AuthorAvatar name={resolvedPost.authorName} />
+                <span className="font-semibold text-slate-800">
+                  {resolvedPost.authorName}
+                </span>
+                <span aria-hidden="true" className="text-slate-300">
+                  &middot;
+                </span>
+                <span>{formatCisecoDate(locale, resolvedPost.publishDate ?? new Date())}</span>
+                <span aria-hidden="true" className="text-slate-300">
+                  &middot;
+                </span>
+                <span>{resolveReadTimeLabel(resolvedPost.readingTimeMinutes, locale)}</span>
               </div>
-            </div>
-          </section>
-        ) : null}
+            </section>
+          </Reveal>
+        </div>
 
-        {showHero ? (
-          <section className={clsx(container, "mt-6 sm:mt-8")}>
-            <div className="mx-auto max-w-4xl">
-              <div className="relative aspect-[16/9] w-full overflow-hidden rounded-[32px] bg-slate-100 shadow-sm">
-                <img
-                  src={heroImage?.src ?? ARTICLE_IMAGE}
-                  alt={t(heroImage?.alt ?? "Directional signposts")}
+        <div className={clsx(container, "mt-6 sm:mt-8")}>
+          <Reveal delay={80}>
+            <div className="mx-auto max-w-5xl overflow-hidden rounded-[32px] bg-slate-100 shadow-[0_26px_90px_-58px_rgba(15,23,42,0.42)]">
+              <div className="relative aspect-[16/9] w-full">
+                <CatalogImage
+                  src={heroImage}
+                  alt={resolvedPost.title}
                   className="h-full w-full object-cover"
+                  sizes="(min-width: 1280px) 1180px, (min-width: 1024px) 92vw, 100vw"
+                  priority
+                  fill
                 />
               </div>
             </div>
-          </section>
-        ) : null}
+          </Reveal>
+        </div>
 
-        {showBody ? (
-          <section
-            className={clsx(container, "mt-8 sm:mt-10")}
-            data-builder-section={bodySection?.id}
-          >
-            <article className="mx-auto max-w-3xl space-y-6 text-sm text-slate-600">
-              {bodyIntro ? <p>{t(bodyIntro)}</p> : null}
-              {bodyBlocks.map((item) => (
-                <div key={item.id} className="space-y-3">
-                  {item.title ? (
-                    <h2 className="text-base font-semibold text-slate-900">
-                      {t(item.title)}
-                    </h2>
-                  ) : null}
-                  {item.description ? <p>{t(item.description)}</p> : null}
+        <div className={clsx("mx-auto mt-8 grid gap-6 px-4 sm:px-6 lg:mt-10 lg:grid-cols-[minmax(0,1fr)_300px] lg:items-start lg:px-8", theme.containerClass)}>
+          <Reveal delay={120} className="space-y-4 lg:order-2 lg:sticky lg:top-24">
+            {resolvedPost.headings.length ? (
+              <aside className="rounded-[28px] border border-black/5 bg-white p-5 shadow-[0_16px_50px_-44px_rgba(15,23,42,0.45)]">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                  {t("Table of contents")}
+                </p>
+                <nav className="mt-4 space-y-2">
+                  {resolvedPost.headings.map((heading) => (
+                    <a
+                      key={heading.id}
+                      href={`#${heading.id}`}
+                      className={clsx(
+                        "block rounded-2xl px-3 py-2 text-sm text-slate-600 transition hover:bg-slate-50 hover:text-slate-900",
+                        heading.level === 3 ? "ml-3" : null,
+                        heading.level === 4 ? "ml-6 text-[13px]" : null,
+                      )}
+                    >
+                      {heading.text}
+                    </a>
+                  ))}
+                </nav>
+              </aside>
+            ) : null}
+
+            {resolvedPost.tags.length ? (
+              <aside className="rounded-[28px] border border-black/5 bg-white p-5 shadow-[0_16px_50px_-44px_rgba(15,23,42,0.45)]">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                  {t("Tags")}
+                </p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {resolvedPost.tags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-600"
+                    >
+                      {tag}
+                    </span>
+                  ))}
                 </div>
-              ))}
-              <div className="flex flex-wrap gap-2 border-t border-black/5 pt-4 text-xs text-slate-500">
-                {TAGS.map((tag) => (
-                  <span
-                    key={tag}
-                    className="rounded-full border border-slate-200 px-3 py-1 font-medium text-slate-500"
-                  >
-                    {t(tag)}
-                  </span>
-                ))}
+              </aside>
+            ) : null}
+
+            <aside className="rounded-[28px] border border-black/5 bg-white p-5 shadow-[0_16px_50px_-44px_rgba(15,23,42,0.45)]">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                {t("Need help?")}
+              </p>
+              <h2 className="mt-3 font-[family:var(--ciseco-font-display)] text-2xl font-semibold tracking-[-0.03em] text-slate-950">
+                {t("Speak with")} {companyName}
+              </h2>
+              <p className="mt-3 text-sm leading-7 text-slate-600">
+                {t("For order questions, delivery details, payments or support, contact the store directly.")}
+              </p>
+              <a
+                href={localizeHref(contactHref)}
+                className="mt-5 inline-flex rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+              >
+                {t("Contact us")}
+              </a>
+            </aside>
+          </Reveal>
+
+          <Reveal className="min-w-0 lg:order-1">
+            <article className="overflow-hidden rounded-[30px] border border-black/5 bg-white shadow-[0_20px_70px_-50px_rgba(15,23,42,0.42)]">
+              <div className="border-b border-black/5 px-6 py-4 sm:px-10">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                  {t(bodySection?.eyebrow ?? "Reading page")}
+                </p>
+              </div>
+              <div className="px-6 py-8 sm:px-10 sm:py-10 lg:px-12">
+                {bodySection?.description && resolvedPost.excerpt !== bodySection.description ? (
+                  <p className="mb-6 text-sm leading-7 text-slate-500">
+                    {t(bodySection.description)}
+                  </p>
+                ) : null}
+                <div
+                  className={clsx(
+                    "text-[15px] leading-8 text-slate-600 sm:text-base",
+                    "[&_a]:font-medium [&_a]:text-slate-900 [&_a]:underline [&_a]:decoration-slate-300 [&_a]:underline-offset-4",
+                    "[&_blockquote]:my-8 [&_blockquote]:rounded-[28px] [&_blockquote]:border [&_blockquote]:border-black/5 [&_blockquote]:bg-slate-50 [&_blockquote]:px-5 [&_blockquote]:py-5 [&_blockquote]:text-slate-700",
+                    "[&_blockquote_p]:m-0",
+                    "[&_code]:rounded-md [&_code]:bg-slate-100 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:text-[0.92em] [&_code]:text-slate-800",
+                    "[&_hr]:my-10 [&_hr]:border-0 [&_hr]:border-t [&_hr]:border-black/6",
+                    "[&_img]:my-8 [&_img]:rounded-[28px]",
+                    "[&_h2]:mt-10 [&_h2]:scroll-mt-24 [&_h2]:font-[family:var(--ciseco-font-display)] [&_h2]:text-2xl [&_h2]:font-semibold [&_h2]:tracking-[-0.03em] [&_h2]:text-slate-950 sm:[&_h2]:text-[2rem]",
+                    "[&_h3]:mt-8 [&_h3]:scroll-mt-24 [&_h3]:font-[family:var(--ciseco-font-display)] [&_h3]:text-xl [&_h3]:font-semibold [&_h3]:tracking-[-0.02em] [&_h3]:text-slate-900",
+                    "[&_h4]:mt-7 [&_h4]:scroll-mt-24 [&_h4]:text-lg [&_h4]:font-semibold [&_h4]:text-slate-900",
+                    "[&_ol]:my-6 [&_ol]:space-y-3 [&_ol]:pl-5",
+                    "[&_p]:my-5 [&_p]:max-w-none",
+                    "[&_strong]:font-semibold [&_strong]:text-slate-950",
+                    "[&_table]:my-8 [&_table]:w-full [&_table]:border-collapse [&_table]:overflow-hidden [&_table]:rounded-2xl",
+                    "[&_td]:border [&_td]:border-slate-200 [&_td]:px-4 [&_td]:py-3",
+                    "[&_th]:border [&_th]:border-slate-200 [&_th]:bg-slate-50 [&_th]:px-4 [&_th]:py-3 [&_th]:text-left [&_th]:font-semibold [&_th]:text-slate-900",
+                    "[&_ul]:my-6 [&_ul]:space-y-3 [&_ul]:pl-5",
+                    "[&_li]:pl-1",
+                  )}
+                  dangerouslySetInnerHTML={{ __html: resolvedPost.bodyHtml }}
+                />
               </div>
             </article>
-          </section>
-        ) : null}
+          </Reveal>
+        </div>
 
-        <section className={clsx(container, "mt-8 sm:mt-10")}>
-          <div className="mx-auto max-w-4xl">
-            <AuthorBio author={ARTICLE_AUTHOR} />
-          </div>
-        </section>
-
-        <section className={clsx(container, "mt-8 sm:mt-10")}>
-          <div className="mx-auto max-w-3xl space-y-4">
-            <h3 className="text-base font-semibold text-slate-900">
-              {t("Comments")} (14)
-            </h3>
-            <div className="rounded-2xl border border-black/5 bg-white p-4">
-              <textarea
-                className="h-32 w-full resize-none text-sm text-slate-600 outline-none placeholder:text-slate-400"
-                placeholder={t("Write a comment...")}
-              />
-            </div>
-            <button
-              type="button"
-              className="rounded-full bg-slate-900 px-5 py-2 text-xs font-semibold text-white"
-            >
-              {t("Submit the comment")}
-            </button>
-          </div>
-        </section>
-
-        {showRelated ? (
-          <section
-            className={clsx(container, "mt-12 sm:mt-14")}
-            data-builder-section={relatedSection?.id}
-          >
+        {((Boolean(relatedSection) || !hasBuilder) && relatedPosts.length > 0) ? (
+          <section className={clsx(container, "mt-12 sm:mt-14")} data-builder-section={relatedSection?.id}>
             <div className="space-y-6">
-              <h3 className="text-lg font-semibold text-slate-900">
+              <h2 className="text-lg font-semibold text-slate-900 sm:text-xl">
                 {t(relatedSection?.title ?? "Related posts")}
-              </h3>
+              </h2>
               <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-                {relatedPosts.map((post) => (
-                  <RelatedPostCard key={post.id} post={post} href={blogHref(post.slug)} />
+                {relatedPosts.map((relatedPost, index) => (
+                  <Reveal key={relatedPost.id} delay={80 + index * 40}>
+                    <RelatedPostCard
+                      post={relatedPost}
+                      href={baseLink(`/blog/${relatedPost.slug}`)}
+                    />
+                  </Reveal>
                 ))}
               </div>
             </div>
           </section>
         ) : null}
+
         {extraSections.length ? (
           <ExtraSections
             theme={theme}
@@ -378,105 +652,103 @@ export function BlogDetailPage({
   );
 }
 
-type AuthorMetaProps = {
-  author: Author;
-  variant?: "default" | "compact";
-  showReadTime?: boolean;
-};
-
-function AuthorMeta({
-  author,
-  variant = "default",
-  showReadTime = true,
-}: AuthorMetaProps) {
-  const { t, locale } = useCisecoI18n();
-  const isCompact = variant === "compact";
-
+function AuthorAvatar({ name }: { name: string }) {
   return (
-    <div
-      className={clsx(
-        "flex flex-wrap items-center gap-2 text-slate-500",
-        isCompact ? "text-[11px]" : "text-xs",
-      )}
-    >
-      <img
-        src={author.avatar}
-        alt={author.name}
-        className={clsx(
-          "rounded-full object-cover",
-          isCompact ? "h-5 w-5" : "h-7 w-7",
-        )}
-        loading="lazy"
-      />
-      <span className="font-semibold text-slate-700">{author.name}</span>
-      <span className="text-slate-300" aria-hidden="true">
-        &middot;
-      </span>
-      <span>{formatCisecoDate(locale, author.date)}</span>
-      {showReadTime && (
-        <>
-          <span className="text-slate-300" aria-hidden="true">
-            &middot;
-          </span>
-          <span>{t(author.readTime)}</span>
-        </>
-      )}
-    </div>
+    <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-slate-950 text-[11px] font-semibold text-white">
+      {buildInitials(name)}
+    </span>
   );
 }
 
-type AuthorBioProps = {
-  author: Author;
-};
-
-function AuthorBio({ author }: AuthorBioProps) {
-  const { t } = useCisecoI18n();
-
-  return (
-    <div className="flex flex-col gap-4 rounded-3xl border border-black/5 bg-white p-5 shadow-sm sm:flex-row sm:items-center">
-      <img
-        src={author.avatar}
-        alt={author.name}
-        className="h-14 w-14 rounded-full object-cover"
-        loading="lazy"
-      />
-      <div className="space-y-2">
-        <p className="text-sm font-semibold text-slate-900">{author.name}</p>
-        <p className="text-sm text-slate-500">
-          {t(
-            "Scott is an editorial designer and copywriter with over 10 years of experience. He loves crafting unique and human-centered experiences.",
-          )}
-        </p>
-      </div>
-    </div>
-  );
-}
-
-type RelatedPostCardProps = {
-  post: RelatedPost;
+function StateMessage({
+  theme,
+  inlineStyles,
+  companyName,
+  homeHref,
+  title,
+  description,
+  href,
+  hrefLabel,
+}: {
+  theme: ThemeTokens;
+  inlineStyles: CSSProperties;
+  companyName: string;
+  homeHref: string;
+  title: string;
+  description: string;
   href: string;
-};
+  hrefLabel: string;
+}) {
+  return (
+    <PageShell inlineStyles={inlineStyles}>
+      <Navbar theme={theme} companyName={companyName} homeHref={homeHref} />
+      <main className="pb-14 pt-10 sm:pb-16 sm:pt-14">
+        <div className={clsx("mx-auto px-4 sm:px-6 lg:px-8", theme.containerClass)}>
+          <section className="mx-auto max-w-2xl rounded-[32px] border border-black/5 bg-white px-6 py-10 text-center shadow-[0_24px_80px_-52px_rgba(15,23,42,0.45)] sm:px-8">
+            <h1 className="font-[family:var(--ciseco-font-display)] text-3xl font-semibold tracking-[-0.035em] text-slate-950 sm:text-4xl">
+              {title}
+            </h1>
+            <p className="mt-4 text-base leading-8 text-slate-600">
+              {description}
+            </p>
+            <a
+              href={href}
+              className="mt-6 inline-flex rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+            >
+              {hrefLabel}
+            </a>
+          </section>
+        </div>
+      </main>
+      <Footer theme={theme} companyName={companyName} homeHref={homeHref} />
+    </PageShell>
+  );
+}
 
-function RelatedPostCard({ post, href }: RelatedPostCardProps) {
-  const { t } = useCisecoI18n();
+function RelatedPostCard({
+  post,
+  href,
+}: {
+  post: NonNullable<CatalogPayload["blogPosts"]>[number];
+  href: string;
+}) {
+  const { locale, t } = useCisecoI18n();
 
   return (
     <a href={href} className="group block">
       <article className="space-y-3 transition hover:-translate-y-1">
         <div className="relative aspect-[4/3] w-full overflow-hidden rounded-3xl bg-slate-100 shadow-sm transition-shadow duration-300 group-hover:shadow-lg">
-          <img
-            src={post.image}
+          <CatalogImage
+            src={
+              post.coverImageUrl ??
+              "https://images.unsplash.com/photo-1500534314209-a25ddb2bd429?auto=format&fit=crop&w=900&q=80"
+            }
             alt={post.title}
             className="h-full w-full object-cover transition duration-500 ease-out group-hover:scale-[1.04]"
+            sizes="(min-width: 1024px) 22vw, (min-width: 640px) 46vw, 92vw"
             loading="lazy"
+            fill
           />
         </div>
         <div className="space-y-2">
-          <h4 className="text-sm font-semibold text-slate-900 transition group-hover:text-slate-950">
-            {t(post.title)}
-          </h4>
-          <p className="text-xs text-slate-500">{t(post.excerpt)}</p>
-          <AuthorMeta author={post.author} variant="compact" showReadTime={false} />
+          {post.category ? (
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--site-accent)]">
+              {t(post.category)}
+            </p>
+          ) : null}
+          <h3 className="text-sm font-semibold text-slate-900 transition group-hover:text-slate-950">
+            {post.title}
+          </h3>
+          {post.excerpt ? (
+            <p className="text-xs leading-6 text-slate-500">{post.excerpt}</p>
+          ) : null}
+          <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+            <span className="font-semibold text-slate-700">{post.authorName}</span>
+            <span aria-hidden="true" className="text-slate-300">
+              &middot;
+            </span>
+            <span>{formatCisecoDate(locale, post.publishDate ?? new Date())}</span>
+          </div>
         </div>
       </article>
     </a>

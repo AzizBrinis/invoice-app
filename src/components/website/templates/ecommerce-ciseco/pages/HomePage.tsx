@@ -54,6 +54,7 @@ type HomePageProps = {
   baseLink: (target: string) => string;
   products: CatalogPayload["products"];
   siteReviews?: CatalogPayload["siteReviews"];
+  blogPosts?: CatalogPayload["blogPosts"];
   showPrices: boolean;
   builder?: WebsiteBuilderPageConfig | null;
 };
@@ -72,6 +73,7 @@ export function HomePage({
   baseLink,
   products,
   siteReviews = [],
+  blogPosts,
   showPrices,
   builder,
 }: HomePageProps) {
@@ -182,6 +184,7 @@ export function HomePage({
           sections={builder?.sections ?? []}
           mediaLibrary={builder?.mediaLibrary ?? []}
           siteReviews={siteReviews}
+          blogPosts={blogPosts}
           hasBuilder={Boolean(builder)}
         />
       </main>

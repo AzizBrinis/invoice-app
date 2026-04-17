@@ -43,6 +43,42 @@ const FRENCH_TRANSLATIONS: Record<string, string> = {
   "Orders history": "Historique des commandes",
   "Change password": "Changer le mot de passe",
   Billing: "Facturation",
+  "Review eligible orders and request a company invoice for this month's purchases.":
+    "Consultez les commandes éligibles et demandez une facture société pour les achats du mois en cours.",
+  "Unable to load billing.": "Impossible de charger la facturation.",
+  "Saving request...": "Enregistrement de la demande…",
+  "Unable to submit the invoice request.":
+    "Impossible d'envoyer la demande de facture.",
+  "Invoice ready": "Facture prête",
+  "Invoice request received": "Demande de facture reçue",
+  "Eligible this month": "Éligible ce mois-ci",
+  "Order date": "Date de commande",
+  "An invoice has already been issued for this order.":
+    "Une facture a déjà été émise pour cette commande.",
+  "This invoice request has already been processed.":
+    "Cette demande de facture a déjà été traitée.",
+  "Your invoice request is on file and will be handled using the confirmed billing details below.":
+    "Votre demande de facture a bien été enregistrée et sera traitée avec les coordonnées de facturation confirmées ci-dessous.",
+  "Requested on": "Demandée le",
+  "Your saved company billing details will be reused. You can confirm or update them before submitting the request.":
+    "Vos coordonnées de facturation société enregistrées seront réutilisées. Vous pouvez les confirmer ou les modifier avant d'envoyer la demande.",
+  "Company billing details are required before an invoice request can be submitted.":
+    "Les coordonnées de facturation société sont requises avant d'envoyer une demande de facture.",
+  Deadline: "Date limite",
+  "Update request": "Mettre à jour la demande",
+  "Request invoice": "Demander une facture",
+  "Billing company name": "Raison sociale",
+  "VAT number": "Numéro de TVA",
+  "Full billing address": "Adresse complète de facturation",
+  "Confirm invoice request": "Confirmer la demande de facture",
+  "Try again": "Réessayer",
+  "No orders available for billing.":
+    "Aucune commande disponible pour la facturation.",
+  "Your eligible orders will appear here as soon as they are confirmed.":
+    "Vos commandes éligibles apparaîtront ici dès qu'elles seront confirmées.",
+  "VAT number is required.": "Le numéro de TVA est requis.",
+  "Full billing address is required.":
+    "L'adresse complète de facturation est requise.",
   "Reusable sections": "Sections réutilisables",
   "Neutral visuals": "Visuels neutres",
   "Fast setup": "Mise en place rapide",

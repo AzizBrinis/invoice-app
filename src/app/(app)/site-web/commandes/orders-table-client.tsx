@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import type { Route } from "next";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { usePathname, useRouter } from "next/navigation";
@@ -14,6 +15,7 @@ import { formatCurrency, formatDate } from "@/lib/formatters";
 import { fromCents } from "@/lib/money";
 
 type PaymentMethod = "card" | "bank_transfer" | "cash_on_delivery" | "manual";
+type InvoiceRequestStatus = "PENDING" | "COMPLETED";
 
 type OrderRow = {
   id: string;
@@ -28,6 +30,9 @@ type OrderRow = {
   totalTTCCents: number;
   currency: string;
   createdAt: string;
+  invoiceId: string | null;
+  invoiceRequestStatus: InvoiceRequestStatus | null;
+  invoiceRequestRequestedAt: string | null;
 };
 
 type OrderFilterState = {
@@ -121,6 +126,21 @@ const PROOF_STATUS_LABELS: Record<OrderPaymentProofStatus, string> = {
   PENDING: "Preuve en attente",
   APPROVED: "Preuve approuvée",
   REJECTED: "Preuve rejetée",
+};
+
+function invoiceRequestVariant(status: InvoiceRequestStatus) {
+  switch (status) {
+    case "COMPLETED":
+      return "success";
+    case "PENDING":
+    default:
+      return "info";
+  }
+}
+
+const INVOICE_REQUEST_LABELS: Record<InvoiceRequestStatus, string> = {
+  PENDING: "Facture demandée",
+  COMPLETED: "Facture traitée",
 };
 
 function buildHref(
@@ -343,7 +363,9 @@ export function OrdersTableClient({
               <th className="px-4 py-3 text-left">Date</th>
               <th className="px-4 py-3 text-right">Total TTC</th>
               <th className="px-4 py-3 text-left">Statut</th>
+              <th className="px-4 py-3 text-left">Facturation</th>
               <th className="px-4 py-3 text-left">Paiement</th>
+              <th className="px-4 py-3 text-right">Action</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -390,6 +412,36 @@ export function OrdersTableClient({
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-col items-start gap-1">
+                        {order.invoiceId ? (
+                          <Badge variant="success">Facture générée</Badge>
+                        ) : order.invoiceRequestStatus ? (
+                          <>
+                            <Badge
+                              variant={invoiceRequestVariant(
+                                order.invoiceRequestStatus,
+                              )}
+                            >
+                              {
+                                INVOICE_REQUEST_LABELS[
+                                  order.invoiceRequestStatus
+                                ]
+                              }
+                            </Badge>
+                            {order.invoiceRequestRequestedAt ? (
+                              <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                                {formatDate(order.invoiceRequestRequestedAt)}
+                              </span>
+                            ) : null}
+                          </>
+                        ) : (
+                          <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                            Aucune demande
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-col items-start gap-1">
                         <Badge
                           variant={paymentStatusVariant(order.paymentStatus)}
                         >
@@ -405,13 +457,21 @@ export function OrdersTableClient({
                         ) : null}
                       </div>
                     </td>
+                    <td className="px-4 py-3 text-right">
+                      <Link
+                        href={`/site-web/commandes/${order.id}`}
+                        className="text-sm font-medium text-blue-600 transition hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                      >
+                        Ouvrir
+                      </Link>
+                    </td>
                   </tr>
                 );
               })
             ) : (
               <tr>
                 <td
-                  colSpan={6}
+                  colSpan={8}
                   className="px-4 py-10 text-center text-sm text-zinc-500 dark:text-zinc-400"
                 >
                   Aucune commande trouvée.
@@ -483,7 +543,39 @@ export function OrdersTableClient({
                       )}
                     </dd>
                   </div>
+                  <div>
+                    <dt className="text-xs uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                      Facturation
+                    </dt>
+                    <dd className="flex flex-wrap gap-2 pt-1">
+                      {order.invoiceId ? (
+                        <Badge variant="success">Facture générée</Badge>
+                      ) : order.invoiceRequestStatus ? (
+                        <Badge
+                          variant={invoiceRequestVariant(
+                            order.invoiceRequestStatus,
+                          )}
+                        >
+                          {
+                            INVOICE_REQUEST_LABELS[order.invoiceRequestStatus]
+                          }
+                        </Badge>
+                      ) : (
+                        <span className="text-zinc-700 dark:text-zinc-300">
+                          Aucune demande
+                        </span>
+                      )}
+                    </dd>
+                  </div>
                 </dl>
+                <div className="pt-1">
+                  <Link
+                    href={`/site-web/commandes/${order.id}`}
+                    className="text-sm font-medium text-blue-600 transition hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                  >
+                    Ouvrir la commande
+                  </Link>
+                </div>
               </article>
             );
           })

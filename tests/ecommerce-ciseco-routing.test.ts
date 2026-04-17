@@ -63,6 +63,15 @@ describe("ciseco collection routing", () => {
     });
   });
 
+  it("resolves the account billing route", () => {
+    expect(resolvePage("/account/billing")).toEqual({
+      page: "account-billing",
+    });
+    expect(resolvePage("/account/facturation")).toEqual({
+      page: "account-billing",
+    });
+  });
+
   it("resolves metadata target for collections URLs", () => {
     expect(resolveCatalogMetadataTarget("/collections/summer-edit")).toEqual({
       kind: "category",

@@ -1,5 +1,7 @@
+import type { Route } from "next";
 import { Suspense } from "react";
 import nextDynamic from "next/dynamic";
+import Link from "next/link";
 import { getWebsiteAdminPayload } from "@/server/website";
 import { Button } from "@/components/ui/button";
 import type { WebsiteTemplateKey } from "@/lib/website/templates";
@@ -73,6 +75,11 @@ export default async function SiteWebPage() {
           </p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap lg:justify-end">
+          <Button asChild variant="secondary" className="w-full sm:w-auto">
+            <Link href={"/site-web/blogs" as Route}>
+              Gérer les blogs
+            </Link>
+          </Button>
           <Button asChild variant="secondary" className="w-full sm:w-auto">
             <a href={links.previewUrl} target="_blank" rel="noreferrer">
               Prévisualiser

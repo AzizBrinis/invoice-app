@@ -69,6 +69,7 @@ const FULL_APP_NAV_ITEMS: NavItem[] = [
     icon: "website",
     children: [
       { label: "Vue d’ensemble", href: "/site-web" },
+      { label: "Blogs", href: "/site-web/blogs" },
       { label: "Commandes", href: "/site-web/commandes" },
       { label: "Demandes de devis", href: "/site-web/demandes-de-devis" },
       { label: "Messages de contact", href: "/site-web/messages-contact" },

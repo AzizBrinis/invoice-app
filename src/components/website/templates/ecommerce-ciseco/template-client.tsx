@@ -30,6 +30,8 @@ const loadAboutPage = () =>
   import("./pages/AboutPage").then((mod) => mod.AboutPage);
 const loadAccountPage = () =>
   import("./pages/AccountPage").then((mod) => mod.AccountPage);
+const loadBillingPage = () =>
+  import("./pages/BillingPage").then((mod) => mod.BillingPage);
 const loadBlogDetailPage = () =>
   import("./pages/BlogDetailPage").then((mod) => mod.BlogDetailPage);
 const loadBlogPage = () =>
@@ -67,6 +69,7 @@ const loadWishlistsPage = () =>
 
 const AboutPage = dynamic(loadAboutPage);
 const AccountPage = dynamic(loadAccountPage);
+const BillingPage = dynamic(loadBillingPage);
 const BlogDetailPage = dynamic(loadBlogDetailPage);
 const BlogPage = dynamic(loadBlogPage);
 const CartPage = dynamic(loadCartPage);
@@ -153,6 +156,9 @@ export function EcommerceCisecoHomeTemplateClient({
           return;
         case "account":
           void loadAccountPage();
+          return;
+        case "account-billing":
+          void loadBillingPage();
           return;
         case "account-change-password":
           void loadChangePasswordPage();
@@ -373,6 +379,17 @@ function TemplateContent({
       />
     );
   }
+  if (page.page === "account-billing") {
+    return (
+      <BillingPage
+        theme={theme}
+        inlineStyles={inlineStyles}
+        companyName={companyName}
+        homeHref={homeHref}
+        builder={pageBuilder}
+      />
+    );
+  }
   if (page.page === "account-change-password") {
     return (
       <ChangePasswordPage
@@ -451,17 +468,28 @@ function TemplateContent({
         baseLink={baseLink}
         path={currentPath}
         builder={pageBuilder}
+        blogPosts={data.blogPosts}
       />
     );
   }
   if (page.page === "blog-detail") {
     return (
       <BlogDetailPage
+        key={page.slug}
         theme={theme}
         inlineStyles={inlineStyles}
         companyName={companyName}
         homeHref={homeHref}
         baseLink={baseLink}
+        catalogSlug={data.website.slug}
+        mode={mode}
+        postSlug={page.slug}
+        post={data.currentBlogPost?.slug === page.slug ? data.currentBlogPost : null}
+        blogPosts={data.blogPosts}
+        requiresClientPostData={
+          serverPath !== normalizePath(currentPath) ||
+          data.currentBlogPost?.slug !== page.slug
+        }
         builder={pageBuilder}
       />
     );
@@ -539,6 +567,7 @@ function TemplateContent({
       baseLink={baseLink}
       products={data.products}
       siteReviews={data.siteReviews}
+      blogPosts={data.blogPosts}
       showPrices={data.website.showPrices}
       builder={pageBuilder}
     />

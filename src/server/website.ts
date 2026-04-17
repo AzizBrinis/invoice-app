@@ -88,6 +88,12 @@ import {
   listApprovedSiteReviews,
   type PublicSiteReview,
 } from "@/server/site-review-queries";
+import {
+  getPublicSiteBlogPostBySlug,
+  listPublicSiteBlogPostSummaries,
+  type PublicSiteBlogPost,
+  type PublicSiteBlogPostSummary,
+} from "@/server/site-blog-posts";
 import type { CatalogViewerState } from "@/lib/catalog-viewer";
 
 const slugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -689,6 +695,10 @@ export type CatalogWebsiteCmsPage = CatalogWebsiteCmsPageLink & {
   headings: WebsiteCmsPageHeading[];
 };
 
+export type CatalogWebsiteBlogPostSummary = PublicSiteBlogPostSummary;
+
+export type CatalogWebsiteBlogPost = PublicSiteBlogPost;
+
 export type WebsiteAdminCmsPage = {
   id: string;
   title: string;
@@ -745,6 +755,8 @@ export type CatalogPayload = {
     all: CatalogProduct[];
   };
   siteReviews: PublicSiteReview[];
+  blogPosts?: CatalogWebsiteBlogPostSummary[];
+  currentBlogPost?: CatalogWebsiteBlogPost | null;
   currentCmsPage: CatalogWebsiteCmsPage | null;
   viewer?: CatalogViewerState;
 };
@@ -1774,6 +1786,7 @@ type CatalogPageSeoKind =
   | "account"
   | "account-wishlists"
   | "account-orders-history"
+  | "account-billing"
   | "account-order-detail"
   | "account-change-password";
 
@@ -1785,6 +1798,7 @@ type CatalogSeoSearchParams = Record<
 type CatalogBlogSeoEntry = {
   slug: string;
   title: string;
+  headline: string;
   description: string | null;
   author: string | null;
   publishedAt: string | null;
@@ -2674,9 +2688,31 @@ function normalizeBlogSeoSlug(value?: string | null) {
   return normalized ? slugify(normalized) : null;
 }
 
-function collectCisecoBlogSeoEntries(
+function collectCatalogBlogSeoEntries(
   payload: CatalogPayload,
 ) {
+  if (payload.blogPosts !== undefined) {
+    return payload.blogPosts.map((post) => ({
+      slug: post.slug,
+      title:
+        trimCatalogText(post.metaTitle) ||
+        trimCatalogText(post.title) ||
+        titleizeCategorySlug(post.slug),
+      headline: trimCatalogText(post.title) || titleizeCategorySlug(post.slug),
+      description:
+        trimCatalogText(post.metaDescription) ||
+        trimCatalogText(post.excerpt) ||
+        null,
+      author: trimCatalogText(post.authorName) || null,
+      publishedAt: trimCatalogText(post.publishDate) || null,
+      imageUrl:
+        resolveCatalogAbsoluteUrl(
+          payload.website,
+          post.socialImageUrl ?? post.coverImageUrl,
+        ) ?? null,
+    })) satisfies CatalogBlogSeoEntry[];
+  }
+
   if (payload.website.templateKey !== "ecommerce-ciseco-home") {
     return [] as CatalogBlogSeoEntry[];
   }
@@ -2706,6 +2742,7 @@ function collectCisecoBlogSeoEntries(
       entries.push({
         slug,
         title: trimCatalogText(item.title) || titleizeCategorySlug(slug),
+        headline: trimCatalogText(item.title) || titleizeCategorySlug(slug),
         description: trimCatalogText(item.description) || null,
         author: trimCatalogText(item.tag) || null,
         publishedAt: trimCatalogText(item.badge) || null,
@@ -2717,11 +2754,11 @@ function collectCisecoBlogSeoEntries(
   return entries;
 }
 
-function findCisecoBlogSeoEntry(
+function findCatalogBlogSeoEntry(
   payload: CatalogPayload,
   slug?: string | null,
 ) {
-  const entries = collectCisecoBlogSeoEntries(payload);
+  const entries = collectCatalogBlogSeoEntries(payload);
   if (!entries.length) {
     return null;
   }
@@ -2960,17 +2997,20 @@ function resolveCatalogRouteInfo(options: {
         pageConfig,
         blogEntry: null,
       } satisfies CatalogRouteInfo;
-    case "blog-detail":
+    case "blog-detail": {
+      const blogEntry = findCatalogBlogSeoEntry(options.payload, page.slug);
       return {
         kind: "blog-detail",
         canonicalPath: `/blog/${page.slug ?? "article"}`,
         canonicalQuery: new URLSearchParams(),
-        shouldIndex: true,
+        shouldIndex:
+          options.payload.blogPosts === undefined ? true : Boolean(blogEntry),
         shouldFollow: true,
         openGraphType: "article",
         pageConfig,
-        blogEntry: findCisecoBlogSeoEntry(options.payload, page.slug),
+        blogEntry,
       } satisfies CatalogRouteInfo;
+    }
     case "search":
       return {
         kind: "search",
@@ -3041,6 +3081,17 @@ function resolveCatalogRouteInfo(options: {
       return {
         kind: "account-orders-history",
         canonicalPath: "/account/orders",
+        canonicalQuery: new URLSearchParams(),
+        shouldIndex: false,
+        shouldFollow: false,
+        openGraphType: "website",
+        pageConfig,
+        blogEntry: null,
+      } satisfies CatalogRouteInfo;
+    case "account-billing":
+      return {
+        kind: "account-billing",
+        canonicalPath: "/account/billing",
         canonicalQuery: new URLSearchParams(),
         shouldIndex: false,
         shouldFollow: false,
@@ -3197,6 +3248,8 @@ function buildCatalogSeoContextValues(options: {
   if (options.route.blogEntry) {
     values["blog.title"] = options.route.blogEntry.title;
     values.blogTitle = options.route.blogEntry.title;
+    values["blog.headline"] = options.route.blogEntry.headline;
+    values.blogHeadline = options.route.blogEntry.headline;
     values["blog.description"] = options.route.blogEntry.description ?? "";
     values.blogDescription = options.route.blogEntry.description ?? "";
   }
@@ -3462,6 +3515,15 @@ function resolveCatalogStaticPageMetadata(options: {
           options.locale,
           "Retrouvez les produits enregistrés pour plus tard.",
           "Review the items you saved for later.",
+        ),
+      } satisfies Partial<CatalogWebsiteMetadata>;
+    case "account-billing":
+      return {
+        title: `${translateCatalogCopy(options.locale, "Facturation", "Billing")} — ${companyName}`,
+        description: translateCatalogCopy(
+          options.locale,
+          "Demandez des factures pour vos commandes éligibles.",
+          "Request invoices for your eligible orders.",
         ),
       } satisfies Partial<CatalogWebsiteMetadata>;
     case "account-orders-history":
@@ -3998,7 +4060,7 @@ export function resolveCatalogStructuredData(options: {
     locale,
     currentLabel:
       payload.currentCmsPage?.title ??
-      route.blogEntry?.title ??
+      route.blogEntry?.headline ??
       seo.metadata.title,
   });
   const structuredData: Array<Record<string, unknown>> = [];
@@ -4174,9 +4236,9 @@ export function resolveCatalogStructuredData(options: {
       isPartOf: {
         "@id": `${homeUrl}#website`,
       },
-      blogPost: collectCisecoBlogSeoEntries(payload).slice(0, 12).map((entry) => ({
+      blogPost: collectCatalogBlogSeoEntries(payload).slice(0, 12).map((entry) => ({
         "@type": "BlogPosting",
-        headline: entry.title,
+        headline: entry.headline,
         description: entry.description ?? undefined,
         url: buildCatalogCanonicalUrl({
           payload,
@@ -4192,7 +4254,7 @@ export function resolveCatalogStructuredData(options: {
     structuredData.push({
       "@context": "https://schema.org",
       "@type": "Article",
-      headline: route.blogEntry?.title ?? seo.metadata.title,
+      headline: route.blogEntry?.headline ?? seo.metadata.title,
       description: route.blogEntry?.description ?? seo.metadata.description,
       url: seo.metadata.canonicalUrl,
       image: route.blogEntry?.imageUrl
@@ -4335,11 +4397,25 @@ const readCatalogSiteReviewsCached = cache(
     listApprovedSiteReviews({ userId, websiteId }),
 );
 
-async function getCatalogDataForWebsite(website: WebsiteConfig) {
-  const [settings, products, siteReviews] = await Promise.all([
+const readCatalogBlogPostSummariesCached = cache(
+  async (websiteId: string, preview: boolean) =>
+    listPublicSiteBlogPostSummaries({ websiteId, preview }),
+);
+
+const readCatalogBlogPostDetailCached = cache(
+  async (websiteId: string, slug: string, preview: boolean) =>
+    getPublicSiteBlogPostBySlug({ websiteId, slug, preview }),
+);
+
+async function getCatalogDataForWebsite(
+  website: WebsiteConfig,
+  options?: { preview?: boolean },
+) {
+  const [settings, products, siteReviews, blogPosts] = await Promise.all([
     getSettings(website.userId),
     readCatalogProductsCached(website.userId, website.showInactiveProducts),
     readCatalogSiteReviewsCached(website.userId, website.id),
+    readCatalogBlogPostSummariesCached(website.id, options?.preview === true),
   ]);
   const ecommerceSettings = resolveEcommerceSettingsFromWebsite(website, {
     includeSecrets: true,
@@ -4353,6 +4429,7 @@ async function getCatalogDataForWebsite(website: WebsiteConfig) {
     products,
     featured,
     siteReviews,
+    blogPosts,
   };
 }
 
@@ -4392,16 +4469,39 @@ async function getCurrentCatalogWebsiteCmsPage(
   return page ? serializeCatalogWebsiteCmsPage(page) : null;
 }
 
+async function getCurrentCatalogBlogPost(
+  websiteId: string,
+  path?: string | null,
+  options?: { preview?: boolean },
+) {
+  const page = resolveCisecoPage(path);
+  if (page.page !== "blog-detail" || !page.slug) {
+    return null;
+  }
+  return readCatalogBlogPostDetailCached(
+    websiteId,
+    page.slug,
+    options?.preview === true,
+  );
+}
+
 async function buildCatalogPayloadFromWebsite(
   website: WebsiteConfig,
-  options?: { path?: string | null },
+  options?: { path?: string | null; preview?: boolean },
 ) {
-  const [{ settings, products, featured, siteReviews }, cmsPages, currentCmsPage] =
-    await Promise.all([
-      getCatalogDataForWebsite(website),
-      listCatalogWebsiteCmsPageLinks(website.id),
-      getCurrentCatalogWebsiteCmsPage(website.id, options?.path),
-    ]);
+  const [
+    { settings, products, featured, siteReviews, blogPosts },
+    cmsPages,
+    currentCmsPage,
+    currentBlogPost,
+  ] = await Promise.all([
+    getCatalogDataForWebsite(website, { preview: options?.preview }),
+    listCatalogWebsiteCmsPageLinks(website.id),
+    getCurrentCatalogWebsiteCmsPage(website.id, options?.path),
+    getCurrentCatalogBlogPost(website.id, options?.path, {
+      preview: options?.preview,
+    }),
+  ]);
   const currencyCode = resolveCatalogCurrencyCode(
     website,
     settings.defaultCurrency,
@@ -4456,6 +4556,8 @@ async function buildCatalogPayloadFromWebsite(
       all: products,
     },
     siteReviews,
+    blogPosts,
+    currentBlogPost,
     currentCmsPage,
   } satisfies CatalogPayload;
 }
@@ -4475,7 +4577,10 @@ const getCatalogPayloadBySlugCached = cache(
     if (!website) {
       return null;
     }
-    return buildCatalogPayloadFromWebsite(website, { path: normalizedPath });
+    return buildCatalogPayloadFromWebsite(website, {
+      path: normalizedPath,
+      preview,
+    });
   },
 );
 
@@ -4488,7 +4593,10 @@ const getCatalogPayloadByDomainCached = cache(
     if (!website) {
       return null;
     }
-    return buildCatalogPayloadFromWebsite(website, { path: normalizedPath });
+    return buildCatalogPayloadFromWebsite(website, {
+      path: normalizedPath,
+      preview: false,
+    });
   },
 );
 

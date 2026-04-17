@@ -30,6 +30,11 @@ export const CISECO_PAGE_DEFINITIONS = [
     path: "/account/orders/commande-demo",
   },
   {
+    key: "account-billing",
+    label: "Facturation",
+    path: "/account/billing",
+  },
+  {
     key: "account-change-password",
     label: "Changer le mot de passe",
     path: "/account/change-password",

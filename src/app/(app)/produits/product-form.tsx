@@ -117,18 +117,30 @@ function buildVariantKey(colorId?: string | null, sizeId?: string | null) {
   return `${colorId ?? ""}${VARIANT_SEPARATOR}${sizeId ?? ""}`;
 }
 
+function getDeterministicItemId(
+  prefix: string,
+  fallbackKey: string,
+  providedId?: unknown,
+) {
+  if (typeof providedId === "string" && providedId.trim().length > 0) {
+    return providedId.trim();
+  }
+  return `${prefix}-${fallbackKey}`;
+}
+
 function normalizeGalleryItems(
   gallery: unknown,
   coverImageUrl?: string | null,
 ): GalleryItem[] {
   const entries: GalleryItem[] = [];
   if (Array.isArray(gallery)) {
-    gallery.forEach((entry) => {
+    gallery.forEach((entry, index) => {
+      const fallbackKey = String(index + 1);
       if (typeof entry === "string") {
         const src = entry.trim();
         if (!src) return;
         entries.push({
-          id: generateId("photo"),
+          id: getDeterministicItemId("photo", fallbackKey),
           src,
           alt: "",
           isPrimary: false,
@@ -146,10 +158,11 @@ function normalizeGalleryItems(
         if (!src) return;
         const alt =
           typeof record.alt === "string" ? record.alt : "";
-        const id =
-          typeof record.id === "string" && record.id.trim().length > 0
-            ? record.id.trim()
-            : generateId("photo");
+        const id = getDeterministicItemId(
+          "photo",
+          fallbackKey,
+          record.id,
+        );
         entries.push({
           id,
           src,
@@ -162,7 +175,7 @@ function normalizeGalleryItems(
   const coverSrc = coverImageUrl?.trim();
   if (coverSrc && !entries.some((item) => item.src === coverSrc)) {
     entries.unshift({
-      id: generateId("photo"),
+      id: getDeterministicItemId("photo", "cover"),
       src: coverSrc,
       alt: "",
       isPrimary: true,
@@ -181,7 +194,7 @@ function normalizeGalleryItems(
 
 function normalizeFaqItems(value: unknown): FaqItem[] {
   return normalizeProductFaqItems(value).map((item, index) => ({
-    id: generateId(`faq-${index + 1}`),
+    id: getDeterministicItemId("faq", String(index + 1)),
     question: item.question,
     answer: item.answer,
   }));

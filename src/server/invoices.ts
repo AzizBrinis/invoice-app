@@ -19,6 +19,10 @@ import {
 import { z } from "zod";
 import { nextInvoiceNumber } from "@/server/sequences";
 import { shouldUseServerDataCache } from "@/lib/server-data-cache";
+import {
+  markInvoiceRequestCompletedForOrder,
+  resolveOrderInvoiceRequestEligibility,
+} from "@/server/invoice-requests";
 
 const invoiceLineSchema = z.object({
   id: z.string().optional(),
@@ -811,6 +815,18 @@ export async function createInvoiceFromOrder(
   if (order.invoice) {
     return order.invoice;
   }
+  const eligibility = resolveOrderInvoiceRequestEligibility({
+    orderDate: order.createdAt,
+    invoiceId: null,
+  });
+  if (!eligibility.eligible) {
+    if (eligibility.reason === "ALREADY_INVOICED") {
+      throw new Error("Une facture existe déjà pour cette commande.");
+    }
+    throw new Error(
+      "La facture ne peut être générée que pendant le même mois calendaire que la commande.",
+    );
+  }
 
   if (order.items.length === 0) {
     throw new Error("Commande sans lignes");
@@ -866,6 +882,17 @@ export async function createInvoiceFromOrder(
     data: {
       invoiceId: invoice.id,
     },
+  });
+
+  markInvoiceRequestCompletedForOrder({
+    tenantUserId: userId,
+    orderId: order.id,
+    invoiceId: invoice.id,
+  }).catch((error) => {
+    console.warn(
+      "[invoices] unable to mark invoice request as completed",
+      error,
+    );
   });
 
   return invoice;

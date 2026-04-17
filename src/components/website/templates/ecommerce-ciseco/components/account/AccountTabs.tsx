@@ -39,6 +39,8 @@ export function AccountTabs({ activeTab = "Settings" }: AccountTabsProps) {
         return `${basePath}/account/orders-history`;
       case "Change password":
         return `${basePath}/account/change-password`;
+      case "Billing":
+        return `${basePath}/account/billing`;
       default:
         return "#";
     }

@@ -188,15 +188,17 @@ export function AccountMenu() {
     };
   }, [open, isMobile]);
 
+  useEffect(() => {
+    if (!open || authStatus !== "authenticated") {
+      return;
+    }
+
+    refreshProfile();
+  }, [authStatus, open, refreshProfile]);
+
   const closeMenu = () => setOpen(false);
   const toggleMenu = () => {
-    setOpen((prev) => {
-      const next = !prev;
-      if (next && authStatus === "authenticated") {
-        refreshProfile();
-      }
-      return next;
-    });
+    setOpen((prev) => !prev);
   };
 
   const menuItemsPrimary: MenuItem[] = isAuthenticated
@@ -209,6 +211,11 @@ export function AccountMenu() {
         {
           label: t("My Orders"),
           href: localizeHref(`${basePath}/account/orders-history`),
+          icon: OrdersIcon,
+        },
+        {
+          label: t("Billing"),
+          href: localizeHref(`${basePath}/account/billing`),
           icon: OrdersIcon,
         },
         {

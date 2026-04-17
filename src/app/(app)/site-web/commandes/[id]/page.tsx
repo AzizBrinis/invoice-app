@@ -6,6 +6,7 @@ import {
   OrderStatus,
 } from "@/lib/db/prisma";
 import { getOrder } from "@/server/orders";
+import { getAdminInvoiceRequestSummaryForOrder } from "@/server/invoice-requests";
 import {
   approveOrderPaymentProofAction,
   cancelOrderAction,
@@ -110,6 +111,9 @@ export default async function CommandeDetailPage({
   if (!order) {
     notFound();
   }
+  const invoiceRequestSummary = await getAdminInvoiceRequestSummaryForOrder(
+    order.id,
+  );
 
   const successMessage = Array.isArray(resolvedSearchParams?.message)
     ? resolvedSearchParams.message[0]
@@ -154,6 +158,12 @@ export default async function CommandeDetailPage({
   const redirectBase = `/site-web/commandes/${order.id}`;
   const hasInvoice = Boolean(order.invoiceId);
   const hasQuote = Boolean(order.quoteId);
+  const invoiceRequest = invoiceRequestSummary?.invoiceRequest ?? null;
+  const invoiceEligibility = invoiceRequestSummary?.eligibility ?? null;
+  const canGenerateInvoice = !hasInvoice && Boolean(invoiceEligibility?.eligible);
+  const invoiceDeadlineLabel = invoiceEligibility
+    ? formatDate(invoiceEligibility.requestDeadlineAt)
+    : null;
 
   return (
     <div className="space-y-6">
@@ -186,6 +196,7 @@ export default async function CommandeDetailPage({
               <FormSubmitButton
                 variant="secondary"
                 className="w-full sm:w-auto"
+                disabled={!canGenerateInvoice}
               >
                 Générer facture
               </FormSubmitButton>
@@ -250,6 +261,14 @@ export default async function CommandeDetailPage({
         </div>
       </div>
 
+      {!hasInvoice && invoiceEligibility && !invoiceEligibility.eligible ? (
+        <div className="card border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
+          La facture ne peut être générée que pendant le même mois calendaire
+          que la commande.
+          {invoiceDeadlineLabel ? ` Date limite : ${invoiceDeadlineLabel}.` : ""}
+        </div>
+      ) : null}
+
       <section className="grid gap-4 lg:grid-cols-3">
         <div className="card p-4">
           <h2 className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
@@ -285,6 +304,95 @@ export default async function CommandeDetailPage({
             {order.customerAddress ? <p>{order.customerAddress}</p> : null}
           </div>
         </div>
+      </section>
+
+      <section className="card p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
+              Demande de facture
+            </h2>
+            <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">
+              Suivi de la demande client et coordonnées de facturation
+              confirmées.
+            </p>
+          </div>
+          {hasInvoice ? (
+            <Badge variant="success">Facture générée</Badge>
+          ) : invoiceRequest ? (
+            <Badge
+              variant={
+                invoiceRequest.status === "COMPLETED" ? "success" : "info"
+              }
+            >
+              {invoiceRequest.status === "COMPLETED"
+                ? "Demande traitée"
+                : "Demande reçue"}
+            </Badge>
+          ) : (
+            <Badge variant="neutral">Aucune demande</Badge>
+          )}
+        </div>
+
+        {invoiceRequest ? (
+          <div className="mt-4 grid gap-4 lg:grid-cols-2">
+            <div className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
+              <h3 className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                Coordonnées transmises
+              </h3>
+              <div className="mt-3 space-y-2 text-sm text-zinc-700 dark:text-zinc-300">
+                <p>
+                  <span className="font-medium">Société :</span>{" "}
+                  {invoiceRequest.companyName}
+                </p>
+                <p>
+                  <span className="font-medium">TVA :</span>{" "}
+                  {invoiceRequest.vatNumber}
+                </p>
+                <p className="whitespace-pre-line">
+                  <span className="font-medium">Adresse :</span>{" "}
+                  {invoiceRequest.billingAddress}
+                </p>
+                <p>
+                  <span className="font-medium">E-mail d'envoi :</span>{" "}
+                  {invoiceRequest.deliveryEmail}
+                </p>
+              </div>
+            </div>
+            <div className="rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
+              <h3 className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                Statut
+              </h3>
+              <div className="mt-3 space-y-2 text-sm text-zinc-700 dark:text-zinc-300">
+                <p>
+                  <span className="font-medium">Demandée le :</span>{" "}
+                  {formatDate(invoiceRequest.requestedAt)}
+                </p>
+                {invoiceRequest.processedAt ? (
+                  <p>
+                    <span className="font-medium">Traitée le :</span>{" "}
+                    {formatDate(invoiceRequest.processedAt)}
+                  </p>
+                ) : null}
+                {invoiceDeadlineLabel ? (
+                  <p>
+                    <span className="font-medium">Date limite :</span>{" "}
+                    {invoiceDeadlineLabel}
+                  </p>
+                ) : null}
+                {!hasInvoice && invoiceEligibility && !invoiceEligibility.eligible ? (
+                  <p className="text-amber-700 dark:text-amber-300">
+                    La fenêtre de génération est fermée pour cette commande.
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <p className="mt-4 text-sm text-zinc-600 dark:text-zinc-300">
+            Aucun client n&apos;a encore demandé de facture pour cette commande.
+          </p>
+        )}
       </section>
 
       <section className="card overflow-hidden">

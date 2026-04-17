@@ -9,6 +9,10 @@ import {
   normalizeCatalogSlugInput,
   resolveCatalogWebsite,
 } from "@/server/website";
+import {
+  getCatalogClientOrderDetail,
+  requireCatalogClientContext,
+} from "@/server/catalogue-orders";
 
 const paramsSchema = z.object({
   id: z.string().min(1),
@@ -32,6 +36,38 @@ export async function GET(
       mode: request.nextUrl.searchParams.get("mode") ?? "public",
       token: request.nextUrl.searchParams.get("token"),
     });
+    if (!query.token) {
+      const resolved = await requireCatalogClientContext(request, t);
+      if ("error" in resolved) {
+        return NextResponse.json(
+          { error: resolved.error },
+          { status: resolved.status },
+        );
+      }
+
+      const order = await getCatalogClientOrderDetail({
+        tenantUserId: resolved.website.userId,
+        clientId: resolved.client.id,
+        customerEmail: resolved.client.email,
+        orderId: id,
+      });
+      if (!order) {
+        return NextResponse.json(
+          { error: t("Order not found.") },
+          { status: 404 },
+        );
+      }
+
+      return NextResponse.json(
+        { status: "detail", order },
+        {
+          headers: {
+            "Cache-Control": "private, no-store",
+          },
+        },
+      );
+    }
+
     const domain = resolveCatalogDomainFromHeaders(request.headers);
     const slug = domain ? null : normalizeCatalogSlugInput(query.slug);
     const website = await resolveCatalogWebsite({

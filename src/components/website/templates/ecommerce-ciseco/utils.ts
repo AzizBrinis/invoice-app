@@ -252,6 +252,12 @@ export function resolvePage(
   }
   if (
     head === "account" &&
+    (second === "billing" || second === "facturation")
+  ) {
+    return { page: "account-billing" };
+  }
+  if (
+    head === "account" &&
     (second === "change-password" || second === "password")
   ) {
     return { page: "account-change-password" };

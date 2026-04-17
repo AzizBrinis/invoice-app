@@ -190,6 +190,8 @@ function createPayload(): CatalogPayload {
       ],
     },
     siteReviews: [],
+    blogPosts: undefined,
+    currentBlogPost: null,
     currentCmsPage: null,
   };
 }
@@ -274,5 +276,61 @@ describe("catalog seo pages", () => {
     expect(
       articleStructuredData.some((entry) => entry["@type"] === "Article"),
     ).toBe(true);
+  });
+
+  it("uses managed blog SEO fields for article metadata while keeping the article headline in structured data", () => {
+    const payload = createPayload();
+    payload.blogPosts = [
+      {
+        id: "blog-managed-1",
+        title: "Managed launch note",
+        slug: "managed-launch-note",
+        excerpt: "A concise editorial note about the new launch.",
+        coverImageUrl: "https://example.com/blog-cover.jpg",
+        socialImageUrl: "https://example.com/blog-social.jpg",
+        category: "Launches",
+        tags: ["launch", "seo"],
+        authorName: "Jane Doe",
+        publishDate: "2026-04-10",
+        featured: true,
+        readingTimeMinutes: 4,
+        wordCount: 860,
+        metaTitle: "Managed SEO Title",
+        metaDescription: "Managed SEO description.",
+      },
+    ];
+    payload.currentBlogPost = {
+      ...payload.blogPosts[0],
+      bodyHtml: "<h2 id=\"launch-summary\">Launch summary</h2><p>Body.</p>",
+      headings: [
+        {
+          id: "launch-summary",
+          text: "Launch summary",
+          level: 2,
+        },
+      ],
+    };
+
+    const seo = resolveCatalogSeo({
+      payload,
+      path: "/blog/managed-launch-note",
+      locale: "fr",
+    });
+    expect(seo.metadata.title).toBe("Managed SEO Title — Demo");
+    expect(seo.metadata.description).toBe("Managed SEO description.");
+    expect(seo.metadata.socialImageUrl).toBe("https://example.com/blog-social.jpg");
+
+    const articleStructuredData = resolveCatalogStructuredData({
+      payload,
+      path: "/blog/managed-launch-note",
+      locale: "fr",
+    });
+    const article = articleStructuredData.find(
+      (entry) => entry["@type"] === "Article",
+    );
+    expect(article).toMatchObject({
+      headline: "Managed launch note",
+      description: "Managed SEO description.",
+    });
   });
 });

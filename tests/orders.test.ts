@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/db";
 import { createOrder, markOrderPaid } from "@/server/orders";
+import { HUMAN_ORDER_NUMBER_PATTERN } from "@/server/order-numbers";
 import {
   OrderPaymentStatus,
   OrderStatus,
@@ -137,7 +138,7 @@ describeWithDb("orders", () => {
       user.id,
     );
 
-    expect(order.orderNumber).toMatch(/^cmd-/);
+    expect(order.orderNumber).toMatch(HUMAN_ORDER_NUMBER_PATTERN);
     expect(order.status).toBe(OrderStatus.PENDING);
     expect(order.paymentStatus).toBe(OrderPaymentStatus.PENDING);
     expect(order.customerEmail).toBe("customer@example.com");
@@ -167,6 +168,67 @@ describeWithDb("orders", () => {
       totalTVACents: 90,
       totalTTCCents: 540,
     });
+  });
+
+  it("assigns distinct 6-digit order numbers to new orders", async () => {
+    const [firstOrder, secondOrder] = await Promise.all([
+      createOrder(
+        {
+          currency: "TND",
+          customer: {
+            name: "Unique Customer One",
+            email: "unique-one@example.com",
+            phone: null,
+            company: null,
+            address: "1 Unique St",
+          },
+          items: [
+            {
+              productId,
+              description: "Unique Line One",
+              quantity: 1,
+              unit: "unit",
+              unitPriceHTCents: 1000,
+              vatRate: 20,
+              discountRate: null,
+              discountAmountCents: null,
+              position: 0,
+            },
+          ],
+        },
+        user.id,
+      ),
+      createOrder(
+        {
+          currency: "TND",
+          customer: {
+            name: "Unique Customer Two",
+            email: "unique-two@example.com",
+            phone: null,
+            company: null,
+            address: "2 Unique St",
+          },
+          items: [
+            {
+              productId,
+              description: "Unique Line Two",
+              quantity: 1,
+              unit: "unit",
+              unitPriceHTCents: 1200,
+              vatRate: 20,
+              discountRate: null,
+              discountAmountCents: null,
+              position: 0,
+            },
+          ],
+        },
+        user.id,
+      ),
+    ]);
+
+    expect(firstOrder.orderNumber).toMatch(HUMAN_ORDER_NUMBER_PATTERN);
+    expect(secondOrder.orderNumber).toMatch(HUMAN_ORDER_NUMBER_PATTERN);
+    expect(firstOrder.orderNumber).not.toBe(secondOrder.orderNumber);
   });
 
   it("marks an order as paid", async () => {

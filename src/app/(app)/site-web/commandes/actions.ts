@@ -236,7 +236,10 @@ export async function createInvoiceFromOrderAction(id: string) {
       error,
     );
     redirectWithFeedback(`/site-web/commandes/${id}`, {
-      error: "Impossible de générer la facture.",
+      error:
+        error instanceof Error && error.message.trim().length > 0
+          ? error.message
+          : "Impossible de générer la facture.",
     });
   }
 }
