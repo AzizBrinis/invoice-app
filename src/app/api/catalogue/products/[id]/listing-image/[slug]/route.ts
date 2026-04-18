@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { createHash } from "node:crypto";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import sharp from "sharp";
@@ -15,6 +16,53 @@ const LISTING_IMAGE_WIDTHS = [160, 240, 320, 480, 640, 768, 960, 1200];
 const DEFAULT_LISTING_IMAGE_QUALITY = 72;
 const MIN_LISTING_IMAGE_QUALITY = 45;
 const MAX_LISTING_IMAGE_QUALITY = 85;
+const MAX_SOURCE_IMAGE_CACHE_ENTRIES = 96;
+const MAX_TRANSFORMED_IMAGE_CACHE_ENTRIES = 192;
+const SMALL_INLINE_IMAGE_MAX_BYTES = 24 * 1024;
+const SMALL_INLINE_IMAGE_MIN_WIDTH = 320;
+const SMALL_INLINE_IMAGE_WIDTH_TOLERANCE = 192;
+
+type CachedListingImageSource = {
+  body: Buffer;
+  contentType: string;
+  width: number | null;
+  height: number | null;
+};
+
+type ListingImagePayload = {
+  body: Buffer;
+  contentType: string;
+};
+
+const sourceImageCache = new Map<string, CachedListingImageSource>();
+const sourceImageRequestCache = new Map<
+  string,
+  Promise<CachedListingImageSource | null>
+>();
+const transformedImageCache = new Map<string, ListingImagePayload>();
+const transformedImageRequestCache = new Map<
+  string,
+  Promise<ListingImagePayload>
+>();
+
+function setBoundedCacheEntry<K, V>(
+  cache: Map<K, V>,
+  key: K,
+  value: V,
+  maxEntries: number,
+) {
+  if (cache.has(key)) {
+    cache.delete(key);
+  }
+  cache.set(key, value);
+  if (cache.size <= maxEntries) {
+    return;
+  }
+  const oldestKey = cache.keys().next().value;
+  if (oldestKey !== undefined) {
+    cache.delete(oldestKey);
+  }
+}
 
 function resolveDomainAndSlug(
   request: NextRequest,
@@ -54,6 +102,18 @@ function decodeInlineImageDataUrl(source: string) {
   } catch {
     return null;
   }
+}
+
+function buildSourceImageCacheKey(options: {
+  productId: string;
+  slot: string | null;
+  version: string | null;
+}) {
+  return [
+    options.productId,
+    options.slot ?? "listing",
+    options.version ?? "inline",
+  ].join(":");
 }
 
 function resolveRequestedWidth(request: NextRequest) {
@@ -108,40 +168,100 @@ function resolvePreferredRasterFormat(
   return "webp" as const;
 }
 
-async function transformListingImage(options: {
-  body: Buffer;
+function buildTransformedImageCacheKey(options: {
+  sourceCacheKey: string;
   contentType: string;
+  requestedWidth: number | null;
+  quality: number;
+  preferredFormat: "avif" | "webp" | "png" | "jpeg" | null;
+  bypassTransform: boolean;
+}) {
+  const digest = createHash("sha1")
+    .update(
+      JSON.stringify({
+        sourceCacheKey: options.sourceCacheKey,
+        contentType: options.contentType,
+        requestedWidth: options.requestedWidth,
+        quality: options.quality,
+        preferredFormat: options.preferredFormat,
+        bypassTransform: options.bypassTransform,
+      }),
+    )
+    .digest("hex");
+  return digest;
+}
+
+function shouldBypassTransform(options: {
+  source: CachedListingImageSource;
+  requestedWidth: number | null;
+}) {
+  const normalizedContentType = options.source.contentType.toLowerCase();
+  if (
+    !(
+      normalizedContentType.startsWith("image/jpeg") ||
+      normalizedContentType.startsWith("image/webp") ||
+      normalizedContentType.startsWith("image/avif")
+    )
+  ) {
+    return false;
+  }
+  if (options.source.body.byteLength > SMALL_INLINE_IMAGE_MAX_BYTES) {
+    return false;
+  }
+  if (!options.requestedWidth || !options.source.width) {
+    return true;
+  }
+  return options.requestedWidth >= Math.max(
+    SMALL_INLINE_IMAGE_MIN_WIDTH,
+    options.source.width - SMALL_INLINE_IMAGE_WIDTH_TOLERANCE,
+  );
+}
+
+async function transformListingImage(options: {
+  source: CachedListingImageSource;
   preferredFormat: "avif" | "webp" | "png" | "jpeg" | null;
   requestedWidth: number | null;
   quality: number;
 }) {
   if (
-    !options.requestedWidth &&
-    (!options.preferredFormat ||
-      options.contentType.toLowerCase() === `image/${options.preferredFormat}`)
+    shouldBypassTransform({
+      source: options.source,
+      requestedWidth: options.requestedWidth,
+    })
   ) {
     return {
-      body: options.body,
-      contentType: options.contentType,
+      body: options.source.body,
+      contentType: options.source.contentType,
     };
   }
 
-  if (options.contentType.toLowerCase().startsWith("image/svg")) {
+  if (
+    !options.requestedWidth &&
+    (!options.preferredFormat ||
+      options.source.contentType.toLowerCase() ===
+        `image/${options.preferredFormat}`)
+  ) {
     return {
-      body: options.body,
-      contentType: options.contentType,
+      body: options.source.body,
+      contentType: options.source.contentType,
     };
   }
 
-  const metadata = await sharp(options.body).metadata();
-  const pipeline = sharp(options.body, {
+  if (options.source.contentType.toLowerCase().startsWith("image/svg")) {
+    return {
+      body: options.source.body,
+      contentType: options.source.contentType,
+    };
+  }
+
+  const pipeline = sharp(options.source.body, {
     limitInputPixels: false,
   });
 
   if (
     options.requestedWidth &&
-    metadata.width &&
-    options.requestedWidth < metadata.width
+    options.source.width &&
+    options.requestedWidth < options.source.width
   ) {
     pipeline.resize({
       width: options.requestedWidth,
@@ -174,6 +294,151 @@ async function transformListingImage(options: {
   };
 }
 
+async function loadListingImageSource(options: {
+  request: NextRequest;
+  productId: string;
+  fallbackSlug: string;
+  slot: string | null;
+  version: string | null;
+}) {
+  const sourceCacheKey = buildSourceImageCacheKey({
+    productId: options.productId,
+    slot: options.slot,
+    version: options.version,
+  });
+  const cachedSource = sourceImageCache.get(sourceCacheKey);
+  if (cachedSource) {
+    return { sourceCacheKey, source: cachedSource };
+  }
+
+  const inflight = sourceImageRequestCache.get(sourceCacheKey);
+  if (inflight) {
+    return { sourceCacheKey, source: await inflight };
+  }
+
+  const requestPromise = (async () => {
+    const { slug, domain } = resolveDomainAndSlug(
+      options.request,
+      options.fallbackSlug,
+    );
+    const website = await resolveCatalogWebsite({
+      slug,
+      domain,
+      preview: false,
+    });
+
+    if (!website) {
+      return null;
+    }
+
+    const product = await prisma.product.findFirst({
+      where: {
+        id: options.productId,
+        userId: website.userId,
+        isListedInCatalog: true,
+        ...(website.showInactiveProducts ? {} : { isActive: true }),
+      },
+      select: {
+        coverImageUrl: true,
+        gallery: true,
+      },
+    });
+
+    if (!product) {
+      return null;
+    }
+
+    const inlineImage = resolveCatalogProductListingImageDataUrl(
+      product,
+      options.slot,
+    );
+    if (!inlineImage) {
+      return null;
+    }
+
+    const decoded = decodeInlineImageDataUrl(inlineImage);
+    if (!decoded) {
+      return null;
+    }
+
+    const metadata = decoded.contentType.toLowerCase().startsWith("image/svg")
+      ? null
+      : await sharp(decoded.body).metadata();
+    const source: CachedListingImageSource = {
+      body: decoded.body,
+      contentType: decoded.contentType,
+      width: metadata?.width ?? null,
+      height: metadata?.height ?? null,
+    };
+
+    setBoundedCacheEntry(
+      sourceImageCache,
+      sourceCacheKey,
+      source,
+      MAX_SOURCE_IMAGE_CACHE_ENTRIES,
+    );
+    return source;
+  })().finally(() => {
+    sourceImageRequestCache.delete(sourceCacheKey);
+  });
+
+  sourceImageRequestCache.set(sourceCacheKey, requestPromise);
+  return {
+    sourceCacheKey,
+    source: await requestPromise,
+  };
+}
+
+async function resolveListingImagePayload(options: {
+  sourceCacheKey: string;
+  source: CachedListingImageSource;
+  preferredFormat: "avif" | "webp" | "png" | "jpeg" | null;
+  requestedWidth: number | null;
+  quality: number;
+}) {
+  const bypassTransform = shouldBypassTransform({
+    source: options.source,
+    requestedWidth: options.requestedWidth,
+  });
+  const transformedCacheKey = buildTransformedImageCacheKey({
+    sourceCacheKey: options.sourceCacheKey,
+    contentType: options.source.contentType,
+    requestedWidth: options.requestedWidth,
+    quality: options.quality,
+    preferredFormat: options.preferredFormat,
+    bypassTransform,
+  });
+  const cachedPayload = transformedImageCache.get(transformedCacheKey);
+  if (cachedPayload) {
+    return cachedPayload;
+  }
+
+  const inflight = transformedImageRequestCache.get(transformedCacheKey);
+  if (inflight) {
+    return await inflight;
+  }
+
+  const requestPromise = transformListingImage({
+    source: options.source,
+    preferredFormat: options.preferredFormat,
+    requestedWidth: options.requestedWidth,
+    quality: options.quality,
+  }).then((payload) => {
+    setBoundedCacheEntry(
+      transformedImageCache,
+      transformedCacheKey,
+      payload,
+      MAX_TRANSFORMED_IMAGE_CACHE_ENTRIES,
+    );
+    return payload;
+  }).finally(() => {
+    transformedImageRequestCache.delete(transformedCacheKey);
+  });
+
+  transformedImageRequestCache.set(transformedCacheKey, requestPromise);
+  return await requestPromise;
+}
+
 export async function GET(
   request: NextRequest,
   context: { params: Promise<{ id: string; slug: string }> },
@@ -185,51 +450,23 @@ export async function GET(
     return new NextResponse("Not found", { status: 404 });
   }
 
-  const { slug, domain } = resolveDomainAndSlug(request, params.slug);
-  const website = await resolveCatalogWebsite({
-    slug,
-    domain,
-    preview: false,
+  const slot = request.nextUrl.searchParams.get("slot");
+  const version = request.nextUrl.searchParams.get("v");
+  const { sourceCacheKey, source } = await loadListingImageSource({
+    request,
+    productId,
+    fallbackSlug: params.slug,
+    slot,
+    version,
   });
-
-  if (!website) {
+  if (!source) {
     return new NextResponse("Not found", { status: 404 });
   }
 
-  const product = await prisma.product.findFirst({
-    where: {
-      id: productId,
-      userId: website.userId,
-      isListedInCatalog: true,
-      ...(website.showInactiveProducts ? {} : { isActive: true }),
-    },
-    select: {
-      coverImageUrl: true,
-      gallery: true,
-    },
-  });
-
-  if (!product) {
-    return new NextResponse("Not found", { status: 404 });
-  }
-
-  const inlineImage = resolveCatalogProductListingImageDataUrl(
-    product,
-    request.nextUrl.searchParams.get("slot"),
-  );
-  if (!inlineImage) {
-    return new NextResponse("Not found", { status: 404 });
-  }
-
-  const decoded = decodeInlineImageDataUrl(inlineImage);
-  if (!decoded) {
-    return new NextResponse("Not found", { status: 404 });
-  }
-
-  const transformed = await transformListingImage({
-    body: decoded.body,
-    contentType: decoded.contentType,
-    preferredFormat: resolvePreferredRasterFormat(request, decoded.contentType),
+  const transformed = await resolveListingImagePayload({
+    sourceCacheKey,
+    source,
+    preferredFormat: resolvePreferredRasterFormat(request, source.contentType),
     requestedWidth: resolveRequestedWidth(request),
     quality: resolveRequestedQuality(request),
   });
