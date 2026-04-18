@@ -179,6 +179,9 @@ export function resolvePage(
   const normalized = normalizeComparablePath(path);
   const segments = normalized.split("/").filter(Boolean);
   const [head, second, third] = segments;
+  if (!head) {
+    return { page: "home" };
+  }
   if (head === "cart" || head === "panier") {
     return { page: "cart" };
   }

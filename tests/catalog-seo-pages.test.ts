@@ -222,6 +222,9 @@ describe("catalog seo pages", () => {
     const payload = createPayload();
     payload.blogPosts = [];
 
+    expect(resolveCatalogRouteAvailability(payload, "/")).toEqual({
+      ok: true,
+    });
     expect(resolveCatalogRouteAvailability(payload, "/does-not-exist")).toEqual({
       ok: false,
       reason: "unknown-route",
