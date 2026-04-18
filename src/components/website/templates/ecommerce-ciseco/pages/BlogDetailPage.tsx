@@ -4,6 +4,12 @@ import type { WebsiteBuilderPageConfig, WebsiteBuilderSection } from "@/lib/webs
 import type { CatalogPayload } from "@/server/website";
 import type { ThemeTokens } from "../types";
 import {
+  matchBlogCollections,
+  matchBlogProducts,
+  rankRelatedBlogPosts,
+  toBlogClusterArticle,
+} from "../blog-cluster";
+import {
   resolveBuilderMedia,
   resolveBuilderSectionBySignature,
 } from "../builder-helpers";
@@ -27,6 +33,7 @@ type BlogDetailPageProps = {
   postSlug?: string;
   post: CatalogPayload["currentBlogPost"] | null;
   blogPosts?: CatalogPayload["blogPosts"];
+  products?: CatalogPayload["products"];
   requiresClientPostData?: boolean;
   builder?: WebsiteBuilderPageConfig | null;
 };
@@ -41,6 +48,7 @@ const BLOG_DETAIL_REQUEST_CACHE = new Map<
   string,
   Promise<CatalogPayload["currentBlogPost"] | null>
 >();
+const EMPTY_CATALOG_PRODUCTS: CatalogPayload["products"]["all"] = [];
 
 const LEGACY_POSTS: Record<string, NonNullable<CatalogPayload["currentBlogPost"]>> = {
   "graduation-dresses-style-guide": {
@@ -232,6 +240,7 @@ export function BlogDetailPage({
   postSlug,
   post,
   blogPosts,
+  products,
   requiresClientPostData = false,
   builder,
 }: BlogDetailPageProps) {
@@ -335,13 +344,38 @@ export function BlogDetailPage({
   const resolvedPost = postSlug && post?.slug === postSlug ? post : clientPost;
   const relatedPosts = useMemo(() => {
     if (blogPosts !== undefined) {
-      return (blogPosts ?? [])
-        .filter((entry) => entry.slug !== resolvedPost?.slug)
-        .slice(0, 4);
+      if (!resolvedPost) {
+        return (blogPosts ?? []).slice(0, 4);
+      }
+      return rankRelatedBlogPosts(
+        toBlogClusterArticle(resolvedPost),
+        (blogPosts ?? []).map(toBlogClusterArticle),
+      )
+        .slice(0, 4)
+        .map((entry) => (blogPosts ?? []).find((post) => post.slug === entry.slug))
+        .filter(
+          (entry): entry is NonNullable<CatalogPayload["blogPosts"]>[number] =>
+            Boolean(entry),
+        );
     }
-    return Object.values(LEGACY_POSTS)
-      .filter((entry) => entry.slug !== resolvedPost?.slug)
+    const legacyPosts = Object.values(LEGACY_POSTS);
+    const currentLegacyPost =
+      resolvedPost && "bodyHtml" in resolvedPost
+        ? {
+            ...resolvedPost,
+            tags: resolvedPost.tags ?? [],
+          }
+        : null;
+    return (currentLegacyPost
+      ? rankRelatedBlogPosts(
+          toBlogClusterArticle(currentLegacyPost),
+          legacyPosts.map(toBlogClusterArticle),
+        )
+      : legacyPosts.map(toBlogClusterArticle)
+    )
       .slice(0, 4)
+      .map((entry) => legacyPosts.find((post) => post.slug === entry.slug))
+      .filter((entry): entry is (typeof legacyPosts)[number] => Boolean(entry))
       .map((entry) => ({
         id: entry.id,
         title: entry.title,
@@ -359,7 +393,20 @@ export function BlogDetailPage({
         metaTitle: entry.metaTitle,
         metaDescription: entry.metaDescription,
       }));
-  }, [blogPosts, resolvedPost?.slug]);
+  }, [blogPosts, resolvedPost]);
+  const catalogProducts = products?.all ?? EMPTY_CATALOG_PRODUCTS;
+  const researchCollections = useMemo(() => {
+    if (!resolvedPost) {
+      return [];
+    }
+    return matchBlogCollections(toBlogClusterArticle(resolvedPost), catalogProducts, 2);
+  }, [catalogProducts, resolvedPost]);
+  const researchProducts = useMemo(() => {
+    if (!resolvedPost) {
+      return [];
+    }
+    return matchBlogProducts(toBlogClusterArticle(resolvedPost), catalogProducts, 3);
+  }, [catalogProducts, resolvedPost]);
   const heroImage =
     resolvedPost?.coverImageUrl ??
     resolveBuilderMedia(heroSection?.mediaId, mediaLibrary)?.src ??
@@ -614,6 +661,72 @@ export function BlogDetailPage({
                   )}
                   dangerouslySetInnerHTML={{ __html: resolvedPost.bodyHtml }}
                 />
+                {(researchCollections.length || researchProducts.length) ? (
+                  <div className="mt-10 rounded-[28px] border border-black/5 bg-slate-50 px-5 py-6 sm:px-6">
+                    <div className="space-y-5">
+                      <div className="space-y-2">
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--site-accent)]">
+                          {t("Continue your research")}
+                        </p>
+                        <h2 className="font-[family:var(--ciseco-font-display)] text-2xl font-semibold tracking-[-0.03em] text-slate-950">
+                          {t("Explore matching guides, collections, and licences")}
+                        </h2>
+                      </div>
+
+                      {researchCollections.length ? (
+                        <div className="space-y-3">
+                          <p className="text-sm font-semibold text-slate-900">
+                            {t("Collections")}
+                          </p>
+                          <div className="flex flex-wrap gap-3">
+                            {researchCollections.map((collection) => (
+                              <a
+                                key={collection.slug}
+                                href={localizeHref(baseLink(`/collections/${collection.slug}`))}
+                                className="inline-flex rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:text-slate-950"
+                              >
+                                {collection.label}
+                              </a>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {researchProducts.length ? (
+                        <div className="space-y-3">
+                          <p className="text-sm font-semibold text-slate-900">
+                            {t("Recommended licences")}
+                          </p>
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            {researchProducts.map((product) => (
+                              <a
+                                key={product.id}
+                                href={localizeHref(baseLink(`/produit/${product.publicSlug}`))}
+                                className="rounded-[22px] border border-slate-200 bg-white px-4 py-4 transition hover:border-slate-300 hover:shadow-[0_16px_36px_-30px_rgba(15,23,42,0.4)]"
+                              >
+                                <p className="text-sm font-semibold text-slate-950">
+                                  {product.name}
+                                </p>
+                                {product.category ? (
+                                  <p className="mt-1 text-xs uppercase tracking-[0.16em] text-slate-500">
+                                    {product.category}
+                                  </p>
+                                ) : null}
+                              </a>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      <a
+                        href={localizeHref(blogHref)}
+                        className="inline-flex rounded-full bg-slate-950 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+                      >
+                        {t("Browse all guides")}
+                      </a>
+                    </div>
+                  </div>
+                ) : null}
               </div>
             </article>
           </Reveal>

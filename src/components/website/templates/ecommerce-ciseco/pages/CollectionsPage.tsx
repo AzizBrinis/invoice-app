@@ -7,6 +7,7 @@ import {
   type CSSProperties,
 } from "react";
 import type { WebsiteBuilderPageConfig, WebsiteBuilderSection } from "@/lib/website/builder";
+import { normalizeCatalogCategorySlug } from "@/lib/catalog-category";
 import type { CatalogPayload } from "@/server/website";
 import {
   buildCollectionQueryParams,
@@ -53,8 +54,7 @@ type CollectionsPageProps = {
 };
 
 function normalizeCollectionSlug(value?: string | null) {
-  const trimmed = value?.trim().toLowerCase();
-  return trimmed && trimmed.length > 0 ? trimmed : null;
+  return normalizeCatalogCategorySlug(value);
 }
 
 function titleizeSlug(value: string) {

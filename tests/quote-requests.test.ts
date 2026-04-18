@@ -262,7 +262,7 @@ describe("catalog routing", () => {
     expect(resolveCatalogSeoMock).toHaveBeenCalledWith({
       payload,
       path: "/checkout",
-      locale: "fr",
+      locale: null,
       searchParams: {
         domain: "shop.example.com",
         path: "/checkout",

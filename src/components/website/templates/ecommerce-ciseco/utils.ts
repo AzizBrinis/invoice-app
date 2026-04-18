@@ -294,7 +294,7 @@ export function resolvePage(
       cmsPath: normalized,
     };
   }
-  return { page: "home" };
+  return { page: "not-found" };
 }
 
 type GalleryEntry = {
@@ -335,10 +335,6 @@ function normalizeGalleryEntries(value: unknown): GalleryEntry[] {
     if (leftPos === rightPos) return 0;
     return leftPos - rightPos;
   });
-}
-
-function normalizeGallery(value: unknown): string[] {
-  return normalizeGalleryEntries(value).map((entry) => entry.src);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -506,14 +502,6 @@ export function buildProductGallery(options: {
     }),
   }));
 }
-
-type VariantOptionValue = {
-  id: string;
-  label: string;
-  enabled: boolean;
-  swatch?: string | null;
-  priceAdjustmentCents?: number | null;
-};
 
 export function resolveVariantOptions(
   schema: unknown,

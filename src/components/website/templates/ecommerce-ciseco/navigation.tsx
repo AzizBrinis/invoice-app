@@ -194,6 +194,9 @@ export function resolveAuthoritativeCisecoNavigationState(options: {
   }
 
   if (options.localState.href === browserHref) {
+    if (!options.localState.isOwned && options.incomingState.isOwned) {
+      return options.incomingState;
+    }
     return options.localState;
   }
 

@@ -7,6 +7,10 @@ import type {
 import type { CatalogPayload } from "@/server/website";
 import type { ThemeTokens } from "../types";
 import {
+  buildBlogTopicHubEntries,
+  toBlogClusterArticle,
+} from "../blog-cluster";
+import {
   resolveBuilderMedia,
   resolveBuilderSectionBySignature,
 } from "../builder-helpers";
@@ -29,6 +33,7 @@ type BlogPageProps = {
   path?: string | null;
   builder?: WebsiteBuilderPageConfig | null;
   blogPosts?: CatalogPayload["blogPosts"];
+  products?: CatalogPayload["products"];
 };
 
 type BlogAuthor = {
@@ -252,6 +257,7 @@ export function BlogPage({
   path,
   builder,
   blogPosts,
+  products,
 }: BlogPageProps) {
   const { t, locale } = useCisecoI18n();
   const container = clsx("mx-auto px-6 sm:px-8", theme.containerClass);
@@ -383,6 +389,19 @@ export function BlogPage({
   const extraSections = sections.filter(
     (section) => section.visible !== false && !consumedIds.has(section.id),
   );
+  const topicHubs = buildBlogTopicHubEntries(
+    blogPosts?.map(toBlogClusterArticle) ??
+      allArticles.map((article) => ({
+        id: article.id,
+        slug: article.slug,
+        title: article.title,
+        excerpt: article.excerpt,
+        category: article.category,
+        featured: article.featured,
+      })),
+    products?.all ?? [],
+    3,
+  );
 
   return (
     <PageShell inlineStyles={inlineStyles}>
@@ -457,6 +476,40 @@ export function BlogPage({
             </div>
           </section>
         )}
+
+        {topicHubs.length ? (
+          <section className={clsx(container, "mt-12 sm:mt-14")}>
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-semibold text-slate-900 sm:text-xl">
+                {t("Topic hubs")}
+              </h2>
+              <PinIcon className="h-4 w-4 text-[var(--site-accent)]" />
+            </div>
+            <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-600 sm:text-base">
+              {t("Move from advice to action with direct paths from guides to the most relevant collections and licences.")}
+            </p>
+            <div className="mt-6 grid gap-6 lg:grid-cols-3">
+              {topicHubs.map((hub, index) => (
+                <Reveal key={hub.id} delay={80 + index * 40}>
+                  <TopicHubCard
+                    hub={hub}
+                    articleHref={baseLink(`/blog/${hub.articleSlug}`)}
+                    collectionHref={
+                      hub.collectionSlug
+                        ? baseLink(`/collections/${hub.collectionSlug}`)
+                        : null
+                    }
+                    productHref={
+                      hub.productSlug
+                        ? baseLink(`/produit/${hub.productSlug}`)
+                        : null
+                    }
+                  />
+                </Reveal>
+              ))}
+            </div>
+          </section>
+        ) : null}
 
         {(Boolean(latestSection) || !hasBuilder) && (
           <section className={clsx(container, "mt-12 sm:mt-14")} data-builder-section={latestSection?.id}>
@@ -547,6 +600,60 @@ function EmptyBlogState() {
         {t("This journal will fill automatically when the first post is published from the admin workspace.")}
       </p>
     </div>
+  );
+}
+
+function TopicHubCard({
+  hub,
+  articleHref,
+  collectionHref,
+  productHref,
+}: {
+  hub: ReturnType<typeof buildBlogTopicHubEntries>[number];
+  articleHref: string;
+  collectionHref: string | null;
+  productHref: string | null;
+}) {
+  const { t } = useCisecoI18n();
+
+  return (
+    <article className="rounded-[28px] border border-black/5 bg-white p-6 shadow-[0_20px_60px_-48px_rgba(15,23,42,0.42)]">
+      <div className="space-y-4">
+        <div className="space-y-2">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--site-accent)]">
+            {t("Guide cluster")}
+          </p>
+          <h3 className="font-[family:var(--ciseco-font-display)] text-2xl font-semibold tracking-[-0.03em] text-slate-950">
+            {hub.articleTitle}
+          </h3>
+          <p className="text-sm leading-7 text-slate-600">{hub.description}</p>
+        </div>
+        <div className="flex flex-wrap gap-3">
+          <a
+            href={articleHref}
+            className="inline-flex rounded-full bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
+          >
+            {t("Read the guide")}
+          </a>
+          {collectionHref && hub.collectionLabel ? (
+            <a
+              href={collectionHref}
+              className="inline-flex rounded-full border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:text-slate-950"
+            >
+              {hub.collectionLabel}
+            </a>
+          ) : null}
+          {productHref && hub.productName ? (
+            <a
+              href={productHref}
+              className="inline-flex rounded-full border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:text-slate-950"
+            >
+              {hub.productName}
+            </a>
+          ) : null}
+        </div>
+      </div>
+    </article>
   );
 }
 

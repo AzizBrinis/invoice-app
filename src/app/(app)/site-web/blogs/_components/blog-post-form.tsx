@@ -158,7 +158,7 @@ export function BlogPostForm({
         <div className="grid gap-4 lg:grid-cols-2">
           <div className="space-y-1 lg:col-span-2">
             <label htmlFor="blog-cover-url" className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
-              URL de l'image de couverture
+              URL de l&apos;image de couverture
             </label>
             <Input
               id="blog-cover-url"

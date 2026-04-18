@@ -2,7 +2,13 @@
  * @vitest-environment jsdom
  */
 
-import { act, createElement } from "react";
+import {
+  act,
+  createElement,
+  type ComponentProps,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CisecoLocaleProvider } from "@/components/website/templates/ecommerce-ciseco/i18n";
@@ -145,22 +151,35 @@ function renderWithProviders(element: ReturnType<typeof createElement>): Rendere
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
+  const NavigationProvider = CisecoNavigationProvider as unknown as (
+    props: Omit<ComponentProps<typeof CisecoNavigationProvider>, "children"> & {
+      children?: ReactNode;
+    },
+  ) => ReactElement;
+  const LocaleProvider = CisecoLocaleProvider as unknown as (
+    props: Omit<ComponentProps<typeof CisecoLocaleProvider>, "children"> & {
+      children?: ReactNode;
+    },
+  ) => ReactElement;
 
   act(() => {
     root.render(
       createElement(
-        CisecoNavigationProvider,
+        NavigationProvider,
         {
           mode: "preview",
           slug: "demo",
           initialHref: "/preview?path=%2F&lang=en",
           initialPath: "/",
           serverRoutedPaths: ["/", "/about"],
-          children: createElement(CisecoLocaleProvider, {
-            initialLocale: "en",
-            children: element,
-          }),
         },
+        createElement(
+          LocaleProvider,
+          {
+            initialLocale: "en",
+          },
+          element,
+        ),
       ),
     );
   });

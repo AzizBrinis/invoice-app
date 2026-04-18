@@ -261,6 +261,25 @@ function TemplateContent({
   const currentPath = logicalPath || path || "/";
   const serverPath = normalizePath(path);
   const page = resolvePage(currentPath, { cmsPaths });
+
+  if (page.page === "not-found") {
+    return (
+      <HomePage
+        theme={theme}
+        inlineStyles={inlineStyles}
+        companyName={companyName}
+        homeHref={homeHref}
+        catalogSlug={data.website.slug}
+        baseLink={baseLink}
+        products={data.products}
+        siteReviews={data.siteReviews}
+        blogPosts={data.blogPosts}
+        showPrices={data.website.showPrices}
+        builder={resolveCisecoPageConfig(data.website.builder, "home")}
+      />
+    );
+  }
+
   const pageBuilder = resolveCisecoPageConfig(data.website.builder, page.page);
 
   if (page.page === "product") {
@@ -469,6 +488,7 @@ function TemplateContent({
         path={currentPath}
         builder={pageBuilder}
         blogPosts={data.blogPosts}
+        products={data.products}
       />
     );
   }
@@ -486,6 +506,7 @@ function TemplateContent({
         postSlug={page.slug}
         post={data.currentBlogPost?.slug === page.slug ? data.currentBlogPost : null}
         blogPosts={data.blogPosts}
+        products={data.products}
         requiresClientPostData={
           serverPath !== normalizePath(currentPath) ||
           data.currentBlogPost?.slug !== page.slug

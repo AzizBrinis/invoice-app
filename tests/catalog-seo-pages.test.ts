@@ -10,6 +10,7 @@ import {
   ensureCisecoPageConfigs,
 } from "@/lib/website/builder";
 import {
+  resolveCatalogRouteAvailability,
   resolveCatalogSeo,
   resolveCatalogStructuredData,
   type CatalogPayload,
@@ -197,7 +198,7 @@ function createPayload(): CatalogPayload {
 }
 
 describe("catalog seo pages", () => {
-  it("builds localized canonical URLs and hreflang alternates", () => {
+  it("normalizes unsupported locales to French canonicals and hreflang", () => {
     const payload = createPayload();
 
     const seo = resolveCatalogSeo({
@@ -207,15 +208,46 @@ describe("catalog seo pages", () => {
     });
 
     expect(seo.metadata.canonicalUrl).toBe(
-      "http://localhost:3000/catalogue/demo/about?lang=en",
+      "http://localhost:3000/catalogue/demo/about?lang=fr",
     );
     expect(seo.alternatesLanguages).toEqual({
       fr: "http://localhost:3000/catalogue/demo/about?lang=fr",
-      en: "http://localhost:3000/catalogue/demo/about?lang=en",
       "x-default": "http://localhost:3000/catalogue/demo/about?lang=fr",
     });
     expect(seo.openGraphType).toBe("website");
-    expect(seo.locale).toBe("en");
+    expect(seo.locale).toBe("fr");
+  });
+
+  it("marks missing products, collections, blog posts, and cms pages unavailable", () => {
+    const payload = createPayload();
+    payload.blogPosts = [];
+
+    expect(resolveCatalogRouteAvailability(payload, "/does-not-exist")).toEqual({
+      ok: false,
+      reason: "unknown-route",
+    });
+    expect(resolveCatalogRouteAvailability(payload, "/produit/chaise-design")).toEqual({
+      ok: true,
+    });
+    expect(resolveCatalogRouteAvailability(payload, "/produit/missing")).toEqual({
+      ok: false,
+      reason: "missing-product",
+    });
+    expect(resolveCatalogRouteAvailability(payload, "/collections/mobilier")).toEqual({
+      ok: true,
+    });
+    expect(resolveCatalogRouteAvailability(payload, "/collections/missing")).toEqual({
+      ok: false,
+      reason: "missing-category",
+    });
+    expect(resolveCatalogRouteAvailability(payload, "/blog/missing")).toEqual({
+      ok: false,
+      reason: "missing-blog-post",
+    });
+    expect(resolveCatalogRouteAvailability(payload, "/delivery")).toEqual({
+      ok: false,
+      reason: "missing-cms-page",
+    });
   });
 
   it("keeps paginated collections indexable and noindexes filtered collections", () => {

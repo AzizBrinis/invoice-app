@@ -6,6 +6,22 @@ import {
   resolveRequestHost,
 } from "@/lib/catalog-host";
 
+const CATALOG_PUBLIC_CACHE_CONTROL =
+  "public, s-maxage=30, stale-while-revalidate=60";
+
+const CATALOG_UNCACHEABLE_PATH_PREFIXES = [
+  "/account",
+  "/cart",
+  "/checkout",
+  "/order-success",
+  "/login",
+  "/signup",
+  "/forgot-password",
+  "/panier",
+  "/paiement",
+  "/confirmation",
+] as const;
+
 function isStaticPath(pathname: string) {
   if (
     pathname.startsWith("/_next") ||
@@ -18,6 +34,15 @@ function isStaticPath(pathname: string) {
     return true;
   }
   return /\.[a-z0-9]+$/i.test(pathname);
+}
+
+function isCacheableCatalogPage(pathname: string) {
+  const normalized = pathname.length > 1 && pathname.endsWith("/")
+    ? pathname.slice(0, -1)
+    : pathname;
+  return !CATALOG_UNCACHEABLE_PATH_PREFIXES.some(
+    (prefix) => normalized === prefix || normalized.startsWith(`${prefix}/`),
+  );
 }
 
 export function handleCatalogHostRouting(
@@ -50,7 +75,11 @@ export function handleCatalogHostRouting(
   if (pathname && pathname !== "/" && !pathname.includes("..") && !pathname.includes("\\")) {
     url.searchParams.set("path", pathname);
   }
-  return NextResponse.rewrite(url, {
+  const response = NextResponse.rewrite(url, {
     request: { headers: forwardedHeaders },
   });
+  if (isCacheableCatalogPage(pathname)) {
+    response.headers.set("Cache-Control", CATALOG_PUBLIC_CACHE_CONTROL);
+  }
+  return response;
 }

@@ -354,7 +354,7 @@ export default async function CommandeDetailPage({
                   {invoiceRequest.billingAddress}
                 </p>
                 <p>
-                  <span className="font-medium">E-mail d'envoi :</span>{" "}
+                  <span className="font-medium">E-mail d&apos;envoi :</span>{" "}
                   {invoiceRequest.deliveryEmail}
                 </p>
               </div>

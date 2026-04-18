@@ -38,11 +38,9 @@ const CATALOGUE_HOST_DISALLOWS = [
   "/cart",
   "/checkout",
   "/order-success",
-  "/search",
   "/panier",
   "/paiement",
   "/confirmation",
-  "/recherche",
 ] as const;
 
 export default async function robots(): Promise<MetadataRoute.Robots> {

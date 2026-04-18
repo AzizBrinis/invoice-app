@@ -52,6 +52,12 @@ describe("ciseco collection routing", () => {
     });
   });
 
+  it("does not treat unknown paths as the homepage", () => {
+    expect(resolvePage("/does-not-exist")).toEqual({
+      page: "not-found",
+    });
+  });
+
   it("resolves category aliases to collections page", () => {
     expect(resolvePage("/category/men")).toEqual({
       page: "collections",

@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
+import type { Route } from "next";
 import { headers } from "next/headers";
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
 import { CatalogPage } from "@/components/website/catalog-page";
+import { normalizeCatalogCategorySlug } from "@/lib/catalog-category";
 import { trimCatalogProductForListing } from "@/lib/catalogue-public";
 import { slugify } from "@/lib/slug";
 import {
@@ -17,7 +19,9 @@ import {
   normalizeCatalogPathInput,
   normalizeCatalogSlugInput,
   resolveCatalogMetadataTarget,
+  resolveCatalogPublicLocale,
   resolveCatalogFaviconUrl,
+  resolveCatalogRouteAvailability,
   resolveCatalogSeo,
   resolveCatalogStructuredData,
 } from "@/server/website";
@@ -49,6 +53,99 @@ const resolvedPayloadCache = new Map<
 
 function serializeStructuredData(value: Record<string, unknown>) {
   return JSON.stringify(value).replace(/</g, "\\u003c");
+}
+
+async function readCatalogRequestNonce() {
+  try {
+    return (await headers()).get("x-nonce") ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function buildCatalogueRequestPath(options: {
+  slug: string;
+  path?: string | null;
+  resolvedByDomain: boolean;
+}) {
+  const normalizedPath =
+    !options.path || options.path === "/" ? "" : options.path;
+  if (options.resolvedByDomain) {
+    return normalizedPath || "/";
+  }
+  return `/catalogue/${options.slug}${normalizedPath}`;
+}
+
+function resolveCanonicalCategoryPath(path?: string | null) {
+  if (!path) {
+    return null;
+  }
+
+  const segments = path.split("/").filter(Boolean);
+  if (segments[0] !== "collections" || !segments[1]) {
+    return null;
+  }
+
+  const canonicalSlug = normalizeCatalogCategorySlug(segments[1]);
+  if (!canonicalSlug || canonicalSlug === segments[1]) {
+    return null;
+  }
+
+  return `/collections/${canonicalSlug}`;
+}
+
+function resolveCanonicalCasePath(path?: string | null) {
+  if (!path || path === "/") {
+    return null;
+  }
+
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  const canonicalPath = normalizedPath
+    .split("/")
+    .map((segment) => segment.toLocaleLowerCase())
+    .join("/");
+
+  return canonicalPath !== normalizedPath ? canonicalPath : null;
+}
+
+function buildCanonicalRedirectSearchParams(
+  searchParams: CataloguePageSearchParams,
+) {
+  const params = new URLSearchParams();
+  Object.entries(searchParams).forEach(([key, value]) => {
+    if (key === "domain" || key === "path") {
+      return;
+    }
+    if (Array.isArray(value)) {
+      value.forEach((entry) => {
+        if (entry) {
+          params.append(key, entry);
+        }
+      });
+      return;
+    }
+    if (value) {
+      params.set(key, value);
+    }
+  });
+  return params;
+}
+
+function permanentRedirectToCatalogPath(options: {
+  payload: CatalogPayload;
+  path?: string | null;
+  resolvedByDomain: boolean;
+  searchParams: CataloguePageSearchParams;
+}) {
+  const params = buildCanonicalRedirectSearchParams(options.searchParams);
+  const pathname = buildCatalogueRequestPath({
+    slug: options.payload.website.slug,
+    path: options.path,
+    resolvedByDomain: options.resolvedByDomain,
+  });
+  permanentRedirect(
+    `${pathname}${params.toString() ? `?${params.toString()}` : ""}` as Route,
+  );
 }
 
 function stripSlugPrefix(path: string | null, slug: string) {
@@ -262,10 +359,14 @@ export async function generateMetadata({
     return {};
   }
   const payload = trimPayloadForInitialRoute(resolved.payload, resolved.path);
+  const locale = resolveCatalogPublicLocale(
+    payload,
+    resolveCisecoLocale(langParam),
+  );
   const seo = resolveCatalogSeo({
     payload,
     path: resolved.path,
-    locale: resolveCisecoLocale(langParam),
+    locale,
     searchParams: resolvedSearchParams,
   });
   const meta = seo.metadata;
@@ -323,15 +424,50 @@ export default async function CatalogueCatchAllPage({
   const resolvedSearchParams = (await searchParams) ?? {};
   const langParamRaw = resolvedSearchParams.lang;
   const langParam = Array.isArray(langParamRaw) ? langParamRaw[0] : langParamRaw;
-  const locale = resolveCisecoLocale(langParam);
   const payload = trimPayloadForInitialRoute(resolved.payload, resolved.path);
+  const locale = resolveCatalogPublicLocale(
+    payload,
+    resolveCisecoLocale(langParam),
+  );
+  const canonicalCasePath = resolveCanonicalCasePath(resolved.path);
+  if (canonicalCasePath) {
+    permanentRedirectToCatalogPath({
+      payload,
+      path: canonicalCasePath,
+      resolvedByDomain: resolved.resolvedByDomain,
+      searchParams: resolvedSearchParams,
+    });
+  }
+  const canonicalCategoryPath = resolveCanonicalCategoryPath(resolved.path);
+  if (canonicalCategoryPath) {
+    permanentRedirectToCatalogPath({
+      payload,
+      path: canonicalCategoryPath,
+      resolvedByDomain: resolved.resolvedByDomain,
+      searchParams: resolvedSearchParams,
+    });
+  }
+  if (locale && langParam && langParam !== locale) {
+    const params = buildCanonicalRedirectSearchParams(resolvedSearchParams);
+    params.set("lang", locale);
+    const pathname = buildCatalogueRequestPath({
+      slug: payload.website.slug,
+      path: resolved.path,
+      resolvedByDomain: resolved.resolvedByDomain,
+    });
+    permanentRedirect(`${pathname}?${params.toString()}` as Route);
+  }
+  const availability = resolveCatalogRouteAvailability(payload, resolved.path);
+  if (!availability.ok) {
+    notFound();
+  }
   const structuredData = resolveCatalogStructuredData({
     payload,
     path: resolved.path,
     locale,
     searchParams: resolvedSearchParams,
   });
-  const nonce = (await headers()).get("x-nonce") ?? undefined;
+  const nonce = await readCatalogRequestNonce();
   return (
     <>
       {structuredData.map((entry, index) => (
@@ -349,7 +485,7 @@ export default async function CatalogueCatchAllPage({
         data={payload}
         mode="public"
         path={resolved.path}
-        initialLocale={locale}
+        initialLocale={locale ?? undefined}
         resolvedByDomain={resolved.resolvedByDomain}
       />
     </>

@@ -106,6 +106,7 @@ export type FooterLinkGroup = {
 
 export type PageDescriptor =
   | { page: "home" }
+  | { page: "not-found" }
   | { page: "blog" }
   | { page: "blog-detail"; slug?: string }
   | { page: "cms"; cmsPath: string }

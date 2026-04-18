@@ -1,5 +1,9 @@
 import type { CartProduct } from "@/components/website/cart/cart-context";
 import { getCurrencyInfo } from "@/lib/currency";
+import {
+  normalizeCatalogCategorySlug,
+  resolveCatalogCategoryLabel,
+} from "@/lib/catalog-category";
 import { toCents } from "@/lib/money";
 import { slugify } from "@/lib/slug";
 import type { CatalogPayload } from "@/server/website";
@@ -238,8 +242,13 @@ export function buildCollectionCatalogItems(options: {
       product.quoteFormSchema,
       product.optionConfig,
     );
-    const categoryLabel = formatCisecoLabel(product.category, "General");
-    const categorySlug = slugify(categoryLabel) || "general";
+    const categoryLabel =
+      resolveCatalogCategoryLabel(product.category) ??
+      formatCisecoLabel(product.category, "General");
+    const categorySlug =
+      normalizeCatalogCategorySlug(product.category) ??
+      slugify(categoryLabel) ??
+      "general";
     const createdAtMs = resolveCollectionCreatedAtMs(product.createdAt);
     const cartProduct =
       product.saleMode === "INSTANT" && product.stockQuantity !== 0

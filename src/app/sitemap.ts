@@ -6,6 +6,7 @@ import {
   resolveCatalogDomainFromHost,
   resolveRequestHost,
 } from "@/lib/catalog-host";
+import { normalizeCatalogCategorySlug } from "@/lib/catalog-category";
 import { slugify } from "@/lib/slug";
 import { builderConfigSchema } from "@/lib/website/builder";
 import {
@@ -74,7 +75,6 @@ function buildSitemapLanguageAlternates(
   return {
     languages: {
       fr: buildCatalogLocalizedUrl({ website, path, locale: "fr" }),
-      en: buildCatalogLocalizedUrl({ website, path, locale: "en" }),
       "x-default": buildCatalogLocalizedUrl({ website, path, locale: "fr" }),
     },
   } satisfies NonNullable<MetadataRoute.Sitemap[number]["alternates"]>;
@@ -248,7 +248,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     if (!product.category) {
       return;
     }
-    const categorySlug = slugify(product.category);
+    const categorySlug = normalizeCatalogCategorySlug(product.category);
     if (!categorySlug) {
       return;
     }

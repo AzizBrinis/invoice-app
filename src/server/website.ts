@@ -44,6 +44,10 @@ import {
   buildActiveCustomDomainUrl,
   isSameCustomDomain,
 } from "@/lib/website/custom-domain";
+import {
+  normalizeCatalogCategorySlug,
+  resolveCatalogCategoryLabel as resolveCanonicalCatalogCategoryLabel,
+} from "@/lib/catalog-category";
 import { slugify } from "@/lib/slug";
 import { fromCents } from "@/lib/money";
 import { sanitizeProductHtml, stripProductHtml } from "@/lib/product-html";
@@ -1769,6 +1773,7 @@ function escapeEmailText(value: string) {
 
 type CatalogPageSeoKind =
   | "home"
+  | "not-found"
   | "collections"
   | "category"
   | "product"
@@ -1816,6 +1821,10 @@ type CatalogRouteInfo = {
   pageConfig: WebsiteBuilderPageConfig | null;
   blogEntry: CatalogBlogSeoEntry | null;
 };
+
+export type CatalogRouteAvailability =
+  | { ok: true }
+  | { ok: false; reason: "unknown-route" | "missing-product" | "missing-category" | "missing-blog-post" | "missing-cms-page" };
 
 export type CatalogSeoResult = {
   metadata: CatalogWebsiteMetadata;
@@ -1948,12 +1957,20 @@ function resolveCategoryLabel(
   locale?: CisecoLocale | null,
 ) {
   const match = products.find(
-    (product) => product.category && slugify(product.category) === slug,
+    (product) =>
+      product.category &&
+      normalizeCatalogCategorySlug(product.category) === slug,
   );
   if (match?.category) {
-    return translateCatalogLabel(locale ?? null, match.category);
+    return translateCatalogLabel(
+      locale ?? null,
+      resolveCanonicalCatalogCategoryLabel(match.category) ?? match.category,
+    );
   }
-  return translateCatalogLabel(locale ?? null, titleizeCategorySlug(slug));
+  return translateCatalogLabel(
+    locale ?? null,
+    resolveCanonicalCatalogCategoryLabel(slug) ?? titleizeCategorySlug(slug),
+  );
 }
 
 function trimCatalogText(value?: string | null) {
@@ -2032,6 +2049,14 @@ function truncateCatalogText(value: string, maxLength: number) {
   }
 
   return `${value.slice(0, maxLength - 1).trimEnd()}…`;
+}
+
+function normalizeCatalogSeoTitle(value: string) {
+  return truncateCatalogText(trimCatalogText(value), 70);
+}
+
+function normalizeCatalogSeoDescription(value: string) {
+  return truncateCatalogText(trimCatalogText(value), 160);
 }
 
 function resolveCatalogBaseMetadata(options: {
@@ -2586,14 +2611,38 @@ function normalizeCatalogStaticHeroDescription(
   return value;
 }
 
+function listCatalogPublicLocales(
+  payload: Pick<CatalogPayload, "website">,
+): readonly CisecoLocale[] {
+  if (payload.website.templateKey !== "ecommerce-ciseco-home") {
+    return [];
+  }
+
+  // Public Ciseco catalogues are currently published in French only.
+  return ["fr"];
+}
+
+export function resolveCatalogPublicLocale(
+  payload: Pick<CatalogPayload, "website">,
+  locale?: CisecoLocale | null,
+) {
+  const supportedLocales = listCatalogPublicLocales(payload);
+  if (!supportedLocales.length) {
+    return null;
+  }
+
+  if (locale && supportedLocales.includes(locale)) {
+    return locale;
+  }
+
+  return supportedLocales[0] ?? null;
+}
+
 function resolveCatalogSeoLocale(
   payload: CatalogPayload,
   locale?: CisecoLocale | null,
 ) {
-  if (payload.website.templateKey !== "ecommerce-ciseco-home") {
-    return null;
-  }
-  return locale ?? null;
+  return resolveCatalogPublicLocale(payload, locale);
 }
 
 function normalizeCatalogSeoSearchParams(
@@ -2743,6 +2792,12 @@ function resolveCatalogPageBuilderConfig(
   const page = resolveCisecoPage(path, {
     cmsPaths: (payload.website.cmsPages ?? []).map((entry) => entry.path),
   });
+  if (page.page === "not-found") {
+    return {
+      page,
+      pageConfig: null,
+    };
+  }
 
   return {
     page,
@@ -2985,30 +3040,111 @@ function buildCatalogLanguageAlternates(options: {
   path: string;
   query?: URLSearchParams | null;
 }) {
-  if (options.payload.website.templateKey !== "ecommerce-ciseco-home") {
+  const supportedLocales = listCatalogPublicLocales(options.payload);
+  if (!supportedLocales.length) {
     return null;
   }
 
-  return {
-    fr: buildCatalogCanonicalUrl({
-      payload: options.payload,
-      path: options.path,
-      locale: "fr",
-      query: options.query,
-    }),
-    en: buildCatalogCanonicalUrl({
-      payload: options.payload,
-      path: options.path,
-      locale: "en",
-      query: options.query,
-    }),
-    "x-default": buildCatalogCanonicalUrl({
-      payload: options.payload,
-      path: options.path,
-      locale: "fr",
-      query: options.query,
-    }),
-  } satisfies Record<string, string>;
+  const languages = Object.fromEntries(
+    supportedLocales.map((locale) => [
+      locale,
+      buildCatalogCanonicalUrl({
+        payload: options.payload,
+        path: options.path,
+        locale,
+        query: options.query,
+      }),
+    ]),
+  ) as Record<string, string>;
+
+  languages["x-default"] = buildCatalogCanonicalUrl({
+    payload: options.payload,
+    path: options.path,
+    locale: supportedLocales[0] ?? null,
+    query: options.query,
+  });
+
+  return languages;
+}
+
+function listCatalogProductsForCategory(
+  payload: Pick<CatalogPayload, "products">,
+  categorySlug: string,
+) {
+  return payload.products.all.filter(
+    (product) =>
+      trimCatalogText(product.category) &&
+      normalizeCatalogCategorySlug(product.category) === categorySlug,
+  );
+}
+
+export function resolveCatalogRouteAvailability(
+  payload: CatalogPayload,
+  path?: string | null,
+): CatalogRouteAvailability {
+  if (payload.website.templateKey !== "ecommerce-ciseco-home") {
+    return { ok: true };
+  }
+
+  const normalizedPath = normalizeCatalogPath(path);
+  const cmsPages = payload.website.cmsPages ?? [];
+  const page = resolveCisecoPage(normalizedPath, {
+    cmsPaths: cmsPages.map((entry) => entry.path),
+  });
+
+  switch (page.page) {
+    case "home":
+    case "about":
+    case "blog":
+    case "contact":
+    case "search":
+    case "cart":
+    case "checkout":
+    case "order-success":
+    case "login":
+    case "signup":
+    case "forgot-password":
+    case "account":
+    case "account-wishlists":
+    case "account-orders-history":
+    case "account-billing":
+    case "account-change-password":
+    case "account-order-detail":
+      return { ok: true };
+    case "collections":
+      if (page.collectionSlug) {
+        const categorySlug =
+          normalizeCatalogCategorySlug(page.collectionSlug) ??
+          page.collectionSlug;
+        return listCatalogProductsForCategory(payload, categorySlug).length > 0
+          ? { ok: true }
+          : { ok: false, reason: "missing-category" };
+      }
+      return { ok: true };
+    case "product":
+      return page.productSlug &&
+        payload.products.all.some((product) => product.publicSlug === page.productSlug)
+        ? { ok: true }
+        : { ok: false, reason: "missing-product" };
+    case "blog-detail":
+      if (!page.slug) {
+        return { ok: false, reason: "missing-blog-post" };
+      }
+      if (payload.blogPosts === undefined) {
+        return { ok: true };
+      }
+      return payload.blogPosts.some((post) => post.slug === page.slug) ||
+        payload.currentBlogPost?.slug === page.slug
+        ? { ok: true }
+        : { ok: false, reason: "missing-blog-post" };
+    case "cms":
+      return payload.currentCmsPage?.path === page.cmsPath
+        ? { ok: true }
+        : { ok: false, reason: "missing-cms-page" };
+    case "not-found":
+    default:
+      return { ok: false, reason: "unknown-route" };
+  }
 }
 
 function resolveCatalogRouteInfo(options: {
@@ -3018,6 +3154,23 @@ function resolveCatalogRouteInfo(options: {
 }) {
   const normalizedPath = normalizeCatalogPath(options.path);
   const query = normalizeCatalogSeoSearchParams(options.searchParams);
+  const availability = resolveCatalogRouteAvailability(
+    options.payload,
+    normalizedPath,
+  );
+  if (!availability.ok) {
+    return {
+      kind: "not-found",
+      canonicalPath: normalizedPath,
+      canonicalQuery: new URLSearchParams(),
+      shouldIndex: false,
+      shouldFollow: false,
+      openGraphType: "website",
+      pageConfig: null,
+      blogEntry: null,
+    } satisfies CatalogRouteInfo;
+  }
+
   const target = resolveCatalogMetadataTarget(normalizedPath);
   const pageNumber = parseCatalogPageNumber(readCatalogSeoParam(query, "page"));
   const hasFilterParams = hasCatalogSeoFilterParams(query);
@@ -3050,13 +3203,15 @@ function resolveCatalogRouteInfo(options: {
   }
 
   if (target.kind === "category") {
+    const categorySlug =
+      normalizeCatalogCategorySlug(target.slug) ?? target.slug;
     const canonicalQuery = new URLSearchParams();
     if (pageNumber > 1 && !hasFilterParams) {
       canonicalQuery.set("page", String(pageNumber));
     }
     return {
       kind: "category",
-      canonicalPath: `/collections/${target.slug}`,
+      canonicalPath: `/collections/${categorySlug}`,
       canonicalQuery,
       shouldIndex: !hasFilterParams,
       shouldFollow: true,
@@ -3141,15 +3296,29 @@ function resolveCatalogRouteInfo(options: {
   }
 
   switch (page.page) {
+    case "not-found":
+      return {
+        kind: "not-found",
+        canonicalPath: normalizedPath,
+        canonicalQuery: new URLSearchParams(),
+        shouldIndex: false,
+        shouldFollow: false,
+        openGraphType: "website",
+        pageConfig: null,
+        blogEntry: null,
+      } satisfies CatalogRouteInfo;
     case "collections": {
+      const normalizedCollectionSlug = page.collectionSlug
+        ? normalizeCatalogCategorySlug(page.collectionSlug) ?? page.collectionSlug
+        : null;
       const canonicalQuery = new URLSearchParams();
       if (pageNumber > 1 && !hasFilterParams) {
         canonicalQuery.set("page", String(pageNumber));
       }
       return {
-        kind: page.collectionSlug ? "category" : "collections",
-        canonicalPath: page.collectionSlug
-          ? `/collections/${page.collectionSlug}`
+        kind: normalizedCollectionSlug ? "category" : "collections",
+        canonicalPath: normalizedCollectionSlug
+          ? `/collections/${normalizedCollectionSlug}`
           : "/collections",
         canonicalQuery,
         shouldIndex: !hasFilterParams,
@@ -3493,15 +3662,19 @@ function resolveCatalogStaticPageMetadata(options: {
       return {
         title: appendCatalogCompanyName(
           heroTitle ||
-            translateCatalogCopy(options.locale, "Collections", "Collections"),
+            translateCatalogCopy(
+              options.locale,
+              "Licences, logiciels et produits numériques",
+              "Licences, software, and digital products",
+            ),
           companyName,
         ),
         description:
           heroDescription ||
           translateCatalogCopy(
             options.locale,
-            "Explorez les collections, catégories et produits actuellement disponibles dans le catalogue.",
-            "Browse the collections, categories, and products currently available in the catalogue.",
+            `Explorez les produits, catégories et offres disponibles chez ${companyName}. Comparez les prix, vérifiez les disponibilités et commandez en ligne.`,
+            `Browse products, categories, and current offers from ${companyName}. Compare prices, check availability, and order online.`,
           ),
         socialImageUrl:
           resolveBuilderPageSocialImage(options.payload, options.pageConfig) ??
@@ -3517,7 +3690,7 @@ function resolveCatalogStaticPageMetadata(options: {
       const matchingProducts = options.payload.products.all.filter(
         (product) =>
           trimCatalogText(product.category) &&
-          slugify(product.category ?? "") ===
+          normalizeCatalogCategorySlug(product.category) ===
             options.route.canonicalPath.split("/").filter(Boolean).pop(),
       );
       const countLabel =
@@ -3534,10 +3707,15 @@ function resolveCatalogStaticPageMetadata(options: {
           [
             translateCatalogCopy(
               options.locale,
-              `Découvrez notre sélection ${label}.`,
-              `Explore our ${label} collection.`,
+              `Découvrez notre sélection ${label} chez ${companyName}.`,
+              `Explore our ${label} collection at ${companyName}.`,
             ),
             countLabel,
+            translateCatalogCopy(
+              options.locale,
+              "Comparez les offres, prix et options disponibles avant de commander en ligne.",
+              "Compare available offers, prices, and options before ordering online.",
+            ),
           ]
             .filter((entry): entry is string => Boolean(entry))
             .join(" "),
@@ -3562,8 +3740,8 @@ function resolveCatalogStaticPageMetadata(options: {
           heroDescription ||
           translateCatalogCopy(
             options.locale,
-            "Découvrez l’activité, l’approche et les engagements qui guident la boutique.",
-            "Learn about the store, its approach, and the commitments behind the catalogue.",
+            `Découvrez ${companyName}, son accompagnement client, son catalogue et ses engagements pour des achats en ligne clairs et fiables.`,
+            `Learn about ${companyName}, its customer support, catalogue, and commitments for clear and reliable online purchases.`,
           ),
         socialImageUrl:
           resolveBuilderPageSocialImage(options.payload, options.pageConfig) ??
@@ -3585,8 +3763,8 @@ function resolveCatalogStaticPageMetadata(options: {
           heroDescription ||
           translateCatalogCopy(
             options.locale,
-            "Retrouvez nos guides pratiques, conseils produit et dernières actualités publiés par la boutique.",
-            "Read practical guides, product advice, and the latest updates published by the store.",
+            `Retrouvez les guides d’achat, comparatifs et conseils de ${companyName} pour choisir les bons produits et licences.`,
+            `Read buying guides, comparisons, and advice from ${companyName} to choose the right products and licences.`,
           ),
         socialImageUrl:
           resolveBuilderPageSocialImage(options.payload, options.pageConfig) ??
@@ -3635,8 +3813,8 @@ function resolveCatalogStaticPageMetadata(options: {
           heroDescription ||
           translateCatalogCopy(
             options.locale,
-            "Parlez-nous de votre projet et recevez un devis sur mesure.",
-            "Tell us about your project and get a tailored quote.",
+            `Contactez ${companyName} pour une question, un devis ou une aide avant commande. Réponse rapide par email ou téléphone.`,
+            `Contact ${companyName} for questions, quotes, or help before ordering. Get a fast reply by email or phone.`,
           ),
         socialImageUrl:
           resolveBuilderPageSocialImage(options.payload, options.pageConfig) ??
@@ -3933,13 +4111,24 @@ export function resolveCatalogSeo(options: {
   resolved = {
     ...resolved,
     canonicalUrl: seoContext.canonicalUrl,
-    title: explicitTitle ?? resolved.title,
-    description: explicitDescription ?? resolved.description,
+    title: normalizeCatalogSeoTitle(explicitTitle ?? resolved.title),
+    description: normalizeCatalogSeoDescription(
+      explicitDescription ?? resolved.description,
+    ),
     socialImageUrl: explicitImage ?? resolved.socialImageUrl,
     keywords: explicitKeywords ?? resolved.keywords,
   };
 
   const openGraphLocale = resolveCatalogOpenGraphLocale(seoContext.locale);
+  const openGraphAlternateLocales = listCatalogPublicLocales(options.payload)
+    .filter((locale) => locale !== seoContext.locale)
+    .map((locale) => resolveCatalogOpenGraphLocale(locale))
+    .filter(
+      (
+        locale,
+      ): locale is NonNullable<ReturnType<typeof resolveCatalogOpenGraphLocale>> =>
+        locale !== null,
+    );
 
   return {
     metadata: resolved,
@@ -3954,9 +4143,7 @@ export function resolveCatalogSeo(options: {
     openGraphType: seoContext.route.openGraphType,
     locale: seoContext.locale,
     openGraphLocale,
-    openGraphAlternateLocales: openGraphLocale
-      ? [openGraphLocale === "fr_FR" ? "en_US" : "fr_FR"]
-      : [],
+    openGraphAlternateLocales,
     contentLanguage: seoContext.locale,
   };
 }
@@ -4045,7 +4232,7 @@ function buildCatalogBreadcrumbItems(options: {
       const product = slug
         ? options.payload.products.all.find((entry) => entry.publicSlug === slug)
         : null;
-      const categorySlug = product?.category ? slugify(product.category) : null;
+      const categorySlug = normalizeCatalogCategorySlug(product?.category);
       items.push({
         name: collectionLabel,
         item: buildCatalogCanonicalUrl({
@@ -4157,6 +4344,15 @@ function buildCatalogOrganizationStructuredData(options: {
     );
   const globalReturnPolicy =
     buildGlobalMerchantReturnPolicyStructuredData(options.payload);
+  const countryCode = inferCatalogCountryCode(options.payload);
+  const countryName =
+    countryCode === "TN"
+      ? options.locale === "en"
+        ? "Tunisia"
+        : "Tunisie"
+      : countryCode;
+  const contactEmail = trimCatalogText(options.payload.website.contact.email);
+  const contactPhone = trimCatalogText(options.payload.website.contact.phone);
 
   return {
     "@context": "https://schema.org",
@@ -4171,6 +4367,28 @@ function buildCatalogOrganizationStructuredData(options: {
       ? {
           "@type": "PostalAddress",
           streetAddress: options.payload.website.contact.address,
+          addressCountry: countryCode ?? undefined,
+        }
+      : undefined,
+    contactPoint:
+      contactEmail || contactPhone
+        ? [
+            {
+              "@type": "ContactPoint",
+              contactType:
+                options.locale === "en" ? "customer support" : "support client",
+              email: contactEmail || undefined,
+              telephone: contactPhone || undefined,
+              areaServed: countryCode ?? undefined,
+              availableLanguage:
+                options.locale === "en" ? ["French", "English"] : ["French"],
+            },
+          ]
+        : undefined,
+    areaServed: countryCode
+      ? {
+          "@type": "Country",
+          name: countryName,
         }
       : undefined,
     sameAs: sameAs.length ? sameAs : undefined,
@@ -4250,6 +4468,50 @@ function resolveProductApprovedReviewStructuredData(product: CatalogProduct) {
   };
 }
 
+function resolveCatalogProductPublisherBrand(product: CatalogProduct) {
+  const signals = [product.name, product.sku, product.category]
+    .filter((value): value is string => Boolean(value && value.trim()))
+    .join(" ")
+    .toLocaleLowerCase();
+
+  if (!signals) {
+    return null;
+  }
+
+  if (
+    signals.includes("microsoft") ||
+    /\b(?:mic|ms|off)-/i.test(product.sku ?? "")
+  ) {
+    return "Microsoft";
+  }
+
+  if (
+    signals.includes("adobe") ||
+    signals.includes("acrobat") ||
+    signals.includes("creative cloud")
+  ) {
+    return "Adobe";
+  }
+
+  if (
+    signals.includes("autodesk") ||
+    signals.includes("revit") ||
+    signals.includes("inventor")
+  ) {
+    return "Autodesk";
+  }
+
+  if (
+    signals.includes("tonec") ||
+    signals.includes("internet download manager") ||
+    /\bidm\b/i.test(signals)
+  ) {
+    return "TONEC";
+  }
+
+  return null;
+}
+
 export function resolveCatalogStructuredData(options: {
   payload: CatalogPayload;
   path?: string | null;
@@ -4323,6 +4585,7 @@ export function resolveCatalogStructuredData(options: {
     const faqItems = normalizeProductFaqItems(product.faqItems);
     const productDescription =
       collectProductTextCandidates(product)[0] || seo.metadata.description;
+    const productBrand = resolveCatalogProductPublisherBrand(product);
     const productStructuredData: Record<string, unknown> = {
       "@context": "https://schema.org",
       "@type": "Product",
@@ -4332,10 +4595,12 @@ export function resolveCatalogStructuredData(options: {
       category: product.category ?? undefined,
       url: seo.metadata.canonicalUrl,
       image: imageUrls.length ? imageUrls : undefined,
-      brand: {
-        "@type": "Brand",
-        name: payload.website.contact.companyName,
-      },
+      brand: productBrand
+        ? {
+            "@type": "Brand",
+            name: productBrand,
+          }
+        : undefined,
       mainEntityOfPage: seo.metadata.canonicalUrl,
     };
     const reviewStructuredData =
@@ -4425,7 +4690,7 @@ export function resolveCatalogStructuredData(options: {
       ? payload.products.all.filter(
           (product) =>
             trimCatalogText(product.category) &&
-            slugify(product.category ?? "") === categorySlug,
+            normalizeCatalogCategorySlug(product.category) === categorySlug,
         )
       : payload.products.all;
 

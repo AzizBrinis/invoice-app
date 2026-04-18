@@ -758,6 +758,38 @@ const FRENCH_TRANSLATIONS: Record<string, string> = {
   "Order placed on": "Commande passée le",
   "No products match this collection yet.":
     "Aucun produit ne correspond encore à cette collection.",
+  "No articles published yet": "Aucun article publié pour le moment",
+  "Published posts will appear here automatically as soon as the editorial team sends them live.":
+    "Les articles publiés apparaîtront ici automatiquement dès que l'équipe éditoriale les mettra en ligne.",
+  "Invoice requests are only available during the same calendar month as the order date.":
+    "Les demandes de facture sont disponibles uniquement pendant le même mois calendaire que la date de commande.",
+  "We could not load this article right now. Please try again.":
+    "Impossible de charger cet article pour le moment. Veuillez réessayer.",
+  "Back to the blog": "Retour au blog",
+  "Article not found": "Article introuvable",
+  "This article is unavailable or has not been published yet.":
+    "Cet article est indisponible ou n'a pas encore été publié.",
+  Tags: "Étiquettes",
+  "Continue your research": "Poursuivre votre recherche",
+  "Explore matching guides, collections, and licences":
+    "Explorez les guides, collections et licences associés",
+  "Recommended licences": "Licences recommandées",
+  "Browse all guides": "Voir tous les guides",
+  "Topic hubs": "Dossiers thématiques",
+  "Move from advice to action with direct paths from guides to the most relevant collections and licences.":
+    "Passez du conseil à l'action avec des liens directs vers les collections et licences les plus pertinentes.",
+  "There are no additional articles on this page yet.":
+    "Il n'y a pas encore d'articles supplémentaires sur cette page.",
+  "No published articles yet": "Aucun article publié pour le moment",
+  "This journal will fill automatically when the first post is published from the admin workspace.":
+    "Ce journal se remplira automatiquement dès que le premier article sera publié depuis l'espace d'administration.",
+  "Guide cluster": "Groupe de guides",
+  "Read the guide": "Lire le guide",
+  "Editorial illustration": "Illustration éditoriale",
+  "Unable to load orders.": "Impossible de charger les commandes.",
+  "No orders yet": "Aucune commande pour le moment",
+  "Your future orders will appear here as soon as they are confirmed.":
+    "Vos prochaines commandes apparaîtront ici dès qu'elles seront confirmées.",
   "Customize this page": "Personnaliser cette page",
   "Out of stock": "Rupture de stock",
   "In stock": "Disponible",

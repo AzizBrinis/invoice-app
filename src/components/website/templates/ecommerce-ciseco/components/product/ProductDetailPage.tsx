@@ -9,8 +9,8 @@ import type {
   WebsiteBuilderMediaAsset,
   WebsiteBuilderSection,
 } from "@/lib/website/builder";
+import { normalizeCatalogCategorySlug } from "@/lib/catalog-category";
 import { normalizeProductFaqItems } from "@/lib/product-faq";
-import { slugify } from "@/lib/slug";
 import { formatCurrency } from "@/lib/formatters";
 import { fromCents } from "@/lib/money";
 import {
@@ -468,7 +468,7 @@ export function ProductDetailPage({
   const useVariantStock =
     hasVariantStock &&
     (variantOptions.colors.length > 0 || variantOptions.sizes.length > 0);
-  const categorySlug = product?.category ? slugify(product.category) : "";
+  const categorySlug = normalizeCatalogCategorySlug(product?.category) ?? "";
   const categoryHref = categorySlug
     ? localizeHref(baseLink(`/collections/${categorySlug}`))
     : localizeHref(baseLink("/collections"));
@@ -1416,6 +1416,8 @@ export function ProductDetailPage({
       <Section
         theme={theme}
         key="product-faq"
+        deferRendering
+        containIntrinsicSize="1px 760px"
       >
         <div className="max-w-3xl space-y-4">
           <div className="space-y-2">
@@ -1544,6 +1546,8 @@ export function ProductDetailPage({
         className="pt-0"
         builderSectionId={section?.id}
         key={section?.id ?? "description-default"}
+        deferRendering
+        containIntrinsicSize="1px 960px"
       >
         <div className="max-w-3xl space-y-4">
           <h2 className="text-xl font-semibold text-slate-900">{heading}</h2>
@@ -1600,6 +1604,8 @@ export function ProductDetailPage({
         theme={theme}
         builderSectionId={section?.id}
         key={section?.id ?? "reviews-default"}
+        deferRendering
+        containIntrinsicSize="1px 920px"
       >
         <div className="space-y-6">
           <div className="flex items-center gap-3 text-lg font-semibold text-slate-900">
@@ -1764,6 +1770,8 @@ export function ProductDetailPage({
         theme={theme}
         builderSectionId={section?.id}
         key={section?.id ?? "related-default"}
+        deferRendering
+        containIntrinsicSize="1px 920px"
       >
         <div className="space-y-6">
           <h2 className="text-2xl font-semibold text-slate-900">
