@@ -959,7 +959,7 @@ export function ProductDetailPage({
       </div>
       {thumbnailImages.length ? (
         <div className="grid grid-cols-2 gap-4">
-          {thumbnailImages.map((image) => (
+          {thumbnailImages.map((image, index) => (
             <div
               key={image.id}
               className="group overflow-hidden rounded-3xl border border-black/5 bg-white p-3 shadow-sm transition hover:-translate-y-1 hover:shadow-lg"
@@ -970,7 +970,7 @@ export function ProductDetailPage({
                   alt={image.alt}
                   className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.03]"
                   sizes="(min-width: 1024px) 18vw, 44vw"
-                  loading="lazy"
+                  loading={index < 2 ? "eager" : "lazy"}
                 />
               </div>
             </div>
@@ -1770,8 +1770,6 @@ export function ProductDetailPage({
         theme={theme}
         builderSectionId={section?.id}
         key={section?.id ?? "related-default"}
-        deferRendering
-        containIntrinsicSize="1px 920px"
       >
         <div className="space-y-6">
           <h2 className="text-2xl font-semibold text-slate-900">

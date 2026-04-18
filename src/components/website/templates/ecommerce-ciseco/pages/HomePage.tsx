@@ -1,3 +1,5 @@
+"use client";
+
 import { useCallback, useMemo } from "react";
 import type { CSSProperties } from "react";
 import type { CatalogPayload } from "@/server/website";

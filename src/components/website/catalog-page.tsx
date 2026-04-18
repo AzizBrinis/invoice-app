@@ -1,9 +1,4 @@
 import type { CatalogPayload } from "@/server/website";
-import { DevAgencyTemplate } from "@/components/website/templates/dev-agency";
-import { EcommerceTemplate } from "@/components/website/templates/ecommerce";
-import { EcommerceTechAgencyTemplate } from "@/components/website/templates/ecommerce-tech-agency";
-import { EcommerceCescoTemplate } from "@/components/website/templates/ecommerce-cesco";
-import { EcommerceCisecoHomeTemplate } from "@/components/website/templates/ecommerce-ciseco-home";
 import type { CisecoLocale } from "@/components/website/templates/ecommerce-ciseco/locale";
 
 type CatalogPageProps = {
@@ -14,17 +9,43 @@ type CatalogPageProps = {
   resolvedByDomain?: boolean;
 };
 
-const TEMPLATE_COMPONENTS = {
-  "dev-agency": DevAgencyTemplate,
-  "ecommerce-luxe": EcommerceTemplate,
-  "ecommerce-tech-agency": EcommerceTechAgencyTemplate,
-  "ecommerce-cesco": EcommerceCescoTemplate,
-  "ecommerce-ciseco-home": EcommerceCisecoHomeTemplate,
-} as const;
+async function resolveTemplateComponent(
+  templateKey: CatalogPayload["website"]["templateKey"],
+) {
+  switch (templateKey) {
+    case "ecommerce-luxe": {
+      const module = await import("@/components/website/templates/ecommerce");
+      return module.EcommerceTemplate;
+    }
+    case "ecommerce-tech-agency": {
+      const module = await import(
+        "@/components/website/templates/ecommerce-tech-agency"
+      );
+      return module.EcommerceTechAgencyTemplate;
+    }
+    case "ecommerce-cesco": {
+      const module = await import(
+        "@/components/website/templates/ecommerce-cesco"
+      );
+      return module.EcommerceCescoTemplate;
+    }
+    case "ecommerce-ciseco-home": {
+      const module = await import(
+        "@/components/website/templates/ecommerce-ciseco-home"
+      );
+      return module.EcommerceCisecoHomeTemplate;
+    }
+    case "dev-agency":
+    default: {
+      const module = await import("@/components/website/templates/dev-agency");
+      return module.DevAgencyTemplate;
+    }
+  }
+}
 
-export function CatalogPage(props: CatalogPageProps) {
-  const Template =
-    TEMPLATE_COMPONENTS[props.data.website.templateKey] ??
-    DevAgencyTemplate;
+export async function CatalogPage(props: CatalogPageProps) {
+  const Template = await resolveTemplateComponent(
+    props.data.website.templateKey,
+  );
   return <Template {...props} />;
 }
