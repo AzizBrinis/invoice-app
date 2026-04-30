@@ -21,10 +21,11 @@ const REQUEST_USER_AGENT =
   "invoices-app-techno-smart-product-media/1.0 (+https://techno-smart.net)";
 
 type ManagedProductImageType = {
-  extension: "avif" | "gif" | "jpg" | "png" | "webp";
+  extension: "avif" | "gif" | "ico" | "jpg" | "png" | "webp";
   mimeType:
     | "image/avif"
     | "image/gif"
+    | "image/x-icon"
     | "image/jpeg"
     | "image/png"
     | "image/webp";
@@ -51,6 +52,13 @@ export type ManagedProductImageAsset = {
   mimeType: ManagedProductImageType["mimeType"];
   sizeBytes: number;
   uploaded: boolean;
+};
+
+export type ManagedProductImageDataUrlAsset = Omit<
+  ManagedProductImageAsset,
+  "sourceUrl"
+> & {
+  sourceUrl: string | null;
 };
 
 export type ManagedProductImageIngestionResult = {
@@ -118,9 +126,11 @@ function buildManagedProductImagePath(options: {
   publicSlug: string;
   sha256: string;
   extension: ManagedProductImageType["extension"];
+  pathPrefix?: string;
 }) {
   const safeSlug = slugify(options.publicSlug) || "product";
-  return `${PRODUCT_IMAGE_PATH_PREFIX}/${options.userId}/${safeSlug}/${options.sha256}.${options.extension}`;
+  const pathPrefix = options.pathPrefix?.trim() || PRODUCT_IMAGE_PATH_PREFIX;
+  return `${pathPrefix}/${options.userId}/${safeSlug}/${options.sha256}.${options.extension}`;
 }
 
 function normalizeAllowedHosts(value?: readonly string[]) {
@@ -257,6 +267,19 @@ function sniffManagedProductImageType(
   }
 
   if (
+    buffer.length >= 4 &&
+    buffer[0] === 0x00 &&
+    buffer[1] === 0x00 &&
+    buffer[2] === 0x01 &&
+    buffer[3] === 0x00
+  ) {
+    return {
+      extension: "ico",
+      mimeType: "image/x-icon",
+    };
+  }
+
+  if (
     buffer.length >= 12 &&
     buffer.subarray(4, 8).toString("ascii") === "ftyp"
   ) {
@@ -270,6 +293,47 @@ function sniffManagedProductImageType(
   }
 
   return null;
+}
+
+function decodeInlineImageDataUrl(source: string) {
+  const trimmed = source.trim();
+  if (!trimmed.toLowerCase().startsWith("data:image/")) {
+    return null;
+  }
+
+  const separatorIndex = trimmed.indexOf(",");
+  if (separatorIndex < 0) {
+    return null;
+  }
+
+  const metadata = trimmed.slice(5, separatorIndex);
+  const payload = trimmed.slice(separatorIndex + 1);
+  const isBase64 = metadata
+    .split(";")
+    .some((entry) => entry.trim().toLowerCase() === "base64");
+
+  let buffer: Buffer;
+  try {
+    buffer = isBase64
+      ? Buffer.from(payload, "base64")
+      : Buffer.from(decodeURIComponent(payload), "utf8");
+  } catch {
+    return null;
+  }
+
+  if (!buffer.byteLength || buffer.byteLength > MAX_PRODUCT_IMAGE_SIZE_BYTES) {
+    return null;
+  }
+
+  const fileType = sniffManagedProductImageType(buffer);
+  if (!fileType) {
+    return null;
+  }
+
+  return {
+    buffer,
+    fileType,
+  };
 }
 
 function isRetryableStatus(status: number) {
@@ -605,6 +669,74 @@ export async function ingestManagedProductImages(options: {
     gallery,
     assets: Array.from(assetsByHash.values()),
   };
+}
+
+export function isInlineImageDataUrl(value: string) {
+  return value.trim().toLowerCase().startsWith("data:image/");
+}
+
+export function isInlineProductImageDataUrl(value: string) {
+  return isInlineImageDataUrl(value);
+}
+
+export async function uploadManagedImageDataUrl(options: {
+  userId: string;
+  publicSlug?: string;
+  pathPrefix?: string;
+  source: string;
+}): Promise<ManagedProductImageDataUrlAsset> {
+  const userId = normalizeOptionalString(options.userId);
+  if (!userId) {
+    throw new Error("A userId is required for managed product image upload.");
+  }
+
+  const publicSlug = normalizeOptionalString(options.publicSlug) ?? "image";
+  if (!publicSlug) {
+    throw new Error("A publicSlug is required for managed image upload.");
+  }
+
+  const decoded = decodeInlineImageDataUrl(options.source);
+  if (!decoded) {
+    throw new Error("Unsupported inline product image data URL.");
+  }
+
+  const sha256 = createHash("sha256").update(decoded.buffer).digest("hex");
+  const storagePath = buildManagedProductImagePath({
+    userId,
+    publicSlug,
+    sha256,
+    extension: decoded.fileType.extension,
+    pathPrefix: options.pathPrefix,
+  });
+  const uploadResult = await uploadManagedImage({
+    buffer: decoded.buffer,
+    storagePath,
+    mimeType: decoded.fileType.mimeType,
+  });
+
+  return {
+    sourceUrl: null,
+    managedUrl: uploadResult.managedUrl,
+    storagePath,
+    sha256,
+    extension: decoded.fileType.extension,
+    mimeType: decoded.fileType.mimeType,
+    sizeBytes: decoded.buffer.length,
+    uploaded: uploadResult.uploaded,
+  };
+}
+
+export async function uploadManagedProductImageDataUrl(options: {
+  userId: string;
+  publicSlug: string;
+  source: string;
+}): Promise<ManagedProductImageDataUrlAsset> {
+  return uploadManagedImageDataUrl({
+    userId: options.userId,
+    publicSlug: options.publicSlug,
+    source: options.source,
+    pathPrefix: PRODUCT_IMAGE_PATH_PREFIX,
+  });
 }
 
 export function isTechnoSmartManagedProductImageSource(

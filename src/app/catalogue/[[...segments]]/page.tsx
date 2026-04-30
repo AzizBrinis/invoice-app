@@ -21,6 +21,7 @@ import {
   resolveCatalogMetadataTarget,
   resolveCatalogPublicLocale,
   resolveCatalogFaviconUrl,
+  resolveCatalogRoutePreflight,
   resolveCatalogRouteAvailability,
   resolveCatalogSeo,
   resolveCatalogStructuredData,
@@ -146,19 +147,6 @@ function permanentRedirectToCatalogPath(options: {
   permanentRedirect(
     `${pathname}${params.toString() ? `?${params.toString()}` : ""}` as Route,
   );
-}
-
-function stripSlugPrefix(path: string | null, slug: string) {
-  if (!path) return null;
-  const prefix = `/catalogue/${slug}`;
-  if (path === prefix || path === `${prefix}/`) {
-    return "/";
-  }
-  if (path.startsWith(`${prefix}/`)) {
-    const next = path.slice(prefix.length);
-    return next || "/";
-  }
-  return path;
 }
 
 function trimWebsiteForInitialRoute(
@@ -328,21 +316,31 @@ async function loadResolvedPayload(
   resolvedPath: string | null,
 ): Promise<ResolvedCataloguePayload> {
   if (domain) {
-    const payload = await getCatalogPayloadByDomain(domain, resolvedPath);
-    if (!payload) {
-      return { payload: null, path: resolvedPath, resolvedByDomain: true };
+    const preflight = await resolveCatalogRoutePreflight({
+      domain,
+      path: resolvedPath,
+    });
+    if (!preflight.ok) {
+      return { payload: null, path: preflight.path, resolvedByDomain: true };
     }
-    const adjustedPath = stripSlugPrefix(
-      resolvedPath,
-      payload.website.slug,
-    );
-    return { payload, path: adjustedPath, resolvedByDomain: true };
+    const payload = await getCatalogPayloadByDomain(domain, preflight.path);
+    if (!payload) {
+      return { payload: null, path: preflight.path, resolvedByDomain: true };
+    }
+    return { payload, path: preflight.path, resolvedByDomain: true };
   }
 
   if (!slug) {
     return { payload: null, path: resolvedPath, resolvedByDomain: false };
   }
 
+  const preflight = await resolveCatalogRoutePreflight({
+    slug,
+    path: resolvedPath,
+  });
+  if (!preflight.ok) {
+    return { payload: null, path: preflight.path, resolvedByDomain: false };
+  }
   const payload = await getCatalogPayloadBySlug(slug, { path: resolvedPath });
   return { payload, path: resolvedPath, resolvedByDomain: false };
 }
@@ -370,7 +368,9 @@ export async function generateMetadata({
     searchParams: resolvedSearchParams,
   });
   const meta = seo.metadata;
-  const faviconUrl = resolveCatalogFaviconUrl(payload.website);
+  const faviconUrl = resolveCatalogFaviconUrl(payload.website, {
+    resolvedByDomain: resolved.resolvedByDomain,
+  });
   return {
     title: meta.title,
     description: meta.description,

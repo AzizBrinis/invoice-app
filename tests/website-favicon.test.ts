@@ -21,10 +21,12 @@ function createPngFile(options?: { size?: number; name?: string; type?: string }
 }
 
 describe("website favicon helpers", () => {
-  it("stores favicon uploads as inline image data", async () => {
+  it("stores favicon uploads as managed image assets", async () => {
     const faviconUrl = await saveWebsiteFaviconFile(createPngFile(), TEST_USER_ID);
 
-    expect(faviconUrl).toMatch(/^data:image\/png;base64,/);
+    expect(faviconUrl).toMatch(
+      /^\/uploads\/favicons\/tenant-favicon-test\/favicon\/[a-f0-9]{64}\.png$/,
+    );
   });
 
   it("rejects oversized or unsupported favicon uploads", () => {
@@ -58,6 +60,18 @@ describe("website favicon helpers", () => {
         domainStatus: WebsiteDomainStatus.ACTIVE,
         faviconUrl: faviconDataUrl,
       }),
+    ).toBe(`/api/catalogue/site-favicon?slug=demo-shop&v=${version}`);
+
+    expect(
+      resolveCatalogFaviconUrl(
+        {
+          slug: "demo-shop",
+          customDomain: "shop.example.com",
+          domainStatus: WebsiteDomainStatus.ACTIVE,
+          faviconUrl: faviconDataUrl,
+        },
+        { resolvedByDomain: true },
+      ),
     ).toBe(`/api/catalogue/site-favicon?v=${version}`);
 
     expect(

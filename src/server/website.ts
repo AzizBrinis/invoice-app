@@ -25,6 +25,7 @@ import {
   VercelApiError,
 } from "@/lib/vercel-api";
 import { sendEmailMessageForUser } from "@/server/messaging";
+import { uploadManagedImageDataUrl } from "@/server/product-media-storage";
 import { getSettings } from "@/server/settings";
 import {
   WEBSITE_TEMPLATE_KEY_VALUES,
@@ -278,7 +279,6 @@ export async function saveWebsiteFaviconFile(
   file: File,
   userId: string,
 ): Promise<string> {
-  void userId;
   validateWebsiteFaviconFile(file);
   const arrayBuffer = await file.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
@@ -286,7 +286,13 @@ export async function saveWebsiteFaviconFile(
   if (!contentType) {
     throw new Error("Format de favicon non supporté. Utilisez PNG ou ICO.");
   }
-  return `data:${contentType};base64,${buffer.toString("base64")}`;
+  const asset = await uploadManagedImageDataUrl({
+    userId,
+    publicSlug: "favicon",
+    source: `data:${contentType};base64,${buffer.toString("base64")}`,
+    pathPrefix: "favicons",
+  });
+  return asset.managedUrl;
 }
 
 export async function deleteManagedWebsiteFavicon(
@@ -1825,6 +1831,32 @@ type CatalogRouteInfo = {
 export type CatalogRouteAvailability =
   | { ok: true }
   | { ok: false; reason: "unknown-route" | "missing-product" | "missing-category" | "missing-blog-post" | "missing-cms-page" };
+type CatalogRouteUnavailableReason = Exclude<
+  CatalogRouteAvailability,
+  { ok: true }
+>["reason"];
+
+type CatalogRoutePreflightWebsite = {
+  id: string;
+  userId: string;
+  slug: string;
+  templateKey: string;
+  showInactiveProducts: boolean;
+  published: boolean;
+};
+
+type CatalogRoutePreflightResult =
+  | {
+      ok: true;
+      website: CatalogRoutePreflightWebsite;
+      path: string | null;
+    }
+  | {
+      ok: false;
+      website: CatalogRoutePreflightWebsite | null;
+      path: string | null;
+      reason: CatalogRouteUnavailableReason;
+    };
 
 export type CatalogSeoResult = {
   metadata: CatalogWebsiteMetadata;
@@ -1856,6 +1888,19 @@ function normalizeCatalogPath(path?: string | null): string {
   const trimmed = path.trim();
   if (!trimmed) return "/";
   return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+}
+
+function stripCatalogSlugPrefix(path: string | null, slug: string) {
+  if (!path) return null;
+  const prefix = `/catalogue/${slug}`;
+  if (path === prefix || path === `${prefix}/`) {
+    return "/";
+  }
+  if (path.startsWith(`${prefix}/`)) {
+    const next = path.slice(prefix.length);
+    return next || "/";
+  }
+  return path;
 }
 
 export function buildCatalogUrl(options: {
@@ -2743,6 +2788,7 @@ export function resolveCatalogFaviconUrl(
     CatalogWebsiteSummary,
     "slug" | "customDomain" | "domainStatus" | "faviconUrl"
   >,
+  options: { resolvedByDomain?: boolean } = {},
 ) {
   const faviconUrl = normalizeWebsiteFaviconUrl(website.faviconUrl);
   if (!faviconUrl) {
@@ -2754,6 +2800,7 @@ export function resolveCatalogFaviconUrl(
 
   const params = new URLSearchParams();
   if (
+    !options.resolvedByDomain ||
     !website.customDomain ||
     website.domainStatus !== WebsiteDomainStatus.ACTIVE
   ) {
@@ -2920,6 +2967,7 @@ function resolveCatalogBlogImageUrl(
   try {
     const query = new URLSearchParams();
     query.set("post", options.slug);
+    query.set("v", createHash("sha1").update(source).digest("hex").slice(0, 12));
     return buildCatalogPublicApiUrl(
       payload.website,
       "/api/catalogue/blog/image",
@@ -3076,6 +3124,183 @@ function listCatalogProductsForCategory(
       trimCatalogText(product.category) &&
       normalizeCatalogCategorySlug(product.category) === categorySlug,
   );
+}
+
+async function listCatalogCmsPathsForPreflight(websiteId: string) {
+  const pages = await prisma.websiteCmsPage.findMany({
+    where: { websiteId },
+    select: { path: true },
+  });
+  return pages.map((page) => page.path);
+}
+
+async function hasCatalogProductForPreflight(options: {
+  userId: string;
+  slug: string;
+  includeInactive: boolean;
+}) {
+  const product = await prisma.product.findFirst({
+    where: {
+      userId: options.userId,
+      isListedInCatalog: true,
+      ...(options.includeInactive ? {} : { isActive: true }),
+      publicSlug: options.slug,
+    },
+    select: { id: true },
+  });
+  return Boolean(product);
+}
+
+async function hasCatalogCategoryForPreflight(options: {
+  userId: string;
+  slug: string;
+  includeInactive: boolean;
+}) {
+  const products = await prisma.product.findMany({
+    where: {
+      userId: options.userId,
+      isListedInCatalog: true,
+      ...(options.includeInactive ? {} : { isActive: true }),
+      category: { not: null },
+    },
+    select: { category: true },
+    distinct: ["category"],
+  });
+  return products.some(
+    (product) =>
+      trimCatalogText(product.category) &&
+      normalizeCatalogCategorySlug(product.category) === options.slug,
+  );
+}
+
+function isMissingPublicBlogPostTableError(error: unknown) {
+  return (
+    error instanceof Error &&
+    /WebsiteBlogPost|relation .* does not exist|does not exist/i.test(error.message)
+  );
+}
+
+async function hasCatalogBlogPostForPreflight(options: {
+  websiteId: string;
+  slug: string;
+  preview: boolean;
+}) {
+  try {
+    const visibilitySql = options.preview
+      ? "TRUE"
+      : `(
+          bp."status" = 'PUBLISHED'
+          OR (
+            bp."status" = 'SCHEDULED'
+            AND bp."publishDate" IS NOT NULL
+            AND bp."publishDate" <= CURRENT_DATE
+          )
+        )`;
+    const rows = await prisma.$queryRawUnsafe<Array<{ id: string }>>(
+      `SELECT bp."id"
+       FROM public."WebsiteBlogPost" bp
+       WHERE bp."websiteId" = $1
+         AND bp."slug" = $2
+         AND ${visibilitySql}
+       LIMIT 1`,
+      options.websiteId,
+      options.slug,
+    );
+    return Boolean(rows[0]);
+  } catch (error) {
+    if (isMissingPublicBlogPostTableError(error)) {
+      console.warn("[site-blog-posts] WebsiteBlogPost table is not installed.");
+      return false;
+    }
+    throw error;
+  }
+}
+
+async function resolveCatalogRoutePreflightAvailability(options: {
+  website: CatalogRoutePreflightWebsite;
+  path: string | null;
+  preview?: boolean;
+}): Promise<CatalogRouteAvailability> {
+  if (options.website.templateKey !== "ecommerce-ciseco-home") {
+    return { ok: true };
+  }
+
+  const initialPage = resolveCisecoPage(options.path);
+  const cmsPaths =
+    initialPage.page === "not-found"
+      ? await listCatalogCmsPathsForPreflight(options.website.id)
+      : [];
+  const page =
+    initialPage.page === "not-found"
+      ? resolveCisecoPage(options.path, { cmsPaths })
+      : initialPage;
+
+  switch (page.page) {
+    case "home":
+    case "about":
+    case "blog":
+    case "contact":
+    case "search":
+    case "cart":
+    case "checkout":
+    case "order-success":
+    case "login":
+    case "signup":
+    case "forgot-password":
+    case "account":
+    case "account-wishlists":
+    case "account-orders-history":
+    case "account-billing":
+    case "account-change-password":
+    case "account-order-detail":
+      return { ok: true };
+    case "collections": {
+      if (!page.collectionSlug) {
+        return { ok: true };
+      }
+      const categorySlug =
+        normalizeCatalogCategorySlug(page.collectionSlug) ?? page.collectionSlug;
+      const exists = await hasCatalogCategoryForPreflight({
+        userId: options.website.userId,
+        slug: categorySlug,
+        includeInactive: options.website.showInactiveProducts,
+      });
+      return exists ? { ok: true } : { ok: false, reason: "missing-category" };
+    }
+    case "product":
+      if (!page.productSlug) {
+        return { ok: false, reason: "missing-product" };
+      }
+      {
+        const exists = await hasCatalogProductForPreflight({
+          userId: options.website.userId,
+          slug: page.productSlug,
+          includeInactive: options.website.showInactiveProducts,
+        });
+        return exists ? { ok: true } : { ok: false, reason: "missing-product" };
+      }
+    case "blog-detail":
+      if (!page.slug) {
+        return { ok: false, reason: "missing-blog-post" };
+      }
+      {
+        const exists = await hasCatalogBlogPostForPreflight({
+          websiteId: options.website.id,
+          slug: page.slug,
+          preview: options.preview === true,
+        });
+        return exists
+          ? { ok: true }
+          : { ok: false, reason: "missing-blog-post" };
+      }
+    case "cms":
+      return page.cmsPath && cmsPaths.includes(page.cmsPath)
+        ? { ok: true }
+        : { ok: false, reason: "missing-cms-page" };
+    case "not-found":
+    default:
+      return { ok: false, reason: "unknown-route" };
+  }
 }
 
 export function resolveCatalogRouteAvailability(
@@ -4835,6 +5060,92 @@ async function loadCatalogWebsite(
     return null;
   }
   return config;
+}
+
+async function loadCatalogWebsiteForPreflight(
+  selector: { slug: string } | { domain: string },
+  options?: { allowUnpublished?: boolean },
+): Promise<CatalogRoutePreflightWebsite | null> {
+  const where: Prisma.WebsiteConfigWhereInput = "slug" in selector
+    ? { slug: selector.slug }
+    : {
+        customDomain: selector.domain,
+        domainStatus: WebsiteDomainStatus.ACTIVE,
+      };
+  const config = await prisma.websiteConfig.findFirst({
+    where,
+    select: {
+      id: true,
+      userId: true,
+      slug: true,
+      templateKey: true,
+      showInactiveProducts: true,
+      published: true,
+    },
+  });
+  if (!config) {
+    return null;
+  }
+  if (!options?.allowUnpublished && !config.published) {
+    return null;
+  }
+  return config;
+}
+
+export async function resolveCatalogRoutePreflight(options: {
+  slug?: string | null;
+  domain?: string | null;
+  path?: string | null;
+  preview?: boolean;
+}): Promise<CatalogRoutePreflightResult> {
+  const domain = normalizeCatalogDomainInput(options.domain);
+  const slug = normalizeCatalogSlugInput(options.slug);
+  const normalizedPath = normalizeCatalogPathInput(options.path) ?? null;
+
+  const website = domain
+    ? await loadCatalogWebsiteForPreflight(
+        { domain },
+        { allowUnpublished: options.preview },
+      )
+    : slug
+      ? await loadCatalogWebsiteForPreflight(
+          { slug },
+          { allowUnpublished: options.preview },
+        )
+      : null;
+
+  if (!website) {
+    return {
+      ok: false,
+      website: null,
+      path: normalizedPath,
+      reason: "unknown-route",
+    };
+  }
+
+  const routePath = domain
+    ? stripCatalogSlugPrefix(normalizedPath, website.slug)
+    : normalizedPath;
+  const availability = await resolveCatalogRoutePreflightAvailability({
+    website,
+    path: routePath,
+    preview: options.preview,
+  });
+
+  if (!availability.ok) {
+    return {
+      ok: false,
+      website,
+      path: routePath,
+      reason: availability.reason,
+    };
+  }
+
+  return {
+    ok: true,
+    website,
+    path: routePath,
+  };
 }
 
 async function listCatalogProducts(userId: string, options?: { includeInactive?: boolean }) {

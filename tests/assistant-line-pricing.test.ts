@@ -57,6 +57,8 @@ vi.mock("@/server/messaging", () => ({
   fetchRecentMailboxEmails: vi.fn(),
   getMailboxDisplayName: vi.fn(),
   getMessagingSettingsSummary: vi.fn(),
+  updateMessagingAutoForwardSettings: vi.fn(),
+  normalizeForwardingEmailAddresses: vi.fn((values: string[]) => values),
   sendEmailMessageForUser: vi.fn(),
 }));
 

@@ -64,6 +64,10 @@ function buildCredentials(): MessagingCredentials {
     smtp: null,
     spamFilterEnabled: true,
     trackingEnabled: true,
+    autoForward: {
+      enabled: false,
+      recipients: [],
+    },
     autoReply: {
       enabled: false,
       subject: "Auto reply",

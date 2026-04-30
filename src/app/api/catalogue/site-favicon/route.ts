@@ -2,6 +2,11 @@ import { Buffer } from "node:buffer";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { resolveCatalogDomainFromHeaders } from "@/lib/catalog-host";
+import { prisma } from "@/lib/db";
+import {
+  isInlineImageDataUrl,
+  uploadManagedImageDataUrl,
+} from "@/server/product-media-storage";
 import {
   normalizeCatalogSlugInput,
   isInlineCatalogImageSource,
@@ -42,6 +47,36 @@ function decodeInlineImageDataUrl(source: string) {
   }
 }
 
+async function promoteInlineFavicon(options: {
+  websiteId: string;
+  userId: string;
+  websiteSlug: string;
+  source: string;
+}) {
+  try {
+    const asset = await uploadManagedImageDataUrl({
+      userId: options.userId,
+      publicSlug: `${options.websiteSlug}-favicon`,
+      source: options.source,
+      pathPrefix: "favicons",
+    });
+    await prisma.$executeRaw`
+      UPDATE "WebsiteConfig"
+      SET "builderConfig" = jsonb_set(
+        COALESCE("builderConfig"::jsonb, '{}'::jsonb),
+        '{site,faviconUrl}',
+        to_jsonb(${asset.managedUrl}::text),
+        true
+      )
+      WHERE "id" = ${options.websiteId}
+    `;
+    return asset.managedUrl;
+  } catch (error) {
+    console.warn("[catalogue favicon] inline promotion failed", error);
+    return null;
+  }
+}
+
 export async function GET(request: NextRequest) {
   const domain = resolveCatalogDomainFromHeaders(request.headers);
   const slug = domain
@@ -69,6 +104,23 @@ export async function GET(request: NextRequest) {
         "cache-control": FAVICON_CACHE_CONTROL,
       },
     });
+  }
+
+  if (isInlineImageDataUrl(faviconSource)) {
+    const promotedUrl = await promoteInlineFavicon({
+      websiteId: website.id,
+      userId: website.userId,
+      websiteSlug: website.slug,
+      source: faviconSource,
+    });
+    if (promotedUrl) {
+      return NextResponse.redirect(promotedUrl, {
+        status: 307,
+        headers: {
+          "cache-control": FAVICON_CACHE_CONTROL,
+        },
+      });
+    }
   }
 
   const decoded = decodeInlineImageDataUrl(faviconSource);

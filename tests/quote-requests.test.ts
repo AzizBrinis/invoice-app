@@ -17,6 +17,7 @@ import type { CatalogPayload } from "@/server/website";
 import {
   getCatalogPayloadByDomain,
   getCatalogPayloadBySlug,
+  resolveCatalogRoutePreflight,
   resolveCatalogSeo,
 } from "@/server/website";
 import CatalogueCatchAllPage, {
@@ -52,12 +53,14 @@ vi.mock("@/server/website", async () => {
     ...actual,
     getCatalogPayloadByDomain: vi.fn(),
     getCatalogPayloadBySlug: vi.fn(),
+    resolveCatalogRoutePreflight: vi.fn(),
     resolveCatalogSeo: vi.fn(),
   };
 });
 
 const getCatalogPayloadByDomainMock = vi.mocked(getCatalogPayloadByDomain);
 const getCatalogPayloadBySlugMock = vi.mocked(getCatalogPayloadBySlug);
+const resolveCatalogRoutePreflightMock = vi.mocked(resolveCatalogRoutePreflight);
 const resolveCatalogSeoMock = vi.mocked(resolveCatalogSeo);
 
 describeWithDb("quote requests", () => {
@@ -206,6 +209,11 @@ describeWithDb("quote requests", () => {
 describe("catalog routing", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resolveCatalogRoutePreflightMock.mockImplementation(async (input) => ({
+      ok: true,
+      website: {} as never,
+      path: input.path ?? null,
+    }));
   });
 
   it("uses the domain search param to resolve metadata", async () => {

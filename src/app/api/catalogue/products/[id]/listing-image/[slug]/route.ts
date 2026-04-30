@@ -5,9 +5,12 @@ import { NextResponse } from "next/server";
 import sharp from "sharp";
 import { resolveCatalogDomainFromHeaders } from "@/lib/catalog-host";
 import { prisma } from "@/lib/db";
+import { Prisma } from "@/lib/db/prisma-server";
+import { uploadManagedProductImageDataUrl } from "@/server/product-media-storage";
 import {
   normalizeCatalogSlugInput,
   resolveCatalogProductListingImageDataUrl,
+  resolveCatalogProductListingImageSource,
   resolveCatalogWebsite,
 } from "@/server/website";
 
@@ -34,10 +37,21 @@ type ListingImagePayload = {
   contentType: string;
 };
 
+type ListingImageSourceResult = {
+  source: CachedListingImageSource | null;
+  redirectUrl?: string | null;
+};
+
+type ProductImageRecord = {
+  publicSlug: string;
+  coverImageUrl: string | null;
+  gallery: Prisma.JsonValue | null;
+};
+
 const sourceImageCache = new Map<string, CachedListingImageSource>();
 const sourceImageRequestCache = new Map<
   string,
-  Promise<CachedListingImageSource | null>
+  Promise<ListingImageSourceResult>
 >();
 const transformedImageCache = new Map<string, ListingImagePayload>();
 const transformedImageRequestCache = new Map<
@@ -101,6 +115,78 @@ function decodeInlineImageDataUrl(source: string) {
     return { body, contentType };
   } catch {
     return null;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function replaceInlineProductImageSource(
+  product: ProductImageRecord,
+  inlineSource: string,
+  managedUrl: string,
+) {
+  const coverImageUrl =
+    product.coverImageUrl === inlineSource ? managedUrl : product.coverImageUrl;
+  const gallery = Array.isArray(product.gallery)
+    ? product.gallery.map((entry) => {
+        if (typeof entry === "string") {
+          return entry === inlineSource ? managedUrl : entry;
+        }
+        if (!isRecord(entry)) {
+          return entry;
+        }
+        const source =
+          typeof entry.src === "string"
+            ? entry.src
+            : typeof entry.url === "string"
+              ? entry.url
+              : "";
+        if (source !== inlineSource) {
+          return entry;
+        }
+        return {
+          ...entry,
+          src: managedUrl,
+        };
+      })
+    : product.gallery;
+  return {
+    coverImageUrl,
+    gallery,
+  };
+}
+
+async function promoteInlineProductImage(options: {
+  userId: string;
+  productId: string;
+  product: ProductImageRecord;
+  inlineSource: string;
+}) {
+  try {
+    const asset = await uploadManagedProductImageDataUrl({
+      userId: options.userId,
+      publicSlug: options.product.publicSlug || options.productId,
+      source: options.inlineSource,
+    });
+    const next = replaceInlineProductImageSource(
+      options.product,
+      options.inlineSource,
+      asset.managedUrl,
+    );
+    await prisma.product.update({
+      where: { id: options.productId },
+      data: {
+        coverImageUrl: next.coverImageUrl,
+        gallery:
+          next.gallery == null
+            ? Prisma.JsonNull
+            : (next.gallery as Prisma.InputJsonValue),
+      },
+    });
+  } catch (error) {
+    console.warn("[catalogue listing image] inline promotion failed", error);
   }
 }
 
@@ -313,10 +399,10 @@ async function loadListingImageSource(options: {
 
   const inflight = sourceImageRequestCache.get(sourceCacheKey);
   if (inflight) {
-    return { sourceCacheKey, source: await inflight };
+    return { sourceCacheKey, ...(await inflight) };
   }
 
-  const requestPromise = (async () => {
+  const requestPromise = (async (): Promise<ListingImageSourceResult> => {
     const { slug, domain } = resolveDomainAndSlug(
       options.request,
       options.fallbackSlug,
@@ -328,7 +414,7 @@ async function loadListingImageSource(options: {
     });
 
     if (!website) {
-      return null;
+      return { source: null };
     }
 
     const product = await prisma.product.findFirst({
@@ -339,13 +425,27 @@ async function loadListingImageSource(options: {
         ...(website.showInactiveProducts ? {} : { isActive: true }),
       },
       select: {
+        id: true,
+        publicSlug: true,
         coverImageUrl: true,
         gallery: true,
       },
     });
 
     if (!product) {
-      return null;
+      return { source: null };
+    }
+
+    const resolvedImageSource = resolveCatalogProductListingImageSource(
+      product,
+      website,
+      options.slot,
+    );
+    if (resolvedImageSource && !resolvedImageSource.startsWith("/api/catalogue/products/")) {
+      return {
+        redirectUrl: resolvedImageSource,
+        source: null,
+      };
     }
 
     const inlineImage = resolveCatalogProductListingImageDataUrl(
@@ -353,13 +453,20 @@ async function loadListingImageSource(options: {
       options.slot,
     );
     if (!inlineImage) {
-      return null;
+      return { source: null };
     }
 
     const decoded = decodeInlineImageDataUrl(inlineImage);
     if (!decoded) {
-      return null;
+      return { source: null };
     }
+
+    await promoteInlineProductImage({
+      userId: website.userId,
+      productId: options.productId,
+      product,
+      inlineSource: inlineImage,
+    });
 
     const metadata = decoded.contentType.toLowerCase().startsWith("image/svg")
       ? null
@@ -377,7 +484,7 @@ async function loadListingImageSource(options: {
       source,
       MAX_SOURCE_IMAGE_CACHE_ENTRIES,
     );
-    return source;
+    return { source };
   })().finally(() => {
     sourceImageRequestCache.delete(sourceCacheKey);
   });
@@ -385,7 +492,7 @@ async function loadListingImageSource(options: {
   sourceImageRequestCache.set(sourceCacheKey, requestPromise);
   return {
     sourceCacheKey,
-    source: await requestPromise,
+    ...(await requestPromise),
   };
 }
 
@@ -452,13 +559,21 @@ export async function GET(
 
   const slot = request.nextUrl.searchParams.get("slot");
   const version = request.nextUrl.searchParams.get("v");
-  const { sourceCacheKey, source } = await loadListingImageSource({
+  const { sourceCacheKey, source, redirectUrl } = await loadListingImageSource({
     request,
     productId,
     fallbackSlug: params.slug,
     slot,
     version,
   });
+  if (!source && redirectUrl) {
+    return NextResponse.redirect(new URL(redirectUrl, request.nextUrl.origin), {
+      status: 307,
+      headers: {
+        "Cache-Control": LISTING_IMAGE_CACHE_CONTROL,
+      },
+    });
+  }
   if (!source) {
     return new NextResponse("Not found", { status: 404 });
   }

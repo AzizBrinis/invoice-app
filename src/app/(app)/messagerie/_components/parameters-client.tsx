@@ -23,6 +23,7 @@ import {
   updateMessagingIdentityAction,
   updateMessagingLocalSyncPreferenceAction,
   updateAutoReplySettingsAction,
+  updateAutoForwardSettingsAction,
   testImapConnectionAction,
   testSmtpConnectionAction,
   updateEmailTrackingPreferenceAction,
@@ -165,6 +166,7 @@ export function ParametersClient({
   const identityFormRef = useRef<HTMLFormElement | null>(null);
   const connectionFormRef = useRef<HTMLFormElement | null>(null);
   const autoReplyFormRef = useRef<HTMLFormElement | null>(null);
+  const autoForwardFormRef = useRef<HTMLFormElement | null>(null);
   const logoFileInputRef = useRef<HTMLInputElement | null>(null);
   const logoUrlInputRef = useRef<HTMLInputElement | null>(null);
   const { addToast } = useToast();
@@ -174,10 +176,14 @@ export function ParametersClient({
   const [logoRemoved, setLogoRemoved] = useState(false);
   const [logoObjectUrl, setLogoObjectUrl] = useState<string | null>(null);
   const [trackingEnabled, setTrackingEnabled] = useState(summary.trackingEnabled);
+  const [autoForwardEnabled, setAutoForwardEnabled] = useState(
+    summary.autoForwardEnabled,
+  );
   const [localSyncEnabled, setLocalSyncEnabled] = useState(
     localSyncOverview.enabled,
   );
   const [updatingTracking, setUpdatingTracking] = useState(false);
+  const [savingAutoForward, setSavingAutoForward] = useState(false);
   const [updatingLocalSync, setUpdatingLocalSync] = useState(false);
   const [runningLocalSyncNow, setRunningLocalSyncNow] = useState(false);
   const [purgingLocalSync, setPurgingLocalSync] = useState(false);
@@ -198,6 +204,10 @@ export function ParametersClient({
   useEffect(() => {
     setTrackingEnabled(summary.trackingEnabled);
   }, [summary.trackingEnabled]);
+
+  useEffect(() => {
+    setAutoForwardEnabled(summary.autoForwardEnabled);
+  }, [summary.autoForwardEnabled]);
 
   useEffect(() => {
     setLocalSyncEnabled(localSyncOverview.enabled);
@@ -310,6 +320,15 @@ export function ParametersClient({
     [trackingEnabled],
   );
 
+  const autoForwardStatusBadge = useMemo(
+    () => (
+      <Badge variant={autoForwardEnabled ? "success" : "neutral"}>
+        {autoForwardEnabled ? "Transfert activé" : "Transfert désactivé"}
+      </Badge>
+    ),
+    [autoForwardEnabled],
+  );
+
   const callFormAction = useCallback(
     async <T,>(
       form: HTMLFormElement | null,
@@ -399,6 +418,35 @@ export function ParametersClient({
       addToast({
         variant: "error",
         title: result.message ?? "Échec de la mise à jour des réponses automatiques.",
+      });
+    }
+  };
+
+  const handleAutoForwardSave = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSavingAutoForward(true);
+    const result = await callFormAction(
+      autoForwardFormRef.current,
+      updateAutoForwardSettingsAction,
+    );
+    setSavingAutoForward(false);
+    if (!result) {
+      return;
+    }
+    if (result.success) {
+      const formData = autoForwardFormRef.current
+        ? new FormData(autoForwardFormRef.current)
+        : null;
+      setAutoForwardEnabled(formData?.get("autoForwardEnabled") === "true");
+      addToast({
+        variant: "success",
+        title: result.message ?? "Transfert automatique mis à jour.",
+      });
+      router.refresh();
+    } else {
+      addToast({
+        variant: "error",
+        title: result.message ?? "Échec de la mise à jour du transfert automatique.",
       });
     }
   };
@@ -686,6 +734,71 @@ export function ParametersClient({
           impossible à deviner, sans exposer d&apos;adresse ou de contenu sensible.
         </p>
       </section>
+
+      <form
+        ref={autoForwardFormRef}
+        onSubmit={handleAutoForwardSave}
+        className="space-y-4 rounded-lg border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
+      >
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-2">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+              Transfert automatique
+            </h3>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              Transférez chaque nouveau message reçu vers une ou plusieurs adresses.
+              Les messages déjà traités ne sont pas renvoyés.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {autoForwardStatusBadge}
+              <Badge variant={summary.imapConfigured ? "success" : "warning"}>
+                {summary.imapConfigured ? "IMAP prêt" : "IMAP requis"}
+              </Badge>
+              <Badge variant={summary.smtpConfigured ? "success" : "warning"}>
+                {summary.smtpConfigured ? "SMTP prêt" : "SMTP requis"}
+              </Badge>
+            </div>
+          </div>
+          <label className="label flex items-center gap-2 text-xs font-medium text-zinc-700 dark:text-zinc-200">
+            <input type="hidden" name="autoForwardEnabled" value="false" />
+            <input
+              type="checkbox"
+              name="autoForwardEnabled"
+              value="true"
+              defaultChecked={summary.autoForwardEnabled}
+              className="checkbox"
+            />
+            Activer
+          </label>
+        </div>
+        <div className="space-y-1.5">
+          <label
+            className="text-sm font-medium text-zinc-800 dark:text-zinc-200"
+            htmlFor="auto-forward-recipients"
+          >
+            Destinataires
+          </label>
+          <Textarea
+            id="auto-forward-recipients"
+            name="autoForwardRecipients"
+            rows={3}
+            defaultValue={summary.autoForwardRecipients.join("\n")}
+            placeholder={"direction@exemple.com\nsupport@exemple.com"}
+          />
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            Saisissez une adresse par ligne, ou séparez-les par virgule ou point-virgule.
+          </p>
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+          <Button
+            type="submit"
+            loading={savingAutoForward}
+            className="w-full sm:w-auto"
+          >
+            Enregistrer le transfert automatique
+          </Button>
+        </div>
+      </form>
 
       <section className="space-y-4 rounded-lg border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">

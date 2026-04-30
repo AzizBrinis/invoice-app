@@ -10,6 +10,9 @@ describe("background job maintenance helpers", () => {
       __testables.isSupersededWhenStale("messaging.syncInboxAutoReplies"),
     ).toBe(true);
     expect(
+      __testables.isSupersededWhenStale("messaging.syncInboxAutoForwards"),
+    ).toBe(true);
+    expect(
       __testables.isSupersededWhenStale("messaging.localSyncDelta"),
     ).toBe(true);
   });

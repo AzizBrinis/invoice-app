@@ -10,11 +10,37 @@ import {
   resolveCatalogWebsite,
 } from "@/server/website";
 
+const PUBLIC_CATALOG_API_CACHE_CONTROL =
+  "public, max-age=60, s-maxage=300, stale-while-revalidate=3600";
+const PUBLIC_CATALOG_NOT_FOUND_CACHE_CONTROL =
+  "public, max-age=30, s-maxage=60, stale-while-revalidate=300";
+const PREVIEW_CATALOG_API_CACHE_CONTROL = "private, no-store";
+
 const querySchema = z.object({
   slug: z.string().nullable().optional(),
   mode: z.enum(["public", "preview"]).default("public"),
   post: z.string().min(1),
 });
+
+function jsonWithCache(
+  body: unknown,
+  options: { preview?: boolean; status?: number } = {},
+) {
+  const status = options.status ?? 200;
+  const cacheControl = options.preview
+    ? PREVIEW_CATALOG_API_CACHE_CONTROL
+    : status === 404
+      ? PUBLIC_CATALOG_NOT_FOUND_CACHE_CONTROL
+      : status >= 400
+        ? "no-store"
+        : PUBLIC_CATALOG_API_CACHE_CONTROL;
+  return NextResponse.json(body, {
+    status,
+    headers: {
+      "Cache-Control": cacheControl,
+    },
+  });
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -29,9 +55,9 @@ export async function GET(request: NextRequest) {
     const postSlug = normalizeCatalogSlugInput(query.post);
 
     if (!postSlug) {
-      return NextResponse.json(
+      return jsonWithCache(
         { error: "Missing blog post slug." },
-        { status: 400 },
+        { preview: query.mode === "preview", status: 400 },
       );
     }
 
@@ -41,7 +67,10 @@ export async function GET(request: NextRequest) {
       preview: query.mode === "preview",
     });
     if (!website) {
-      return NextResponse.json({ error: "Catalog not found." }, { status: 404 });
+      return jsonWithCache(
+        { error: "Catalog not found." },
+        { preview: query.mode === "preview", status: 404 },
+      );
     }
 
     const post = await getPublicSiteBlogPostBySlug({
@@ -50,12 +79,18 @@ export async function GET(request: NextRequest) {
       preview: query.mode === "preview",
     });
     if (!post) {
-      return NextResponse.json({ error: "Blog post not found." }, { status: 404 });
+      return jsonWithCache(
+        { error: "Blog post not found." },
+        { preview: query.mode === "preview", status: 404 },
+      );
     }
 
-    return NextResponse.json({ post });
+    return jsonWithCache(
+      { post },
+      { preview: query.mode === "preview" },
+    );
   } catch (error) {
-    return NextResponse.json(
+    return jsonWithCache(
       {
         error:
           error instanceof Error

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const requireAppSectionAccessMock = vi.fn();
 const revalidatePathMock = vi.fn();
 const getMessagingSettingsSummaryMock = vi.fn();
+const updateMessagingAutoForwardSettingsMock = vi.fn();
 const updateMailboxMessageSeenStateMock = vi.fn();
 const getMessagingLocalSyncPreferenceMock = vi.fn();
 const setMessagingLocalSyncPreferenceMock = vi.fn();
@@ -32,9 +33,12 @@ vi.mock("@/server/messaging", () => ({
   updateMailboxMessageSeenState: updateMailboxMessageSeenStateMock,
   updateMessagingConnections: noopAsyncMock,
   updateMessagingAutoReplySettings: noopAsyncMock,
+  updateMessagingAutoForwardSettings: updateMessagingAutoForwardSettingsMock,
   updateMessagingSenderIdentity: noopAsyncMock,
   updateEmailTrackingPreference: noopAsyncMock,
   getMessagingSettingsSummary: getMessagingSettingsSummaryMock,
+  normalizeForwardingEmailAddresses: (values: string[]) =>
+    values.map((value) => value.trim().toLowerCase()).filter(Boolean),
   moveMailboxMessage: noopAsyncMock,
   fetchMailboxUpdates: noopAsyncMock,
 }));
@@ -100,12 +104,14 @@ describe("messaging local sync settings actions", () => {
     });
     getMessagingSettingsSummaryMock.mockResolvedValue({
       imapConfigured: true,
+      smtpConfigured: true,
     });
     getMessagingLocalSyncPreferenceMock.mockResolvedValue(true);
     setMessagingLocalSyncPreferenceMock.mockResolvedValue({
       userId: "tenant-1",
       localSyncEnabled: true,
     });
+    updateMessagingAutoForwardSettingsMock.mockResolvedValue(undefined);
     isMessagingLocalSyncServerEnabledMock.mockReturnValue(true);
     queueMessagingLocalPurgeMock.mockResolvedValue({
       jobId: "purge-job",
@@ -131,6 +137,76 @@ describe("messaging local sync settings actions", () => {
     updateMailboxMessageSeenStateMock.mockResolvedValue(undefined);
     updateMessagingLocalMessageSeenStateMock.mockResolvedValue(undefined);
     markMessagingMailboxLocalSyncStateDegradedMock.mockResolvedValue(undefined);
+  });
+
+  it("updates automatic forwarding settings with tenant scope", async () => {
+    const { updateAutoForwardSettingsAction } = await import(
+      "@/app/(app)/messagerie/actions"
+    );
+
+    const formData = new FormData();
+    formData.append("autoForwardEnabled", "true");
+    formData.append(
+      "autoForwardRecipients",
+      "Ops@Example.com\nsupport@example.com",
+    );
+
+    const result = await updateAutoForwardSettingsAction(formData);
+
+    expect(getMessagingSettingsSummaryMock).toHaveBeenCalledWith("tenant-1");
+    expect(updateMessagingAutoForwardSettingsMock).toHaveBeenCalledWith({
+      autoForwardEnabled: true,
+      autoForwardRecipients: ["ops@example.com", "support@example.com"],
+    });
+    expect(result).toEqual({
+      success: true,
+      message: "Transfert automatique activé.",
+    });
+    expect(revalidatePathMock).toHaveBeenCalledWith("/messagerie/parametres");
+  });
+
+  it("requires SMTP before enabling automatic forwarding", async () => {
+    const { updateAutoForwardSettingsAction } = await import(
+      "@/app/(app)/messagerie/actions"
+    );
+    getMessagingSettingsSummaryMock.mockResolvedValueOnce({
+      imapConfigured: true,
+      smtpConfigured: false,
+    });
+
+    const formData = new FormData();
+    formData.append("autoForwardEnabled", "true");
+    formData.append("autoForwardRecipients", "ops@example.com");
+
+    const result = await updateAutoForwardSettingsAction(formData);
+
+    expect(updateMessagingAutoForwardSettingsMock).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      success: false,
+      message: "Configurez SMTP avant d'activer le transfert automatique.",
+    });
+  });
+
+  it("requires IMAP before enabling automatic forwarding", async () => {
+    const { updateAutoForwardSettingsAction } = await import(
+      "@/app/(app)/messagerie/actions"
+    );
+    getMessagingSettingsSummaryMock.mockResolvedValueOnce({
+      imapConfigured: false,
+      smtpConfigured: true,
+    });
+
+    const formData = new FormData();
+    formData.append("autoForwardEnabled", "true");
+    formData.append("autoForwardRecipients", "ops@example.com");
+
+    const result = await updateAutoForwardSettingsAction(formData);
+
+    expect(updateMessagingAutoForwardSettingsMock).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      success: false,
+      message: "Configurez IMAP avant d'activer le transfert automatique.",
+    });
   });
 
   it("enables local sync, keeps the preference, and starts bootstrap immediately", async () => {

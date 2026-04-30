@@ -15,9 +15,11 @@ import {
   updateMailboxMessageSeenState,
   updateMessagingConnections,
   updateMessagingAutoReplySettings,
+  updateMessagingAutoForwardSettings,
   updateMessagingSenderIdentity,
   updateEmailTrackingPreference,
   getMessagingSettingsSummary,
+  normalizeForwardingEmailAddresses,
   moveMailboxMessage,
   type Mailbox,
   type MailboxPageResult,
@@ -59,6 +61,11 @@ import {
   normalizeMailboxSearchQuery,
 } from "@/lib/messaging/mailbox-search";
 import {
+  MESSAGING_ATTACHMENT_TOTAL_LIMIT_BYTES,
+  MESSAGING_ATTACHMENT_TOTAL_LIMIT_LABEL,
+  isAllowedMessagingAttachmentType,
+} from "@/lib/messaging/attachments";
+import {
   scheduleEmailDraft,
   rescheduleScheduledEmail,
   cancelScheduledEmail,
@@ -85,25 +92,6 @@ type ParsedIdentityFormInput = {
 const booleanSchema = z
   .union([z.literal("true"), z.literal("false")])
   .transform((value) => value === "true");
-
-const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024; // 10 Mo
-const ALLOWED_ATTACHMENT_TYPES = new Set<string>([
-  "application/pdf",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/vnd.ms-excel",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "application/zip",
-  "application/json",
-  "text/plain",
-]);
-const ALLOWED_ATTACHMENT_PREFIXES = ["image/", "audio/"];
-
-function isAllowedAttachmentType(mime: string | undefined | null): boolean {
-  if (!mime) return true;
-  if (ALLOWED_ATTACHMENT_TYPES.has(mime)) return true;
-  return ALLOWED_ATTACHMENT_PREFIXES.some((prefix) => mime.startsWith(prefix));
-}
 
 const MAILBOX_VALUES = ["inbox", "sent", "drafts", "trash", "spam"] as const satisfies ReadonlyArray<Mailbox>;
 
@@ -636,6 +624,21 @@ const autoReplySettingsSchema = z.object({
   vacationBackupEmail: optionalEmailSchema,
 });
 
+const autoForwardSettingsSchema = z.object({
+  autoForwardEnabled: booleanSchema,
+  autoForwardRecipients: z
+    .string()
+    .optional()
+    .transform((value) => value ?? ""),
+});
+
+function splitForwardingRecipients(value: string): string[] {
+  return value
+    .split(/[\n,;]+/)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
 function mapSettingsValidationError(error: z.ZodError): string {
   const fields = new Set(
     error.issues
@@ -1024,6 +1027,75 @@ export async function updateAutoReplySettingsAction(
         error instanceof Error
           ? error.message
           : "Impossible de mettre à jour les réponses automatiques.",
+    };
+  }
+}
+
+export async function updateAutoForwardSettingsAction(
+  formData: FormData,
+): Promise<ActionResult> {
+  try {
+    const user = await requireMessagingUser();
+    const userId = resolveMessagingUserId(user);
+    const parsed = autoForwardSettingsSchema.parse(
+      Object.fromEntries(formData),
+    );
+    const recipients = normalizeForwardingEmailAddresses(
+      splitForwardingRecipients(parsed.autoForwardRecipients),
+    );
+
+    if (parsed.autoForwardEnabled && recipients.length === 0) {
+      return {
+        success: false,
+        message:
+          "Ajoutez au moins une adresse e-mail pour activer le transfert automatique.",
+      };
+    }
+
+    if (parsed.autoForwardEnabled) {
+      const summary = await getMessagingSettingsSummary(userId);
+      if (!summary.imapConfigured) {
+        return {
+          success: false,
+          message:
+            "Configurez IMAP avant d'activer le transfert automatique.",
+        };
+      }
+      if (!summary.smtpConfigured) {
+        return {
+          success: false,
+          message:
+            "Configurez SMTP avant d'activer le transfert automatique.",
+        };
+      }
+    }
+
+    await updateMessagingAutoForwardSettings({
+      autoForwardEnabled: parsed.autoForwardEnabled,
+      autoForwardRecipients: recipients,
+    });
+
+    revalidatePath("/messagerie/parametres");
+
+    return {
+      success: true,
+      message: parsed.autoForwardEnabled
+        ? "Transfert automatique activé."
+        : "Transfert automatique désactivé.",
+    };
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return {
+        success: false,
+        message: error.issues[0]?.message ?? "Champs invalides.",
+      };
+    }
+    return {
+      success: false,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Impossible de mettre à jour le transfert automatique.",
     };
   }
 }
@@ -1838,11 +1910,20 @@ async function buildPreparedComposePayload(
     .filter((value): value is File => value instanceof File && value.size > 0);
 
   const attachments: EmailAttachment[] = [];
+  let totalAttachmentSize = 0;
   for (const file of files) {
-    if (file.size > MAX_ATTACHMENT_SIZE) {
-      throw new Error("Pièce jointe trop volumineuse.");
+    if (file.size > MESSAGING_ATTACHMENT_TOTAL_LIMIT_BYTES) {
+      throw new Error(
+        `Pièce jointe trop volumineuse. Limite totale : ${MESSAGING_ATTACHMENT_TOTAL_LIMIT_LABEL}.`,
+      );
     }
-    if (!isAllowedAttachmentType(file.type)) {
+    totalAttachmentSize += file.size;
+    if (totalAttachmentSize > MESSAGING_ATTACHMENT_TOTAL_LIMIT_BYTES) {
+      throw new Error(
+        `La taille totale des pièces jointes ne peut pas dépasser ${MESSAGING_ATTACHMENT_TOTAL_LIMIT_LABEL}.`,
+      );
+    }
+    if (!isAllowedMessagingAttachmentType(file.type)) {
       throw new Error("Type de fichier non supporté.");
     }
     const buffer = Buffer.from(await file.arrayBuffer());

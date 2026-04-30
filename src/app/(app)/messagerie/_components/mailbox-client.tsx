@@ -453,43 +453,6 @@ const SUBJECT_CLAMP_STYLE: CSSProperties = {
 
 const MAILBOX_RENDER_BATCH_SIZE = 60;
 const MAILBOX_SELECTION_VISIBILITY_BUFFER = 12;
-const MAILBOX_DETAIL_PREFETCH_BATCH_SIZE = 3;
-const MAILBOX_DETAIL_PREFETCH_DELAY_MS = 150;
-
-function collectLikelyDetailPrefetchUids(
-  messages: MailboxListItem[],
-  selectedUid: number | null,
-  maxCount: number,
-) {
-  if (!messages.length || maxCount <= 0) {
-    return [];
-  }
-
-  const candidates: number[] = [];
-  const selectedIndex =
-    selectedUid === null
-      ? -1
-      : messages.findIndex((message) => message.uid === selectedUid);
-
-  if (selectedIndex >= 0) {
-    candidates.push(messages[selectedIndex]!.uid);
-    if (messages[selectedIndex + 1]) {
-      candidates.push(messages[selectedIndex + 1]!.uid);
-    }
-    if (messages[selectedIndex - 1]) {
-      candidates.push(messages[selectedIndex - 1]!.uid);
-    }
-  }
-
-  for (const message of messages) {
-    if (candidates.length >= maxCount) {
-      break;
-    }
-    candidates.push(message.uid);
-  }
-
-  return Array.from(new Set(candidates)).slice(0, maxCount);
-}
 
 function MessageDetailSkeleton() {
   return (
@@ -519,7 +482,6 @@ type MailboxMessageRowProps = {
   isActive: boolean;
   isLoadingSelection: boolean;
   onSelect: (uid: number) => void;
-  onWarm: (uid: number) => void;
 };
 
 const MailboxMessageRow = memo(function MailboxMessageRow({
@@ -528,7 +490,6 @@ const MailboxMessageRow = memo(function MailboxMessageRow({
   isActive,
   isLoadingSelection,
   onSelect,
-  onWarm,
 }: MailboxMessageRowProps) {
   const disableSelection = isLoadingSelection && isActive;
   const formattedDate = formatDate(message.date);
@@ -543,8 +504,6 @@ const MailboxMessageRow = memo(function MailboxMessageRow({
       data-message-uid={message.uid}
       type="button"
       onClick={() => onSelect(message.uid)}
-      onMouseEnter={() => onWarm(message.uid)}
-      onFocus={() => onWarm(message.uid)}
       disabled={disableSelection}
       aria-busy={isLoadingSelection ? "true" : undefined}
       className={clsx(
@@ -644,8 +603,7 @@ const MailboxMessageRow = memo(function MailboxMessageRow({
     areMailboxItemsEqual(previous.message, next.message) &&
     previous.isActive === next.isActive &&
     previous.isLoadingSelection === next.isLoadingSelection &&
-    previous.onSelect === next.onSelect &&
-    previous.onWarm === next.onWarm
+    previous.onSelect === next.onSelect
   );
 });
 
@@ -673,9 +631,6 @@ export function MailboxClient({
   const detailPaneRef = useRef<HTMLDivElement | null>(null);
   const mailDetailBodyRef = useRef<HTMLDivElement | null>(null);
   const detailRequestsRef = useRef<Map<string, Promise<DetailRequestResult>>>(
-    new Map()
-  );
-  const prefetchedDetailStateRef = useRef<Map<number, "pending" | "done">>(
     new Map()
   );
   const seenWritebackStateRef = useRef<Map<string, "pending" | "done">>(
@@ -799,7 +754,6 @@ export function MailboxClient({
 
   useEffect(() => {
     detailRequestsRef.current.clear();
-    prefetchedDetailStateRef.current.clear();
     seenWritebackStateRef.current.clear();
   }, [mailbox]);
 
@@ -843,11 +797,6 @@ export function MailboxClient({
       localSyncOverview.mailboxes.find((entry) => entry.mailbox === mailbox) ??
       null,
     [localSyncOverview.mailboxes, mailbox]
-  );
-  const canWarmMessageDetailLocally = Boolean(
-    localSyncOverview.active &&
-      currentLocalSyncMailbox?.readable &&
-      currentLocalSyncMailbox.backfillComplete
   );
   const displayedHasMessages = displayedMessages.length > 0;
   const displayedHasMoreMessages = hasActiveSearch
@@ -1323,70 +1272,6 @@ export function MailboxClient({
     },
     [mailbox, safeActionCall]
   );
-
-  const warmMessageDetail = useCallback(
-    (
-      uid: number | null,
-      options?: {
-        allowRemote?: boolean;
-      }
-    ) => {
-      if (!uid) {
-        return;
-      }
-      if (getCachedMessageDetail(mailbox, uid)) {
-        prefetchedDetailStateRef.current.set(uid, "done");
-        return;
-      }
-      if (!options?.allowRemote && !canWarmMessageDetailLocally) {
-        return;
-      }
-      const currentState = prefetchedDetailStateRef.current.get(uid);
-      if (currentState === "pending" || currentState === "done") {
-        return;
-      }
-      prefetchedDetailStateRef.current.set(uid, "pending");
-      requestMessageDetail(uid, { silentNetworkError: true })
-        .then((result) => {
-          if (result.success) {
-            prefetchedDetailStateRef.current.set(uid, "done");
-          } else {
-            prefetchedDetailStateRef.current.delete(uid);
-          }
-        })
-        .catch(() => {
-          prefetchedDetailStateRef.current.delete(uid);
-        });
-    },
-    [canWarmMessageDetailLocally, mailbox, requestMessageDetail]
-  );
-
-  useEffect(() => {
-    if (!canWarmMessageDetailLocally || visibleMessages.length === 0) {
-      return;
-    }
-    const candidateUids = collectLikelyDetailPrefetchUids(
-      visibleMessages,
-      selectedUid,
-      MAILBOX_DETAIL_PREFETCH_BATCH_SIZE
-    );
-    if (!candidateUids.length) {
-      return;
-    }
-    const timeoutId = window.setTimeout(() => {
-      candidateUids.forEach((uid) => {
-        warmMessageDetail(uid);
-      });
-    }, MAILBOX_DETAIL_PREFETCH_DELAY_MS);
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [
-    canWarmMessageDetailLocally,
-    selectedUid,
-    visibleMessages,
-    warmMessageDetail,
-  ]);
 
   const loadSearchPage = useCallback(
     async ({
@@ -1912,14 +1797,12 @@ export function MailboxClient({
       setOptimisticSelectedUid(uid);
       setSelectedUid(uid);
       updateUrlMessageParam(uid);
-      warmMessageDetail(uid, { allowRemote: true });
       setMobilePane("detail");
     },
     [
       detailLoading,
       optimisticSelectedUid,
       updateUrlMessageParam,
-      warmMessageDetail,
     ]
   );
 
@@ -2622,7 +2505,6 @@ export function MailboxClient({
                               pendingMessageUid === message.uid)
                           }
                           onSelect={handleSelectMessage}
-                          onWarm={warmMessageDetail}
                         />
                       </div>
                     ))}

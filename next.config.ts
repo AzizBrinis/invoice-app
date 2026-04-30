@@ -4,8 +4,8 @@ const tracingIncludes = [
   "./node_modules/@sparticuz/chromium",
 ];
 
-const CATALOG_CACHE_SECONDS = 30;
-const CATALOG_STALE_SECONDS = 60;
+const CATALOG_CACHE_SECONDS = 300;
+const CATALOG_STALE_SECONDS = 3600;
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const OPTIMIZED_REMOTE_SOURCES: Array<{
   protocol: "http" | "https";
@@ -86,12 +86,31 @@ const CATALOG_CACHE_HEADERS = [
     value: `public, s-maxage=${CATALOG_CACHE_SECONDS}, stale-while-revalidate=${CATALOG_STALE_SECONDS}`,
   },
 ];
+const CATALOG_UNCACHEABLE_PATH_SEGMENTS = [
+  "account",
+  "cart",
+  "checkout",
+  "order-success",
+  "login",
+  "signup",
+  "forgot-password",
+  "panier",
+  "paiement",
+  "confirmation",
+] as const;
+const CATALOG_UNCACHEABLE_HEADERS = [
+  {
+    key: "Cache-Control",
+    value: "private, no-store",
+  },
+];
 const IMMUTABLE_ASSET_HEADERS = [
   {
     key: "Cache-Control",
     value: "public, max-age=31536000, immutable",
   },
 ];
+const MESSAGING_ACTION_BODY_SIZE_LIMIT = "110mb";
 
 const nextConfig: NextConfig = {
   typedRoutes: true,
@@ -102,8 +121,9 @@ const nextConfig: NextConfig = {
     remotePatterns: OPTIMIZED_REMOTE_SOURCES,
   },
   experimental: {
+    proxyClientMaxBodySize: MESSAGING_ACTION_BODY_SIZE_LIMIT,
     serverActions: {
-      bodySizeLimit: "100mb",
+      bodySizeLimit: MESSAGING_ACTION_BODY_SIZE_LIMIT,
     },
   },
   async headers() {
@@ -120,6 +140,24 @@ const nextConfig: NextConfig = {
         source: "/catalogue/:path*",
         headers: CATALOG_CACHE_HEADERS,
       },
+      ...CATALOG_UNCACHEABLE_PATH_SEGMENTS.flatMap((segment) => [
+        {
+          source: `/catalogue/${segment}`,
+          headers: CATALOG_UNCACHEABLE_HEADERS,
+        },
+        {
+          source: `/catalogue/${segment}/:path*`,
+          headers: CATALOG_UNCACHEABLE_HEADERS,
+        },
+        {
+          source: `/catalogue/:slug/${segment}`,
+          headers: CATALOG_UNCACHEABLE_HEADERS,
+        },
+        {
+          source: `/catalogue/:slug/${segment}/:path*`,
+          headers: CATALOG_UNCACHEABLE_HEADERS,
+        },
+      ]),
       {
         source: "/images/placeholders/:path*",
         headers: IMMUTABLE_ASSET_HEADERS,

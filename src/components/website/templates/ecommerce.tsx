@@ -1,12 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import NextImage from "next/image";
 import clsx from "clsx";
 import { DEFAULT_PRIMARY_CTA_LABEL } from "@/lib/website/defaults";
 import { WEBSITE_MEDIA_PLACEHOLDERS } from "@/lib/website/placeholders";
 import { buildPublicWebsiteHref } from "@/lib/website/custom-domain";
 import type {
-  WebsiteBuilderConfig,
   WebsiteBuilderMediaAsset,
   WebsiteBuilderSection,
 } from "@/lib/website/builder";
@@ -92,6 +92,95 @@ const containerMap = {
   default: "max-w-6xl",
   wide: "max-w-7xl",
 };
+
+function resolveOptimizedRemoteHosts() {
+  const hosts = new Set(["images.unsplash.com"]);
+  const configuredStorageUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  if (!configuredStorageUrl) {
+    return hosts;
+  }
+
+  try {
+    hosts.add(new URL(configuredStorageUrl).hostname);
+  } catch {
+    return hosts;
+  }
+
+  return hosts;
+}
+
+const OPTIMIZED_REMOTE_HOSTS = resolveOptimizedRemoteHosts();
+
+function shouldBypassImageOptimization(src: string) {
+  return src.startsWith("data:") || /\.svg(?:$|[?#])/i.test(src);
+}
+
+function canUseNextImage(src: string) {
+  if (src.startsWith("/") || src.startsWith("data:")) {
+    return true;
+  }
+
+  try {
+    return OPTIMIZED_REMOTE_HOSTS.has(new URL(src).hostname);
+  } catch {
+    return false;
+  }
+}
+
+function TemplateImage({
+  src,
+  alt,
+  className,
+  sizes,
+  width = 640,
+  height = 640,
+  priority = false,
+}: {
+  src: string;
+  alt: string;
+  className?: string;
+  sizes?: string;
+  width?: number;
+  height?: number;
+  priority?: boolean;
+}) {
+  const normalizedSrc = src.trim();
+  if (!normalizedSrc) {
+    return null;
+  }
+
+  if (canUseNextImage(normalizedSrc)) {
+    return (
+      <NextImage
+        src={normalizedSrc}
+        alt={alt}
+        width={width}
+        height={height}
+        sizes={sizes}
+        priority={priority}
+        loading={priority ? undefined : "lazy"}
+        fetchPriority={priority ? "high" : undefined}
+        decoding="async"
+        unoptimized={shouldBypassImageOptimization(normalizedSrc)}
+        className={className}
+      />
+    );
+  }
+
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={normalizedSrc}
+      alt={alt}
+      className={className}
+      loading={priority ? "eager" : "lazy"}
+      fetchPriority={priority ? "high" : "auto"}
+      decoding="async"
+      width={width}
+      height={height}
+    />
+  );
+}
 
 function normalizePath(path?: string | null): string {
   if (!path) return "/";
@@ -388,10 +477,8 @@ function SearchBar({ placeholder }: { placeholder: string }) {
 
 function Breadcrumbs({
   items,
-  theme,
 }: {
   items: { label: string; href?: string }[];
-  theme: ThemeContext;
 }) {
   return (
     <nav className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400" aria-label="Fil d’Ariane">
@@ -483,11 +570,13 @@ function ProductCard({ product, theme, baseLink }: { product: ProductCardData; t
     <article className={clsx("group flex h-full flex-col overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-xl dark:border-zinc-800 dark:bg-zinc-900", theme.corner)}>
       <div className="relative aspect-[4/5] overflow-hidden bg-gradient-to-br from-zinc-100 via-white to-zinc-50 dark:from-zinc-900 dark:via-zinc-950 dark:to-black">
         {product.image ? (
-          <img
+          <TemplateImage
             src={product.image}
             alt={product.title}
             className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.03]"
-            loading="lazy"
+            width={640}
+            height={800}
+            sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
           />
         ) : (
           <div
@@ -824,11 +913,14 @@ function HeroSlider({
         >
           <div className="aspect-[4/3]">
             {current.image ? (
-              <img
+              <TemplateImage
                 src={current.image}
                 alt={current.title}
                 className="h-full w-full object-cover"
-                loading="lazy"
+                width={960}
+                height={720}
+                sizes="(max-width: 1024px) 100vw, 45vw"
+                priority={active === 0}
               />
             ) : (
               <div className="flex h-full items-center justify-center bg-[var(--site-accent)]/10 text-sm text-zinc-600 dark:text-zinc-300">
@@ -904,11 +996,13 @@ function HomePage({
             >
               <div className="aspect-[4/3] overflow-hidden bg-gradient-to-br from-zinc-100 via-white to-zinc-50 dark:from-zinc-900 dark:via-zinc-950 dark:to-black">
                 {category.image ? (
-                  <img
+                  <TemplateImage
                     src={category.image}
                     alt={category.title}
                     className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.04]"
-                    loading="lazy"
+                    width={640}
+                    height={480}
+                    sizes="(max-width: 640px) 100vw, 33vw"
                   />
                 ) : (
                   <div className="flex h-full items-center justify-center text-sm text-zinc-500 dark:text-zinc-300">
@@ -990,7 +1084,6 @@ function CategoryPage({
             { label: "Catégories", href: baseLink("/categories/toutes") },
             { label: "Catégorie en vedette" },
           ]}
-          theme={theme}
         />
         <h1 className="text-3xl font-semibold text-zinc-900 dark:text-white">Catégorie 1 — Sélection</h1>
         <p className="text-sm text-zinc-600 dark:text-zinc-300">
@@ -1037,7 +1130,14 @@ function ProductGallery({
   return (
     <div className="space-y-3">
       <div className="aspect-[4/3] overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-        <img src={current} alt={title} className="h-full w-full object-cover" loading="lazy" />
+        <TemplateImage
+          src={current}
+          alt={title}
+          className="h-full w-full object-cover"
+          width={960}
+          height={720}
+          sizes="(max-width: 1024px) 100vw, 50vw"
+        />
       </div>
       <div className="flex gap-2 overflow-x-auto">
         {images.map((image, index) => (
@@ -1052,7 +1152,14 @@ function ProductGallery({
                 : "border-zinc-200 dark:border-zinc-800",
             )}
           >
-            <img src={image} alt={`${title} aperçu ${index + 1}`} className="h-full w-full object-cover" loading="lazy" />
+            <TemplateImage
+              src={image}
+              alt={`${title} aperçu ${index + 1}`}
+              className="h-full w-full object-cover"
+              width={160}
+              height={160}
+              sizes="80px"
+            />
           </button>
         ))}
       </div>
@@ -1096,7 +1203,6 @@ function ProductPage({
           { label: "Produits", href: baseLink("/categories/toutes") },
           { label: product.title },
         ]}
-        theme={theme}
       />
       <div className="grid gap-8 lg:grid-cols-[1.1fr_0.9fr]">
         <ProductGallery images={images} title={product.title} />
@@ -1196,7 +1302,14 @@ function CartPage({
           {cartItems.map((item) => (
             <div key={item.id} className="flex flex-wrap items-center gap-4 border-b border-zinc-100 pb-4 last:border-none last:pb-0 dark:border-zinc-800">
               <div className="h-16 w-16 overflow-hidden rounded-xl border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950">
-                <img src={item.image ?? WEBSITE_MEDIA_PLACEHOLDERS.products[0]} alt={item.title} className="h-full w-full object-cover" loading="lazy" />
+                <TemplateImage
+                  src={item.image ?? WEBSITE_MEDIA_PLACEHOLDERS.products[0]}
+                  alt={item.title}
+                  className="h-full w-full object-cover"
+                  width={128}
+                  height={128}
+                  sizes="64px"
+                />
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-semibold text-zinc-900 dark:text-white">{item.title}</p>

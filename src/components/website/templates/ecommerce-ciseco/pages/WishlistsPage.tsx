@@ -16,6 +16,7 @@ import { ExtraSections } from "../components/builder/ExtraSections";
 import { Footer } from "../components/layout/Footer";
 import { Navbar } from "../components/layout/Navbar";
 import { PageShell } from "../components/layout/PageShell";
+import { CatalogImage } from "../components/shared/CatalogImage";
 import { StarIcon, WishlistHeartIcon } from "../components/shared/Icons";
 import {
   resolveVariantOptions,
@@ -381,11 +382,13 @@ function WishlistCard({
             <WishlistHeartIcon className="h-4 w-4" filled={item.favorite} />
           )}
         </button>
-        <img
+        <CatalogImage
           src={imageSrc}
           alt={item.name}
           className="h-full w-full object-contain"
-          loading="lazy"
+          width={640}
+          height={640}
+          sizes="(max-width: 640px) 100vw, 33vw"
         />
       </div>
       <div className="mt-4 flex items-center gap-2">

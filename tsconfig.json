@@ -24,6 +24,7 @@
       "vitest/globals"
     ],
     "incremental": true,
+    "tsBuildInfoFile": ".next/cache/tsconfig.tsbuildinfo",
     "plugins": [
       {
         "name": "next"

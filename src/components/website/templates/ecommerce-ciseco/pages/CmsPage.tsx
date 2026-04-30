@@ -49,7 +49,7 @@ async function loadCmsPage(options: {
     `/api/catalogue/cms?slug=${encodeURIComponent(options.catalogSlug)}&mode=${encodeURIComponent(options.mode)}&path=${encodeURIComponent(options.pagePath)}`,
     {
       method: "GET",
-      cache: "no-store",
+      cache: options.mode === "preview" ? "no-store" : "force-cache",
     },
   )
     .then(async (response) => {

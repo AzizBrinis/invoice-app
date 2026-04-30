@@ -20,8 +20,18 @@ import {
   appendCisecoLocaleToHref,
   resolveCisecoLocale,
 } from "@/components/website/templates/ecommerce-ciseco/locale";
+import { EcommerceCisecoHomeTemplate } from "@/components/website/templates/ecommerce-ciseco/template";
+import { EcommerceCisecoHomeTemplateClient } from "@/components/website/templates/ecommerce-ciseco/template-client";
 
 describe("ciseco collection routing", () => {
+  it("uses the route-aware SPA template even for the initial home route", async () => {
+    const element = await EcommerceCisecoHomeTemplate(
+      {} as Parameters<typeof EcommerceCisecoHomeTemplate>[0],
+    );
+
+    expect(element.type).toBe(EcommerceCisecoHomeTemplateClient);
+  });
+
   it("resolves collection paths with optional slug", () => {
     expect(resolvePage("/collections")).toEqual({ page: "collections" });
     expect(resolvePage("/collections/summer-edit")).toEqual({

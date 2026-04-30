@@ -75,7 +75,6 @@ function createLocalMessage(
     previewText: "Apercu local",
     normalizedText: "Texte local detail",
     sanitizedHtml: "<p>Texte local detail</p>",
-    searchText: "Sujet local Alice Example support@example.com",
     bodyState: "HTML_READY",
     lastSyncedAt: "2026-03-26T10:05:00.000Z",
     hydratedAt: "2026-03-26T10:05:00.000Z",

@@ -9,6 +9,7 @@ This directory is the reviewed SQL source of truth for schema and index changes 
 - `20260414_product_reviews.sql` adds moderated product reviews for public catalogue product pages.
 - `20260414_site_reviews.sql` adds moderated general site reviews for Home/About testimonials.
 - `20260417_invoice_requests.sql` adds tenant-scoped customer invoice requests for catalogue orders.
+- `20260430_messaging_auto_forwarding.sql` adds tenant-scoped Messagerie auto-forward settings, cursor state, and delivery logs.
 
 ## Applying
 

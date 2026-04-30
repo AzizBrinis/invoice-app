@@ -7,7 +7,9 @@ import {
 } from "@/lib/catalog-host";
 
 const CATALOG_PUBLIC_CACHE_CONTROL =
-  "public, s-maxage=30, stale-while-revalidate=60";
+  "public, s-maxage=300, stale-while-revalidate=3600";
+const CATALOG_BLOCKED_CACHE_CONTROL =
+  "public, s-maxage=600, stale-while-revalidate=3600";
 
 const CATALOG_UNCACHEABLE_PATH_PREFIXES = [
   "/account",
@@ -22,6 +24,35 @@ const CATALOG_UNCACHEABLE_PATH_PREFIXES = [
   "/confirmation",
 ] as const;
 
+const CATALOG_BLOCKED_PATH_PREFIXES = [
+  "/admin",
+  "/administrator",
+  "/autodiscover",
+  "/boaform",
+  "/cgi-bin",
+  "/debug",
+  "/hudson",
+  "/jenkins",
+  "/phpmyadmin",
+  "/pma",
+  "/remote",
+  "/server-status",
+  "/solr",
+  "/vendor",
+  "/wp",
+  "/wp-admin",
+  "/wp-content",
+  "/wp-includes",
+  "/wp-json",
+  "/wordpress",
+] as const;
+
+const CATALOG_BLOCKED_PATHS = [
+  "/adminer",
+  "/xmlrpc",
+  "/wp-login",
+] as const;
+
 function isStaticPath(pathname: string) {
   if (
     pathname.startsWith("/_next") ||
@@ -34,6 +65,67 @@ function isStaticPath(pathname: string) {
     return true;
   }
   return /\.[a-z0-9]+$/i.test(pathname);
+}
+
+function decodePathname(pathname: string) {
+  try {
+    return decodeURIComponent(pathname);
+  } catch {
+    return null;
+  }
+}
+
+function normalizePathname(pathname: string) {
+  const lower = pathname.toLowerCase();
+  return lower.length > 1 && lower.endsWith("/") ? lower.slice(0, -1) : lower;
+}
+
+function isBlockedPathPrefix(pathname: string, prefix: string) {
+  return pathname === prefix || pathname.startsWith(`${prefix}/`);
+}
+
+function isBlockedCatalogPath(pathname: string) {
+  const decodedPathname = decodePathname(pathname);
+  if (!decodedPathname) {
+    return true;
+  }
+  if (
+    decodedPathname.length > 512 ||
+    decodedPathname.includes("\0") ||
+    decodedPathname.includes("\\") ||
+    /[<>]/.test(decodedPathname)
+  ) {
+    return true;
+  }
+
+  const normalized = normalizePathname(decodedPathname);
+  const segments = normalized.split("/").filter(Boolean);
+  if (
+    segments.some(
+      (segment) =>
+        segment === "." || segment === ".." || segment.startsWith("."),
+    )
+  ) {
+    return true;
+  }
+
+  return (
+    CATALOG_BLOCKED_PATHS.includes(normalized as (typeof CATALOG_BLOCKED_PATHS)[number]) ||
+    CATALOG_BLOCKED_PATH_PREFIXES.some((prefix) =>
+      isBlockedPathPrefix(normalized, prefix),
+    )
+  );
+}
+
+function buildBlockedCatalogResponse() {
+  return new NextResponse("Not found", {
+    status: 404,
+    headers: {
+      "Cache-Control": CATALOG_BLOCKED_CACHE_CONTROL,
+      "Content-Type": "text/plain; charset=utf-8",
+      "X-Robots-Tag": "noindex, nofollow",
+    },
+  });
 }
 
 function isCacheableCatalogPage(pathname: string) {
@@ -68,11 +160,14 @@ export function handleCatalogHostRouting(
       request: { headers: forwardedHeaders },
     });
   }
+  if (isBlockedCatalogPath(pathname)) {
+    return buildBlockedCatalogResponse();
+  }
   const url = request.nextUrl.clone();
   const suffix = pathname === "/" ? "" : pathname;
   url.pathname = `/catalogue${suffix}`;
   url.searchParams.set("domain", normalizedHost);
-  if (pathname && pathname !== "/" && !pathname.includes("..") && !pathname.includes("\\")) {
+  if (pathname && pathname !== "/") {
     url.searchParams.set("path", pathname);
   }
   const response = NextResponse.rewrite(url, {

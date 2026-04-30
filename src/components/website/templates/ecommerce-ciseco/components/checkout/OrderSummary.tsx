@@ -8,6 +8,7 @@ import { fromCents } from "@/lib/money";
 import { WEBSITE_MEDIA_PLACEHOLDERS } from "@/lib/website/placeholders";
 import type { ThemeTokens } from "../../types";
 import { useCisecoI18n } from "../../i18n";
+import { CatalogImage } from "../shared/CatalogImage";
 
 type OrderSummaryProps = {
   theme: ThemeTokens;
@@ -173,11 +174,13 @@ function OrderSummaryItem({
   return (
     <div className="flex gap-4 py-5">
       <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-slate-100 p-3 shadow-sm">
-        <img
+        <CatalogImage
           src={imageSrc}
           alt={title}
           className="h-full w-full object-cover"
-          loading="lazy"
+          width={160}
+          height={160}
+          sizes="80px"
         />
       </div>
       <div className="min-w-0 flex-1 space-y-3">

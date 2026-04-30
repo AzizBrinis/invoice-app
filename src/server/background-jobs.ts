@@ -296,6 +296,7 @@ function isSupersededWhenStale(type: string) {
   return (
     type === "messaging.dispatchScheduledEmails" ||
     type === "messaging.syncInboxAutoReplies" ||
+    type === "messaging.syncInboxAutoForwards" ||
     type.startsWith("messaging.localSync")
   );
 }

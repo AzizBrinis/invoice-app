@@ -10,11 +10,37 @@ import {
   resolveCatalogWebsite,
 } from "@/server/website";
 
+const PUBLIC_CATALOG_API_CACHE_CONTROL =
+  "public, max-age=60, s-maxage=300, stale-while-revalidate=3600";
+const PUBLIC_CATALOG_NOT_FOUND_CACHE_CONTROL =
+  "public, max-age=30, s-maxage=60, stale-while-revalidate=300";
+const PREVIEW_CATALOG_API_CACHE_CONTROL = "private, no-store";
+
 const querySchema = z.object({
   slug: z.string().nullable().optional(),
   mode: z.enum(["public", "preview"]).default("public"),
   path: z.string().min(1),
 });
+
+function jsonWithCache(
+  body: unknown,
+  options: { preview?: boolean; status?: number } = {},
+) {
+  const status = options.status ?? 200;
+  const cacheControl = options.preview
+    ? PREVIEW_CATALOG_API_CACHE_CONTROL
+    : status === 404
+      ? PUBLIC_CATALOG_NOT_FOUND_CACHE_CONTROL
+      : status >= 400
+        ? "no-store"
+        : PUBLIC_CATALOG_API_CACHE_CONTROL;
+  return NextResponse.json(body, {
+    status,
+    headers: {
+      "Cache-Control": cacheControl,
+    },
+  });
+}
 
 export async function GET(request: NextRequest) {
   const { t } = createCisecoRequestTranslator(request);
@@ -27,9 +53,9 @@ export async function GET(request: NextRequest) {
 
     const normalizedPath = normalizeWebsiteCmsPagePath(query.path);
     if (!normalizedPath) {
-      return NextResponse.json(
+      return jsonWithCache(
         { error: t("Invalid path.") },
-        { status: 400 },
+        { preview: query.mode === "preview", status: 400 },
       );
     }
 
@@ -42,9 +68,9 @@ export async function GET(request: NextRequest) {
       preview: query.mode === "preview",
     });
     if (!website) {
-      return NextResponse.json(
+      return jsonWithCache(
         { error: t("Site unavailable.") },
-        { status: 404 },
+        { preview: query.mode === "preview", status: 404 },
       );
     }
 
@@ -61,27 +87,30 @@ export async function GET(request: NextRequest) {
       },
     });
     if (!page) {
-      return NextResponse.json(
+      return jsonWithCache(
         { error: t("Page not found.") },
-        { status: 404 },
+        { preview: query.mode === "preview", status: 404 },
       );
     }
 
     const rendered = renderWebsiteCmsPageContent(page.content);
 
-    return NextResponse.json({
-      page: {
-        id: page.id,
-        title: page.title,
-        path: page.path,
-        contentHtml: rendered.html,
-        excerpt: rendered.excerpt,
-        headings: rendered.headings,
+    return jsonWithCache(
+      {
+        page: {
+          id: page.id,
+          title: page.title,
+          path: page.path,
+          contentHtml: rendered.html,
+          excerpt: rendered.excerpt,
+          headings: rendered.headings,
+        },
       },
-    });
+      { preview: query.mode === "preview" },
+    );
   } catch (error) {
     const message =
       error instanceof Error ? t(error.message) : t("Unable to fetch page.");
-    return NextResponse.json({ error: message }, { status: 400 });
+    return jsonWithCache({ error: message }, { status: 400 });
   }
 }

@@ -12,6 +12,7 @@
     "db:benchmark-connections": "tsx scripts/db-benchmark-connections.ts",
     "db:seed": "tsx scripts/db-seed.ts",
     "db:migrate:sqlite-to-postgres": "tsx scripts/migrate-sqlite-to-postgres.ts",
+    "products:migrate-inline-images": "tsx scripts/migrate-product-inline-images.ts",
     "dev:stack:up": "docker compose -f docker-compose.dev.yml up -d",
     "dev:stack:down": "docker compose -f docker-compose.dev.yml down",
     "dev:stack:logs": "docker compose -f docker-compose.dev.yml logs -f"
@@ -29,8 +30,8 @@
     "imapflow": "^1.1.1",
     "lucide-react": "^0.546.0",
     "mailparser": "^3.7.5",
-    "next": "16.0.10",
-    "nodemailer": "^7.0.9",
+    "next": "^16.2.4",
+    "nodemailer": "^8.0.7",
     "postgres": "^3.4.9",
     "puppeteer": "^24.26.0",
     "react": "19.2.0",
@@ -42,13 +43,13 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
-    "@types/nodemailer": "^7.0.2",
+    "@types/nodemailer": "^8.0.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/ua-parser-js": "^0.7.39",
-    "baseline-browser-mapping": "^2.10.19",
+    "baseline-browser-mapping": "^2.10.24",
     "eslint": "^9",
-    "eslint-config-next": "^16.0.8",
+    "eslint-config-next": "^16.2.4",
     "jsdom": "^27.0.1",
     "tailwindcss": "^4",
     "ts-node": "^10.9.2",
@@ -56,5 +57,8 @@
     "typescript": "^5",
     "vite-tsconfig-paths": "^5.1.4",
     "vitest": "^4.0.1"
+  },
+  "overrides": {
+    "postcss": "^8.5.12"
   }
 }

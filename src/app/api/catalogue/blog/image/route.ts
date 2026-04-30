@@ -3,6 +3,11 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { resolveCatalogDomainFromHeaders } from "@/lib/catalog-host";
+import { prisma } from "@/lib/db";
+import {
+  isInlineImageDataUrl,
+  uploadManagedImageDataUrl,
+} from "@/server/product-media-storage";
 import {
   getPublicSiteBlogPostBySlug,
 } from "@/server/site-blog-posts";
@@ -12,6 +17,7 @@ import {
 } from "@/server/website";
 
 const BLOG_IMAGE_CACHE_CONTROL = "public, max-age=3600, stale-while-revalidate=86400";
+const PROMOTED_BLOG_IMAGE_CACHE_CONTROL = "public, max-age=31536000, immutable";
 
 const querySchema = z.object({
   slug: z.string().nullable().optional(),
@@ -46,6 +52,42 @@ function decodeInlineImageDataUrl(source: string) {
     }
     return { body, contentType };
   } catch {
+    return null;
+  }
+}
+
+async function promoteInlineBlogImage(options: {
+  websiteId: string;
+  userId: string;
+  websiteSlug: string;
+  postId: string;
+  postSlug: string;
+  source: string;
+}) {
+  try {
+    const asset = await uploadManagedImageDataUrl({
+      userId: options.userId,
+      publicSlug: `${options.websiteSlug}-${options.postSlug}`,
+      source: options.source,
+      pathPrefix: "blog-images",
+    });
+    await prisma.$executeRaw`
+      UPDATE public."WebsiteBlogPost"
+      SET
+        "coverImageUrl" = CASE
+          WHEN "coverImageUrl" = ${options.source} THEN ${asset.managedUrl}
+          ELSE "coverImageUrl"
+        END,
+        "socialImageUrl" = CASE
+          WHEN "socialImageUrl" = ${options.source} THEN ${asset.managedUrl}
+          ELSE "socialImageUrl"
+        END
+      WHERE "id" = ${options.postId}
+        AND "websiteId" = ${options.websiteId}
+    `;
+    return asset.managedUrl;
+  } catch (error) {
+    console.warn("[catalogue blog image] inline promotion failed", error);
     return null;
   }
 }
@@ -105,6 +147,25 @@ export async function GET(request: NextRequest) {
           "Cache-Control": BLOG_IMAGE_CACHE_CONTROL,
         },
       });
+    }
+
+    if (isInlineImageDataUrl(source)) {
+      const promotedUrl = await promoteInlineBlogImage({
+        websiteId: website.id,
+        userId: website.userId,
+        websiteSlug: website.slug,
+        postId: post.id,
+        postSlug,
+        source,
+      });
+      if (promotedUrl) {
+        return NextResponse.redirect(promotedUrl, {
+          status: 307,
+          headers: {
+            "Cache-Control": PROMOTED_BLOG_IMAGE_CACHE_CONTROL,
+          },
+        });
+      }
     }
 
     const decoded = decodeInlineImageDataUrl(source);

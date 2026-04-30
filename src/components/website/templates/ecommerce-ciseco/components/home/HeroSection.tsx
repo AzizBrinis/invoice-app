@@ -419,12 +419,7 @@ export function HeroSection({
   const safeActiveIndex = activeIndex >= slides.length ? 0 : activeIndex;
   const showControls = slides.length > 1;
   const activeSlide = slides[safeActiveIndex] ?? slides[0];
-  const renderedSlides =
-    slidesReady || slides.length <= 1
-      ? slides
-      : activeSlide
-        ? [activeSlide]
-        : slides;
+  const renderedSlides = slides;
   const activeContentStyle =
     sliderMode === "content"
       ? CONTENT_BACKGROUND_STYLES[

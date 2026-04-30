@@ -170,7 +170,7 @@ async function loadBlogPostDetail(options: {
     `/api/catalogue/blog?slug=${encodeURIComponent(options.catalogSlug)}&mode=${encodeURIComponent(options.mode)}&post=${encodeURIComponent(options.postSlug)}`,
     {
       method: "GET",
-      cache: "no-store",
+      cache: options.mode === "preview" ? "no-store" : "force-cache",
     },
   )
     .then(async (response) => {

@@ -177,7 +177,6 @@ const localMessageSelect =
     previewText: true,
     normalizedText: true,
     sanitizedHtml: true,
-    searchText: true,
     bodyState: true,
     lastSyncedAt: true,
     hydratedAt: true,
@@ -339,7 +338,6 @@ export type MessagingLocalMessageRecord = {
   previewText: string | null;
   normalizedText: string | null;
   sanitizedHtml: string | null;
-  searchText: string | null;
   bodyState: MessagingLocalBodyState;
   lastSyncedAt: string | null;
   hydratedAt: string | null;
@@ -738,7 +736,6 @@ function serializeLocalMessage(
     previewText: entity.previewText ?? null,
     normalizedText: entity.normalizedText ?? null,
     sanitizedHtml: entity.sanitizedHtml ?? null,
-    searchText: entity.searchText ?? null,
     bodyState: entity.bodyState,
     lastSyncedAt: entity.lastSyncedAt?.toISOString() ?? null,
     hydratedAt: entity.hydratedAt?.toISOString() ?? null,
@@ -1970,7 +1967,6 @@ export async function applyMessagingLocalMoveProjection(params: {
       previewText: sourceMessage.previewText,
       normalizedText: sourceMessage.normalizedText,
       sanitizedHtml: sourceMessage.sanitizedHtml,
-      searchText: sourceMessage.searchText,
       bodyState: sourceMessage.bodyState,
       lastSyncedAt: movedAt,
       hydratedAt: sourceMessage.hydratedAt,

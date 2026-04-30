@@ -26,7 +26,8 @@ import {
 } from "@/app/(app)/messagerie/_state/mailbox-store";
 
 const MAILBOXES = MAILBOX_KEYS;
-const BACKGROUND_SYNC_INTERVAL = 3 * 60 * 1000;
+const BACKGROUND_SYNC_INTERVAL = 5 * 60 * 1000;
+const BACKGROUND_SYNC_MIN_INTERVAL = 60 * 1000;
 const VISIBILITY_SYNC_DELAY = 2000;
 const INITIAL_SYNC_DELAY_MS = 200;
 const ALWAYS_SYNC_MAILBOXES: Mailbox[] = ["inbox"];
@@ -81,6 +82,7 @@ export function MailboxSyncProvider({
   userId,
 }: MailboxSyncProviderProps) {
   const syncStatusRef = useRef<Record<Mailbox, boolean>>(createInitialSyncStatus());
+  const lastSyncAllAtRef = useRef(0);
   const visibilityTimeoutRef = useRef<number | null>(null);
   const primedUserIdRef = useRef<string | null>(null);
   const pathname = usePathname();
@@ -297,8 +299,16 @@ export function MailboxSyncProvider({
     let cancelled = false;
     let initialSyncTimer: number | null = null;
 
-    const syncAll = () => {
+    const syncAll = (options?: { force?: boolean }) => {
       if (cancelled || document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (
+        !options?.force &&
+        now - lastSyncAllAtRef.current < BACKGROUND_SYNC_MIN_INTERVAL
+      ) {
+        return;
+      }
+      lastSyncAllAtRef.current = now;
       MAILBOXES.forEach((mailbox) => {
         void synchronizeMailbox(mailbox);
       });
@@ -316,9 +326,12 @@ export function MailboxSyncProvider({
         );
       });
       if (needsHydrationDelay) {
-        initialSyncTimer = window.setTimeout(syncAll, INITIAL_SYNC_DELAY_MS);
+        initialSyncTimer = window.setTimeout(
+          () => syncAll({ force: true }),
+          INITIAL_SYNC_DELAY_MS,
+        );
       } else {
-        syncAll();
+        syncAll({ force: true });
       }
     };
 
@@ -339,13 +352,17 @@ export function MailboxSyncProvider({
     };
 
     window.addEventListener("visibilitychange", handleVisibilityChange);
-    window.addEventListener("focus", syncAll);
+    const handleFocus = () => {
+      syncAll();
+    };
+
+    window.addEventListener("focus", handleFocus);
 
     return () => {
       cancelled = true;
       window.clearInterval(interval);
       window.removeEventListener("visibilitychange", handleVisibilityChange);
-      window.removeEventListener("focus", syncAll);
+      window.removeEventListener("focus", handleFocus);
       if (initialSyncTimer) {
         window.clearTimeout(initialSyncTimer);
       }

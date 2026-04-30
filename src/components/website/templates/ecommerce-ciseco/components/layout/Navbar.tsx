@@ -1,13 +1,15 @@
 "use client";
 
 import clsx from "clsx";
-import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   CART_ITEM_ADDED_EVENT,
   useCart,
 } from "@/components/website/cart/cart-context";
 import { NAV_ITEMS } from "../../data/navigation";
+import { CartDrawer } from "../cart/CartDrawer";
+import { AccountMenu } from "./AccountMenu";
+import { LocaleCurrencyMenu } from "./LocaleCurrencyMenu";
 import type { ThemeTokens } from "../../types";
 import {
   buildCisecoHref,
@@ -16,21 +18,6 @@ import {
 } from "../../utils";
 import { useCisecoI18n } from "../../i18n";
 import { useCisecoLocation, useCisecoNavigation } from "../../navigation";
-
-const CartDrawer = dynamic(
-  () => import("../cart/CartDrawer").then((mod) => mod.CartDrawer),
-  {
-    ssr: false,
-    loading: () => null,
-  },
-);
-const AccountMenu = dynamic(
-  () => import("./AccountMenu").then((mod) => mod.AccountMenu),
-);
-const LocaleCurrencyMenu = dynamic(
-  () =>
-    import("./LocaleCurrencyMenu").then((mod) => mod.LocaleCurrencyMenu),
-);
 
 type NavbarProps = {
   theme: ThemeTokens;

@@ -13,17 +13,19 @@ import nodemailer, { type Transporter } from "nodemailer";
 import MailComposer from "nodemailer/lib/mail-composer";
 import addressParser from "nodemailer/lib/addressparser";
 import { simpleParser, type Attachment, type ParsedMail } from "mailparser";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type {
   MessagingAutoReplyType,
   MessagingRecipientType,
   MessagingInboxSyncState,
 } from "@/lib/db/prisma";
+import { Prisma } from "@/lib/db/prisma-server";
 import { prisma } from "@/lib/db";
 import { getSessionTokenFromCookie, requireUser } from "@/lib/auth";
 import { decryptSecret, encryptSecret } from "@/server/secure-credentials";
 import { analyzeAndHandleSpam } from "@/server/spam-detection";
 import { sanitizeEmailHtml } from "@/lib/email-html";
+import { enqueueJob } from "@/server/background-jobs";
 import {
   DEFAULT_AUTO_REPLY_BODY,
   DEFAULT_AUTO_REPLY_SUBJECT,
@@ -67,6 +69,13 @@ const RECIPIENT_TYPE_MAP = {
 const AUTO_REPLY_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 const AUTO_REPLY_BOOTSTRAP_LOOKBACK = 150;
 const AUTO_REPLY_FETCH_LIMIT = 200;
+const AUTO_FORWARD_BOOTSTRAP_LOOKBACK = 150;
+const AUTO_FORWARD_FETCH_LIMIT = 200;
+const AUTO_FORWARD_MAX_RECIPIENTS = 25;
+const AUTO_FORWARD_MAX_ATTEMPTS = 5;
+const AUTO_FORWARD_RETRY_BACKOFF_MS = 2 * 60 * 1000;
+const AUTO_FORWARD_STALE_SENDING_MS = 30 * 60 * 1000;
+const AUTO_FORWARD_JOB_PRIORITY = 70;
 const SPAM_ANALYSIS_CONCURRENCY = 4;
 const AUTO_REPLY_METADATA_CONCURRENCY = 4;
 const DEFAULT_SMTP_CONNECTION_TIMEOUT_MS = 15_000;
@@ -82,6 +91,26 @@ type AutoReplyProcessResult = {
   scanned: number;
   considered: number;
   replied: number;
+  lastSeenUid: number;
+  bootstrapped: boolean;
+};
+
+export const AUTO_FORWARD_INBOX_MESSAGE_JOB_TYPE =
+  "messaging.autoForwardInboxMessage";
+
+export type AutoForwardInboxMessageJobPayload = {
+  userId: string;
+  mailbox: "inbox";
+  uidValidity: number;
+  uid: number;
+};
+
+export type AutoForwardProcessResult = {
+  scanned: number;
+  considered: number;
+  queued: number;
+  deduped: number;
+  failed: number;
   lastSeenUid: number;
   bootstrapped: boolean;
 };
@@ -188,6 +217,78 @@ function parseRecipientList(
   });
 }
 
+function normalizeForwardingEmailAddress(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed.length) {
+    throw new Error("Adresse de transfert vide.");
+  }
+  if (trimmed.length > 254) {
+    throw new Error(`Adresse de transfert trop longue: ${trimmed}`);
+  }
+  const parsed = addressParser(trimmed, { flatten: true });
+  if (parsed.length !== 1 || !parsed[0]?.address) {
+    throw new Error(`Adresse de transfert invalide: ${trimmed}`);
+  }
+  const address = parsed[0].address.trim().toLowerCase();
+  if (
+    address !== trimmed.toLowerCase() ||
+    !/^[^\s@<>(),;]+@[^\s@<>(),;]+\.[^\s@<>(),;]+$/.test(address)
+  ) {
+    throw new Error(`Adresse de transfert invalide: ${trimmed}`);
+  }
+  return address;
+}
+
+export function normalizeForwardingEmailAddresses(
+  values: readonly string[],
+): string[] {
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const value of values) {
+    const trimmed = value.trim();
+    if (!trimmed.length) {
+      continue;
+    }
+    const address = normalizeForwardingEmailAddress(trimmed);
+    if (seen.has(address)) {
+      continue;
+    }
+    seen.add(address);
+    normalized.push(address);
+  }
+  if (normalized.length > AUTO_FORWARD_MAX_RECIPIENTS) {
+    throw new Error(
+      `Le transfert automatique accepte ${AUTO_FORWARD_MAX_RECIPIENTS} destinataires maximum.`,
+    );
+  }
+  return normalized;
+}
+
+function readForwardingEmailAddresses(value: unknown): string[] {
+  try {
+    if (Array.isArray(value)) {
+      return normalizeForwardingEmailAddresses(
+        value.filter((entry): entry is string => typeof entry === "string"),
+      );
+    }
+    if (typeof value === "string") {
+      try {
+        const parsed = JSON.parse(value);
+        if (Array.isArray(parsed)) {
+          return readForwardingEmailAddresses(parsed);
+        }
+      } catch {
+        return normalizeForwardingEmailAddresses(
+          value.split(/[\n,;]+/).map((entry) => entry.trim()),
+        );
+      }
+    }
+  } catch (error) {
+    console.warn("Destinataires de transfert automatique ignorés:", error);
+  }
+  return [];
+}
+
 export async function resolveUserId(provided?: string) {
   if (provided) {
     return provided;
@@ -227,6 +328,11 @@ export type MessagingAutoReplySettingsInput = {
   vacationBackupEmail: string | null;
 };
 
+export type MessagingAutoForwardSettingsInput = {
+  autoForwardEnabled: boolean;
+  autoForwardRecipients: string[];
+};
+
 export type MessagingSettingsSummary = {
   fromEmail: string;
   senderName: string;
@@ -241,6 +347,8 @@ export type MessagingSettingsSummary = {
   smtpConfigured: boolean;
   spamFilterEnabled: boolean;
   trackingEnabled: boolean;
+  autoForwardEnabled: boolean;
+  autoForwardRecipients: string[];
   autoReplyEnabled: boolean;
   autoReplySubject: string;
   autoReplyBody: string;
@@ -316,6 +424,11 @@ type VacationAutoReplyConfig = {
   startDate: Date | null;
   endDate: Date | null;
   backupEmail: string | null;
+};
+
+type AutoForwardConfig = {
+  enabled: boolean;
+  recipients: string[];
 };
 
 export type MessageParticipant = {
@@ -825,6 +938,7 @@ export type MessagingCredentials = {
   smtp: SmtpConnectionConfig | null;
   spamFilterEnabled: boolean;
   trackingEnabled: boolean;
+  autoForward: AutoForwardConfig;
   autoReply: StandardAutoReplyConfig;
   vacation: VacationAutoReplyConfig;
 };
@@ -915,6 +1029,16 @@ function isAutoReplyFeatureEnabled(
     return true;
   }
   return isVacationModeActive(credentials.vacation, referenceDate);
+}
+
+function isAutoForwardFeatureEnabled(
+  credentials: MessagingCredentials,
+): boolean {
+  return Boolean(
+    credentials.smtp &&
+      credentials.autoForward.enabled &&
+      credentials.autoForward.recipients.length > 0,
+  );
 }
 
 const MAILBOX_SPECIAL_USE: Partial<Record<Mailbox, string>> = {
@@ -1873,6 +1997,10 @@ export async function getMessagingCredentials(
       smtp: null,
       spamFilterEnabled: true,
       trackingEnabled: true,
+      autoForward: {
+        enabled: false,
+        recipients: [],
+      },
       autoReply: {
         enabled: false,
         subject: DEFAULT_AUTO_REPLY_SUBJECT,
@@ -1904,6 +2032,13 @@ export async function getMessagingCredentials(
   const imapPassword = decrypt(settings.imapPassword);
   const smtpUser = decrypt(settings.smtpUser);
   const smtpPassword = decrypt(settings.smtpPassword);
+  const forwardingSettings = settings as typeof settings & {
+    autoForwardEnabled?: boolean | null;
+    autoForwardRecipients?: unknown;
+  };
+  const autoForwardRecipients = readForwardingEmailAddresses(
+    forwardingSettings.autoForwardRecipients,
+  );
 
   return {
     fromEmail: settings.fromEmail,
@@ -1911,6 +2046,12 @@ export async function getMessagingCredentials(
     senderLogoUrl: settings.senderLogoUrl ?? null,
     spamFilterEnabled: settings.spamFilterEnabled ?? true,
     trackingEnabled: settings.trackingEnabled ?? true,
+    autoForward: {
+      enabled:
+        (forwardingSettings.autoForwardEnabled ?? false) &&
+        autoForwardRecipients.length > 0,
+      recipients: autoForwardRecipients,
+    },
     autoReply: {
       enabled: settings.autoReplyEnabled ?? false,
       subject: coerceWithFallback(
@@ -1987,6 +2128,8 @@ export async function getMessagingSettingsSummary(
       smtpConfigured: false,
       spamFilterEnabled: true,
       trackingEnabled: true,
+      autoForwardEnabled: false,
+      autoForwardRecipients: [],
       autoReplyEnabled: false,
       autoReplySubject: DEFAULT_AUTO_REPLY_SUBJECT,
       autoReplyBody: DEFAULT_AUTO_REPLY_BODY,
@@ -1998,6 +2141,14 @@ export async function getMessagingSettingsSummary(
       vacationBackupEmail: null,
     };
   }
+
+  const forwardingSettings = settings as typeof settings & {
+    autoForwardEnabled?: boolean | null;
+    autoForwardRecipients?: unknown;
+  };
+  const autoForwardRecipients = readForwardingEmailAddresses(
+    forwardingSettings.autoForwardRecipients,
+  );
 
   return {
     fromEmail: settings.fromEmail ?? "",
@@ -2021,6 +2172,8 @@ export async function getMessagingSettingsSummary(
       Boolean(settings.smtpPassword),
     spamFilterEnabled: settings.spamFilterEnabled ?? true,
     trackingEnabled: settings.trackingEnabled ?? true,
+    autoForwardEnabled: forwardingSettings.autoForwardEnabled ?? false,
+    autoForwardRecipients,
     autoReplyEnabled: settings.autoReplyEnabled ?? false,
     autoReplySubject: coerceWithFallback(
       toOptionalString(settings.autoReplySubject),
@@ -2127,6 +2280,63 @@ export async function updateMessagingAutoReplySettings(
       },
     });
   }
+}
+
+export async function updateMessagingAutoForwardSettings(
+  input: MessagingAutoForwardSettingsInput,
+): Promise<void> {
+  const userId = await resolveUserId();
+  const recipients = normalizeForwardingEmailAddresses(
+    input.autoForwardRecipients,
+  );
+  if (input.autoForwardEnabled && recipients.length === 0) {
+    throw new Error(
+      "Ajoutez au moins une adresse e-mail pour activer le transfert automatique.",
+    );
+  }
+  let activationCursor: number | null = null;
+  if (input.autoForwardEnabled) {
+    const credentials = await getMessagingCredentials(userId);
+    if (!credentials.imap) {
+      throw new Error(
+        "Configurez IMAP avant d'activer le transfert automatique.",
+      );
+    }
+    if (!credentials.smtp) {
+      throw new Error(
+        "Configurez SMTP avant d'activer le transfert automatique.",
+      );
+    }
+    activationCursor = await readCurrentInboxHighestUid(credentials);
+  }
+
+  const existing = await prisma.messagingSettings.findUnique({
+    where: { userId },
+    select: { userId: true },
+  });
+  if (!existing) {
+    await prisma.messagingSettings.create({
+      data: { userId },
+    });
+  }
+
+  if (activationCursor !== null) {
+    await persistInboxAutoForwardState({
+      userId,
+      highestUid: activationCursor,
+    });
+  }
+
+  await prisma.$executeRaw(
+    Prisma.sql`
+      UPDATE public."MessagingSettings"
+      SET
+        "autoForwardEnabled" = ${input.autoForwardEnabled},
+        "autoForwardRecipients" = ${JSON.stringify(recipients)}::jsonb,
+        "updatedAt" = NOW()
+      WHERE "userId" = ${userId}
+    `,
+  );
 }
 
 export async function updateMessagingConnections(
@@ -2859,6 +3069,918 @@ function computeAutoReplyStartUid(options: {
   return Math.max(1, reference - window);
 }
 
+type AutoForwardLogClaim = {
+  id: string;
+  attempts: number;
+  sentRecipients: string[];
+  targetRecipients: string[];
+};
+
+type AutoForwardLogClaimRow = {
+  id: string;
+  attempts: number | bigint | string;
+  sentRecipients: unknown;
+  targetRecipients: unknown;
+};
+
+type InboxAutoForwardStateRow = {
+  lastInboxAutoForwardUid: number | null;
+};
+
+function normalizeAutoForwardLogRecipients(value: unknown): string[] {
+  return readForwardingEmailAddresses(value);
+}
+
+function normalizeRawMessageSource(
+  source: Buffer | Uint8Array | string,
+): Buffer {
+  if (typeof source === "string") {
+    return Buffer.from(source);
+  }
+  return Buffer.isBuffer(source) ? source : Buffer.from(source);
+}
+
+function normalizeAttemptCount(value: number | bigint | string): number {
+  if (typeof value === "bigint") {
+    return Number(value);
+  }
+  if (typeof value === "string") {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return Number.isFinite(value) ? value : 0;
+}
+
+function truncateLogError(error: unknown): string {
+  const message =
+    error instanceof Error ? error.message : String(error ?? "Erreur inconnue");
+  return message.slice(0, 2000);
+}
+
+function computeAutoForwardRetryAt(attempts: number): Date | null {
+  if (attempts >= AUTO_FORWARD_MAX_ATTEMPTS) {
+    return null;
+  }
+  const exponent = Math.max(0, attempts - 1);
+  const delay = Math.min(
+    AUTO_FORWARD_RETRY_BACKOFF_MS * 2 ** exponent,
+    60 * 60 * 1000,
+  );
+  return new Date(Date.now() + delay);
+}
+
+function buildAutoForwardDedupeKey(params: {
+  userId: string;
+  uidValidity: number;
+  uid: number;
+}) {
+  return `${params.userId}:inbox:${params.uidValidity}:${params.uid}`;
+}
+
+function stableMessageToken(value: string): string {
+  return createHash("sha256").update(value).digest("hex").slice(0, 32);
+}
+
+function buildAutoForwardMessageId(params: {
+  userId: string;
+  uidValidity: number;
+  uid: number;
+  recipient: string;
+  fromAddress: string;
+}) {
+  const domain = params.fromAddress.includes("@")
+    ? params.fromAddress.split("@").pop() ?? "local"
+    : "local";
+  const token = stableMessageToken(
+    [
+      params.userId,
+      params.uidValidity,
+      params.uid,
+      params.recipient.toLowerCase(),
+    ].join(":"),
+  );
+  return `<autofwd-${token}@${domain}>`;
+}
+
+function buildAutoForwardSubject(subject: string): string {
+  const normalized = subject.trim() || "(Sans objet)";
+  return normalized.toLowerCase().startsWith("fwd:")
+    ? normalized
+    : `Fwd: ${normalized}`;
+}
+
+function formatParsedAddressText(value: unknown): string | null {
+  if (Array.isArray(value)) {
+    const entries: string[] = value
+      .map((entry) => formatParsedAddressText(entry))
+      .filter((entry): entry is string => Boolean(entry));
+    return entries.length ? entries.join(", ") : null;
+  }
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const text = (value as { text?: string | null }).text?.trim();
+  return text && text.length ? text : null;
+}
+
+function formatParsedMessageDate(parsed: ParsedMail): string {
+  const rawDate = (parsed as ParsedMail & { date?: Date | string | null }).date;
+  if (rawDate instanceof Date) {
+    return rawDate.toISOString();
+  }
+  return rawDate ? String(rawDate) : "";
+}
+
+function buildForwardedMessageText(metadata: IncomingMessageMetadata): string {
+  const parsed = metadata.parsed;
+  const originalText =
+    parsed.text?.trim() ||
+    (parsed.html ? htmlToPlainText(parsed.html).trim() : "") ||
+    "(Contenu indisponible)";
+  const headerLines = [
+    "---------- Message transféré ----------",
+    `De: ${formatParsedAddressText(parsed.from) ?? metadata.fromAddress ?? "Inconnu"}`,
+    `Date: ${formatParsedMessageDate(parsed)}`,
+    `Sujet: ${metadata.subject}`,
+    `À: ${formatParsedAddressText(parsed.to) ?? ""}`,
+  ];
+  const cc = formatParsedAddressText(parsed.cc);
+  if (cc) {
+    headerLines.push(`Cc: ${cc}`);
+  }
+  return `${headerLines.join("\n")}\n\n${originalText}`;
+}
+
+function buildForwardedMessageHtml(metadata: IncomingMessageMetadata): string {
+  const parsed = metadata.parsed;
+  const headerRows = [
+    ["De", formatParsedAddressText(parsed.from) ?? metadata.fromAddress ?? "Inconnu"],
+    ["Date", formatParsedMessageDate(parsed)],
+    ["Sujet", metadata.subject],
+    ["À", formatParsedAddressText(parsed.to) ?? ""],
+    ["Cc", formatParsedAddressText(parsed.cc) ?? ""],
+  ].filter(([, value]) => value.trim().length > 0);
+
+  const headerHtml = headerRows
+    .map(
+      ([label, value]) =>
+        `<p style="margin:0 0 4px 0;font-size:13px;line-height:1.5;"><strong>${escapeHtml(
+          label,
+        )}:</strong> ${escapeHtml(value)}</p>`,
+    )
+    .join("");
+
+  const bodyHtml = parsed.html
+    ? sanitizeEmailHtml(parsed.html)
+    : `<pre style="white-space:pre-wrap;margin:0;">${escapeHtml(
+        parsed.text ?? "(Contenu indisponible)",
+      )}</pre>`;
+
+  return `<div>
+    <p style="margin:0 0 16px 0;font-size:14px;line-height:1.6;">Message transféré automatiquement depuis Messagerie.</p>
+    <div style="margin:0 0 16px 0;padding:12px;border-left:3px solid #cbd5e1;background:#f8fafc;">
+      ${headerHtml}
+    </div>
+    <blockquote style="margin:0;padding:0 0 0 12px;border-left:2px solid #cbd5e1;">
+      ${bodyHtml}
+    </blockquote>
+  </div>`;
+}
+
+function hasAutoForwardLoopHeader(parsed: ParsedMail): boolean {
+  return parsed.headers.has("x-messagerie-auto-forward");
+}
+
+async function readInboxAutoForwardLastUid(
+  userId: string,
+): Promise<number> {
+  const rows = await prisma.$queryRaw<InboxAutoForwardStateRow[]>(
+    Prisma.sql`
+      SELECT "lastInboxAutoForwardUid"
+      FROM public."MessagingInboxSyncState"
+      WHERE "userId" = ${userId}
+      LIMIT 1
+    `,
+  );
+  const value = rows[0]?.lastInboxAutoForwardUid;
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+async function readCurrentInboxHighestUid(
+  credentials: MessagingCredentials,
+): Promise<number> {
+  const imap = credentials.imap;
+  if (!imap) {
+    throw new Error("IMAP non configuré pour le transfert automatique.");
+  }
+
+  return withImapClient(imap, async (client) => {
+    const opened = await openMailbox(client, "inbox", true, {
+      cacheKey: getMailboxCacheKey(imap, "inbox"),
+    });
+
+    try {
+      const uidNext = normalizeImapCounterValue(opened.info.uidNext);
+      if (typeof uidNext === "number" && uidNext > 1) {
+        return uidNext - 1;
+      }
+
+      const exists =
+        typeof opened.info.exists === "number" && opened.info.exists > 0
+          ? opened.info.exists
+          : 0;
+      if (exists <= 0) {
+        return 0;
+      }
+
+      let highestUid = 0;
+      for await (const message of client.fetch(`${exists}:${exists}`, {
+        uid: true,
+      })) {
+        if (typeof message.uid === "number" && message.uid > highestUid) {
+          highestUid = message.uid;
+        }
+      }
+      return highestUid;
+    } finally {
+      opened.release();
+    }
+  });
+}
+
+async function persistInboxAutoForwardState(options: {
+  userId: string;
+  highestUid: number;
+}) {
+  const highest = options.highestUid > 0 ? options.highestUid : null;
+  await prisma.$executeRaw(
+    Prisma.sql`
+      INSERT INTO public."MessagingInboxSyncState" (
+        "userId",
+        "lastInboxAutoForwardUid",
+        "lastInboxSyncAt",
+        "createdAt",
+        "updatedAt"
+      )
+      VALUES (${options.userId}, ${highest}, NOW(), NOW(), NOW())
+      ON CONFLICT ("userId") DO UPDATE
+      SET
+        "lastInboxAutoForwardUid" = EXCLUDED."lastInboxAutoForwardUid",
+        "lastInboxSyncAt" = NOW(),
+        "updatedAt" = NOW()
+    `,
+  );
+}
+
+async function claimAutoForwardLog(params: {
+  userId: string;
+  uidValidity: number;
+  uid: number;
+  messageId: string | null;
+  subject: string | null;
+  targetRecipients: string[];
+}): Promise<AutoForwardLogClaim | null> {
+  const now = new Date();
+  const staleCutoff = new Date(now.getTime() - AUTO_FORWARD_STALE_SENDING_MS);
+  const targetRecipientsJson = JSON.stringify(params.targetRecipients);
+  const inserted = await prisma.$queryRaw<AutoForwardLogClaimRow[]>(
+    Prisma.sql`
+      INSERT INTO public."MessagingAutoForwardLog" (
+        "id",
+        "userId",
+        "mailbox",
+        "uidValidity",
+        "uid",
+        "messageId",
+        "subject",
+        "targetRecipients",
+        "status",
+        "attempts",
+        "lastAttemptAt",
+        "createdAt",
+        "updatedAt"
+      )
+      VALUES (
+        ${randomUUID()},
+        ${params.userId},
+        'inbox',
+        ${params.uidValidity},
+        ${params.uid},
+        ${params.messageId},
+        ${params.subject},
+        ${targetRecipientsJson}::jsonb,
+        'SENDING',
+        1,
+        ${now},
+        ${now},
+        ${now}
+      )
+      ON CONFLICT ("userId", "mailbox", "uidValidity", "uid") DO NOTHING
+      RETURNING
+        "id",
+        "attempts",
+        "sentRecipients",
+        "targetRecipients"
+    `,
+  );
+
+  const insertedRow = inserted[0];
+  if (insertedRow) {
+    return {
+      id: insertedRow.id,
+      attempts: normalizeAttemptCount(insertedRow.attempts),
+      sentRecipients: normalizeAutoForwardLogRecipients(insertedRow.sentRecipients),
+      targetRecipients: normalizeAutoForwardLogRecipients(insertedRow.targetRecipients),
+    };
+  }
+
+  const updated = await prisma.$queryRaw<AutoForwardLogClaimRow[]>(
+    Prisma.sql`
+      UPDATE public."MessagingAutoForwardLog"
+      SET
+        "status" = 'SENDING',
+        "attempts" = "attempts" + 1,
+        "lastAttemptAt" = ${now},
+        "nextAttemptAt" = NULL,
+        "lastError" = NULL,
+        "updatedAt" = ${now}
+      WHERE
+        "userId" = ${params.userId}
+        AND "mailbox" = 'inbox'
+        AND "uidValidity" = ${params.uidValidity}
+        AND "uid" = ${params.uid}
+        AND "attempts" < ${AUTO_FORWARD_MAX_ATTEMPTS}
+        AND (
+          "status" = 'FAILED'
+          OR (
+            "status" = 'SENDING'
+            AND "lastAttemptAt" <= ${staleCutoff}
+          )
+        )
+      RETURNING
+        "id",
+        "attempts",
+        "sentRecipients",
+        "targetRecipients"
+    `,
+  );
+
+  const updatedRow = updated[0];
+  if (!updatedRow) {
+    return null;
+  }
+  const targetRecipients = normalizeAutoForwardLogRecipients(
+    updatedRow.targetRecipients,
+  );
+  return {
+    id: updatedRow.id,
+    attempts: normalizeAttemptCount(updatedRow.attempts),
+    sentRecipients: normalizeAutoForwardLogRecipients(updatedRow.sentRecipients),
+    targetRecipients: targetRecipients.length
+      ? targetRecipients
+      : params.targetRecipients,
+  };
+}
+
+async function updateAutoForwardSentRecipients(
+  logId: string,
+  recipients: string[],
+) {
+  await prisma.$executeRaw(
+    Prisma.sql`
+      UPDATE public."MessagingAutoForwardLog"
+      SET
+        "sentRecipients" = ${JSON.stringify(recipients)}::jsonb,
+        "updatedAt" = NOW()
+      WHERE "id" = ${logId}
+    `,
+  );
+}
+
+async function markAutoForwardLogSent(logId: string, recipients: string[]) {
+  await prisma.$executeRaw(
+    Prisma.sql`
+      UPDATE public."MessagingAutoForwardLog"
+      SET
+        "status" = 'SENT',
+        "sentRecipients" = ${JSON.stringify(recipients)}::jsonb,
+        "sentAt" = NOW(),
+        "nextAttemptAt" = NULL,
+        "lastError" = NULL,
+        "updatedAt" = NOW()
+      WHERE "id" = ${logId}
+    `,
+  );
+}
+
+async function markAutoForwardLogSkipped(logId: string, reason: string) {
+  await prisma.$executeRaw(
+    Prisma.sql`
+      UPDATE public."MessagingAutoForwardLog"
+      SET
+        "status" = 'SKIPPED',
+        "lastError" = ${reason},
+        "nextAttemptAt" = NULL,
+        "updatedAt" = NOW()
+      WHERE "id" = ${logId}
+    `,
+  );
+}
+
+async function markAutoForwardLogFailed(
+  logId: string,
+  attempts: number,
+  error: unknown,
+) {
+  await prisma.$executeRaw(
+    Prisma.sql`
+      UPDATE public."MessagingAutoForwardLog"
+      SET
+        "status" = 'FAILED',
+        "lastError" = ${truncateLogError(error)},
+        "nextAttemptAt" = ${computeAutoForwardRetryAt(attempts)},
+        "updatedAt" = NOW()
+      WHERE "id" = ${logId}
+    `,
+  );
+}
+
+async function queueAutoForwardJobsForMessages(params: {
+  userId: string;
+  credentials: MessagingCredentials;
+  uidValidity: number | null;
+  messages: MailboxListItem[];
+}): Promise<Pick<AutoForwardProcessResult, "queued" | "deduped" | "failed">> {
+  const result = {
+    queued: 0,
+    deduped: 0,
+    failed: 0,
+  };
+  if (!isAutoForwardFeatureEnabled(params.credentials)) {
+    return result;
+  }
+  if (
+    typeof params.uidValidity !== "number" ||
+    !Number.isInteger(params.uidValidity) ||
+    params.uidValidity <= 0
+  ) {
+    console.warn("[messaging-auto-forward] UIDVALIDITY manquant; transfert ignoré", {
+      userId: params.userId,
+    });
+    result.failed = params.messages.length;
+    return result;
+  }
+
+  for (const message of params.messages) {
+    try {
+      const payload = {
+        userId: params.userId,
+        mailbox: "inbox",
+        uidValidity: params.uidValidity,
+        uid: message.uid,
+      } satisfies AutoForwardInboxMessageJobPayload;
+      const queued = await enqueueJob({
+        type: AUTO_FORWARD_INBOX_MESSAGE_JOB_TYPE,
+        payload,
+        dedupeKey: buildAutoForwardDedupeKey(payload),
+        priority: AUTO_FORWARD_JOB_PRIORITY,
+        maxAttempts: AUTO_FORWARD_MAX_ATTEMPTS,
+        retryBackoffMs: AUTO_FORWARD_RETRY_BACKOFF_MS,
+      });
+      if (queued.deduped) {
+        result.deduped += 1;
+      } else {
+        result.queued += 1;
+      }
+    } catch (error) {
+      result.failed += 1;
+      console.warn("[messaging-auto-forward] mise en file impossible", {
+        userId: params.userId,
+        uid: message.uid,
+        error,
+      });
+    }
+  }
+
+  return result;
+}
+
+async function processAutoForwardQueueing(params: {
+  userId: string;
+  credentials: MessagingCredentials;
+  messages: MailboxListItem[];
+  uidValidity: number | null;
+  bootstrapMode?: AutoReplyProcessMode;
+}): Promise<AutoForwardProcessResult> {
+  const lastSeenUid = await readInboxAutoForwardLastUid(params.userId);
+  const selection = selectAutoReplyCandidates(
+    params.messages,
+    lastSeenUid,
+    params.bootstrapMode ?? "process",
+  );
+  const summary: AutoForwardProcessResult = {
+    scanned: params.messages.length,
+    considered: selection.candidates.length,
+    queued: 0,
+    deduped: 0,
+    failed: 0,
+    lastSeenUid: selection.highestUid,
+    bootstrapped: selection.bootstrapped,
+  };
+
+  if (!isAutoForwardFeatureEnabled(params.credentials)) {
+    return summary;
+  }
+
+  if (selection.candidates.length) {
+    const queueResult = await queueAutoForwardJobsForMessages({
+      userId: params.userId,
+      credentials: params.credentials,
+      uidValidity: params.uidValidity,
+      messages: selection.candidates,
+    });
+    summary.queued = queueResult.queued;
+    summary.deduped = queueResult.deduped;
+    summary.failed = queueResult.failed;
+  }
+
+  if (summary.failed === 0 || selection.bootstrapped) {
+    await persistInboxAutoForwardState({
+      userId: params.userId,
+      highestUid: selection.highestUid,
+    });
+  }
+
+  return summary;
+}
+
+export async function runAutoForwardSweepForUser(
+  userId: string,
+  options?: {
+    bootstrapMode?: AutoReplyProcessMode;
+    maxBootstrapWindow?: number;
+  },
+): Promise<AutoForwardProcessResult> {
+  const credentials = await getMessagingCredentials(userId);
+  if (!credentials.imap || !isAutoForwardFeatureEnabled(credentials)) {
+    return {
+      scanned: 0,
+      considered: 0,
+      queued: 0,
+      deduped: 0,
+      failed: 0,
+      lastSeenUid: 0,
+      bootstrapped: false,
+    };
+  }
+
+  const mailbox: Mailbox = "inbox";
+  const spamFilteringEnabled = credentials.spamFilterEnabled !== false;
+  return withImapClient(credentials.imap, async (client) => {
+    const opened = await openMailbox(client, mailbox, true, {
+      cacheKey: getMailboxCacheKey(credentials.imap!, mailbox),
+    });
+
+    try {
+      const lastSeenUid = await readInboxAutoForwardLastUid(userId);
+      const nextUid = opened.info.uidNext ?? null;
+      const startUid = computeAutoReplyStartUid({
+        lastSeenUid,
+        nextUid,
+        maxBootstrapWindow:
+          options?.maxBootstrapWindow ?? AUTO_FORWARD_BOOTSTRAP_LOOKBACK,
+      });
+      const shouldFetch =
+        nextUid === null ||
+        startUid < (typeof nextUid === "number" ? Math.max(1, nextUid) : 1);
+      let fetchedMessages: MailboxListItem[] = [];
+      let prefetchedMessages: Map<number, PrefetchedRawMessage> | null = null;
+
+      if (shouldFetch) {
+        for await (const message of client.fetch(
+          { uid: `${startUid}:*` },
+          {
+            envelope: true,
+            internalDate: true,
+            flags: true,
+            bodyStructure: true,
+          },
+        )) {
+          fetchedMessages.push(
+            createMailboxListItem(
+              message as unknown as Parameters<
+                typeof createMailboxListItem
+              >[0],
+            ),
+          );
+          if (
+            lastSeenUid === 0 &&
+            AUTO_FORWARD_FETCH_LIMIT > 0 &&
+            fetchedMessages.length >= AUTO_FORWARD_FETCH_LIMIT
+          ) {
+            break;
+          }
+        }
+
+        fetchedMessages.sort(
+          (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+        );
+
+        if (spamFilteringEnabled && fetchedMessages.length) {
+          try {
+            prefetchedMessages = await fetchRawMessages(
+              client,
+              fetchedMessages.map((item) => item.uid),
+            );
+          } catch (error) {
+            console.warn("[messaging-auto-forward] préchargement IMAP impossible", {
+              userId,
+              error,
+            });
+          }
+          const filteredMessages: MailboxListItem[] = [];
+          for (const entry of fetchedMessages) {
+            try {
+              const analysis = await analyzeAndHandleSpam({
+                userId,
+                client,
+                mailbox,
+                uid: entry.uid,
+                spamFilteringEnabled,
+                prefetched: prefetchedMessages?.get(entry.uid),
+              });
+              if (!analysis.movedToSpam) {
+                filteredMessages.push(entry);
+              }
+            } catch (error) {
+              console.warn("[messaging-auto-forward] analyse spam impossible", {
+                userId,
+                uid: entry.uid,
+                error,
+              });
+              filteredMessages.push(entry);
+            }
+          }
+          fetchedMessages = filteredMessages;
+        }
+      }
+
+      return processAutoForwardQueueing({
+        userId,
+        credentials,
+        messages: fetchedMessages,
+        uidValidity: normalizeImapCounterValue(opened.info.uidValidity),
+        bootstrapMode: options?.bootstrapMode ?? "skip",
+      });
+    } finally {
+      opened.release();
+    }
+  });
+}
+
+export async function forwardInboxMessageForUser(
+  payload: AutoForwardInboxMessageJobPayload,
+): Promise<void> {
+  if (payload.mailbox !== "inbox") {
+    throw new Error("Le transfert automatique ne traite que la boîte de réception.");
+  }
+  if (
+    !Number.isInteger(payload.uid) ||
+    payload.uid <= 0 ||
+    !Number.isInteger(payload.uidValidity) ||
+    payload.uidValidity <= 0
+  ) {
+    throw new Error("Identité IMAP invalide pour le transfert automatique.");
+  }
+
+  const credentials = await getMessagingCredentials(payload.userId);
+  if (!credentials.autoForward.enabled) {
+    return;
+  }
+  if (!credentials.autoForward.recipients.length) {
+    return;
+  }
+  if (!credentials.smtp) {
+    throw new Error("SMTP non configuré pour le transfert automatique.");
+  }
+  if (!credentials.imap) {
+    throw new Error("IMAP non configuré pour le transfert automatique.");
+  }
+
+  await withImapClient(credentials.imap, async (client) => {
+    const opened = await openMailbox(client, "inbox", true, {
+      cacheKey: getMailboxCacheKey(credentials.imap!, "inbox"),
+    });
+
+    try {
+      const currentUidValidity = normalizeImapCounterValue(
+        opened.info.uidValidity,
+      );
+      if (currentUidValidity !== payload.uidValidity) {
+        console.warn("[messaging-auto-forward] UIDVALIDITY obsolète; job ignoré", {
+          userId: payload.userId,
+          uid: payload.uid,
+          expected: payload.uidValidity,
+          current: currentUidValidity,
+        });
+        return;
+      }
+
+      const fetched = await client.fetchOne(
+        payload.uid,
+        {
+          envelope: true,
+          source: true,
+        },
+        { uid: true },
+      );
+      if (
+        !fetched ||
+        typeof fetched !== "object" ||
+        !("source" in fetched) ||
+        !fetched.source
+      ) {
+        const claim = await claimAutoForwardLog({
+          userId: payload.userId,
+          uidValidity: payload.uidValidity,
+          uid: payload.uid,
+          messageId: null,
+          subject: null,
+          targetRecipients: credentials.autoForward.recipients,
+        });
+        if (claim) {
+          await markAutoForwardLogSkipped(
+            claim.id,
+            "Message IMAP introuvable pour ce transfert automatique.",
+          );
+        }
+        console.warn("[messaging-auto-forward] message introuvable", {
+          userId: payload.userId,
+          uid: payload.uid,
+        });
+        return;
+      }
+
+      const metadata = await loadIncomingMessageMetadata(client, payload.uid, {
+        uid: payload.uid,
+        envelope:
+          "envelope" in fetched
+            ? (fetched.envelope as MessageEnvelopeObject | null)
+            : null,
+        source: fetched.source as Buffer | Uint8Array | string,
+        internalDate: null,
+      });
+      const claim = await claimAutoForwardLog({
+        userId: payload.userId,
+        uidValidity: payload.uidValidity,
+        uid: payload.uid,
+        messageId: metadata?.messageId ?? null,
+        subject: metadata?.subject ?? null,
+        targetRecipients: credentials.autoForward.recipients,
+      });
+      if (!claim) {
+        return;
+      }
+
+      if (!metadata) {
+        await markAutoForwardLogSkipped(
+          claim.id,
+          "Source IMAP introuvable pour ce message.",
+        );
+        return;
+      }
+      if (hasAutoForwardLoopHeader(metadata.parsed)) {
+        await markAutoForwardLogSkipped(
+          claim.id,
+          "Message déjà marqué comme transfert automatique.",
+        );
+        return;
+      }
+
+      const rawSource = normalizeRawMessageSource(
+        fetched.source as Buffer | Uint8Array | string,
+      );
+      const targetRecipients = claim.targetRecipients.length
+        ? claim.targetRecipients
+        : credentials.autoForward.recipients;
+      const sentRecipients = new Set(claim.sentRecipients);
+
+      try {
+        await sendAutoForwardedMessage({
+          userId: payload.userId,
+          uid: payload.uid,
+          uidValidity: payload.uidValidity,
+          credentials,
+          metadata,
+          rawSource,
+          targetRecipients,
+          sentRecipients,
+          logId: claim.id,
+        });
+        await markAutoForwardLogSent(claim.id, Array.from(sentRecipients));
+      } catch (error) {
+        await markAutoForwardLogFailed(claim.id, claim.attempts, error);
+        console.warn("[messaging-auto-forward] envoi échoué", {
+          userId: payload.userId,
+          uid: payload.uid,
+          error,
+        });
+        throw error;
+      }
+    } finally {
+      opened.release();
+    }
+  });
+}
+
+async function sendAutoForwardedMessage(options: {
+  userId: string;
+  uidValidity: number;
+  uid: number;
+  credentials: MessagingCredentials;
+  metadata: IncomingMessageMetadata;
+  rawSource: Buffer;
+  targetRecipients: string[];
+  sentRecipients: Set<string>;
+  logId: string;
+}) {
+  const smtp = options.credentials.smtp;
+  if (!smtp) {
+    throw new Error("SMTP non configuré pour le transfert automatique.");
+  }
+  const fromAddress = smtp.fromEmail ?? smtp.user;
+  if (!fromAddress) {
+    throw new Error("Adresse d'expéditeur invalide pour le transfert automatique.");
+  }
+  const transporter = createSmtpTransport(smtp);
+  const senderName = options.credentials.senderName?.trim() ?? "";
+  const fromField = senderName
+    ? { name: senderName, address: fromAddress }
+    : fromAddress;
+  const subject = buildAutoForwardSubject(options.metadata.subject);
+  const text = buildForwardedMessageText(options.metadata);
+  const html = wrapEmailHtml(buildForwardedMessageHtml(options.metadata), {
+    senderName: options.credentials.senderName,
+    senderLogoUrl: options.credentials.senderLogoUrl,
+    fromEmail: fromAddress,
+  });
+  const originalMessageId = options.metadata.messageId;
+  const headers: Record<string, string> = {
+    "Auto-Submitted": "auto-forwarded",
+    "X-Auto-Response-Suppress": "All",
+    "X-Messagerie-Auto-Forward": "1",
+  };
+  if (originalMessageId) {
+    headers["X-Messagerie-Original-Message-Id"] = originalMessageId;
+  }
+  const filename = `message-${options.uid}.eml`;
+
+  for (const recipient of options.targetRecipients) {
+    if (options.sentRecipients.has(recipient)) {
+      continue;
+    }
+    const messageId = buildAutoForwardMessageId({
+      userId: options.userId,
+      uidValidity: options.uidValidity,
+      uid: options.uid,
+      recipient,
+      fromAddress,
+    });
+    const info = await transporter.sendMail({
+      from: fromField,
+      to: recipient,
+      subject,
+      text,
+      html,
+      messageId,
+      date: new Date(),
+      headers,
+      attachments: [
+        {
+          filename,
+          content: options.rawSource,
+          contentType: "message/rfc822",
+        },
+      ],
+      envelope: {
+        from: fromAddress,
+        to: recipient,
+      },
+    });
+    const rejected = Array.isArray(info.rejected)
+      ? info.rejected.map((entry: unknown) => String(entry).toLowerCase())
+      : [];
+    if (rejected.includes(recipient.toLowerCase())) {
+      throw new Error(`Transfert refusé par le SMTP pour ${recipient}.`);
+    }
+    options.sentRecipients.add(recipient);
+    await updateAutoForwardSentRecipients(
+      options.logId,
+      Array.from(options.sentRecipients),
+    );
+  }
+}
+
 async function enrichMailboxListItemsWithTracking(
   userId: string,
   items: MailboxListItem[],
@@ -3516,6 +4638,7 @@ export async function fetchMailboxUpdates(params: {
 
   const spamFilteringEnabled = credentials.spamFilterEnabled !== false;
   const autoReplyFeatureEnabled = isAutoReplyFeatureEnabled(credentials);
+  const autoForwardFeatureEnabled = isAutoForwardFeatureEnabled(credentials);
 
   if (params.sinceUid <= 0) {
     return {
@@ -3532,6 +4655,7 @@ export async function fetchMailboxUpdates(params: {
     try {
       const totalMessages = opened.info.exists ?? null;
       const nextUid = opened.info.uidNext ?? null;
+      const uidValidity = normalizeImapCounterValue(opened.info.uidValidity);
       if (nextUid !== null && params.sinceUid >= nextUid - 1) {
         return {
           totalMessages,
@@ -3604,6 +4728,23 @@ export async function fetchMailboxUpdates(params: {
         typeof totalMessages === "number"
           ? Math.max(0, totalMessages - newlyMovedCount)
           : totalMessages;
+
+      if (
+        params.mailbox === "inbox" &&
+        filteredItems.length &&
+        autoForwardFeatureEnabled
+      ) {
+        try {
+          await processAutoForwardQueueing({
+            userId,
+            credentials,
+            messages: filteredItems,
+            uidValidity,
+          });
+        } catch (error) {
+          console.warn("[messaging-auto-forward] mise en file impossible:", error);
+        }
+      }
 
       if (
         params.mailbox === "inbox" &&

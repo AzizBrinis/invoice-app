@@ -11,6 +11,11 @@ import {
 } from "@/server/website";
 import { listApprovedProductReviewsForProducts } from "@/server/product-review-queries";
 
+const PUBLIC_CATALOG_API_CACHE_CONTROL =
+  "public, max-age=60, s-maxage=300, stale-while-revalidate=3600";
+const PUBLIC_CATALOG_NOT_FOUND_CACHE_CONTROL =
+  "public, max-age=30, s-maxage=60, stale-while-revalidate=300";
+
 const catalogProductSelect = {
   id: true,
   name: true,
@@ -62,6 +67,25 @@ function resolveDomainAndSlug(
   };
 }
 
+function jsonWithCache(
+  body: unknown,
+  init?: ResponseInit,
+) {
+  const status = init?.status ?? 200;
+  return NextResponse.json(body, {
+    ...init,
+    headers: {
+      "Cache-Control":
+        status === 404
+          ? PUBLIC_CATALOG_NOT_FOUND_CACHE_CONTROL
+          : status >= 400
+            ? "no-store"
+          : PUBLIC_CATALOG_API_CACHE_CONTROL,
+      ...init?.headers,
+    },
+  });
+}
+
 export async function GET(request: NextRequest) {
   const rawSlug = request.nextUrl.searchParams.get("slug");
   const productSlug = normalizeCatalogSlugInput(
@@ -69,7 +93,7 @@ export async function GET(request: NextRequest) {
   );
 
   if (!productSlug) {
-    return NextResponse.json(
+    return jsonWithCache(
       { error: "Missing product slug." },
       { status: 400 },
     );
@@ -83,7 +107,7 @@ export async function GET(request: NextRequest) {
   });
 
   if (!website) {
-    return NextResponse.json({ error: "Catalog not found." }, { status: 404 });
+    return jsonWithCache({ error: "Catalog not found." }, { status: 404 });
   }
 
   const where = {
@@ -125,7 +149,7 @@ export async function GET(request: NextRequest) {
   }
 
   if (!product) {
-    return NextResponse.json({ error: "Product not found." }, { status: 404 });
+    return jsonWithCache({ error: "Product not found." }, { status: 404 });
   }
 
   const reviewsByProduct = await listApprovedProductReviewsForProducts(
@@ -137,7 +161,7 @@ export async function GET(request: NextRequest) {
     reviews: reviewsByProduct.get(product.id) ?? [],
   };
 
-  return NextResponse.json({
+  return jsonWithCache({
     product: externalizeCatalogProductInlineImages(
       productWithReviews,
       website,

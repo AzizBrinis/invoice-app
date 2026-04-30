@@ -19,6 +19,7 @@ import { useRouter } from "next/navigation";
 import {
   Loader2,
   Paperclip,
+  Save,
   Sparkles,
   Trash2,
   UploadCloud,
@@ -36,13 +37,13 @@ import {
 import {
   sendEmailAction,
   scheduleEmailAction,
+  createSavedResponseAction,
   runAiReplyAction,
   runAiDraftPolishAction,
   runAiSubjectAction,
   type ActionResult,
   type AiReplyActionInput,
   type AiDraftPolishActionInput,
-  type AiSubjectActionInput,
 } from "@/app/(app)/messagerie/actions";
 import {
   formatRecipientAddresses,
@@ -57,39 +58,13 @@ import {
   updateMailboxMetadata,
 } from "@/app/(app)/messagerie/_state/mailbox-store";
 import type { SentMailboxAppendResult } from "@/server/messaging";
-
-const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024; // 10 Mo
-const ALLOWED_ATTACHMENT_TYPES = new Set<string>([
-  "application/pdf",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/vnd.ms-excel",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "application/zip",
-  "application/json",
-  "text/plain",
-]);
-const ALLOWED_ATTACHMENT_PREFIXES = ["image/", "audio/"];
-
-function isAllowedAttachmentType(mime: string | undefined | null): boolean {
-  if (!mime) return true;
-  if (ALLOWED_ATTACHMENT_TYPES.has(mime)) return true;
-  return ALLOWED_ATTACHMENT_PREFIXES.some((prefix) => mime.startsWith(prefix));
-}
-
-function formatFileSize(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) {
-    return "0 ko";
-  }
-  const units = ["octets", "ko", "Mo", "Go"] as const;
-  const exponent = Math.min(
-    Math.floor(Math.log(bytes) / Math.log(1024)),
-    units.length - 1
-  );
-  const value = bytes / 1024 ** exponent;
-  const display = exponent === 0 ? value : value.toFixed(1);
-  return `${display} ${units[exponent]}`;
-}
+import {
+  MESSAGING_ATTACHMENT_TOTAL_LIMIT_BYTES,
+  MESSAGING_ATTACHMENT_TOTAL_LIMIT_LABEL,
+  formatMessagingAttachmentSize,
+  getMessagingAttachmentsTotalSize,
+  isAllowedMessagingAttachmentType,
+} from "@/lib/messaging/attachments";
 
 type ComposeInitialDraft = {
   to?: RecipientDraft[];
@@ -190,6 +165,20 @@ const EDITOR_TABS: Array<{ key: EditorMode; label: string }> = [
   { key: "preview", label: "Aperçu" },
 ];
 
+function sortSavedResponses(entries: SavedResponse[]): SavedResponse[] {
+  return [...entries].sort((a, b) => {
+    if (a.builtIn !== b.builtIn) {
+      return a.builtIn ? -1 : 1;
+    }
+    const updatedDiff =
+      new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+    if (updatedDiff !== 0) {
+      return updatedDiff;
+    }
+    return a.title.localeCompare(b.title);
+  });
+}
+
 type AiReplyMode = "improve_text_html" | "improve_text_only" | "correct_only";
 
 const AI_MODE_CONFIG: Record<AiReplyMode, { label: string; description: string }> = {
@@ -223,6 +212,18 @@ const COMPOSE_AI_CONFIG: Record<ComposeAiMode, { label: string; description: str
 };
 
 const SUBJECT_AI_MIN_WORDS = 8;
+
+function getComposeTransportErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  if (
+    /body exceeded|request body exceeded|unexpected end of form|413/i.test(
+      message,
+    )
+  ) {
+    return `La taille totale des pièces jointes ne peut pas dépasser ${MESSAGING_ATTACHMENT_TOTAL_LIMIT_LABEL}.`;
+  }
+  return "Erreur réseau.";
+}
 
 const COMPANY_PLACEHOLDER_KEYS = [
   "company_name",
@@ -516,6 +517,9 @@ export function ComposeClient({
   const [htmlBody, setHtmlBody] = useState("");
   const [htmlSyncEnabled, setHtmlSyncEnabled] = useState(false);
   const [editorMode, setEditorMode] = useState<EditorMode>("plain");
+  const [availableSavedResponses, setAvailableSavedResponses] = useState(() =>
+    sortSavedResponses(savedResponses),
+  );
   const [selectedSavedResponseId, setSelectedSavedResponseId] = useState("");
   const [attachments, setAttachments] = useState<File[]>([]);
   const [aiMode, setAiMode] = useState<AiReplyMode>("improve_text_html");
@@ -527,6 +531,10 @@ export function ComposeClient({
     formatDateTimeLocal(new Date(Date.now() + 30 * 60 * 1000)),
   );
   const [scheduling, setScheduling] = useState(false);
+  const [saveResponseOpen, setSaveResponseOpen] = useState(false);
+  const [saveResponseTitle, setSaveResponseTitle] = useState("");
+  const [saveResponseDescription, setSaveResponseDescription] = useState("");
+  const [saveResponsePending, setSaveResponsePending] = useState(false);
   const toInputRef = useRef<HTMLInputElement | null>(null);
   const ccInputRef = useRef<HTMLInputElement | null>(null);
   const bccInputRef = useRef<HTMLInputElement | null>(null);
@@ -607,6 +615,11 @@ export function ComposeClient({
   const initialBccRef = useRef<RecipientDraft[]>(
     cloneRecipients(initialDraft?.bcc)
   );
+
+  useEffect(() => {
+    setAvailableSavedResponses(sortSavedResponses(savedResponses));
+  }, [savedResponses]);
+
   const enforceAiModeForPlain = useCallback(
     (value?: string) => {
       const content = (value ?? plainBody ?? "").trim();
@@ -660,6 +673,9 @@ export function ComposeClient({
       contentAuthorityRef.current = "plain";
       setEditorMode("plain");
       setSelectedSavedResponseId("");
+      setSaveResponseOpen(false);
+      setSaveResponseTitle("");
+      setSaveResponseDescription("");
     });
   }, [initialDraft, enforceAiModeForPlain, captureHtmlBlueprint]);
 
@@ -845,7 +861,9 @@ export function ComposeClient({
       if (!responseId) {
         return;
       }
-      const response = savedResponses.find((item) => item.id === responseId);
+      const response = availableSavedResponses.find(
+        (item) => item.id === responseId,
+      );
       if (!response) {
         setSelectedSavedResponseId("");
         return;
@@ -931,10 +949,136 @@ export function ComposeClient({
     [
       addToast,
       applyTemplateWithValues,
+      availableSavedResponses,
       companyPlaceholderInfo,
       placeholderValues,
-      savedResponses,
     ]
+  );
+
+  const getCurrentResponseDraft = useCallback(() => {
+    const htmlContent = htmlBody.trim();
+    if (htmlContent.length > 0) {
+      return {
+        content: htmlBody,
+        format: "HTML" as const,
+      };
+    }
+    return {
+      content: plainBody,
+      format: "PLAINTEXT" as const,
+    };
+  }, [htmlBody, plainBody]);
+
+  const handleOpenSaveResponse = useCallback(() => {
+    const draft = getCurrentResponseDraft();
+    if (!draft.content.trim().length) {
+      addToast({
+        variant: "warning",
+        title: "Ajoutez du contenu avant d'enregistrer une réponse.",
+      });
+      return;
+    }
+    if (draft.content.length > 20000) {
+      addToast({
+        variant: "error",
+        title: "Le contenu dépasse la limite de 20 000 caractères.",
+      });
+      return;
+    }
+    setSaveResponseTitle((current) => {
+      const trimmed = current.trim();
+      if (trimmed.length > 0) {
+        return current;
+      }
+      const subjectTitle = subject.trim();
+      return subjectTitle.length >= 3
+        ? subjectTitle.slice(0, 120)
+        : "Réponse enregistrée";
+    });
+    setSaveResponseOpen(true);
+  }, [addToast, getCurrentResponseDraft, subject]);
+
+  const handleSaveCurrentResponse = useCallback(
+    async () => {
+      if (saveResponsePending) {
+        return;
+      }
+      const title = saveResponseTitle.trim();
+      const description = saveResponseDescription.trim();
+      if (title.length < 3) {
+        addToast({
+          variant: "error",
+          title: "Le titre doit contenir au moins 3 caractères.",
+        });
+        return;
+      }
+      if (title.length > 120) {
+        addToast({
+          variant: "error",
+          title: "Le titre ne peut pas dépasser 120 caractères.",
+        });
+        return;
+      }
+      const draft = getCurrentResponseDraft();
+      if (!draft.content.trim().length) {
+        addToast({
+          variant: "warning",
+          title: "Ajoutez du contenu avant d'enregistrer une réponse.",
+        });
+        return;
+      }
+      if (draft.content.length > 20000) {
+        addToast({
+          variant: "error",
+          title: "Le contenu dépasse la limite de 20 000 caractères.",
+        });
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append("title", title);
+      formData.append("description", description);
+      formData.append("content", draft.content);
+      formData.append("format", draft.format);
+
+      setSaveResponsePending(true);
+      try {
+        const result = await createSavedResponseAction(formData);
+        if (result?.success && result.data?.response) {
+          setAvailableSavedResponses((current) =>
+            sortSavedResponses([...current, result.data!.response]),
+          );
+          setSelectedSavedResponseId("");
+          setSaveResponseOpen(false);
+          setSaveResponseTitle("");
+          setSaveResponseDescription("");
+          addToast({
+            variant: "success",
+            title: "Réponse enregistrée pour les prochains e-mails.",
+          });
+        } else if (result && !result.success) {
+          addToast({
+            variant: "error",
+            title: result.message,
+          });
+        }
+      } catch (error) {
+        console.error("Erreur réseau lors de l'enregistrement du modèle:", error);
+        addToast({
+          variant: "error",
+          title: "Impossible d'enregistrer la réponse.",
+        });
+      } finally {
+        setSaveResponsePending(false);
+      }
+    },
+    [
+      addToast,
+      getCurrentResponseDraft,
+      saveResponseDescription,
+      saveResponsePending,
+      saveResponseTitle,
+    ],
   );
 
   const trimmedPlainBody = plainBody.trim();
@@ -1265,6 +1409,14 @@ export function ComposeClient({
   const showSubjectAiButton = !replyContext && hasAnyBody;
   const subjectAiEnabled = showSubjectAiButton && bodyWordCount >= SUBJECT_AI_MIN_WORDS;
   const subjectAiRemaining = Math.max(SUBJECT_AI_MIN_WORDS - bodyWordCount, 0);
+  const attachmentTotalSize = useMemo(
+    () => getMessagingAttachmentsTotalSize(attachments),
+    [attachments],
+  );
+  const currentSavedResponseFormat =
+    trimmedHtmlBody.length > 0 ? "HTML" : "PLAINTEXT";
+  const currentSavedResponseFormatLabel =
+    currentSavedResponseFormat === "HTML" ? "HTML" : "texte brut";
 
   useEffect(() => {
     const anyMenuOpen = composeAiMenuOpen || replyAiMenuOpen;
@@ -1389,16 +1541,24 @@ export function ComposeClient({
           current.map((file) => `${file.name}__${file.size}`)
         );
         const next = [...current];
+        let nextTotalSize = getMessagingAttachmentsTotalSize(current);
 
         for (const file of incoming) {
-          if (file.size > MAX_ATTACHMENT_SIZE) {
+          if (file.size > MESSAGING_ATTACHMENT_TOTAL_LIMIT_BYTES) {
             addToast({
               variant: "error",
-              title: "Pièce jointe trop volumineuse.",
+              title: `Pièce jointe trop volumineuse. Limite : ${MESSAGING_ATTACHMENT_TOTAL_LIMIT_LABEL}.`,
             });
             continue;
           }
-          if (!isAllowedAttachmentType(file.type)) {
+          if (nextTotalSize + file.size > MESSAGING_ATTACHMENT_TOTAL_LIMIT_BYTES) {
+            addToast({
+              variant: "error",
+              title: `La taille totale des pièces jointes ne peut pas dépasser ${MESSAGING_ATTACHMENT_TOTAL_LIMIT_LABEL}.`,
+            });
+            continue;
+          }
+          if (!isAllowedMessagingAttachmentType(file.type)) {
             addToast({
               variant: "error",
               title: "Type de fichier non supporté.",
@@ -1411,6 +1571,7 @@ export function ComposeClient({
           }
           existingFingerprints.add(fingerprint);
           next.push(file);
+          nextTotalSize += file.size;
         }
 
         return next;
@@ -1604,7 +1765,7 @@ export function ComposeClient({
       console.error("Erreur réseau lors de l'envoi :", error);
       addToast({
         variant: "error",
-        title: "Erreur réseau.",
+        title: getComposeTransportErrorMessage(error),
       });
       return null;
     }
@@ -1619,7 +1780,7 @@ export function ComposeClient({
       console.error("Erreur réseau lors de la planification:", error);
       addToast({
         variant: "error",
-        title: "Erreur réseau.",
+        title: getComposeTransportErrorMessage(error),
       });
       return null;
     }
@@ -1639,6 +1800,9 @@ export function ComposeClient({
     contentAuthorityRef.current = "plain";
     setEditorMode("plain");
     setSelectedSavedResponseId("");
+    setSaveResponseOpen(false);
+    setSaveResponseTitle("");
+    setSaveResponseDescription("");
     setAttachments([]);
   }, [captureHtmlBlueprint, enforceAiModeForPlain]);
 
@@ -1704,6 +1868,14 @@ export function ComposeClient({
 
     const ccAddresses = formatRecipientAddresses(resolvedCcRecipients);
     const bccAddresses = formatRecipientAddresses(resolvedBccRecipients);
+    const totalAttachmentSize = getMessagingAttachmentsTotalSize(attachments);
+    if (totalAttachmentSize > MESSAGING_ATTACHMENT_TOTAL_LIMIT_BYTES) {
+      addToast({
+        variant: "error",
+        title: `La taille totale des pièces jointes ne peut pas dépasser ${MESSAGING_ATTACHMENT_TOTAL_LIMIT_LABEL}.`,
+      });
+      return null;
+    }
 
     const htmlActive = htmlBody.trim().length > 0;
 
@@ -1730,14 +1902,10 @@ export function ComposeClient({
     bccField,
     ccField,
     commitRecipientInput,
-    deriveRecipientsFromInput,
-    editorMode,
     htmlBody,
     initialBccRef,
     initialCcRef,
     initialToRef,
-    formatRecipientAddresses,
-    mergeRecipientLists,
     plainBody,
     quotedHtml,
     quotedText,
@@ -2186,40 +2354,53 @@ export function ComposeClient({
                   </p>
                 ) : null}
               </div>
-              {savedResponses.length ? (
-                <div className="flex flex-wrap items-center gap-2">
-                  <label
-                    htmlFor="saved-response-select"
-                    className="text-xs font-medium text-zinc-600 dark:text-zinc-300"
-                  >
-                    Réponses enregistrées
-                  </label>
-                  <Select
-                    id="saved-response-select"
-                    value={selectedSavedResponseId}
-                    onChange={(event) => {
-                      const value = event.target.value;
-                      setSelectedSavedResponseId(value);
-                      handleSavedResponseSelection(value);
-                    }}
-                    className="h-9 min-w-[220px]"
-                  >
-                    <option value="">Insérer…</option>
-                    {savedResponses.map((response) => (
-                      <option key={response.id} value={response.id}>
-                        {response.title}{" "}
-                        {response.format === "HTML" ? "• HTML" : "• Texte"}
-                      </option>
-                    ))}
-                  </Select>
-                  <Link
-                    href="/messagerie/parametres#saved-responses"
-                    className="text-xs font-semibold text-blue-600 hover:underline dark:text-blue-300"
-                  >
-                    Gérer
-                  </Link>
-                </div>
-              ) : null}
+              <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+                {availableSavedResponses.length ? (
+                  <>
+                    <label
+                      htmlFor="saved-response-select"
+                      className="text-xs font-medium text-zinc-600 dark:text-zinc-300 sm:shrink-0"
+                    >
+                      Réponses enregistrées
+                    </label>
+                    <Select
+                      id="saved-response-select"
+                      value={selectedSavedResponseId}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setSelectedSavedResponseId(value);
+                        handleSavedResponseSelection(value);
+                      }}
+                      className="h-9 min-w-0 flex-1 text-sm sm:w-[220px] sm:flex-none"
+                    >
+                      <option value="">Insérer…</option>
+                      {availableSavedResponses.map((response) => (
+                        <option key={response.id} value={response.id}>
+                          {response.title}{" "}
+                          {response.format === "HTML" ? "• HTML" : "• Texte"}
+                        </option>
+                      ))}
+                    </Select>
+                    <Link
+                      href="/messagerie/parametres#saved-responses"
+                      className="shrink-0 text-xs font-semibold text-blue-600 hover:underline dark:text-blue-300"
+                    >
+                      Gérer
+                    </Link>
+                  </>
+                ) : null}
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={handleOpenSaveResponse}
+                  title="Enregistrer le contenu actuel comme réponse réutilisable"
+                  aria-label="Enregistrer comme réponse"
+                  className="!h-8 !min-h-0 !w-8 shrink-0 !rounded-md !p-0 !text-xs sm:!w-auto sm:!px-2.5"
+                >
+                  <Save className="h-4 w-4" aria-hidden="true" />
+                  <span className="hidden sm:inline">Enregistrer</span>
+                </Button>
+              </div>
             </div>
             <div className="inline-flex overflow-hidden rounded-md border border-zinc-200 bg-white text-xs font-semibold text-zinc-600 shadow-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
               {EDITOR_TABS.map(({ key, label }) => (
@@ -2303,6 +2484,74 @@ export function ComposeClient({
                 <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
                   {aiModeDescription}
                 </p>
+              </div>
+            ) : null}
+            {saveResponseOpen ? (
+              <div
+                className="space-y-3 rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-950/40"
+              >
+                <div className="flex flex-col gap-1">
+                  <h4 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                    Enregistrer dans Réponses enregistrées
+                  </h4>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    Le contenu actuel sera sauvegardé au format {currentSavedResponseFormatLabel}.
+                  </p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <label
+                      htmlFor="save-response-title"
+                      className="text-sm font-medium text-zinc-800 dark:text-zinc-200"
+                    >
+                      Nom du modèle
+                    </label>
+                    <Input
+                      id="save-response-title"
+                      value={saveResponseTitle}
+                      onChange={(event) =>
+                        setSaveResponseTitle(event.target.value)
+                      }
+                      maxLength={120}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label
+                      htmlFor="save-response-description"
+                      className="text-sm font-medium text-zinc-800 dark:text-zinc-200"
+                    >
+                      Description (facultatif)
+                    </label>
+                    <Input
+                      id="save-response-description"
+                      value={saveResponseDescription}
+                      onChange={(event) =>
+                        setSaveResponseDescription(event.target.value)
+                      }
+                      placeholder="Usage interne du modèle"
+                    />
+                  </div>
+                </div>
+                <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => setSaveResponseOpen(false)}
+                    disabled={saveResponsePending}
+                    className="w-full sm:w-auto"
+                  >
+                    Annuler
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={() => void handleSaveCurrentResponse()}
+                    loading={saveResponsePending}
+                    className="w-full sm:w-auto"
+                  >
+                    Enregistrer la réponse
+                  </Button>
+                </div>
               </div>
             ) : null}
           </div>
@@ -2412,7 +2661,7 @@ export function ComposeClient({
               </Button>
               <p className="text-xs text-zinc-500 dark:text-zinc-400">
                 Formats acceptés : images, PDF, documents, audio. Taille max :
-                10 Mo par fichier.
+                {` ${MESSAGING_ATTACHMENT_TOTAL_LIMIT_LABEL} au total.`}
               </p>
             </div>
             <input
@@ -2425,35 +2674,44 @@ export function ComposeClient({
           </div>
 
           {attachments.length > 0 ? (
-            <ul className="space-y-2">
-              {attachments.map((file, index) => (
-                <li
-                  key={`${file.name}-${file.size}-${index}`}
-                  className="flex flex-col gap-3 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-900 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div className="flex items-center gap-2">
-                    <Paperclip className="h-4 w-4 text-zinc-500" />
-                    <div className="flex flex-col">
-                      <span className="font-medium text-zinc-800 dark:text-zinc-100">
-                        {file.name}
-                      </span>
-                      <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                        {formatFileSize(file.size)}
-                      </span>
-                    </div>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className="w-full text-xs text-zinc-500 hover:text-red-500 dark:text-zinc-400 sm:w-auto"
-                    onClick={() => handleRemoveAttachment(index)}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400">
+                <span>
+                  {formatMessagingAttachmentSize(attachmentTotalSize)} /{" "}
+                  {MESSAGING_ATTACHMENT_TOTAL_LIMIT_LABEL}
+                </span>
+                <span>{attachments.length} fichier(s)</span>
+              </div>
+              <ul className="space-y-2">
+                {attachments.map((file, index) => (
+                  <li
+                    key={`${file.name}-${file.size}-${index}`}
+                    className="flex flex-col gap-3 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-900 sm:flex-row sm:items-center sm:justify-between"
                   >
-                    <Trash2 className="h-4 w-4" />
-                    <span className="sr-only">Supprimer la pièce jointe</span>
-                  </Button>
-                </li>
-              ))}
-            </ul>
+                    <div className="flex items-center gap-2">
+                      <Paperclip className="h-4 w-4 text-zinc-500" />
+                      <div className="flex flex-col">
+                        <span className="font-medium text-zinc-800 dark:text-zinc-100">
+                          {file.name}
+                        </span>
+                        <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                          {formatMessagingAttachmentSize(file.size)}
+                        </span>
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="w-full text-xs text-zinc-500 hover:text-red-500 dark:text-zinc-400 sm:w-auto"
+                      onClick={() => handleRemoveAttachment(index)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      <span className="sr-only">Supprimer la pièce jointe</span>
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </div>
           ) : null}
 
           {(quotedHtml || quotedText) && (

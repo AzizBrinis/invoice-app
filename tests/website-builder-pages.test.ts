@@ -29,6 +29,7 @@ vi.mock("@/components/website/templates/ecommerce-ciseco/i18n", () => ({
 import { CatalogPage } from "@/components/website/catalog-page";
 import { AboutPage } from "@/components/website/templates/ecommerce-ciseco/pages/AboutPage";
 import { CisecoNavigationProvider } from "@/components/website/templates/ecommerce-ciseco/navigation";
+import { AccountProfileProvider } from "@/components/website/templates/ecommerce-ciseco/hooks/useAccountProfile";
 import {
   buildCisecoInlineStyles,
   buildCisecoTheme,
@@ -235,6 +236,11 @@ function renderAboutPage(
       children?: ReactNode;
     },
   ) => ReactElement;
+  const ProfileProvider = AccountProfileProvider as unknown as (
+    props: Omit<ComponentProps<typeof AccountProfileProvider>, "children"> & {
+      children?: ReactNode;
+    },
+  ) => ReactElement;
 
   return renderToStaticMarkup(
     createElement(
@@ -246,14 +252,18 @@ function renderAboutPage(
         initialPath: "/about",
         serverRoutedPaths: ["/", "/about", "/contact", "/blog"],
       },
-      createElement(AboutPage, {
-        theme,
-        inlineStyles,
-        companyName: "Demo",
-        homeHref: "/preview?path=%2F&lang=fr",
-        siteReviews,
-        builder: config.pages.about,
-      }),
+      createElement(
+        ProfileProvider,
+        { initialViewer: null },
+        createElement(AboutPage, {
+          theme,
+          inlineStyles,
+          companyName: "Demo",
+          homeHref: "/preview?path=%2F&lang=fr",
+          siteReviews,
+          builder: config.pages.about,
+        }),
+      ),
     ),
   );
 }

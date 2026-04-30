@@ -12,6 +12,10 @@ import {
   PRODUCT_FAQ_QUESTION_MIN_LENGTH,
 } from "@/lib/product-faq";
 import { slugify } from "@/lib/slug";
+import {
+  isInlineProductImageDataUrl,
+  uploadManagedProductImageDataUrl,
+} from "@/server/product-media-storage";
 import { z } from "zod";
 
 const productSlugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -348,6 +352,64 @@ function buildProductWriteData(
   };
 }
 
+type ProductGalleryInput = NonNullable<NonNullable<ProductInput["gallery"]>[number]>;
+
+function isProductGalleryObject(
+  value: ProductGalleryInput,
+): value is Extract<ProductGalleryInput, { src: string }> {
+  return typeof value === "object" && value !== null && "src" in value;
+}
+
+async function externalizeInlineProductImages(options: {
+  userId: string;
+  publicSlug: string;
+  data: Omit<ProductInput, "id" | "publicSlug">;
+}) {
+  const uploadedSources = new Map<string, Promise<string>>();
+  const resolveSource = (source: string) => {
+    if (!isInlineProductImageDataUrl(source)) {
+      return Promise.resolve(source);
+    }
+
+    let uploaded = uploadedSources.get(source);
+    if (!uploaded) {
+      uploaded = uploadManagedProductImageDataUrl({
+        userId: options.userId,
+        publicSlug: options.publicSlug,
+        source,
+      }).then((asset) => asset.managedUrl);
+      uploadedSources.set(source, uploaded);
+    }
+    return uploaded;
+  };
+
+  const coverImageUrl = options.data.coverImageUrl
+    ? await resolveSource(options.data.coverImageUrl)
+    : options.data.coverImageUrl;
+  const gallery = options.data.gallery
+    ? await Promise.all(
+        options.data.gallery.map(async (entry) => {
+          if (typeof entry === "string") {
+            return resolveSource(entry);
+          }
+          if (isProductGalleryObject(entry)) {
+            return {
+              ...entry,
+              src: await resolveSource(entry.src),
+            };
+          }
+          return entry;
+        }),
+      )
+    : options.data.gallery;
+
+  return {
+    ...options.data,
+    coverImageUrl,
+    gallery,
+  };
+}
+
 async function findAvailableProductSlug(userId: string, base: string) {
   const cleaned = base.length ? base : "produit";
   let candidate = cleaned;
@@ -536,10 +598,15 @@ export async function createProduct(input: ProductInput) {
     name: data.name,
     requestedSlug: publicSlug,
   });
+  const mediaData = await externalizeInlineProductImages({
+    userId,
+    publicSlug: resolvedSlug,
+    data,
+  });
   const writeData: Prisma.ProductUncheckedCreateInput = {
     userId,
     publicSlug: resolvedSlug,
-    ...buildProductWriteData(data),
+    ...buildProductWriteData(mediaData),
   };
   const created = await prisma.product.create({
     data: writeData,
@@ -569,10 +636,15 @@ export async function updateProduct(
     requestedSlug: publicSlug,
     existingSlug: existing.publicSlug,
   });
+  const mediaData = await externalizeInlineProductImages({
+    userId,
+    publicSlug: resolvedSlug,
+    data,
+  });
   const writeData: Prisma.ProductUncheckedUpdateInput = {
     userId,
     publicSlug: resolvedSlug,
-    ...buildProductWriteData(data),
+    ...buildProductWriteData(mediaData),
   };
   const updated = await prisma.product.update({
     where: { id },

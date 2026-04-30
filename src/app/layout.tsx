@@ -40,6 +40,7 @@ export default function RootLayout({
   return (
     <html
       lang="fr"
+      data-scroll-behavior="smooth"
       data-theme="system"
       data-theme-resolved="light"
       style={{ colorScheme: "light" }}

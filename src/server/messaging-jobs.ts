@@ -5,8 +5,14 @@ import type {
 } from "@/server/background-jobs";
 import { enqueueJob, processJobQueue } from "@/server/background-jobs";
 import { prisma } from "@/lib/db";
+import { Prisma } from "@/lib/db/prisma-server";
 import { runScheduledEmailDispatchCycle } from "@/server/messaging-scheduled";
-import { runAutomatedReplySweepForUser } from "@/server/messaging";
+import {
+  AUTO_FORWARD_INBOX_MESSAGE_JOB_TYPE,
+  forwardInboxMessageForUser,
+  runAutoForwardSweepForUser,
+  runAutomatedReplySweepForUser,
+} from "@/server/messaging";
 import {
   DOCUMENT_EMAIL_JOB_TYPES,
   documentEmailJobHandlers,
@@ -25,6 +31,7 @@ import { isMessagingLocalSyncServerEnabled } from "@/server/messaging-local-sync
 
 const DISPATCH_JOB_TYPE = "messaging.dispatchScheduledEmails";
 const AUTO_REPLY_JOB_TYPE = "messaging.syncInboxAutoReplies";
+const AUTO_FORWARD_SWEEP_JOB_TYPE = "messaging.syncInboxAutoForwards";
 export const LOCAL_SYNC_BOOTSTRAP_JOB_TYPE =
   "messaging.localSyncBootstrap";
 export const LOCAL_SYNC_DELTA_JOB_TYPE = "messaging.localSyncDelta";
@@ -36,7 +43,9 @@ export const LOCAL_SYNC_PURGE_JOB_TYPE = "messaging.localSyncPurge";
 
 const SCHEDULED_EMAIL_INTERVAL_MS = 60 * 1000;
 const AUTO_REPLY_INTERVAL_MS = 60 * 1000;
+const AUTO_FORWARD_INTERVAL_MS = 60 * 1000;
 const AUTO_REPLY_RETRY_BACKOFF_MS = 2 * 60 * 1000;
+const AUTO_FORWARD_RETRY_BACKOFF_MS = 2 * 60 * 1000;
 const LOCAL_SYNC_BOOTSTRAP_INTERVAL_MS = 60 * 1000;
 const LOCAL_SYNC_DELTA_INTERVAL_MS = 3 * 60 * 1000;
 const LOCAL_SYNC_RECONCILE_INTERVAL_MS = 30 * 60 * 1000;
@@ -60,6 +69,8 @@ const LOCAL_SYNC_JOB_TYPES = [
 const EMAIL_CRON_JOB_TYPES = [
   DISPATCH_JOB_TYPE,
   AUTO_REPLY_JOB_TYPE,
+  AUTO_FORWARD_SWEEP_JOB_TYPE,
+  AUTO_FORWARD_INBOX_MESSAGE_JOB_TYPE,
   ...DOCUMENT_EMAIL_JOB_TYPES,
 ] as const;
 export const DEFAULT_MESSAGING_CRON_SCOPE = "email";
@@ -70,6 +81,13 @@ type MessagingLocalSyncJobPayload = {
   userId: string;
   mailbox?: MessagingLocalSyncMailbox;
   reason?: string | null;
+};
+
+type MessagingAutoForwardJobPayload = {
+  userId: string;
+  mailbox: "inbox";
+  uidValidity: number;
+  uid: number;
 };
 
 type MessagingJobAutoReplyCandidate = {
@@ -115,6 +133,11 @@ type MessagingCronScheduleSummary = {
     enqueued: number;
     deduped: number;
   };
+  autoForwards?: {
+    requested: number;
+    enqueued: number;
+    deduped: number;
+  };
   localSync?: MessagingLocalSyncScheduleSummary;
 };
 
@@ -129,6 +152,8 @@ type MessagingJobsRuntime = {
   processJobQueue: typeof processJobQueue;
   runScheduledEmailDispatchCycle: typeof runScheduledEmailDispatchCycle;
   runAutomatedReplySweepForUser: typeof runAutomatedReplySweepForUser;
+  runAutoForwardSweepForUser: typeof runAutoForwardSweepForUser;
+  forwardInboxMessageForUser: typeof forwardInboxMessageForUser;
   isMessagingLocalSyncServerEnabled: typeof isMessagingLocalSyncServerEnabled;
   getMessagingLocalSyncPreference: typeof getMessagingLocalSyncPreference;
   listMessagingMailboxLocalSyncStates: typeof listMessagingMailboxLocalSyncStates;
@@ -136,6 +161,7 @@ type MessagingJobsRuntime = {
   syncMessagingMailboxesToLocal: typeof syncMessagingMailboxesToLocal;
   purgeMessagingLocalSyncData: typeof purgeMessagingLocalSyncData;
   findAutoReplyCandidates: () => Promise<MessagingJobAutoReplyCandidate[]>;
+  findAutoForwardCandidates: () => Promise<string[]>;
   findEnabledLocalSyncUsers: () => Promise<string[]>;
   findLocalSyncStatesForUsers: (
     userIds: string[],
@@ -151,6 +177,8 @@ const defaultMessagingJobsRuntime: MessagingJobsRuntime = {
   processJobQueue,
   runScheduledEmailDispatchCycle,
   runAutomatedReplySweepForUser,
+  runAutoForwardSweepForUser,
+  forwardInboxMessageForUser,
   isMessagingLocalSyncServerEnabled,
   getMessagingLocalSyncPreference,
   listMessagingMailboxLocalSyncStates,
@@ -179,6 +207,26 @@ const defaultMessagingJobsRuntime: MessagingJobsRuntime = {
         vacationEndDate: true,
       },
     });
+  },
+  async findAutoForwardCandidates() {
+    const rows = await prisma.$queryRaw<Array<{ userId: string }>>(
+      Prisma.sql`
+        SELECT "userId"
+        FROM public."MessagingSettings"
+        WHERE
+          "autoForwardEnabled" = true
+          AND jsonb_array_length(COALESCE("autoForwardRecipients", '[]'::jsonb)) > 0
+          AND "imapHost" IS NOT NULL
+          AND "imapPort" IS NOT NULL
+          AND "imapUser" IS NOT NULL
+          AND "imapPassword" IS NOT NULL
+          AND "smtpHost" IS NOT NULL
+          AND "smtpPort" IS NOT NULL
+          AND "smtpUser" IS NOT NULL
+          AND "smtpPassword" IS NOT NULL
+      `,
+    );
+    return rows.map((row) => row.userId);
   },
   async findEnabledLocalSyncUsers() {
     const settings = await prisma.messagingSettings.findMany({
@@ -271,6 +319,16 @@ function createMessagingJobHandlers(
       await runtime.runAutomatedReplySweepForUser(parsed.userId, {
         bootstrapMode: parsed.bootstrapMode,
       });
+    },
+    [AUTO_FORWARD_SWEEP_JOB_TYPE]: async ({ job, payload }) => {
+      const parsed = parseAutoReplyPayload(job.type, payload);
+      await runtime.runAutoForwardSweepForUser(parsed.userId, {
+        bootstrapMode: parsed.bootstrapMode,
+      });
+    },
+    [AUTO_FORWARD_INBOX_MESSAGE_JOB_TYPE]: async ({ job, payload }) => {
+      const parsed = parseAutoForwardMessagePayload(job.type, payload);
+      await runtime.forwardInboxMessageForUser(parsed);
     },
     [LOCAL_SYNC_BOOTSTRAP_JOB_TYPE]: async ({ job, payload }) => {
       const parsed = parseLocalSyncJobPayload(job.type, payload);
@@ -580,6 +638,7 @@ async function scheduleMessagingJobsWithRuntime(
   if (shouldHandleEmailAutomation(scope)) {
     scheduled.scheduledEmails = await enqueueDispatchJob(now, runtime);
     scheduled.autoReplies = await enqueueAutoReplyJobs(now, runtime);
+    scheduled.autoForwards = await enqueueAutoForwardSweepJobs(now, runtime);
   }
 
   if (shouldHandleLocalSync(scope)) {
@@ -631,6 +690,44 @@ async function enqueueAutoReplyJobs(
       priority: 50,
       runAt: now,
       retryBackoffMs: AUTO_REPLY_RETRY_BACKOFF_MS,
+    });
+    if (result.deduped) {
+      deduped += 1;
+    } else {
+      enqueued += 1;
+    }
+  }
+
+  return {
+    requested: candidates.length,
+    enqueued,
+    deduped,
+  };
+}
+
+async function enqueueAutoForwardSweepJobs(
+  now: Date,
+  runtime: MessagingJobsRuntime,
+) {
+  const slotKey = computeSlotKey(now, AUTO_FORWARD_INTERVAL_MS);
+  const candidates =
+    typeof runtime.findAutoForwardCandidates === "function"
+      ? await runtime.findAutoForwardCandidates()
+      : [];
+
+  let enqueued = 0;
+  let deduped = 0;
+
+  for (const userId of candidates) {
+    const dedupeKey = `${userId}:${slotKey}`;
+    const payload = { userId, bootstrapMode: "skip" } as const;
+    const result = await runtime.enqueueJob({
+      type: AUTO_FORWARD_SWEEP_JOB_TYPE,
+      payload,
+      dedupeKey,
+      priority: 55,
+      runAt: now,
+      retryBackoffMs: AUTO_FORWARD_RETRY_BACKOFF_MS,
     });
     if (result.deduped) {
       deduped += 1;
@@ -968,6 +1065,42 @@ function parseAutoReplyPayload(
   return { userId, bootstrapMode };
 }
 
+function parseAutoForwardMessagePayload(
+  jobType: string,
+  payload: unknown,
+): MessagingAutoForwardJobPayload {
+  if (!payload || typeof payload !== "object") {
+    throw new Error(`Payload manquant pour le job ${jobType}`);
+  }
+  const record = payload as Record<string, unknown>;
+  const userId = record.userId;
+  const mailbox = record.mailbox;
+  const uidValidity = record.uidValidity;
+  const uid = record.uid;
+  if (typeof userId !== "string" || userId.trim().length === 0) {
+    throw new Error("Identifiant utilisateur invalide pour le transfert automatique.");
+  }
+  if (mailbox !== "inbox") {
+    throw new Error("Boîte invalide pour le transfert automatique.");
+  }
+  if (
+    typeof uidValidity !== "number" ||
+    !Number.isInteger(uidValidity) ||
+    uidValidity <= 0
+  ) {
+    throw new Error("UIDVALIDITY invalide pour le transfert automatique.");
+  }
+  if (typeof uid !== "number" || !Number.isInteger(uid) || uid <= 0) {
+    throw new Error("UID invalide pour le transfert automatique.");
+  }
+  return {
+    userId,
+    mailbox,
+    uidValidity,
+    uid,
+  };
+}
+
 function parseLocalSyncJobPayload(
   jobType: string,
   payload: unknown,
@@ -1168,6 +1301,7 @@ export const __testables = {
   runMessagingLocalJobNowWithRuntime,
   runManualMailboxLocalSyncNowWithRuntime,
   parseLocalSyncJobPayload,
+  parseAutoForwardMessagePayload,
   shouldProcessCronLocalSyncIncrementally,
   selectCronLocalSyncMailbox,
   shouldScheduleAutoReply,
@@ -1179,4 +1313,5 @@ export const __testables = {
   shouldHandleLocalSync,
   LOCAL_SYNC_JOB_TYPES,
   EMAIL_CRON_JOB_TYPES,
+  AUTO_FORWARD_SWEEP_JOB_TYPE,
 };

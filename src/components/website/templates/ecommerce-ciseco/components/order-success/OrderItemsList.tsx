@@ -1,4 +1,5 @@
 import clsx from "clsx";
+import { CatalogImage } from "../shared/CatalogImage";
 
 export type OrderSuccessListItem = {
   id: string;
@@ -31,11 +32,13 @@ function OrderItemRow({ item }: { item: OrderSuccessListItem }) {
     <div className="flex flex-col gap-4 py-6 sm:flex-row sm:items-center sm:gap-6">
       <div className="flex flex-1 items-start gap-4">
         <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-slate-100 p-3 shadow-sm sm:h-24 sm:w-24">
-          <img
+          <CatalogImage
             src={item.image}
             alt={item.name}
             className="h-full w-full object-cover"
-            loading="lazy"
+            width={192}
+            height={192}
+            sizes="96px"
           />
         </div>
         <div className="min-w-0 flex-1 space-y-2">

@@ -1,5 +1,10 @@
 import type { CatalogPayload } from "@/server/website";
 import type { CisecoLocale } from "@/components/website/templates/ecommerce-ciseco/locale";
+import { DevAgencyTemplate } from "@/components/website/templates/dev-agency";
+import { EcommerceCescoTemplate } from "@/components/website/templates/ecommerce-cesco";
+import { EcommerceCisecoHomeTemplate } from "@/components/website/templates/ecommerce-ciseco-home";
+import { EcommerceTechAgencyTemplate } from "@/components/website/templates/ecommerce-tech-agency";
+import { EcommerceTemplate } from "@/components/website/templates/ecommerce";
 
 type CatalogPageProps = {
   data: CatalogPayload;
@@ -9,43 +14,18 @@ type CatalogPageProps = {
   resolvedByDomain?: boolean;
 };
 
-async function resolveTemplateComponent(
-  templateKey: CatalogPayload["website"]["templateKey"],
-) {
-  switch (templateKey) {
-    case "ecommerce-luxe": {
-      const module = await import("@/components/website/templates/ecommerce");
-      return module.EcommerceTemplate;
-    }
-    case "ecommerce-tech-agency": {
-      const module = await import(
-        "@/components/website/templates/ecommerce-tech-agency"
-      );
-      return module.EcommerceTechAgencyTemplate;
-    }
-    case "ecommerce-cesco": {
-      const module = await import(
-        "@/components/website/templates/ecommerce-cesco"
-      );
-      return module.EcommerceCescoTemplate;
-    }
-    case "ecommerce-ciseco-home": {
-      const module = await import(
-        "@/components/website/templates/ecommerce-ciseco-home"
-      );
-      return module.EcommerceCisecoHomeTemplate;
-    }
+export function CatalogPage(props: CatalogPageProps) {
+  switch (props.data.website.templateKey) {
+    case "ecommerce-luxe":
+      return <EcommerceTemplate {...props} />;
+    case "ecommerce-tech-agency":
+      return <EcommerceTechAgencyTemplate {...props} />;
+    case "ecommerce-cesco":
+      return <EcommerceCescoTemplate {...props} />;
+    case "ecommerce-ciseco-home":
+      return <EcommerceCisecoHomeTemplate {...props} />;
     case "dev-agency":
-    default: {
-      const module = await import("@/components/website/templates/dev-agency");
-      return module.DevAgencyTemplate;
-    }
+    default:
+      return <DevAgencyTemplate {...props} />;
   }
-}
-
-export async function CatalogPage(props: CatalogPageProps) {
-  const Template = await resolveTemplateComponent(
-    props.data.website.templateKey,
-  );
-  return <Template {...props} />;
 }

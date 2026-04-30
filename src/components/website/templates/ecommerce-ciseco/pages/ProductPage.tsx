@@ -57,7 +57,7 @@ async function loadProductDetail(options: {
     `/api/catalogue/products?slug=${encodeURIComponent(options.catalogSlug)}&product=${encodeURIComponent(options.productSlug)}`,
     {
       method: "GET",
-      cache: "no-store",
+      cache: "force-cache",
     },
   )
     .then(async (response) => {

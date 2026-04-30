@@ -1,6 +1,7 @@
 import clsx from "clsx";
 import type { PurchasedProductCard } from "../../types";
 import { useCisecoI18n } from "../../i18n";
+import { CatalogImage } from "../shared/CatalogImage";
 import { StarIcon, WishlistHeartIcon } from "../shared/Icons";
 
 type PurchasedCardProps = {
@@ -27,21 +28,25 @@ export function PurchasedCard({
             className="block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900/15"
           >
             <div className="aspect-[4/5]">
-              <img
+              <CatalogImage
                 src={product.image}
                 alt={t(product.name)}
                 className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.03]"
-                loading="lazy"
+                width={640}
+                height={800}
+                sizes="(max-width: 640px) 100vw, 33vw"
               />
             </div>
           </a>
         ) : (
           <div className="aspect-[4/5]">
-            <img
+            <CatalogImage
               src={product.image}
               alt={t(product.name)}
               className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.03]"
-              loading="lazy"
+              width={640}
+              height={800}
+              sizes="(max-width: 640px) 100vw, 33vw"
             />
           </div>
         )}
