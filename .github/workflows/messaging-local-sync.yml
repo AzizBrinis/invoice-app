@@ -16,7 +16,7 @@ jobs:
     steps:
       - name: Call messaging local-sync cron endpoint
         env:
-          CRON_ENDPOINT: ${{ secrets.CRON_ENDPOINT }}
+          CRON_ENDPOINT: https://invoice-app-v0.vercel.app/api/cron/messaging
           CRON_SECRET_TOKEN: ${{ secrets.CRON_SECRET_TOKEN }}
         run: |
           set -euo pipefail

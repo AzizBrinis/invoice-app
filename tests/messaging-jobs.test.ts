@@ -163,6 +163,60 @@ describe("messaging job scheduler", () => {
       }),
     );
   });
+
+  it("keeps email automation running if auto-forward candidate lookup fails", async () => {
+    const { scheduleMessagingCronTickWithRuntime } = messagingJobsTestables;
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const enqueueJob = vi.fn(async ({ type }: { type: string }) => ({
+      deduped: false,
+      job: {
+        id: `job-${type}`,
+      },
+    }));
+    const runtime = {
+      enqueueJob,
+      processJobQueue: vi.fn(),
+      runScheduledEmailDispatchCycle: vi.fn(),
+      runAutomatedReplySweepForUser: vi.fn(),
+      runAutoForwardSweepForUser: vi.fn(),
+      forwardInboxMessageForUser: vi.fn(),
+      isMessagingLocalSyncServerEnabled: vi.fn(() => true),
+      getMessagingLocalSyncPreference: vi.fn(async () => true),
+      listMessagingMailboxLocalSyncStates: vi.fn(),
+      syncMessagingMailboxToLocal: vi.fn(),
+      syncMessagingMailboxesToLocal: vi.fn(),
+      purgeMessagingLocalSyncData: vi.fn(),
+      findAutoReplyCandidates: vi.fn(async () => []),
+      findAutoForwardCandidates: vi.fn(async () => {
+        throw new Error("bad forwarding settings");
+      }),
+      findEnabledLocalSyncUsers: vi.fn(async () => []),
+      findLocalSyncStatesForUsers: vi.fn(async () => []),
+      findUsersWithLocalSyncData: vi.fn(async () => []),
+      findLocalSyncSettings: vi.fn(async () => []),
+    };
+
+    const result = await scheduleMessagingCronTickWithRuntime(
+      new Date("2026-04-30T10:05:00.000Z"),
+      runtime as never,
+      "email",
+    );
+
+    expect(result.scheduled.scheduledEmails).toEqual({
+      deduped: false,
+      jobId: "job-messaging.dispatchScheduledEmails",
+    });
+    expect(result.scheduled.autoForwards).toEqual({
+      requested: 0,
+      enqueued: 0,
+      deduped: 0,
+    });
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[messaging-auto-forward] candidate lookup failed",
+      expect.any(Error),
+    );
+    warnSpy.mockRestore();
+  });
 });
 
 describe("auto reply selection helpers", () => {

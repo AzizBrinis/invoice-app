@@ -2332,7 +2332,7 @@ export async function updateMessagingAutoForwardSettings(
       UPDATE public."MessagingSettings"
       SET
         "autoForwardEnabled" = ${input.autoForwardEnabled},
-        "autoForwardRecipients" = ${JSON.stringify(recipients)}::jsonb,
+        "autoForwardRecipients" = to_jsonb(${recipients}::text[]),
         "updatedAt" = NOW()
       WHERE "userId" = ${userId}
     `,
@@ -3342,7 +3342,6 @@ async function claimAutoForwardLog(params: {
 }): Promise<AutoForwardLogClaim | null> {
   const now = new Date();
   const staleCutoff = new Date(now.getTime() - AUTO_FORWARD_STALE_SENDING_MS);
-  const targetRecipientsJson = JSON.stringify(params.targetRecipients);
   const inserted = await prisma.$queryRaw<AutoForwardLogClaimRow[]>(
     Prisma.sql`
       INSERT INTO public."MessagingAutoForwardLog" (
@@ -3368,7 +3367,7 @@ async function claimAutoForwardLog(params: {
         ${params.uid},
         ${params.messageId},
         ${params.subject},
-        ${targetRecipientsJson}::jsonb,
+        to_jsonb(${params.targetRecipients}::text[]),
         'SENDING',
         1,
         ${now},
@@ -3450,7 +3449,7 @@ async function updateAutoForwardSentRecipients(
     Prisma.sql`
       UPDATE public."MessagingAutoForwardLog"
       SET
-        "sentRecipients" = ${JSON.stringify(recipients)}::jsonb,
+        "sentRecipients" = to_jsonb(${recipients}::text[]),
         "updatedAt" = NOW()
       WHERE "id" = ${logId}
     `,
@@ -3463,7 +3462,7 @@ async function markAutoForwardLogSent(logId: string, recipients: string[]) {
       UPDATE public."MessagingAutoForwardLog"
       SET
         "status" = 'SENT',
-        "sentRecipients" = ${JSON.stringify(recipients)}::jsonb,
+        "sentRecipients" = to_jsonb(${recipients}::text[]),
         "sentAt" = NOW(),
         "nextAttemptAt" = NULL,
         "lastError" = NULL,

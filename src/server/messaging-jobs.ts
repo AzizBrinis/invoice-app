@@ -215,7 +215,11 @@ const defaultMessagingJobsRuntime: MessagingJobsRuntime = {
         FROM public."MessagingSettings"
         WHERE
           "autoForwardEnabled" = true
-          AND jsonb_array_length(COALESCE("autoForwardRecipients", '[]'::jsonb)) > 0
+          AND CASE
+            WHEN jsonb_typeof("autoForwardRecipients") = 'array'
+              THEN jsonb_array_length("autoForwardRecipients")
+            ELSE 0
+          END > 0
           AND "imapHost" IS NOT NULL
           AND "imapPort" IS NOT NULL
           AND "imapUser" IS NOT NULL
@@ -710,10 +714,15 @@ async function enqueueAutoForwardSweepJobs(
   runtime: MessagingJobsRuntime,
 ) {
   const slotKey = computeSlotKey(now, AUTO_FORWARD_INTERVAL_MS);
-  const candidates =
-    typeof runtime.findAutoForwardCandidates === "function"
-      ? await runtime.findAutoForwardCandidates()
-      : [];
+  let candidates: string[] = [];
+  try {
+    candidates =
+      typeof runtime.findAutoForwardCandidates === "function"
+        ? await runtime.findAutoForwardCandidates()
+        : [];
+  } catch (error) {
+    console.warn("[messaging-auto-forward] candidate lookup failed", error);
+  }
 
   let enqueued = 0;
   let deduped = 0;

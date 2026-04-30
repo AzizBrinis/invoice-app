@@ -5,6 +5,43 @@ ALTER TABLE public."MessagingSettings"
 ALTER TABLE public."MessagingInboxSyncState"
   ADD COLUMN IF NOT EXISTS "lastInboxAutoForwardUid" integer;
 
+UPDATE public."MessagingSettings"
+SET "autoForwardRecipients" = COALESCE(
+  (
+    SELECT jsonb_agg(cleaned.entry)
+    FROM (
+      SELECT lower(btrim(part.entry, ' "[]')) AS entry
+      FROM jsonb_array_elements_text(
+        CASE
+          WHEN jsonb_typeof("autoForwardRecipients") = 'array'
+            THEN "autoForwardRecipients"
+          WHEN jsonb_typeof("autoForwardRecipients") = 'string'
+            THEN jsonb_build_array("autoForwardRecipients" #>> '{}')
+          ELSE '[]'::jsonb
+        END
+      ) AS source(entry)
+      CROSS JOIN regexp_split_to_table(source.entry, '[,;\n]+') AS part(entry)
+    ) AS cleaned
+    WHERE cleaned.entry <> ''
+  ),
+  '[]'::jsonb
+)
+WHERE
+  jsonb_typeof("autoForwardRecipients") IS DISTINCT FROM 'array'
+  OR EXISTS (
+    SELECT 1
+    FROM jsonb_array_elements_text(
+      CASE
+        WHEN jsonb_typeof("autoForwardRecipients") = 'array'
+          THEN "autoForwardRecipients"
+        WHEN jsonb_typeof("autoForwardRecipients") = 'string'
+          THEN jsonb_build_array("autoForwardRecipients" #>> '{}')
+        ELSE '[]'::jsonb
+      END
+    ) AS source(entry)
+    WHERE source.entry ~ '[\[\]"]'
+  );
+
 CREATE TABLE IF NOT EXISTS public."MessagingAutoForwardLog" (
   "id" text PRIMARY KEY,
   "userId" text NOT NULL REFERENCES public."User" ("id") ON DELETE CASCADE,
@@ -43,3 +80,74 @@ CREATE INDEX IF NOT EXISTS "MessagingAutoForwardLog_user_status_nextAttempt_idx"
 CREATE INDEX IF NOT EXISTS "MessagingAutoForwardLog_status_nextAttempt_idx"
   ON public."MessagingAutoForwardLog" ("status", "nextAttemptAt");
 
+UPDATE public."MessagingAutoForwardLog"
+SET
+  "targetRecipients" = COALESCE(
+    (
+      SELECT jsonb_agg(cleaned.entry)
+      FROM (
+        SELECT lower(btrim(part.entry, ' "[]')) AS entry
+        FROM jsonb_array_elements_text(
+          CASE
+            WHEN jsonb_typeof("targetRecipients") = 'array'
+              THEN "targetRecipients"
+            WHEN jsonb_typeof("targetRecipients") = 'string'
+              THEN jsonb_build_array("targetRecipients" #>> '{}')
+            ELSE '[]'::jsonb
+          END
+        ) AS source(entry)
+        CROSS JOIN regexp_split_to_table(source.entry, '[,;\n]+') AS part(entry)
+      ) AS cleaned
+      WHERE cleaned.entry <> ''
+    ),
+    '[]'::jsonb
+  ),
+  "sentRecipients" = COALESCE(
+    (
+      SELECT jsonb_agg(cleaned.entry)
+      FROM (
+        SELECT lower(btrim(part.entry, ' "[]')) AS entry
+        FROM jsonb_array_elements_text(
+          CASE
+            WHEN jsonb_typeof("sentRecipients") = 'array'
+              THEN "sentRecipients"
+            WHEN jsonb_typeof("sentRecipients") = 'string'
+              THEN jsonb_build_array("sentRecipients" #>> '{}')
+            ELSE '[]'::jsonb
+          END
+        ) AS source(entry)
+        CROSS JOIN regexp_split_to_table(source.entry, '[,;\n]+') AS part(entry)
+      ) AS cleaned
+      WHERE cleaned.entry <> ''
+    ),
+    '[]'::jsonb
+  )
+WHERE
+  jsonb_typeof("targetRecipients") IS DISTINCT FROM 'array'
+  OR jsonb_typeof("sentRecipients") IS DISTINCT FROM 'array'
+  OR EXISTS (
+    SELECT 1
+    FROM jsonb_array_elements_text(
+      CASE
+        WHEN jsonb_typeof("targetRecipients") = 'array'
+          THEN "targetRecipients"
+        WHEN jsonb_typeof("targetRecipients") = 'string'
+          THEN jsonb_build_array("targetRecipients" #>> '{}')
+        ELSE '[]'::jsonb
+      END
+    ) AS source(entry)
+    WHERE source.entry ~ '[\[\]"]'
+  )
+  OR EXISTS (
+    SELECT 1
+    FROM jsonb_array_elements_text(
+      CASE
+        WHEN jsonb_typeof("sentRecipients") = 'array'
+          THEN "sentRecipients"
+        WHEN jsonb_typeof("sentRecipients") = 'string'
+          THEN jsonb_build_array("sentRecipients" #>> '{}')
+        ELSE '[]'::jsonb
+      END
+    ) AS source(entry)
+    WHERE source.entry ~ '[\[\]"]'
+  );
