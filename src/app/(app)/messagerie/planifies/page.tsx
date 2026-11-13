@@ -12,7 +12,7 @@ export default async function PlanifiesPage() {
           E-mails planifiés
         </h1>
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          Consultez, ajustez ou annulez les envois programmés. Nous vérifions les planifications toutes les minutes.
+          Consultez, ajustez ou annulez les envois programmés. Les envois arrivés à échéance sont traités au prochain passage du service, prévu toutes les cinq minutes.
         </p>
       </div>
       <ScheduledEmailsClient items={items} />

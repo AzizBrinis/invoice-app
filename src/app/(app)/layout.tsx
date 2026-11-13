@@ -82,6 +82,18 @@ const FULL_APP_NAV_ITEMS: NavItem[] = [
     ],
   },
   {
+    label: "Produits Digitaux",
+    href: "/produits-digitaux",
+    icon: "digital",
+    children: [
+      { label: "Vue d’ensemble", href: "/produits-digitaux" },
+      { label: "Kaspersky", href: "/produits-digitaux/kaspersky" },
+      { label: "Codes d’activation", href: "/produits-digitaux/kaspersky/codes" },
+      { label: "Générer une licence", href: "/produits-digitaux/kaspersky/generer" },
+      { label: "Historique", href: "/produits-digitaux/kaspersky/licences" },
+    ],
+  },
+  {
     label: "Clients",
     href: "/clients",
     icon: "clients",
@@ -155,6 +167,7 @@ const NAV_ITEM_SECTIONS: Record<string, AppSection> = {
   "/factures": "invoices",
   "/produits": "products",
   "/site-web": "website",
+  "/produits-digitaux": "digitalProducts",
   "/clients": "clients",
   "/messagerie": "messaging",
   "/assistant": "assistant",

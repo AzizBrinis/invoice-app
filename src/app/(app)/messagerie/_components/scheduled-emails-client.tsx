@@ -1,11 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useState, useSyncExternalStore, useTransition } from "react";
 import { CalendarClock, RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
+import { DEFAULT_TIMEZONE } from "@/lib/timezone";
 import { useToast } from "@/components/ui/toast-provider";
 import {
   cancelScheduledEmailAction,
@@ -20,17 +21,22 @@ type ScheduledEmailsClientProps = {
 const STATUS_LABELS: Record<string, { label: string; variant: BadgeProps["variant"] }> =
   {
     PENDING: { label: "Planifié", variant: "neutral" },
-    SENDING: { label: "Envoi imminent", variant: "warning" },
+    SENDING: { label: "Envoi en cours", variant: "warning" },
     FAILED: { label: "Échec", variant: "danger" },
     CANCELLED: { label: "Annulé", variant: "neutral" },
   };
 
-function formatDate(date: string): string {
+const subscribeToTimezone = () => () => {};
+const getLocalTimezone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
+const getServerTimezone = () => DEFAULT_TIMEZONE;
+
+function formatDate(date: string, timeZone: string): string {
   const parsed = new Date(date);
   if (Number.isNaN(parsed.getTime())) {
     return date;
   }
   return new Intl.DateTimeFormat("fr-FR", {
+    timeZone,
     dateStyle: "full",
     timeStyle: "short",
   }).format(parsed);
@@ -51,20 +57,52 @@ function toLocalInputValue(date: string): string {
 }
 
 export function ScheduledEmailsClient({ items }: ScheduledEmailsClientProps) {
-  const [entries, setEntries] = useState(items);
+  const timeZone = useSyncExternalStore(subscribeToTimezone, getLocalTimezone, getServerTimezone);
+  const [refreshing, startRefresh] = useTransition();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState("");
   const [pendingActionId, setPendingActionId] = useState<string | null>(null);
   const { addToast } = useToast();
   const router = useRouter();
 
-  const activeEntries = useMemo(
-    () =>
-      entries.filter(
-        (item) => item.status !== "SENT",
-      ),
-    [entries],
-  );
+  const awaitingDelivery = items.some((entry) => entry.status === "PENDING" || entry.status === "SENDING");
+  useEffect(() => {
+    if (!awaitingDelivery || editingId || pendingActionId) return;
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === "visible") router.refresh();
+    }, 30_000);
+    return () => window.clearInterval(interval);
+  }, [awaitingDelivery, editingId, pendingActionId, router]);
+
+  const handleRefresh = () => startRefresh(() => router.refresh());
+
+  const submitChange = async (id: string, sendAt?: Date) => {
+    const formData = new FormData();
+    formData.append("id", id);
+    if (sendAt) {
+      formData.append("scheduledAt", sendAt.toISOString());
+    }
+    setPendingActionId(id);
+    try {
+      const result = sendAt
+        ? await rescheduleScheduledEmailAction(formData)
+        : await cancelScheduledEmailAction(formData);
+      if (result.success) {
+        setEditingId(null);
+      } else {
+        handleRefresh();
+      }
+      addToast({
+        variant: result.success ? "success" : "error",
+        title: result.message ?? "Planification mise à jour.",
+      });
+    } catch {
+      handleRefresh();
+      addToast({ variant: "error", title: "Impossible de confirmer la modification." });
+    } finally {
+      setPendingActionId(null);
+    }
+  };
 
   const handleReschedule = async () => {
     if (!editingId || !editingValue.trim().length) {
@@ -82,80 +120,23 @@ export function ScheduledEmailsClient({ items }: ScheduledEmailsClientProps) {
       });
       return;
     }
-    const formData = new FormData();
-    formData.append("id", editingId);
-    formData.append("scheduledAt", parsed.toISOString());
-    setPendingActionId(editingId);
-    const result = await rescheduleScheduledEmailAction(formData);
-    setPendingActionId(null);
-    if (!result) {
-      return;
-    }
-    if (result.success && result.data) {
-      const nextSendAt = result.data.sendAt;
-      setEntries((current) =>
-        current.map((entry) =>
-          entry.id === editingId
-            ? {
-                ...entry,
-                sendAt: nextSendAt,
-                status: "PENDING",
-                failureReason: null,
-              }
-            : entry,
-        ),
-      );
-      setEditingId(null);
-      addToast({
-        variant: "success",
-        title: "Envoi replanifié.",
-      });
-    } else {
-      addToast({
-        variant: "error",
-        title: result.message ?? "Impossible de replanifier.",
-      });
-    }
+    await submitChange(editingId, parsed);
   };
 
   const handleCancel = async (id: string) => {
-    const confirmed = window.confirm("Annuler cet e-mail planifié ?");
-    if (!confirmed) {
-      return;
-    }
-    const formData = new FormData();
-    formData.append("id", id);
-    setPendingActionId(id);
-    const result = await cancelScheduledEmailAction(formData);
-    setPendingActionId(null);
-    if (!result) {
-      return;
-    }
-    if (result.success) {
-      setEntries((current) =>
-        current.map((entry) =>
-          entry.id === id
-            ? { ...entry, status: "CANCELLED", failureReason: null }
-            : entry,
-        ),
-      );
-      addToast({
-        variant: "success",
-        title: "Planification annulée.",
-      });
-    } else {
-      addToast({
-        variant: "error",
-        title: result.message ?? "Impossible d'annuler cet e-mail.",
-      });
+    if (window.confirm("Annuler cet e-mail planifié ?")) {
+      await submitChange(id);
     }
   };
 
-  const handleRefresh = () => {
-    router.refresh();
-  };
+  const refreshButton = (
+    <Button type="button" variant="secondary" loading={refreshing} onClick={handleRefresh}>
+      <RefreshCw className="mr-2 h-4 w-4" />
+      Actualiser
+    </Button>
+  );
 
-  if (activeEntries.length === 0) {
+  if (items.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-zinc-300 bg-white p-8 text-center dark:border-zinc-800 dark:bg-zinc-900">
         <CalendarClock className="mx-auto h-12 w-12 text-zinc-400" />
@@ -165,22 +146,21 @@ export function ScheduledEmailsClient({ items }: ScheduledEmailsClientProps) {
         <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
           Utilisez le bouton &quot;Planifier l&apos;envoi&quot; depuis le composeur pour préparer vos prochains e-mails.
         </p>
-        <Button className="mt-4 w-full sm:w-auto" onClick={handleRefresh}>
-          <RefreshCw className="mr-2 h-4 w-4" />
-          Actualiser
-        </Button>
+        <div className="mt-4">{refreshButton}</div>
       </div>
     );
   }
 
   return (
     <div className="space-y-4">
-      {activeEntries.map((entry) => {
+      <div className="flex justify-end">{refreshButton}</div>
+      {items.map((entry) => {
         const statusMeta = STATUS_LABELS[entry.status] ?? {
           label: entry.status,
           variant: "neutral" as const,
         };
-        const isEditing = editingId === entry.id;
+        const canChange = entry.status === "PENDING" || entry.status === "FAILED";
+        const isEditing = canChange && editingId === entry.id;
         const isPending = pendingActionId === entry.id;
         return (
           <div
@@ -190,7 +170,7 @@ export function ScheduledEmailsClient({ items }: ScheduledEmailsClientProps) {
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <p className="text-sm uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                  {formatDate(entry.sendAt)}
+                  {formatDate(entry.sendAt, timeZone)}
                 </p>
                 <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
                   {entry.subject || "(Sans objet)"}
@@ -236,7 +216,7 @@ export function ScheduledEmailsClient({ items }: ScheduledEmailsClientProps) {
                       type="button"
                       variant="ghost"
                       onClick={() => setEditingId(null)}
-                      disabled={isPending}
+                      disabled={pendingActionId !== null}
                       className="w-full sm:w-auto"
                     >
                       Annuler
@@ -245,6 +225,7 @@ export function ScheduledEmailsClient({ items }: ScheduledEmailsClientProps) {
                       type="button"
                       onClick={handleReschedule}
                       loading={isPending}
+                      disabled={pendingActionId !== null}
                       className="w-full sm:w-auto"
                     >
                       Replanifier
@@ -253,29 +234,31 @@ export function ScheduledEmailsClient({ items }: ScheduledEmailsClientProps) {
                 </div>
               </div>
             ) : null}
-            <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-              <Button
-                type="button"
-                variant="ghost"
-                className="w-full px-3 py-1.5 text-sm sm:w-auto"
-                onClick={() => {
-                  setEditingId(entry.id);
-                  setEditingValue(toLocalInputValue(entry.sendAt));
-                }}
-                disabled={isPending}
-              >
-                Modifier
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                className="w-full px-3 py-1.5 text-sm sm:w-auto"
-                onClick={() => handleCancel(entry.id)}
-                disabled={isPending}
-              >
-                Annuler
-              </Button>
-            </div>
+            {canChange && !isEditing ? (
+              <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="w-full px-3 py-1.5 text-sm sm:w-auto"
+                  onClick={() => {
+                    setEditingId(entry.id);
+                    setEditingValue(toLocalInputValue(entry.sendAt));
+                  }}
+                  disabled={pendingActionId !== null}
+                >
+                  Modifier
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="w-full px-3 py-1.5 text-sm sm:w-auto"
+                  onClick={() => handleCancel(entry.id)}
+                  disabled={pendingActionId !== null}
+                >
+                  Annuler
+                </Button>
+              </div>
+            ) : null}
           </div>
         );
       })}

@@ -1,3 +1,4 @@
+import { roundDecimalProduct } from "@/lib/document-precision";
 import { fromCents, toCents } from "@/lib/money";
 import {
   allocateProportionalAmounts,
@@ -10,6 +11,7 @@ import {
 export type LineComputationInput = {
   quantity: number;
   unitPriceHTCents: number;
+  unitPriceTTCCents?: number;
   vatRate: number;
   discountRate?: number | null;
   discountAmountCents?: number | null;
@@ -18,6 +20,9 @@ export type LineComputationInput = {
 export type LineComputationResult = {
   quantity: number;
   unitPriceHTCents: number;
+  unitPriceTTCCents?: number;
+  baseHTCents?: number;
+  baseTTCCents?: number;
   vatRate: number;
   discountRate?: number | null;
   discountAmountCents: number;
@@ -72,20 +77,24 @@ export function calculateLineTotals(
   input: LineComputationInput,
   options?: LineCalculationOptions,
 ): LineComputationResult {
-  const baseAmount = Math.round(input.quantity * input.unitPriceHTCents);
+  const roundingMode = options?.roundingMode ?? "nearest-cent";
+  const baseTTCCents = input.unitPriceTTCCents == null
+    ? undefined : roundDecimalProduct(input.quantity, input.unitPriceTTCCents);
+  const baseAmount = baseTTCCents == null
+    ? roundDecimalProduct(input.quantity, input.unitPriceHTCents)
+    : roundAmount(baseTTCCents * 100 / (100 + input.vatRate), roundingMode);
   const normalizedDiscountRate =
     input.discountRate != null ? Math.max(input.discountRate, 0) : null;
   const computedDiscount =
     input.discountAmountCents ??
     (normalizedDiscountRate
-      ? Math.round(baseAmount * (normalizedDiscountRate / 100))
+      ? roundDecimalProduct(baseAmount, normalizedDiscountRate, 0.01)
       : 0);
   const discountAmountCents = Math.min(
-    Math.max(computedDiscount, 0),
+    Math.max(Math.round(computedDiscount), 0),
     baseAmount,
   );
   const totalHTCents = baseAmount - discountAmountCents;
-  const roundingMode = options?.roundingMode ?? "nearest-cent";
 
   const effectiveFodecRate = options?.fodecRate ?? null;
   const fodecAmountCents = effectiveFodecRate
@@ -97,12 +106,17 @@ export function calculateLineTotals(
       ? totalHTCents + fodecAmountCents
       : totalHTCents;
 
-  const totalTVACents = roundAmount(vatBaseCents * (input.vatRate / 100), roundingMode);
+  const totalTVACents = baseTTCCents == null
+    ? roundAmount(vatBaseCents * (input.vatRate / 100), roundingMode)
+    : calculateInclusiveVat(baseTTCCents, baseAmount, totalHTCents, vatBaseCents - totalHTCents, input.vatRate, roundingMode);
   const totalTTCCents = totalHTCents + fodecAmountCents + totalTVACents;
 
   return {
     quantity: input.quantity,
     unitPriceHTCents: input.unitPriceHTCents,
+    ...(baseTTCCents == null ? {} : {
+      unitPriceTTCCents: input.unitPriceTTCCents, baseHTCents: baseAmount, baseTTCCents,
+    }),
     vatRate: input.vatRate,
     discountRate: normalizedDiscountRate,
     discountAmountCents,
@@ -112,6 +126,20 @@ export function calculateLineTotals(
     fodecRate: effectiveFodecRate,
     fodecAmountCents,
   };
+}
+
+// TTC is the agreed VAT-inclusive price before discounts, FODEC and timbre.
+// Discounts remain HT amounts. Preserve the original VAT rounding remainder
+// and apply the existing tax rounding rule to discounts and additional FODEC.
+function calculateInclusiveVat(
+  gross: number, baseHT: number, netHT: number, additionalBase: number,
+  rate: number, rounding: RoundingMode,
+) {
+  if (baseHT > 0 && netHT === 0) {
+    return roundAmount(additionalBase * rate / 100, rounding);
+  }
+  return Math.max(0, gross - baseHT - roundAmount((baseHT - netHT) * rate / 100, rounding)) +
+    roundAmount(additionalBase * rate / 100, rounding);
 }
 
 export function calculateDocumentTotals(
@@ -137,11 +165,11 @@ export function calculateDocumentTotals(
     const computedGlobalDiscount =
       globalDiscountAmountCents ??
       (globalDiscountRate
-        ? Math.round(subtotalHTCents * (globalDiscountRate / 100))
+        ? roundDecimalProduct(subtotalHTCents, globalDiscountRate, 0.01)
         : 0);
 
     globalDiscountAppliedCents = Math.min(
-      computedGlobalDiscount,
+      Math.max(0, Math.round(computedGlobalDiscount)),
       subtotalHTCents,
     );
   }
@@ -234,7 +262,10 @@ export function calculateDocumentTotals(
         ? lineFodecAmounts[index]
         : 0);
 
-    const vatAmount = roundAmount(
+    const vatAmount = line.baseTTCCents != null && line.baseHTCents != null
+      ? calculateInclusiveVat(line.baseTTCCents, line.baseHTCents, lineNetHT[index],
+        baseForVat - lineNetHT[index], vatRate, taxConfig.rounding.line)
+      : roundAmount(
       baseForVat * (vatRate / 100),
       taxConfig.rounding.line,
     );

@@ -1,10 +1,12 @@
 import { redirect } from "next/navigation";
-import { getCurrentUser } from "@/lib/auth";
+import { getSessionTokenFromCookie } from "@/lib/auth";
 
 export default async function HomePage() {
-  const user = await getCurrentUser();
+  // This page only chooses a destination. The protected app layout validates
+  // the session against the database before rendering any account data.
+  const token = await getSessionTokenFromCookie();
 
-  if (user) {
+  if (token) {
     redirect("/tableau-de-bord");
   }
 

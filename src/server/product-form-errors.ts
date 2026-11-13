@@ -37,6 +37,8 @@ export function buildProductFormValidationState(error: ZodError): {
       unit: pick("unit"),
       stockQuantity: pick("stockQuantity"),
       priceHTCents: pick("priceHTCents"),
+      priceTTCCents: pick("priceTTCCents"),
+      priceBasis: pick("priceBasis"),
       vatRate: pick("vatRate"),
       defaultDiscount:
         pick("defaultDiscountRate", "defaultDiscountAmountCents"),

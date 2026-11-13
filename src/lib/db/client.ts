@@ -675,7 +675,10 @@ function hydrateRow(modelName: ModelName, row: Record<string, unknown>) {
         continue;
       }
     }
-    hydrated[fieldName] = value;
+    // PostgreSQL NUMERIC is returned as text. Document input amounts use
+    // NUMERIC storage but expose the same number API as existing Float fields.
+    hydrated[fieldName] = field.type === "Float" && typeof value === "string"
+      ? Number(value) : value;
   }
 
   return hydrated;

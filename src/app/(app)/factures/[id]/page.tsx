@@ -11,7 +11,7 @@ import { getMessagingSettingsSummary } from "@/server/messaging";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { formatCurrency, formatDate } from "@/lib/formatters";
+import { formatDocumentAmount, formatCurrency, formatDate } from "@/lib/formatters";
 import { fromCents } from "@/lib/money";
 import { Badge } from "@/components/ui/badge";
 import { InvoiceStatus } from "@/lib/db/prisma";
@@ -91,13 +91,13 @@ export default async function FactureDetailPage({
   );
   const percentageFormatter = new Intl.NumberFormat("fr-TN", {
     minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
+    maximumFractionDigits: 3,
   });
   const globalDiscountRateLabel =
     invoice.globalDiscountRate != null ? `${percentageFormatter.format(invoice.globalDiscountRate)}%` : null;
   const globalDiscountAmount =
     invoice.globalDiscountAmountCents != null
-      ? formatCurrency(fromCents(invoice.globalDiscountAmountCents, invoice.currency), invoice.currency)
+      ? formatDocumentAmount(fromCents(invoice.globalDiscountAmountCents, invoice.currency), invoice.currency)
       : null;
   const hasGlobalDiscount = globalDiscountRateLabel != null || globalDiscountAmount != null;
   const toNumber = (value: unknown): number => {
@@ -369,7 +369,7 @@ export default async function FactureDetailPage({
                   </td>
                   <td className="px-4 py-3 text-right text-zinc-600 dark:text-zinc-300">{quantityLabel}</td>
                   <td className="px-4 py-3 text-right text-zinc-600 dark:text-zinc-300">
-                    {formatCurrency(fromCents(unitPriceHTCents, invoice.currency), invoice.currency)}
+                    {formatDocumentAmount(fromCents(unitPriceHTCents, invoice.currency), invoice.currency)}
                   </td>
                   <td className="px-4 py-3 text-right text-zinc-600 dark:text-zinc-300">{vatRate}%</td>
                   <td className="px-4 py-3 text-right text-zinc-600 dark:text-zinc-300">
@@ -428,7 +428,7 @@ export default async function FactureDetailPage({
                       {line.description ?? "—"}
                     </p>
                     <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                      {quantityLabel} × {formatCurrency(fromCents(unitPriceHTCents, invoice.currency), invoice.currency)} HT
+                      {quantityLabel} × {formatDocumentAmount(fromCents(unitPriceHTCents, invoice.currency), invoice.currency)} HT
                     </p>
                   </div>
                   <p className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
@@ -451,7 +451,7 @@ export default async function FactureDetailPage({
                       Prix unitaire HT
                     </dt>
                     <dd className="text-zinc-700 dark:text-zinc-300">
-                      {formatCurrency(fromCents(unitPriceHTCents, invoice.currency), invoice.currency)}
+                      {formatDocumentAmount(fromCents(unitPriceHTCents, invoice.currency), invoice.currency)}
                     </dd>
                   </div>
                   <div>

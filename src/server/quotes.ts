@@ -1,3 +1,5 @@
+import { documentAmountSchema, documentDiscountRateSchema, validateDocumentPrecision } from "@/lib/document-precision";
+import { documentLinePriceFields, normalizeDocumentLinePrice, documentLinePricingSnapshot } from "@/lib/document-line-pricing";
 import { unstable_cache, revalidateTag } from "next/cache";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
@@ -25,18 +27,12 @@ const quoteLineInputSchema = z.object({
   description: z.string().min(2, "Description requise"),
   quantity: z.number().positive("Quantité requise"),
   unit: z.string().min(1, "Unité requise"),
-  unitPriceHTCents: z.number().int().nonnegative(),
-  vatRate: z.number().min(0).max(100),
-  discountRate: z.number().min(0).max(100).nullable().optional(),
-  discountAmountCents: z
-    .number()
-    .int()
-    .nonnegative()
-    .nullable()
-    .optional(),
+  ...documentLinePriceFields,
+  discountRate: documentDiscountRateSchema.nullable().optional(),
+  discountAmountCents: documentAmountSchema.nullable().optional(),
   fodecRate: z.number().min(0).max(100).nullable().optional(),
   position: z.number().int().nonnegative(),
-});
+}).transform(normalizeDocumentLinePrice);
 
 export const quoteInputSchema = z.object({
   id: z.string().optional(),
@@ -47,13 +43,8 @@ export const quoteInputSchema = z.object({
   issueDate: z.coerce.date(),
   validUntil: z.coerce.date().nullable().optional(),
   currency: z.string().default("TND"),
-  globalDiscountRate: z.number().min(0).max(100).nullable().optional(),
-  globalDiscountAmountCents: z
-    .number()
-    .int()
-    .nonnegative()
-    .nullable()
-    .optional(),
+  globalDiscountRate: documentDiscountRateSchema.nullable().optional(),
+  globalDiscountAmountCents: documentAmountSchema.nullable().optional(),
   notes: z.string().nullable().optional(),
   terms: z.string().nullable().optional(),
   lines: z
@@ -67,7 +58,7 @@ export const quoteInputSchema = z.object({
       timbreAmountCents: z.number().int().nonnegative().nullable().optional(),
     })
     .optional(),
-});
+}).superRefine(validateDocumentPrecision);
 
 export type QuoteInput = z.infer<typeof quoteInputSchema>;
 
@@ -162,6 +153,7 @@ const quoteProductSelect = Prisma.validator<Prisma.ProductSelect>()({
   id: true,
   name: true,
   priceHTCents: true,
+  priceTTCCents: true,
   vatRate: true,
   unit: true,
   defaultDiscountRate: true,
@@ -311,6 +303,7 @@ export async function searchQuoteProducts(
       "id",
       "name",
       "priceHTCents",
+      "priceTTCCents",
       "vatRate",
       "unit",
       "defaultDiscountRate",
@@ -510,6 +503,7 @@ function computeTotalsFromLines(
       {
         quantity: line.quantity,
         unitPriceHTCents: line.unitPriceHTCents,
+        unitPriceTTCCents: line.unitPriceTTCCents,
         vatRate: line.vatRate,
         discountRate: line.discountRate ?? undefined,
         discountAmountCents: line.discountAmountCents ?? undefined,
@@ -549,6 +543,7 @@ function computeTotalsFromLines(
 
   const taxConfigurationSnapshot: TaxConfiguration = {
     ...taxConfig,
+    linePricing: documentLinePricingSnapshot(lines),
     fodec: {
       ...taxConfig.fodec,
       enabled: applyFodec,
@@ -596,7 +591,7 @@ function mapLineData(
     unitPriceHTCents: line.unitPriceHTCents,
     vatRate: line.vatRate,
     discountRate: line.discountRate ?? null,
-    discountAmountCents: computed.discountAmountCents,
+    discountAmountCents: line.discountAmountCents ?? computed.discountAmountCents,
     totalHTCents: computed.totalHTCents,
     totalTVACents: computed.totalTVACents,
     totalTTCCents: computed.totalTTCCents,
@@ -678,7 +673,7 @@ export async function createQuoteForUser(userId: string, input: QuoteInput) {
       validUntil: payload.validUntil,
       currency: payload.currency,
       globalDiscountRate: payload.globalDiscountRate ?? null,
-      globalDiscountAmountCents: totals.globalDiscountAppliedCents,
+      globalDiscountAmountCents: payload.globalDiscountAmountCents ?? totals.globalDiscountAppliedCents,
       vatBreakdown: serializeVatBreakdown(totals.vatEntries),
       taxSummary: totals.taxSummary,
       taxConfiguration: taxConfigurationSnapshot,
@@ -830,7 +825,7 @@ export async function updateQuote(id: string, input: QuoteInput) {
         validUntil: payload.validUntil,
         currency: payload.currency,
         globalDiscountRate: payload.globalDiscountRate ?? null,
-        globalDiscountAmountCents: totals.globalDiscountAppliedCents,
+        globalDiscountAmountCents: payload.globalDiscountAmountCents ?? totals.globalDiscountAppliedCents,
         vatBreakdown: serializeVatBreakdown(totals.vatEntries),
         taxSummary: totals.taxSummary,
         taxConfiguration: taxConfigurationSnapshot,
@@ -979,7 +974,7 @@ export async function duplicateQuote(id: string) {
       timbreAmountCents: existing.timbreAmountCents ?? 0,
       lines: {
         createMany: {
-          data: existing.lines.map((line, index) => ({
+          data: existing.lines.map((line) => ({
             productId: line.productId,
             description: line.description,
             quantity: line.quantity,
@@ -993,7 +988,7 @@ export async function duplicateQuote(id: string) {
             totalTTCCents: line.totalTTCCents,
             fodecRate: line.fodecRate,
             fodecAmountCents: line.fodecAmountCents,
-            position: index,
+            position: line.position,
           })),
         },
       },
@@ -1063,7 +1058,7 @@ export async function convertQuoteToInvoiceForUser(userId: string, id: string) {
         timbreAmountCents: quote.timbreAmountCents ?? 0,
         lines: {
           createMany: {
-            data: quote.lines.map((line, index) => ({
+            data: quote.lines.map((line) => ({
               productId: line.productId,
               description: line.description,
               quantity: line.quantity,
@@ -1077,7 +1072,7 @@ export async function convertQuoteToInvoiceForUser(userId: string, id: string) {
               totalTTCCents: line.totalTTCCents,
               fodecRate: line.fodecRate,
               fodecAmountCents: line.fodecAmountCents,
-              position: index,
+              position: line.position,
             })),
           },
         },

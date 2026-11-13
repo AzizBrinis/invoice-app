@@ -1,8 +1,10 @@
+import { formatDocumentAmount, formatDocumentRate } from "@/lib/formatters";
 import fs from "fs";
 import path from "path";
 import chromium from "@sparticuz/chromium";
 import puppeteer, { type Browser, type Page, type Viewport } from "puppeteer";
 import { prisma } from "@/lib/db";
+import { Prisma } from "@/lib/db/prisma-server";
 import { requireUser } from "@/lib/auth";
 import { getSettings } from "@/server/settings";
 import {
@@ -161,7 +163,7 @@ type RenderPdfOptions = {
   landscape?: boolean;
 };
 
-async function renderPdfFromHtml(
+export async function renderPdfFromHtml(
   html: string,
   options: RenderPdfOptions = {},
 ) {
@@ -319,7 +321,30 @@ function companyLines(settings: CompanyBrandSettings | null) {
   return lines.filter(Boolean);
 }
 
-function clientLines(document: DocumentWithRelations) {
+/**
+ * "billing" layout (invoices issued from the PrestaShop shop): the company name,
+ * or the person's full name when there is no company, the VAT number and the
+ * full address only — no contact name next to a company, no e-mail, no phone.
+ */
+export type ClientBlockLayout = "full" | "billing";
+
+function billingClientLines(document: DocumentWithRelations) {
+  const client = document.client;
+  const lines: string[] = [client.companyName?.trim() || client.displayName || "Client"];
+  if (client.vatNumber) {
+    lines.push(`Numéro de TVA : ${client.vatNumber}`);
+  }
+  if (client.address) {
+    client.address
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .forEach((line) => lines.push(line));
+  }
+  return lines.filter(Boolean);
+}
+
+function clientLines(document: DocumentWithRelations, layout: ClientBlockLayout = "full") {
+  if (layout === "billing") return billingClientLines(document);
   const lines: string[] = [];
   const client = document.client;
   lines.push(client.displayName ?? "Client");
@@ -511,8 +536,10 @@ function buildLinesHtml(
       return `
         <tr>
           <td class="border-b py-3 pl-3 text-xs">${index + 1}.</td>
-          <td class="border-b py-3 pl-2 text-xs">${escapeHtml(line.description ?? "")}</td>
-          <td class="border-b py-3 pl-2 text-right text-xs">${escapeHtml(formatCurrency(unitPriceHT, currency))}</td>
+          <td class="border-b py-3 pl-2 text-xs">${escapeHtml(line.description ?? "")}${line.discountRate != null && line.discountRate > 0
+            ? `<div class="text-slate-500">Remise : ${escapeHtml(formatDocumentRate(line.discountRate, currency))}</div>`
+            : line.discountAmountCents != null && line.discountAmountCents > 0 ? `<div class="text-slate-500">Remise : ${escapeHtml(formatDocumentAmount(fromCents(line.discountAmountCents, currency), currency))}</div>` : ""}</td>
+          <td class="border-b py-3 pl-2 text-right text-xs">${escapeHtml(formatDocumentAmount(unitPriceHT, currency))}</td>
           <td class="border-b py-3 pl-2 text-center text-xs">${formatDecimal(quantity, currency)}</td>
           <td class="border-b py-3 pl-2 text-center text-xs">${vatRate.toFixed(2)}%</td>
           <td class="border-b py-3 pl-2 text-right text-xs">${escapeHtml(formatCurrency(totalHT, currency))}</td>
@@ -525,10 +552,11 @@ function buildLinesHtml(
   return { rowsHtml: rows, vatTotal };
 }
 
-function buildDocumentHtml(
+export function buildDocumentHtml(
   type: DocumentType,
   document: DocumentWithRelations,
   settings: CompanyDocumentSettings | null,
+  options: { clientLayout?: ClientBlockLayout } = {},
 ) {
   const logoSrc = resolveLogo(settings);
   const currency = document.currency ?? settings?.defaultCurrency ?? getDefaultCurrencyCode();
@@ -568,7 +596,7 @@ function buildDocumentHtml(
 
   const companyInfo = formatLines(companyLines(settings));
 
-  const clientInfo = formatLines(clientLines(document));
+  const clientInfo = formatLines(clientLines(document, options.clientLayout));
 
   const footerText = settings?.legalFooter ?? "";
   const bankInfoLines = settings?.iban
@@ -678,7 +706,7 @@ function buildDocumentHtml(
         </tr>
         <tr>
           <td class="p-3">
-            <div class="whitespace-nowrap text-slate-400">Remises:</div>
+            <div class="whitespace-nowrap text-slate-400">Remises${document.globalDiscountRate != null ? ` (globale : ${escapeHtml(formatDocumentRate(document.globalDiscountRate, currency))})` : ""}:</div>
           </td>
           <td class="p-3 text-right">
             <div class="whitespace-nowrap font-bold text-main">${escapeHtml(formatCurrency(discount, currency))}</div>
@@ -1556,7 +1584,7 @@ export async function generateInvoicePdf(invoiceId: string) {
   return generateInvoicePdfForUser(userId, invoiceId);
 }
 
-async function generateInvoicePdfForUser(userId: string, invoiceId: string) {
+export async function generateInvoicePdfForUser(userId: string, invoiceId: string) {
   const [invoice, settings] = await Promise.all([
     prisma.invoice.findFirst({
       where: { id: invoiceId, userId },
@@ -1573,8 +1601,32 @@ async function generateInvoicePdfForUser(userId: string, invoiceId: string) {
     throw new Error("Facture introuvable");
   }
 
-  const html = buildDocumentHtml("invoice", invoice, settings);
+  const html = buildDocumentHtml("invoice", invoice, settings, {
+    clientLayout: (await isShopInvoice(userId, invoiceId)) ? "billing" : "full",
+  });
   return renderPdfFromHtml(html);
+}
+
+/**
+ * Invoices generated from the PrestaShop shop use the "billing" client layout,
+ * in the API response and when downloaded from Factures alike. The link lives in
+ * ExternalInvoiceRequest; if that table is not migrated yet, nothing is a shop invoice.
+ */
+async function isShopInvoice(userId: string, invoiceId: string) {
+  try {
+    const rows = await prisma.$queryRaw<{ found: number }[]>(Prisma.sql`
+      SELECT 1 AS "found" FROM "ExternalInvoiceRequest"
+      WHERE "userId" = ${userId} AND "invoiceId" = ${invoiceId}
+      LIMIT 1
+    `);
+    return rows.length > 0;
+  } catch (error) {
+    const code = (error as { code?: string; meta?: { code?: string } })?.code ?? (error as { meta?: { code?: string } })?.meta?.code;
+    if (code === "42P01" || /relation "ExternalInvoiceRequest" does not exist/.test(String(error))) {
+      return false;
+    }
+    throw error;
+  }
 }
 
 export async function generateClientPaymentReceiptPdf(paymentId: string) {

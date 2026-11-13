@@ -24,6 +24,7 @@ export type AppSection =
   | "invoices"
   | "products"
   | "website"
+  | "digitalProducts"
   | "messaging"
   | "assistant"
   | "settings";
@@ -59,6 +60,7 @@ const APP_SECTION_LABELS: Record<AppSection, string> = {
   invoices: "factures",
   products: "produits",
   website: "site web",
+  digitalProducts: "produits digitaux",
   messaging: "messagerie",
   assistant: "assistant",
   settings: "paramètres",
@@ -86,13 +88,34 @@ export function hasAccountPermission(
   return user.permissions.includes(permission);
 }
 
+/**
+ * Digital products hold resellable activation codes: restricted to
+ * administrators (user role ADMIN and account owner/admin), never to
+ * focused client-payments accounts.
+ */
+export function canManageDigitalProducts(
+  user: Pick<AuthenticatedUser, "accountType" | "membershipRole"> &
+    Partial<Pick<AuthenticatedUser, "role">>,
+) {
+  return (
+    !isClientPaymentsAccount(user) &&
+    user.role === "ADMIN" &&
+    CLIENT_PAYMENTS_SETTINGS_ROLES.includes(user.membershipRole)
+  );
+}
+
 export function canAccessAppSection(
   user: Pick<
     AuthenticatedUser,
     "accountType" | "permissions" | "membershipRole"
-  >,
+  > &
+    Partial<Pick<AuthenticatedUser, "role">>,
   section: AppSection,
 ) {
+  if (section === "digitalProducts") {
+    return canManageDigitalProducts(user);
+  }
+
   if (!isClientPaymentsAccount(user)) {
     return !FOCUSED_ACCOUNT_ONLY_SECTIONS.has(section);
   }

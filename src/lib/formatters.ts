@@ -45,3 +45,18 @@ export function formatDate(
   const dt = typeof date === "string" ? new Date(date) : date;
   return new Intl.DateTimeFormat(locale, options).format(dt);
 }
+
+// Input prices can have more precision than a currency's posted totals.
+export function formatDocumentAmount(value: number, currency?: string) {
+  const info = getCurrencyInfo(currency);
+  return new Intl.NumberFormat(info.locale, {
+    style: "currency", currency: info.code,
+    minimumFractionDigits: info.decimals, maximumFractionDigits: 3,
+  }).format(value);
+}
+
+export function formatDocumentRate(value: number, currency?: string) {
+  return new Intl.NumberFormat(getCurrencyInfo(currency).locale, {
+    maximumFractionDigits: 3,
+  }).format(value) + " %";
+}

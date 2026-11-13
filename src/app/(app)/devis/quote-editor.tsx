@@ -1,5 +1,11 @@
 "use client";
 
+import { DocumentDecimalInput } from "@/components/document-decimal-input";
+import { documentDecimalNumber, parseDocumentAmount } from "@/lib/document-precision";
+import { DocumentLinePriceInput, DocumentVatSelect } from "@/components/document-line-price-input";
+import { documentLinePricePayload, restoreDocumentLineTTC } from "@/lib/document-line-pricing";
+import { getProductVatRates } from "@/lib/product-price-input";
+
 import Link from "next/link";
 import {
   useMemo,
@@ -34,9 +40,10 @@ type QuoteLineForm = {
   description: string;
   quantity: number;
   unit: string;
-  unitPrice: number;
+  unitPrice: number | string;
+  unitPriceTTC?: number | string;
   vatRate: number;
-  discountRate?: number | null;
+  discountRate?: number | string | null;
   discountAmount?: number | null;
   fodecRate?: number | null;
 };
@@ -47,6 +54,7 @@ type QuoteEditorProduct = Pick<
   | "id"
   | "name"
   | "priceHTCents"
+  | "priceTTCCents"
   | "vatRate"
   | "unit"
   | "defaultDiscountRate"
@@ -137,11 +145,11 @@ export function QuoteEditor({
   const [reference, setReference] = useState(defaultQuote?.reference ?? "");
   const [customNumber, setCustomNumber] = useState(defaultQuote?.number ?? "");
   const [currency, setCurrency] = useState<CurrencyCode>(initialCurrency);
-  const [globalDiscountRate, setGlobalDiscountRate] = useState<number | "">(
+  const [globalDiscountRate, setGlobalDiscountRate] = useState<number | string>(
     defaultQuote?.globalDiscountRate ?? "",
   );
   const [globalDiscountAmountManual, setGlobalDiscountAmountManual] =
-    useState<number | "">(
+    useState<number | string>(
       defaultQuote &&
         defaultQuote.globalDiscountRate == null &&
         defaultQuote.globalDiscountAmountCents != null
@@ -184,10 +192,11 @@ export function QuoteEditor({
           quantity: line.quantity,
           unit: line.unit,
           unitPrice: fromCents(line.unitPriceHTCents, initialCurrency),
+            unitPriceTTC: restoreDocumentLineTTC(quoteTaxConfig, line.position, initialCurrency),
           vatRate: line.vatRate,
-          discountRate: line.discountRate ?? undefined,
+          discountRate: Number.isFinite(documentDecimalNumber(line.discountRate)) ? documentDecimalNumber(line.discountRate) : undefined,
           discountAmount:
-            line.discountAmountCents != null
+            line.discountRate == null && line.discountAmountCents != null
               ? fromCents(line.discountAmountCents, initialCurrency)
               : undefined,
           fodecRate:
@@ -196,7 +205,7 @@ export function QuoteEditor({
               ? line.fodecRate ?? taxConfiguration.fodec.rate
               : null,
         }))
-    : [createEmptyLine(undefined, defaultLineFodecRate, initialCurrency)];
+    : [createEmptyLine(undefined, defaultLineFodecRate, initialCurrency, getProductVatRates(taxConfiguration)[0]?.rate ?? 0)];
 
   const [lines, setLines] = useState<QuoteLineForm[]>(initialLines);
   const payloadRef = useRef<HTMLInputElement>(null);
@@ -206,12 +215,12 @@ export function QuoteEditor({
       calculateLineTotals(
         {
           quantity: line.quantity,
-          unitPriceHTCents: toCents(line.unitPrice, currency),
+          ...documentLinePricePayload(line, currency, true),
           vatRate: line.vatRate,
-          discountRate: line.discountRate ?? undefined,
+          discountRate: Number.isFinite(documentDecimalNumber(line.discountRate)) ? documentDecimalNumber(line.discountRate) : undefined,
           discountAmountCents:
             line.discountAmount != null
-              ? toCents(line.discountAmount, currency)
+              ? parseDocumentAmount(line.discountAmount, currency)
               : undefined,
         },
         {
@@ -229,9 +238,9 @@ export function QuoteEditor({
 
     const totalsResult = calculateDocumentTotals(
       computedLines,
-      typeof globalDiscountRate === "number" ? globalDiscountRate : undefined,
-      typeof globalDiscountAmountManual === "number"
-        ? toCents(globalDiscountAmountManual, currency)
+      Number.isFinite(documentDecimalNumber(globalDiscountRate)) ? documentDecimalNumber(globalDiscountRate) : undefined,
+      globalDiscountAmountManual !== ""
+        ? (parseDocumentAmount(globalDiscountAmountManual, currency) || 0)
         : undefined,
       {
         taxConfiguration,
@@ -276,16 +285,15 @@ export function QuoteEditor({
       handleLineChange(index, { discountRate: null });
       return;
     }
-    const parsed = Number(rawValue);
     handleLineChange(index, {
-      discountRate: Number.isNaN(parsed) ? null : parsed,
+      discountRate: rawValue,
       discountAmount: undefined,
     });
   };
 
   const globalDiscountAppliedCents = totals.totals.globalDiscountAppliedCents;
   const globalDiscountAmountDisplay =
-    typeof globalDiscountRate === "number"
+    globalDiscountRate !== ""
       ? fromCents(globalDiscountAppliedCents, currency)
       : globalDiscountAmountManual;
 
@@ -296,6 +304,7 @@ export function QuoteEditor({
       productId: product.id,
       description: product.name,
       unitPrice: fromCents(product.priceHTCents, currency),
+      unitPriceTTC: product.priceTTCCents != null ? fromCents(product.priceTTCCents, currency) : undefined,
       vatRate: product.vatRate,
       unit: product.unit,
       discountRate: discount.discountRate ?? undefined,
@@ -313,7 +322,7 @@ export function QuoteEditor({
   };
 
   const addLine = () => {
-    setLines((prev) => [...prev, createEmptyLine(undefined, defaultLineFodecRate, currency)]);
+    setLines((prev) => [...prev, createEmptyLine(undefined, defaultLineFodecRate, currency, getProductVatRates(taxConfiguration)[0]?.rate ?? 0)]);
   };
 
   const removeLine = (index: number) => {
@@ -343,8 +352,9 @@ export function QuoteEditor({
       validUntil: validUntil || null,
       currency,
       globalDiscountRate:
-        globalDiscountRate === "" ? null : Number(globalDiscountRate),
-      globalDiscountAmountCents: globalDiscountAppliedCents ?? 0,
+        globalDiscountRate === "" ? null : documentDecimalNumber(globalDiscountRate),
+      globalDiscountAmountCents: globalDiscountRate !== "" || globalDiscountAmountManual === ""
+        ? null : parseDocumentAmount(globalDiscountAmountManual, currency),
       notes: notes || null,
       terms: terms || null,
       lines: lines.map((line, index) => ({
@@ -352,12 +362,12 @@ export function QuoteEditor({
         description: (line.description ?? "").trim(),
         quantity: line.quantity,
         unit: (line.unit ?? "").trim() || "unité",
-        unitPriceHTCents: toCents(line.unitPrice, currency),
+        ...documentLinePricePayload(line, currency),
         vatRate: line.vatRate,
-        discountRate: line.discountRate ?? null,
+        discountRate: line.discountRate == null || line.discountRate === "" ? null : documentDecimalNumber(line.discountRate),
         discountAmountCents:
           line.discountAmount != null
-            ? toCents(line.discountAmount, currency)
+            ? parseDocumentAmount(line.discountAmount, currency)
             : null,
         fodecRate:
           taxConfiguration.fodec.application === "line" &&
@@ -630,7 +640,7 @@ export function QuoteEditor({
                 <th className="px-3 py-2 text-left">Description</th>
                 <th className="px-3 py-2 text-left">Qté</th>
                 <th className="px-3 py-2 text-left">Unité</th>
-                <th className="px-3 py-2 text-left">{`Prix HT (${currency})`}</th>
+                <th className="px-3 py-2 text-left">{`Prix unitaire (${currency})`}</th>
                 <th className="px-3 py-2 text-left">Remise (%)</th>
                 {showLineFodec ? <th className="px-3 py-2 text-left">FODEC (%)</th> : null}
                 <th className="px-3 py-2 text-left">TVA (%)</th>
@@ -687,15 +697,8 @@ export function QuoteEditor({
                       />
                     </td>
                     <td className="px-3 py-2">
-                      <Input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={line.unitPrice}
-                        onChange={(event) =>
-                          handleLineChange(index, { unitPrice: Number(event.target.value) })
-                        }
-                      />
+                      <DocumentLinePriceInput line={line} currency={currency}
+                        onChange={(updates) => handleLineChange(index, updates)} />
                     </td>
                     {showLineFodec ? (
                       <td className="px-3 py-2">
@@ -717,10 +720,9 @@ export function QuoteEditor({
                       </td>
                     ) : null}
                     <td className="px-3 py-2">
-                      <Input
-                        type="number"
+                      <DocumentDecimalInput
                         min="0"
-                        step="0.1"
+                        max="100"
                         value={line.discountRate ?? ""}
                         onChange={(event) =>
                           handleDiscountRateChange(index, event.target.value)
@@ -737,15 +739,8 @@ export function QuoteEditor({
                       )}
                     </td>
                     <td className="px-3 py-2">
-                      <Input
-                        type="number"
-                        min="0"
-                        step="0.5"
-                        value={line.vatRate}
-                        onChange={(event) =>
-                          handleLineChange(index, { vatRate: Number(event.target.value) })
-                        }
-                      />
+                      <DocumentVatSelect value={line.vatRate} config={taxConfiguration}
+                        onChange={(vatRate) => handleLineChange(index, { vatRate })} />
                     </td>
                     <td className="px-3 py-2 text-right font-medium text-zinc-700">
                       {formatCurrency(fromCents(computed.totalTTCCents, currency), currency)}
@@ -866,28 +861,19 @@ export function QuoteEditor({
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div className="space-y-1">
                       <label className="label" htmlFor={priceId}>
-                        {`Prix HT (${currency})`}
+                        {`Prix unitaire (${currency})`}
                       </label>
-                      <Input
-                        id={priceId}
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={line.unitPrice}
-                        onChange={(event) =>
-                          handleLineChange(index, { unitPrice: Number(event.target.value) })
-                        }
-                      />
+                      <DocumentLinePriceInput id={priceId} line={line} currency={currency}
+                        onChange={(updates) => handleLineChange(index, updates)} />
                     </div>
                     <div className="space-y-1">
                       <label className="label" htmlFor={discountId}>
                         Remise (%)
                       </label>
-                      <Input
+                      <DocumentDecimalInput
                         id={discountId}
-                        type="number"
                         min="0"
-                        step="0.1"
+                        max="100"
                         value={line.discountRate ?? ""}
                         onChange={(event) =>
                           handleDiscountRateChange(index, event.target.value)
@@ -931,16 +917,8 @@ export function QuoteEditor({
                     <label className="label" htmlFor={vatId}>
                       TVA (%)
                     </label>
-                    <Input
-                      id={vatId}
-                      type="number"
-                      min="0"
-                      step="0.5"
-                      value={line.vatRate}
-                      onChange={(event) =>
-                        handleLineChange(index, { vatRate: Number(event.target.value) })
-                      }
-                    />
+                    <DocumentVatSelect id={vatId} value={line.vatRate} config={taxConfiguration}
+                        onChange={(vatRate) => handleLineChange(index, { vatRate })} />
                   </div>
                 </div>
                 <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
@@ -976,26 +954,14 @@ export function QuoteEditor({
               <label className="label" htmlFor="globalDiscountRate">
                 Remise (%)
               </label>
-              <Input
+              <DocumentDecimalInput
                 id="globalDiscountRate"
                 name="globalDiscountRate"
-                type="number"
                 min="0"
-                step="0.1"
+                max="100"
                 value={globalDiscountRate}
                 onChange={(event) => {
-                  if (event.target.value === "") {
-                    setGlobalDiscountRate("");
-                    setGlobalDiscountAmountManual("");
-                    return;
-                  }
-                  const parsed = Number(event.target.value);
-                  if (Number.isNaN(parsed)) {
-                    setGlobalDiscountRate("");
-                    setGlobalDiscountAmountManual("");
-                    return;
-                  }
-                  setGlobalDiscountRate(parsed);
+                  setGlobalDiscountRate(event.target.value);
                   setGlobalDiscountAmountManual("");
                 }}
               />
@@ -1004,23 +970,13 @@ export function QuoteEditor({
               <label className="label" htmlFor="globalDiscountAmount">
                 {`Remise (${currency})`}
               </label>
-              <Input
+              <DocumentDecimalInput
                 id="globalDiscountAmount"
                 name="globalDiscountAmount"
-                type="number"
                 min="0"
-                step="0.01"
                 value={globalDiscountAmountDisplay}
                 onChange={(event) => {
-                  if (event.target.value === "") {
-                    setGlobalDiscountAmountManual("");
-                    setGlobalDiscountRate("");
-                    return;
-                  }
-                  const parsed = Number(event.target.value);
-                  setGlobalDiscountAmountManual(
-                    Number.isNaN(parsed) ? "" : parsed,
-                  );
+                  setGlobalDiscountAmountManual(event.target.value);
                   setGlobalDiscountRate("");
                 }}
               />
@@ -1373,6 +1329,7 @@ function createEmptyLine(
   product: QuoteEditorProduct | undefined,
   defaultFodecRate: number | null | undefined,
   currency: CurrencyCode,
+  defaultVatRate: number,
 ): QuoteLineForm {
   const discount = product ? resolveProductDiscount(product) : null;
   return {
@@ -1381,7 +1338,8 @@ function createEmptyLine(
     quantity: 1,
     unit: product?.unit ?? "unité",
     unitPrice: product ? fromCents(product.priceHTCents, currency) : 0,
-    vatRate: product?.vatRate ?? 20,
+    unitPriceTTC: product?.priceTTCCents != null ? fromCents(product.priceTTCCents, currency) : undefined,
+    vatRate: product?.vatRate ?? defaultVatRate,
     discountRate: discount?.discountRate ?? undefined,
     discountAmount:
       discount?.discountAmountCents != null

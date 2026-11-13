@@ -20,6 +20,7 @@ export type DatabaseSqlClient = {
   unsafe(
     text: string,
     values?: readonly unknown[],
+    options?: { onexecute: () => boolean },
   ): Promise<Record<string, unknown>[]>;
 };
 
@@ -290,16 +291,43 @@ export function compileSqlFragment(fragment: SqlLikeFragment): {
   return { text: compileInto(fragment), values };
 }
 
+function withPoolerBackpressure(client: DatabaseSqlClient): DatabaseSqlClient {
+  // postgres.js treats false as per-query backpressure. Leave its own BEGIN
+  // hook intact so it can reserve the connection before running the callback.
+  const queryOptions = { onexecute: () => false };
+  return {
+    unsafe: (text, values = []) => client.unsafe(text, values, queryOptions),
+    begin: (callback) => client.begin((tx) => callback(withPoolerBackpressure(tx))),
+    end: (options) => client.end(options),
+  };
+}
+
 function buildSqlClient(
   databaseUrl: string,
   options: DatabaseSqlClientOptions,
 ): DatabaseSqlClient {
   try {
-    return postgres(databaseUrl, {
+    const client = postgres(databaseUrl, {
       connect_timeout: options.connectTimeoutSeconds,
       idle_timeout: options.idleTimeoutSeconds,
       max: options.maxConnections,
       prepare: options.prepareStatements,
+      // Keep NUMERIC amount columns compatible with both legacy Int model
+      // metadata and raw queries during a rolling precision migration.
+      types: {
+        numeric: {
+          to: 1700,
+          from: [1700],
+          serialize: (value: number) => String(value),
+          parse: (value: string) => {
+            const amount = Number(value);
+            if (!Number.isFinite(amount) || Math.abs(amount) > Number.MAX_SAFE_INTEGER) {
+              throw new RangeError("Database NUMERIC value exceeds the supported number range");
+            }
+            return amount;
+          },
+        },
+      },
       transform: {
         undefined: null,
       },
@@ -307,6 +335,7 @@ function buildSqlClient(
         // Supabase surfaces noisy notices for extension-managed schemas.
       },
     }) as unknown as DatabaseSqlClient;
+    return isSupabaseTransactionPoolerUrl(databaseUrl) ? withPoolerBackpressure(client) : client;
   } catch (error) {
     throw new DatabaseInitializationError(
       error instanceof Error ? error.message : "Failed to initialize database client.",

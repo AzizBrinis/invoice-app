@@ -7,6 +7,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { FormSubmitButton } from "@/components/ui/form-submit-button";
 import { fromCents, toCents } from "@/lib/money";
+import { ProductPriceFields } from "@/app/(app)/produits/product-price-fields";
+import type { TaxConfiguration } from "@/lib/taxes";
 import type { CurrencyCode } from "@/lib/currency";
 import { Alert } from "@/components/ui/alert";
 import { useToast } from "@/components/ui/toast-provider";
@@ -33,6 +35,7 @@ import type { Route } from "next";
 type ProductFormProps = {
   submitLabel: string;
   currencyCode: CurrencyCode;
+  taxConfiguration: TaxConfiguration;
   defaultValues?: {
     id?: string;
     sku?: string;
@@ -55,6 +58,7 @@ type ProductFormProps = {
     unit?: string;
     stockQuantity?: number | null;
     priceHTCents?: number;
+    priceTTCCents?: number;
     vatRate?: number;
     defaultDiscountRate?: number | null;
     defaultDiscountAmountCents?: number | null;
@@ -342,6 +346,7 @@ export function ProductForm({
   submitLabel,
   defaultValues,
   currencyCode,
+  taxConfiguration,
   redirectTo,
 }: ProductFormProps) {
   const router = useRouter();
@@ -2031,53 +2036,14 @@ export function ProductForm({
         ) : null}
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-4">
-        <div className="min-w-0 space-y-2">
-          <label htmlFor="priceHT" className="label">
-            {`Prix HT (${currencyCode})`}
-          </label>
-          <Input
-            id="priceHT"
-            name="priceHT"
-            type="number"
-            min="0"
-            step="0.01"
-            defaultValue={
-              defaultValues?.priceHTCents != null
-                ? fromCents(defaultValues.priceHTCents, currencyCode)
-                : ""
-            }
-            required
-            aria-invalid={Boolean(fieldErrors.priceHTCents) || undefined}
-            data-invalid={fieldErrors.priceHTCents ? "true" : undefined}
-          />
-          {fieldErrors.priceHTCents ? (
-            <p className="text-xs text-red-600 dark:text-red-400">
-              {fieldErrors.priceHTCents}
-            </p>
-          ) : null}
-        </div>
-        <div className="min-w-0 space-y-2">
-          <label htmlFor="vatRate" className="label">
-            Taux de TVA (%)
-          </label>
-          <Input
-            id="vatRate"
-            name="vatRate"
-            type="number"
-            min="0"
-            step="0.5"
-            defaultValue={defaultValues?.vatRate ?? 20}
-            required
-            aria-invalid={Boolean(fieldErrors.vatRate) || undefined}
-            data-invalid={fieldErrors.vatRate ? "true" : undefined}
-          />
-          {fieldErrors.vatRate ? (
-            <p className="text-xs text-red-600 dark:text-red-400">
-              {fieldErrors.vatRate}
-            </p>
-          ) : null}
-        </div>
+      <ProductPriceFields
+        currencyCode={currencyCode}
+        taxConfiguration={taxConfiguration}
+        defaultValues={defaultValues}
+        fieldErrors={fieldErrors}
+      />
+
+      <div className="grid gap-4 sm:grid-cols-2">
         <div className="min-w-0 space-y-2">
           <label htmlFor="defaultDiscountType" className="label">
             Type de remise

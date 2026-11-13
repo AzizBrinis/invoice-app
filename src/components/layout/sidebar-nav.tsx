@@ -14,6 +14,7 @@ import {
   ChevronDown,
   Globe,
   Sparkles,
+  KeyRound,
   type LucideIcon,
 } from "lucide-react";
 import { PrefetchLink } from "@/components/ui/prefetch-link";
@@ -27,6 +28,7 @@ export type NavIcon =
   | "clients"
   | "settings"
   | "website"
+  | "digital"
   | "assistant";
 
 export type NavChildItem = {
@@ -50,8 +52,15 @@ export const NAV_ICON_MAP: Record<NavIcon, LucideIcon> = {
   clients: Users,
   settings: Settings,
   website: Globe,
+  digital: KeyRound,
   assistant: Sparkles,
 };
+
+/** Segment-aware match: "/produits" must not match "/produits-digitaux". */
+export const isNavPathActive = (
+  pathname: string | null | undefined,
+  href: string,
+) => Boolean(pathname && (pathname === href || pathname.startsWith(`${href}/`)));
 
 export const navSubmenuId = (href: string) => {
   const sanitized = href.replace(/[^a-zA-Z0-9]/g, "-");
@@ -75,7 +84,7 @@ export function SidebarNav({ items }: { items: NavItem[] }) {
       <ul className="space-y-1">
         {items.map((item) => {
           const Icon = NAV_ICON_MAP[item.icon];
-          const active = pathname?.startsWith(item.href);
+          const active = isNavPathActive(pathname, item.href);
           const hasChildren = Boolean(item.children?.length);
           const isExpanded =
             hasChildren && (expanded[item.href] ?? active ?? false);

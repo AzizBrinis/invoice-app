@@ -11,6 +11,9 @@ export type TaxRateDefinition = {
 };
 
 export type TaxConfiguration = {
+  // Document-only pricing snapshot, keyed by the persisted line position.
+  // Kept in the existing JSON column so historical HT-only documents still work.
+  linePricing?: { position: number; unitPriceTTCCents: number }[];
   tva: {
     rates: TaxRateDefinition[];
     applyMode: "line" | "document";
@@ -39,6 +42,7 @@ export const DEFAULT_TAX_CONFIGURATION: TaxConfiguration = {
   tva: {
     rates: [
       { code: "T19", label: "TVA 19%", rate: 19 },
+      { code: "T13", label: "TVA 13%", rate: 13 },
       { code: "T7", label: "TVA 7%", rate: 7 },
       { code: "EXON", label: "Exonération", rate: 0 },
     ],
@@ -139,6 +143,12 @@ export function normalizeTaxConfiguration(input?: unknown): TaxConfiguration {
   const rounding = config.rounding ?? {};
 
   return {
+    ...(Array.isArray(config.linePricing) ? {
+      linePricing: config.linePricing.filter((line) => line &&
+        Number.isInteger(line.position) && line.position >= 0 &&
+        Number.isFinite(line.unitPriceTTCCents) && line.unitPriceTTCCents >= 0 &&
+        line.unitPriceTTCCents <= 2_147_483_647),
+    } : {}),
     tva: {
       rates: normalizeRates((tva as Record<string, unknown>).rates),
       applyMode:

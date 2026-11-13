@@ -2,6 +2,7 @@ const FALLBACK_TEST_DATABASE_URL =
   "postgresql://stub:stub@localhost:5432/testdb";
 const DEFAULT_MAX_CONNECTIONS = 1;
 const DEFAULT_IDLE_TIMEOUT_SECONDS = 20;
+const DEVELOPMENT_IDLE_TIMEOUT_SECONDS = 300;
 const DEFAULT_CONNECT_TIMEOUT_SECONDS = 10;
 const DEFAULT_APPLICATION_NAME = "invoices-app";
 
@@ -180,7 +181,11 @@ export function resolveDatabaseRuntimeConfig(
     databaseUrl,
     idleTimeoutSeconds: parseInteger(
       env.DB_IDLE_TIMEOUT_SECONDS,
-      DEFAULT_IDLE_TIMEOUT_SECONDS,
+      // Local development has long gaps between requests. Reuse the connection
+      // across those gaps instead of repeating remote database startup.
+      env.NODE_ENV === "development"
+        ? DEVELOPMENT_IDLE_TIMEOUT_SECONDS
+        : DEFAULT_IDLE_TIMEOUT_SECONDS,
     ),
     maxConnections: parseInteger(env.DB_MAX_CONNECTIONS, DEFAULT_MAX_CONNECTIONS),
     prepareStatements: parseBoolean(

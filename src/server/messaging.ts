@@ -9,7 +9,7 @@ import type {
 import { Readable } from "node:stream";
 import { cache } from "react";
 import { headers } from "next/headers";
-import nodemailer, { type Transporter } from "nodemailer";
+import nodemailer, { type SendMailOptions, type Transporter } from "nodemailer";
 import MailComposer from "nodemailer/lib/mail-composer";
 import addressParser from "nodemailer/lib/addressparser";
 import { simpleParser, type Attachment, type ParsedMail } from "mailparser";
@@ -5236,7 +5236,7 @@ export async function sendEmailMessageForUser(
     senderIpAddress: options?.senderIpAddress ?? null,
   });
 
-  const baseMailOptions: nodemailer.SendMailOptions = {
+  const baseMailOptions: SendMailOptions = {
     from: fromField,
     to: params.to,
     subject: params.subject,
@@ -5284,10 +5284,12 @@ export async function sendEmailMessageForUser(
   const primaryHtml =
     preparedTracking.recipients[0]?.html ?? baseHtml;
 
+  // Note: MailComposer never read a `keepBcc` option (only MimeNode does), so
+  // the Sent copy has always been built without a Bcc header. Set
+  // `compile().keepBcc = true` if the Bcc header should be kept there.
   const composer = new MailComposer({
     ...baseMailOptions,
     html: primaryHtml,
-    keepBcc: true,
   });
 
   const rawMessage = await composer.compile().build();

@@ -20,6 +20,8 @@ function assertLegacyWorkerFlagDisabled() {
 assertLegacyWorkerFlagDisabled();
 
 const DISPATCH_BATCH_SIZE = 10;
+// The cron invocation can run for up to five minutes.
+const STALE_SENDING_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_SCHEDULED_EMAIL_HISTORY_RETENTION_DAYS = 30;
 const SCHEDULED_EMAIL_MAINTENANCE_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
@@ -72,24 +74,27 @@ export async function scheduleEmailDraft(
     content: Buffer.from(attachment.content),
   }));
 
-  const record = await prisma.messagingScheduledEmail.create({
-    data: {
-      userId: input.userId,
-      to: input.to as JsonArray,
-      cc: input.cc?.length ? (input.cc as JsonArray) : undefined,
-      bcc: input.bcc?.length ? (input.bcc as JsonArray) : undefined,
-      subject: input.subject,
-      text: input.text,
-      html: input.html,
-      previewText: previewText.length ? previewText : input.subject,
-      sendAt: input.sendAt,
-      attachments: attachmentData.length
-        ? {
-            create: attachmentData,
-          }
-        : undefined,
-    },
-  });
+  const record = await prisma.$transaction(
+    (tx) => tx.messagingScheduledEmail.create({
+      data: {
+        userId: input.userId,
+        to: input.to as JsonArray,
+        cc: input.cc?.length ? (input.cc as JsonArray) : undefined,
+        bcc: input.bcc?.length ? (input.bcc as JsonArray) : undefined,
+        subject: input.subject,
+        text: input.text,
+        html: input.html,
+        previewText: previewText.length ? previewText : input.subject,
+        sendAt: input.sendAt,
+        attachments: attachmentData.length
+          ? {
+              create: attachmentData,
+            }
+          : undefined,
+      },
+      select: { id: true, sendAt: true },
+    }),
+  );
 
   return {
     id: record.id,
@@ -181,7 +186,6 @@ export async function cancelScheduledEmail(options: {
       status: {
         in: [
           MessagingScheduledStatus.PENDING,
-          MessagingScheduledStatus.SENDING,
           MessagingScheduledStatus.FAILED,
         ],
       },
@@ -189,6 +193,7 @@ export async function cancelScheduledEmail(options: {
     data: {
       status: MessagingScheduledStatus.CANCELLED,
       canceledAt: new Date(),
+      failureReason: null,
     },
   });
   if (updated.count === 0) {
@@ -197,6 +202,17 @@ export async function cancelScheduledEmail(options: {
 }
 
 export async function runScheduledEmailDispatchCycle(): Promise<void> {
+  // A worker may have stopped after SMTP accepted the message.
+  await prisma.messagingScheduledEmail.updateMany({
+    where: {
+      status: MessagingScheduledStatus.SENDING,
+      updatedAt: { lt: new Date(Date.now() - STALE_SENDING_TIMEOUT_MS) },
+    },
+    data: {
+      status: MessagingScheduledStatus.FAILED,
+      failureReason: "Envoi interrompu. Vérifiez le dossier Envoyés avant de replanifier.",
+    },
+  });
   await maintainScheduledEmailHistory();
   await dispatchDueScheduledEmails();
 }
@@ -294,7 +310,11 @@ async function dispatchDueScheduledEmails(): Promise<void> {
 
   for (const scheduled of dueEmails) {
     const locked = await prisma.messagingScheduledEmail.updateMany({
-      where: { id: scheduled.id, status: MessagingScheduledStatus.PENDING },
+      where: {
+        id: scheduled.id,
+        status: MessagingScheduledStatus.PENDING,
+        sendAt: { lte: now },
+      },
       data: { status: MessagingScheduledStatus.SENDING },
     });
     if (locked.count === 0) {
@@ -324,15 +344,6 @@ async function dispatchDueScheduledEmails(): Promise<void> {
       } satisfies ComposeEmailInput, {
         credentials: cachedCredentials,
       });
-
-      await prisma.messagingScheduledEmail.update({
-        where: { id: scheduled.id },
-        data: {
-          status: MessagingScheduledStatus.SENT,
-          sentAt: new Date(),
-          failureReason: null,
-        },
-      });
     } catch (error) {
       await prisma.messagingScheduledEmail.update({
         where: { id: scheduled.id },
@@ -346,7 +357,17 @@ async function dispatchDueScheduledEmails(): Promise<void> {
         "Impossible d'envoyer l'e-mail planifié:",
         error,
       );
+      continue;
     }
+
+    await prisma.messagingScheduledEmail.update({
+      where: { id: scheduled.id },
+      data: {
+        status: MessagingScheduledStatus.SENT,
+        sentAt: new Date(),
+        failureReason: null,
+      },
+    });
   }
 }
 

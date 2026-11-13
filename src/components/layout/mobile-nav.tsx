@@ -8,6 +8,7 @@ import { usePathname } from "next/navigation";
 import {
   type NavItem,
   NAV_ICON_MAP,
+  isNavPathActive,
   navSubmenuId,
 } from "@/components/layout/sidebar-nav";
 import { PrefetchLink } from "@/components/ui/prefetch-link";
@@ -186,7 +187,7 @@ export function MobileNav({ items }: { items: NavItem[] }) {
                     {items.map((item) => {
                       const Icon = NAV_ICON_MAP[item.icon];
                       const hasChildren = Boolean(item.children?.length);
-                      const active = pathname?.startsWith(item.href);
+                      const active = isNavPathActive(pathname, item.href);
                       const isExpanded =
                         hasChildren && (expanded[item.href] ?? active ?? false);
                       const submenuId = hasChildren

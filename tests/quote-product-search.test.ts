@@ -23,6 +23,7 @@ describe("quote product search", () => {
         id: "product_1",
         name: "Audit SEO",
         priceHTCents: 100000,
+        priceTTCCents: 120000,
         vatRate: 20,
         unit: "forfait",
         defaultDiscountRate: null,
@@ -34,6 +35,7 @@ describe("quote product search", () => {
     const items = await searchQuoteProducts("tenant_1", "seo", 200);
 
     expect(items).toHaveLength(1);
+    expect(items[0].priceTTCCents).toBe(120000);
     expect(executeStatementMock).toHaveBeenCalledOnce();
 
     const [sql, values] = executeStatementMock.mock.calls[0] as [
@@ -45,6 +47,7 @@ describe("quote product search", () => {
     expect(sql).toContain('"isActive" = TRUE');
     expect(sql).toContain('"name" ILIKE $2 OR "sku" ILIKE $2');
     expect(sql).not.toContain("SELECT *");
+    expect(sql).toContain('"priceTTCCents"');
     expect(values).toEqual(["tenant_1", "%seo%", "seo%", 50]);
   });
 

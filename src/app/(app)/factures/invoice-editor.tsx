@@ -1,5 +1,11 @@
 "use client";
 
+import { DocumentDecimalInput } from "@/components/document-decimal-input";
+import { documentDecimalNumber, parseDocumentAmount } from "@/lib/document-precision";
+import { DocumentLinePriceInput, DocumentVatSelect } from "@/components/document-line-price-input";
+import { documentLinePricePayload, restoreDocumentLineTTC } from "@/lib/document-line-pricing";
+import { getProductVatRates } from "@/lib/product-price-input";
+
 import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { useRouter } from "next/navigation";
@@ -34,9 +40,10 @@ type InvoiceLineForm = {
   description: string;
   quantity: number;
   unit: string;
-  unitPrice: number;
+  unitPrice: number | string;
+  unitPriceTTC?: number | string;
   vatRate: number;
-  discountRate?: number | null;
+  discountRate?: number | string | null;
   discountAmount?: number | null;
   fodecRate?: number | null;
 };
@@ -135,17 +142,17 @@ export function InvoiceEditor({
   const [issueDate, setIssueDate] = useState(initialIssueDate);
   const [dueDate, setDueDate] = useState(initialDueDate);
   const [currency, setCurrency] = useState<CurrencyCode>(initialCurrency);
-  const [globalDiscountRate, setGlobalDiscountRate] = useState<number | "">(
+  const [globalDiscountRate, setGlobalDiscountRate] = useState<number | string>(
     defaultInvoice?.globalDiscountRate ?? "",
   );
   const [globalDiscountAmountManual, setGlobalDiscountAmountManual] = useState<
-    number | ""
+    number | string
   >(
-    defaultInvoice?.globalDiscountAmountCents != null
+    defaultInvoice?.globalDiscountRate == null && defaultInvoice?.globalDiscountAmountCents != null
       ? fromCents(defaultInvoice.globalDiscountAmountCents, initialCurrency)
       : "",
   );
-  const [lateFeeRate, setLateFeeRate] = useState<number | "">(
+  const [lateFeeRate, setLateFeeRate] = useState<number | string>(
     defaultInvoice?.lateFeeRate ?? "",
   );
   const [notes, setNotes] = useState(defaultInvoice?.notes ?? "");
@@ -187,8 +194,9 @@ export function InvoiceEditor({
             quantity: line.quantity,
             unit: line.unit,
             unitPrice: fromCents(line.unitPriceHTCents, initialCurrency),
+            unitPriceTTC: restoreDocumentLineTTC(invoiceTaxConfig, line.position, initialCurrency),
             vatRate: line.vatRate,
-            discountRate: line.discountRate ?? undefined,
+            discountRate: Number.isFinite(documentDecimalNumber(line.discountRate)) ? documentDecimalNumber(line.discountRate) : undefined,
             discountAmount: hasExplicitDiscountAmount
               ? fromCents(line.discountAmountCents ?? 0, initialCurrency)
               : undefined,
@@ -199,7 +207,7 @@ export function InvoiceEditor({
                 : null,
           };
         })
-    : [createEmptyLine(products[0], defaultLineFodecRate, initialCurrency)];
+    : [createEmptyLine(products[0], defaultLineFodecRate, initialCurrency, getProductVatRates(taxConfiguration)[0]?.rate ?? 0)];
 
   const [lines, setLines] = useState<InvoiceLineForm[]>(initialLines);
   const payloadRef = useRef<HTMLInputElement>(null);
@@ -209,6 +217,7 @@ export function InvoiceEditor({
     const map = new Map<number, Record<string, string>>();
     const alias: Record<string, string> = {
       unitPriceHTCents: "unitPrice",
+      unitPriceTTCCents: "unitPrice",
       discountAmountCents: "discountAmount",
     };
     const source = formState.issueMap ?? {};
@@ -259,21 +268,21 @@ export function InvoiceEditor({
 
   const totals = useMemo(() => {
     const rateValue =
-      typeof globalDiscountRate === "number" ? globalDiscountRate : undefined;
+      Number.isFinite(documentDecimalNumber(globalDiscountRate)) ? documentDecimalNumber(globalDiscountRate) : undefined;
     const manualAmountCents =
-      typeof globalDiscountAmountManual === "number"
-        ? toCents(globalDiscountAmountManual, currency)
+      globalDiscountAmountManual !== ""
+        ? (parseDocumentAmount(globalDiscountAmountManual, currency) || 0)
         : undefined;
     const lineResults = lines.map((line) =>
       calculateLineTotals(
         {
           quantity: line.quantity,
-          unitPriceHTCents: toCents(line.unitPrice, currency),
+          ...documentLinePricePayload(line, currency, true),
           vatRate: line.vatRate,
-          discountRate: line.discountRate ?? undefined,
+          discountRate: Number.isFinite(documentDecimalNumber(line.discountRate)) ? documentDecimalNumber(line.discountRate) : undefined,
           discountAmountCents:
             line.discountAmount != null
-              ? toCents(line.discountAmount, currency)
+              ? parseDocumentAmount(line.discountAmount, currency)
               : undefined,
         },
         {
@@ -325,7 +334,7 @@ export function InvoiceEditor({
 
   const globalDiscountAppliedCents = totals.totals.globalDiscountAppliedCents;
   const globalDiscountAmountDisplay =
-    typeof globalDiscountRate === "number"
+    globalDiscountRate !== ""
       ? fromCents(globalDiscountAppliedCents, currency)
       : globalDiscountAmountManual;
 
@@ -342,9 +351,8 @@ export function InvoiceEditor({
       handleLineChange(index, { discountRate: null });
       return;
     }
-    const parsed = Number(rawValue);
     handleLineChange(index, {
-      discountRate: Number.isNaN(parsed) ? null : parsed,
+      discountRate: rawValue,
       discountAmount: undefined,
     });
   };
@@ -360,6 +368,7 @@ export function InvoiceEditor({
       productId: product.id,
       description: product.name,
       unitPrice: fromCents(product.priceHTCents, currency),
+      unitPriceTTC: product.priceTTCCents != null ? fromCents(product.priceTTCCents, currency) : undefined,
       vatRate: product.vatRate,
       unit: product.unit,
       discountRate: discount.discountRate ?? undefined,
@@ -377,7 +386,7 @@ export function InvoiceEditor({
   };
 
   const addLine = () => {
-    setLines((prev) => [...prev, createEmptyLine(products[0], defaultLineFodecRate, currency)]);
+    setLines((prev) => [...prev, createEmptyLine(products[0], defaultLineFodecRate, currency, getProductVatRates(taxConfiguration)[0]?.rate ?? 0)]);
   };
 
   const removeLine = (index: number) => {
@@ -407,8 +416,9 @@ export function InvoiceEditor({
       dueDate: dueDate || null,
       currency,
       globalDiscountRate:
-        globalDiscountRate === "" ? null : Number(globalDiscountRate),
-      globalDiscountAmountCents: globalDiscountAppliedCents ?? 0,
+        globalDiscountRate === "" ? null : documentDecimalNumber(globalDiscountRate),
+      globalDiscountAmountCents: globalDiscountRate !== "" || globalDiscountAmountManual === ""
+        ? null : parseDocumentAmount(globalDiscountAmountManual, currency),
       notes: notes || null,
       terms: terms || null,
       lateFeeRate: lateFeeRate === "" ? null : Number(lateFeeRate),
@@ -417,12 +427,12 @@ export function InvoiceEditor({
         description: (line.description ?? "").trim(),
         quantity: line.quantity,
         unit: (line.unit ?? "").trim() || "unité",
-        unitPriceHTCents: toCents(line.unitPrice, currency),
+        ...documentLinePricePayload(line, currency),
         vatRate: line.vatRate,
-        discountRate: line.discountRate ?? null,
+        discountRate: line.discountRate == null || line.discountRate === "" ? null : documentDecimalNumber(line.discountRate),
         discountAmountCents:
           line.discountAmount != null
-            ? toCents(line.discountAmount, currency)
+            ? parseDocumentAmount(line.discountAmount, currency)
             : null,
         fodecRate:
           taxConfiguration.fodec.application === "line" &&
@@ -812,31 +822,19 @@ export function InvoiceEditor({
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="space-y-1">
                       <label className="label" htmlFor={unitPriceId}>
-                        {`Prix HT (${currency})`}
+                        {`Prix unitaire (${currency})`}
                       </label>
-                      <Input
-                        id={unitPriceId}
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={line.unitPrice}
-                        onChange={(event) => handleLineChange(index, { unitPrice: Number(event.target.value) })}
-                        aria-invalid={Boolean(lineError.unitPrice) || undefined}
-                        data-invalid={lineError.unitPrice ? "true" : undefined}
-                      />
-                      {lineError.unitPrice ? (
-                        <p className="text-xs text-red-600 dark:text-red-400">{lineError.unitPrice}</p>
-                      ) : null}
+                      <DocumentLinePriceInput id={unitPriceId} line={line} currency={currency} error={lineError.unitPrice}
+                        onChange={(updates) => handleLineChange(index, updates)} />
                     </div>
                     <div className="space-y-1">
                       <label className="label" htmlFor={discountId}>
                         Remise (%)
                       </label>
-                      <Input
+                      <DocumentDecimalInput
                         id={discountId}
-                        type="number"
                         min="0"
-                        step="0.1"
+                        max="100"
                         value={line.discountRate ?? ""}
                         onChange={(event) => handleDiscountRateChange(index, event.target.value)}
                         aria-invalid={Boolean(lineError.discountRate) || undefined}
@@ -876,16 +874,8 @@ export function InvoiceEditor({
                     <label className="label" htmlFor={vatId}>
                       TVA (%)
                     </label>
-                    <Input
-                      id={vatId}
-                      type="number"
-                      min="0"
-                      step="0.5"
-                      value={line.vatRate}
-                      onChange={(event) => handleLineChange(index, { vatRate: Number(event.target.value) })}
-                      aria-invalid={Boolean(lineError.vatRate) || undefined}
-                      data-invalid={lineError.vatRate ? "true" : undefined}
-                    />
+                    <DocumentVatSelect id={vatId} value={line.vatRate} config={taxConfiguration} error={lineError.vatRate}
+                        onChange={(vatRate) => handleLineChange(index, { vatRate })} />
                     {lineError.vatRate ? (
                       <p className="text-xs text-red-600 dark:text-red-400">{lineError.vatRate}</p>
                     ) : null}
@@ -949,7 +939,7 @@ export function InvoiceEditor({
                 <th className="px-3 py-2 text-left">Description</th>
                 <th className="px-3 py-2 text-left">Qté</th>
                 <th className="px-3 py-2 text-left">Unité</th>
-                <th className="px-3 py-2 text-left">{`Prix HT (${currency})`}</th>
+                <th className="px-3 py-2 text-left">{`Prix unitaire (${currency})`}</th>
                 <th className="px-3 py-2 text-left">Remise (%)</th>
                 {taxConfiguration.fodec.application === "line" && taxConfiguration.fodec.enabled && (
                   <th className="px-3 py-2 text-left">FODEC (%)</th>
@@ -1027,28 +1017,13 @@ export function InvoiceEditor({
                       ) : null}
                     </td>
                     <td className="px-3 py-2">
-                      <Input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={line.unitPrice}
-                        onChange={(event) =>
-                          handleLineChange(index, { unitPrice: Number(event.target.value) })
-                        }
-                        aria-invalid={Boolean(lineError.unitPrice) || undefined}
-                        data-invalid={lineError.unitPrice ? "true" : undefined}
-                      />
-                      {lineError.unitPrice ? (
-                        <p className="mt-1 text-xs text-red-600 dark:text-red-400">
-                          {lineError.unitPrice}
-                        </p>
-                      ) : null}
+                      <DocumentLinePriceInput line={line} currency={currency} error={lineError.unitPrice}
+                        onChange={(updates) => handleLineChange(index, updates)} />
                     </td>
                     <td className="px-3 py-2">
-                      <Input
-                        type="number"
+                      <DocumentDecimalInput
                         min="0"
-                        step="0.1"
+                        max="100"
                         value={line.discountRate ?? ""}
                         onChange={(event) =>
                           handleDiscountRateChange(index, event.target.value)
@@ -1089,17 +1064,8 @@ export function InvoiceEditor({
                       </td>
                     )}
                     <td className="px-3 py-2">
-                      <Input
-                        type="number"
-                        min="0"
-                        step="0.5"
-                        value={line.vatRate}
-                        onChange={(event) =>
-                          handleLineChange(index, { vatRate: Number(event.target.value) })
-                        }
-                        aria-invalid={Boolean(lineError.vatRate) || undefined}
-                        data-invalid={lineError.vatRate ? "true" : undefined}
-                      />
+                      <DocumentVatSelect value={line.vatRate} config={taxConfiguration} error={lineError.vatRate}
+                        onChange={(vatRate) => handleLineChange(index, { vatRate })} />
                       {lineError.vatRate ? (
                         <p className="mt-1 text-xs text-red-600 dark:text-red-400">
                           {lineError.vatRate}
@@ -1146,24 +1112,15 @@ export function InvoiceEditor({
               <label className="label" htmlFor="globalDiscountRate">
                 Remise (%)
               </label>
-              <Input
+              <DocumentDecimalInput
                 id="globalDiscountRate"
                 name="globalDiscountRate"
-                type="number"
                 min="0"
-                step="0.1"
+                max="100"
                 value={globalDiscountRate}
                 onChange={(event) => {
-                  if (event.target.value === "") {
-                    setGlobalDiscountRate("");
-                    return;
-                  }
-                  const parsed = Number(event.target.value);
-                  if (Number.isNaN(parsed)) {
-                    setGlobalDiscountRate("");
-                    return;
-                  }
-                  setGlobalDiscountRate(parsed);
+                  setGlobalDiscountRate(event.target.value);
+                  setGlobalDiscountAmountManual("");
                 }}
               />
             </div>
@@ -1171,23 +1128,13 @@ export function InvoiceEditor({
               <label className="label" htmlFor="globalDiscountAmount">
                 {`Remise (${currency})`}
               </label>
-              <Input
+              <DocumentDecimalInput
                 id="globalDiscountAmount"
                 name="globalDiscountAmount"
-                type="number"
                 min="0"
-                step="0.01"
                 value={globalDiscountAmountDisplay}
                 onChange={(event) => {
-                  if (event.target.value === "") {
-                    setGlobalDiscountAmountManual("");
-                    setGlobalDiscountRate("");
-                    return;
-                  }
-                  const parsed = Number(event.target.value);
-                  setGlobalDiscountAmountManual(
-                    Number.isNaN(parsed) ? "" : parsed,
-                  );
+                  setGlobalDiscountAmountManual(event.target.value);
                   setGlobalDiscountRate("");
                 }}
               />
@@ -1267,6 +1214,7 @@ function createEmptyLine(
   product: Product | undefined,
   defaultFodecRate: number | null | undefined,
   currency: CurrencyCode,
+  defaultVatRate: number,
 ): InvoiceLineForm {
   const discount = product ? resolveProductDiscount(product) : null;
   return {
@@ -1275,7 +1223,8 @@ function createEmptyLine(
     quantity: 1,
     unit: product?.unit ?? "unité",
     unitPrice: product ? fromCents(product.priceHTCents, currency) : 0,
-    vatRate: product?.vatRate ?? 20,
+    unitPriceTTC: product?.priceTTCCents != null ? fromCents(product.priceTTCCents, currency) : undefined,
+    vatRate: product?.vatRate ?? defaultVatRate,
     discountRate: discount?.discountRate ?? undefined,
     discountAmount:
       discount?.discountAmountCents != null

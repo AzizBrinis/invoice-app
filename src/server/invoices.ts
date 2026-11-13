@@ -1,3 +1,5 @@
+import { documentAmountSchema, documentDiscountRateSchema, validateDocumentPrecision } from "@/lib/document-precision";
+import { documentLinePriceFields, normalizeDocumentLinePrice, documentLinePricingSnapshot } from "@/lib/document-line-pricing";
 import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
@@ -17,7 +19,7 @@ import {
   type User,
 } from "@/lib/db/prisma-server";
 import { z } from "zod";
-import { nextInvoiceNumber } from "@/server/sequences";
+import { nextInvoiceNumber, nextInvoiceNumberWithDatabaseClient } from "@/server/sequences";
 import { shouldUseServerDataCache } from "@/lib/server-data-cache";
 import {
   markInvoiceRequestCompletedForOrder,
@@ -30,18 +32,12 @@ const invoiceLineSchema = z.object({
   description: z.string().min(2, "Description requise"),
   quantity: z.number().positive(),
   unit: z.string().min(1, "Unité requise"),
-  unitPriceHTCents: z.number().int().nonnegative(),
-  vatRate: z.number().min(0).max(100),
-  discountRate: z.number().min(0).max(100).nullable().optional(),
-  discountAmountCents: z
-    .number()
-    .int()
-    .nonnegative()
-    .nullable()
-    .optional(),
+  ...documentLinePriceFields,
+  discountRate: documentDiscountRateSchema.nullable().optional(),
+  discountAmountCents: documentAmountSchema.nullable().optional(),
   fodecRate: z.number().min(0).max(100).nullable().optional(),
   position: z.number().int().nonnegative(),
-});
+}).transform(normalizeDocumentLinePrice);
 
 export const invoiceInputSchema = z.object({
   id: z.string().optional(),
@@ -52,13 +48,8 @@ export const invoiceInputSchema = z.object({
   issueDate: z.coerce.date(),
   dueDate: z.coerce.date().nullable().optional(),
   currency: z.string().default("TND"),
-  globalDiscountRate: z.number().min(0).max(100).nullable().optional(),
-  globalDiscountAmountCents: z
-    .number()
-    .int()
-    .nonnegative()
-    .nullable()
-    .optional(),
+  globalDiscountRate: documentDiscountRateSchema.nullable().optional(),
+  globalDiscountAmountCents: documentAmountSchema.nullable().optional(),
   notes: z.string().nullable().optional(),
   terms: z.string().nullable().optional(),
   lateFeeRate: z.number().min(0).max(100).nullable().optional(),
@@ -73,7 +64,7 @@ export const invoiceInputSchema = z.object({
       timbreAmountCents: z.number().int().nonnegative().nullable().optional(),
     })
     .optional(),
-});
+}).superRefine(validateDocumentPrecision);
 
 export type InvoiceInput = z.infer<typeof invoiceInputSchema>;
 
@@ -549,6 +540,7 @@ function computeInvoiceTotals(
       {
         quantity: line.quantity,
         unitPriceHTCents: line.unitPriceHTCents,
+        unitPriceTTCCents: line.unitPriceTTCCents,
         vatRate: line.vatRate,
         discountRate: line.discountRate ?? undefined,
         discountAmountCents: line.discountAmountCents ?? undefined,
@@ -588,6 +580,7 @@ function computeInvoiceTotals(
 
   const taxConfigurationSnapshot: TaxConfiguration = {
     ...taxConfig,
+    linePricing: documentLinePricingSnapshot(payload.lines),
     fodec: {
       ...taxConfig.fodec,
       enabled: applyFodec,
@@ -720,6 +713,21 @@ export async function createInvoice(input: InvoiceInput) {
   return createInvoiceForUser(userId, input);
 }
 
+/**
+ * Computes the totals an invoice would have for this tenant, using exactly the
+ * same validation and tax configuration as `createInvoiceForUser`, without
+ * persisting anything (no number is consumed).
+ */
+export async function previewInvoiceTotalsForUser(userId: string, input: InvoiceInput) {
+  const payload = invoiceInputSchema.parse(input);
+  const settings = await getSettingsDocumentDefaults(userId);
+  const taxConfig = normalizeTaxConfiguration(
+    (settings as { taxConfiguration?: unknown }).taxConfiguration,
+  );
+  const { totals, timbreAmountCents } = computeInvoiceTotals(payload, taxConfig);
+  return { totals, timbreAmountCents };
+}
+
 export async function createInvoiceForUser(userId: string, input: InvoiceInput) {
   const payload = invoiceInputSchema.parse(input);
   await assertClientOwnership(userId, payload.clientId);
@@ -734,62 +742,68 @@ export async function createInvoiceForUser(userId: string, input: InvoiceInput) 
   const { computedLines, totals, timbreAmountCents, taxConfigurationSnapshot } =
     computeInvoiceTotals(payload, taxConfig);
   const normalizedNumber = payload.number?.trim();
-  const number =
-    normalizedNumber && normalizedNumber.length > 0
-      ? normalizedNumber
-      : await nextInvoiceNumber(userId, settings);
 
-  const invoice = await prisma.invoice.create({
-    data: {
-      userId,
-      number,
-      clientId: payload.clientId,
-      status: payload.status,
-      reference: payload.reference,
-      issueDate: payload.issueDate,
-      dueDate: payload.dueDate,
-      currency: payload.currency,
-      globalDiscountRate: payload.globalDiscountRate ?? null,
-      globalDiscountAmountCents: totals.globalDiscountAppliedCents,
-      vatBreakdown: serializeVat(totals.vatEntries),
-      taxSummary: totals.taxSummary,
-      taxConfiguration: taxConfigurationSnapshot,
-      notes: payload.notes,
-      terms: payload.terms,
-      lateFeeRate: payload.lateFeeRate ?? null,
-      subtotalHTCents: totals.subtotalHTCents,
-      totalDiscountCents: totals.totalDiscountCents,
-      totalTVACents: totals.totalTVACents,
-      totalTTCCents: totals.totalTTCCents,
-      amountPaidCents: 0,
-      fodecAmountCents: totals.fodecAmountCents,
-      timbreAmountCents,
-      lines: {
-        createMany: {
-          data: payload.lines.map((line, index) => ({
-            productId: line.productId ?? null,
-            description: line.description,
-            quantity: line.quantity,
-            unit: line.unit,
-            unitPriceHTCents: line.unitPriceHTCents,
-            vatRate: line.vatRate,
-            discountRate: line.discountRate ?? null,
-            discountAmountCents: computedLines[index].discountAmountCents,
-            totalHTCents: computedLines[index].totalHTCents,
-            totalTVACents: computedLines[index].totalTVACents,
-            totalTTCCents: computedLines[index].totalTTCCents,
-            fodecRate: computedLines[index].fodecRate ?? null,
-            fodecAmountCents: computedLines[index].fodecAmountCents,
-            position: line.position,
-          })),
+  // The automatic number is reserved in the same transaction as the invoice and
+  // its lines: concurrent creations are serialised on the sequence row, and a
+  // failed insert releases the number instead of leaving a gap.
+  const invoice = await prisma.$transaction(async (tx) => {
+    const number =
+      normalizedNumber && normalizedNumber.length > 0
+        ? normalizedNumber
+        : await nextInvoiceNumberWithDatabaseClient(userId, settings, tx);
+
+    return tx.invoice.create({
+      data: {
+        userId,
+        number,
+        clientId: payload.clientId,
+        status: payload.status,
+        reference: payload.reference,
+        issueDate: payload.issueDate,
+        dueDate: payload.dueDate,
+        currency: payload.currency,
+        globalDiscountRate: payload.globalDiscountRate ?? null,
+        globalDiscountAmountCents: payload.globalDiscountAmountCents ?? totals.globalDiscountAppliedCents,
+        vatBreakdown: serializeVat(totals.vatEntries),
+        taxSummary: totals.taxSummary,
+        taxConfiguration: taxConfigurationSnapshot,
+        notes: payload.notes,
+        terms: payload.terms,
+        lateFeeRate: payload.lateFeeRate ?? null,
+        subtotalHTCents: totals.subtotalHTCents,
+        totalDiscountCents: totals.totalDiscountCents,
+        totalTVACents: totals.totalTVACents,
+        totalTTCCents: totals.totalTTCCents,
+        amountPaidCents: 0,
+        fodecAmountCents: totals.fodecAmountCents,
+        timbreAmountCents,
+        lines: {
+          createMany: {
+            data: payload.lines.map((line, index) => ({
+              productId: line.productId ?? null,
+              description: line.description,
+              quantity: line.quantity,
+              unit: line.unit,
+              unitPriceHTCents: line.unitPriceHTCents,
+              vatRate: line.vatRate,
+              discountRate: line.discountRate ?? null,
+              discountAmountCents: line.discountAmountCents ?? computedLines[index].discountAmountCents,
+              totalHTCents: computedLines[index].totalHTCents,
+              totalTVACents: computedLines[index].totalTVACents,
+              totalTTCCents: computedLines[index].totalTTCCents,
+              fodecRate: computedLines[index].fodecRate ?? null,
+              fodecAmountCents: computedLines[index].fodecAmountCents,
+              position: line.position,
+            })),
+          },
         },
       },
-    },
-    include: {
-      client: true,
-      lines: true,
-      payments: true,
-    },
+      include: {
+        client: true,
+        lines: true,
+        payments: true,
+      },
+    });
   });
 
   return invoice;
@@ -928,7 +942,7 @@ export async function updateInvoice(id: string, input: InvoiceInput) {
         dueDate: payload.dueDate,
         currency: payload.currency,
         globalDiscountRate: payload.globalDiscountRate ?? null,
-        globalDiscountAmountCents: totals.globalDiscountAppliedCents,
+        globalDiscountAmountCents: payload.globalDiscountAmountCents ?? totals.globalDiscountAppliedCents,
         vatBreakdown: serializeVat(totals.vatEntries),
         taxSummary: totals.taxSummary,
         taxConfiguration: taxConfigurationSnapshot,
@@ -951,7 +965,7 @@ export async function updateInvoice(id: string, input: InvoiceInput) {
               unitPriceHTCents: line.unitPriceHTCents,
               vatRate: line.vatRate,
               discountRate: line.discountRate ?? null,
-              discountAmountCents: computedLines[index].discountAmountCents,
+              discountAmountCents: line.discountAmountCents ?? computedLines[index].discountAmountCents,
               totalHTCents: computedLines[index].totalHTCents,
               totalTVACents: computedLines[index].totalTVACents,
               totalTTCCents: computedLines[index].totalTTCCents,
@@ -1016,7 +1030,7 @@ export async function duplicateInvoice(id: string) {
       timbreAmountCents: existing.timbreAmountCents ?? 0,
       lines: {
         createMany: {
-          data: existing.lines.map((line, index) => ({
+          data: existing.lines.map((line) => ({
             productId: line.productId,
             description: line.description,
             quantity: line.quantity,
@@ -1030,7 +1044,7 @@ export async function duplicateInvoice(id: string) {
             totalTTCCents: line.totalTTCCents,
             fodecRate: line.fodecRate,
             fodecAmountCents: line.fodecAmountCents,
-            position: index,
+            position: line.position,
           })),
         },
       },
@@ -1161,6 +1175,13 @@ const paymentSchema = z
 
 export async function recordPayment(input: z.infer<typeof paymentSchema>) {
   const { id: userId } = await requireUser();
+  return recordPaymentForUser(userId, input);
+}
+
+export async function recordPaymentForUser(
+  userId: string,
+  input: z.infer<typeof paymentSchema>,
+) {
   const payload = paymentSchema.parse(input);
 
   return prisma.$transaction(async (tx) => {

@@ -13594,7 +13594,7 @@ export const modelSchema = {
       "globalDiscountAmountCents": {
         "name": "globalDiscountAmountCents",
         "kind": "scalar",
-        "type": "Int",
+        "type": "Float",
         "isList": false,
         "isRequired": false,
         "isUnique": false,
@@ -13995,7 +13995,7 @@ export const modelSchema = {
       "unitPriceHTCents": {
         "name": "unitPriceHTCents",
         "kind": "scalar",
-        "type": "Int",
+        "type": "Float",
         "isList": false,
         "isRequired": true,
         "isUnique": false,
@@ -14043,7 +14043,7 @@ export const modelSchema = {
       "discountAmountCents": {
         "name": "discountAmountCents",
         "kind": "scalar",
-        "type": "Int",
+        "type": "Float",
         "isList": false,
         "isRequired": false,
         "isUnique": false,
@@ -14414,7 +14414,7 @@ export const modelSchema = {
       "globalDiscountAmountCents": {
         "name": "globalDiscountAmountCents",
         "kind": "scalar",
-        "type": "Int",
+        "type": "Float",
         "isList": false,
         "isRequired": false,
         "isUnique": false,
@@ -14867,7 +14867,7 @@ export const modelSchema = {
       "unitPriceHTCents": {
         "name": "unitPriceHTCents",
         "kind": "scalar",
-        "type": "Int",
+        "type": "Float",
         "isList": false,
         "isRequired": true,
         "isUnique": false,
@@ -14915,7 +14915,7 @@ export const modelSchema = {
       "discountAmountCents": {
         "name": "discountAmountCents",
         "kind": "scalar",
-        "type": "Int",
+        "type": "Float",
         "isList": false,
         "isRequired": false,
         "isUnique": false,

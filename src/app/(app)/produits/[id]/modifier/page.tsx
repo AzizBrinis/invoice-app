@@ -48,6 +48,7 @@ export default async function EditProduitPage({
       <ProductForm
         submitLabel="Enregistrer"
         currencyCode={settings.defaultCurrency as CurrencyCode}
+        taxConfiguration={settings.taxConfiguration}
         defaultValues={product}
         redirectTo="/produits"
       />

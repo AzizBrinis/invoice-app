@@ -5,8 +5,10 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { ZodError } from "zod";
 import { Prisma } from "@/lib/db/prisma-server";
-import { productSchema, createProduct, updateProduct, deleteProduct } from "@/server/products";
+import { productSchema, createProduct, updateProduct, deleteProduct, getProduct } from "@/server/products";
 import { buildProductFormValidationState } from "@/server/product-form-errors";
+import { parseProductPriceFields } from "@/lib/product-price-input";
+import type { TaxConfiguration } from "@/lib/taxes";
 import { toCents } from "@/lib/money";
 import { prisma } from "@/lib/db";
 import { getSettingsDocumentDefaults } from "@/server/settings";
@@ -48,9 +50,16 @@ function slugify(value: string): string {
     .replace(/-{2,}/g, "-");
 }
 
-async function parseProductForm(formData: FormData, currency: string) {
-  const priceHT = Number(formData.get("priceHT") ?? 0);
-  const vatRate = Number(formData.get("vatRate") ?? 0);
+async function parseProductForm(
+  formData: FormData,
+  currency: string,
+  taxConfiguration: TaxConfiguration,
+  productId?: string,
+) {
+  const existing = productId ? await getProduct(productId) : null;
+  const { priceHTCents, priceTTCCents, vatRate } = parseProductPriceFields(
+    formData, currency, taxConfiguration, existing?.vatRate,
+  );
   const discountType =
     formData.get("defaultDiscountType")?.toString() ?? "none";
   const discountValueRaw =
@@ -59,8 +68,6 @@ async function parseProductForm(formData: FormData, currency: string) {
   const parsedDiscountValue = normalizedDiscountValue.length
     ? Number(normalizedDiscountValue)
     : null;
-  const priceHTCents = toCents(priceHT, currency);
-  const priceTTCCents = Math.round(priceHTCents * (1 + vatRate / 100));
   const publicSlugRaw = formData.get("publicSlug")?.toString().trim() ?? "";
   const publicSlug = publicSlugRaw.length > 0 ? publicSlugRaw : undefined;
   const excerptRaw = formData.get("excerpt")?.toString().trim();
@@ -199,7 +206,7 @@ export async function submitProductFormAction(
     await requireProductsAccess();
     const productId = formData.get("productId")?.toString() || undefined;
     const settings = await getSettingsDocumentDefaults();
-    const data = await parseProductForm(formData, settings.defaultCurrency);
+    const data = await parseProductForm(formData, settings.defaultCurrency, settings.taxConfiguration, productId);
 
     if (productId) {
       const updated = await updateProduct(productId, data);
@@ -267,7 +274,7 @@ export async function createProductAction(formData: FormData) {
   try {
     await requireProductsAccess();
     const settings = await getSettingsDocumentDefaults();
-    const data = await parseProductForm(formData, settings.defaultCurrency);
+    const data = await parseProductForm(formData, settings.defaultCurrency, settings.taxConfiguration);
     await createProduct(data);
     revalidatePath("/produits");
     revalidatePath("/catalogue");
@@ -298,7 +305,7 @@ export async function updateProductAction(id: string, formData: FormData) {
   try {
     await requireProductsAccess();
     const settings = await getSettingsDocumentDefaults();
-    const data = await parseProductForm(formData, settings.defaultCurrency);
+    const data = await parseProductForm(formData, settings.defaultCurrency, settings.taxConfiguration, id);
     await updateProduct(id, data);
     revalidatePath("/produits");
     revalidatePath("/catalogue");

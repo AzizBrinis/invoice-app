@@ -662,7 +662,7 @@ export async function sendClientPaymentReceiptEmail(params: {
   );
 }
 
-async function recordEmailLogEntry(options: {
+export async function recordEmailLogEntry(options: {
   emailLogId?: string | null;
   userId: string;
   documentType: DocumentType;

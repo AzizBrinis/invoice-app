@@ -9,6 +9,33 @@ const SUPABASE_SESSION_URL =
   "postgresql://user:pass@aws-1-eu-north-1.pooler.supabase.com:5432/postgres?sslmode=require";
 
 describe("db runtime config", () => {
+  it("reuses idle connections longer in development while retaining serverless defaults", () => {
+    for (const [nodeEnv, expectedTimeout] of [
+      ["development", 300],
+      ["production", 20],
+      ["test", 20],
+      [undefined, 20],
+    ] as const) {
+      const config = resolveDatabaseRuntimeConfig({
+        DATABASE_URL: SUPABASE_TRANSACTION_URL,
+        NODE_ENV: nodeEnv,
+      });
+
+      expect(config.idleTimeoutSeconds).toBe(expectedTimeout);
+      expect(config.maxConnections).toBe(1);
+    }
+  });
+
+  it("honors an explicit idle timeout in development", () => {
+    const config = resolveDatabaseRuntimeConfig({
+      DATABASE_URL: SUPABASE_TRANSACTION_URL,
+      NODE_ENV: "development",
+      DB_IDLE_TIMEOUT_SECONDS: "45",
+    });
+
+    expect(config.idleTimeoutSeconds).toBe(45);
+  });
+
   it("keeps the transaction pooler at runtime and disables prepared statements when DATABASE_URL already points to Supabase pgbouncer", () => {
     const config = resolveDatabaseRuntimeConfig({
       DATABASE_URL: SUPABASE_TRANSACTION_URL,

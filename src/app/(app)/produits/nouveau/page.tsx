@@ -30,6 +30,7 @@ export default async function NouveauProduitPage() {
       <ProductForm
         submitLabel="Créer le produit"
         currencyCode={settings.defaultCurrency as CurrencyCode}
+        taxConfiguration={settings.taxConfiguration}
         redirectTo="/produits"
       />
     </div>
