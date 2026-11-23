@@ -6,15 +6,18 @@ import { FormSubmitButton } from "@/components/ui/form-submit-button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { MAX_LICENCE_QUANTITY } from "@/lib/digital-products/kaspersky-catalog";
 import {
-  KASPERSKY_TIER_DETAILS,
-  KASPERSKY_TIERS,
-  KASPERSKY_VARIANTS,
-  MAX_LICENCE_QUANTITY,
-} from "@/lib/digital-products/kaspersky-catalog";
+  getDigitalProductFamily,
+  variantGroup,
+  variantDurationLabel,
+  variantGroupKey,
+  type DigitalProductFamilyId,
+} from "@/lib/digital-products/catalog";
 import { generateLicenceAction, type GenerateLicenceActionState } from "../actions";
 
 type Props = {
+  familyId: DigitalProductFamilyId;
   formToken: string;
   defaultSku: string;
   available: Record<string, number>;
@@ -24,26 +27,28 @@ function FieldError({ message }: { message?: string }) {
   return message ? <p className="text-xs text-red-600 dark:text-red-400">{message}</p> : null;
 }
 
-export function GenerateLicenceForm({ formToken, defaultSku, available }: Props) {
+export function GenerateLicenceForm({ familyId, formToken, defaultSku, available }: Props) {
+  const family = getDigitalProductFamily(familyId);
   const [state, formAction] = useActionState<GenerateLicenceActionState, FormData>(generateLicenceAction, {});
   const [sku, setSku] = useState(defaultSku);
   const [quantity, setQuantity] = useState(1);
   const stock = available[sku] ?? 0;
-  const variant = useMemo(() => KASPERSKY_VARIANTS.find((item) => item.sku === sku), [sku]);
+  const variant = useMemo(() => family.variants.find((item) => item.sku === sku), [family, sku]);
   const enough = quantity >= 1 && quantity <= stock;
   const errors = state.fieldErrors ?? {};
 
   return (
     <form action={formAction} className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]" autoComplete="off">
       <input type="hidden" name="formToken" value={formToken} />
+      <input type="hidden" name="family" value={family.id} />
       <div className="card space-y-5 p-5">
         <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_9rem]">
           <div className="space-y-1.5">
             <label htmlFor="sku" className="label">Produit et nombre de postes</label>
             <Select id="sku" name="sku" value={sku} onChange={(event) => setSku(event.target.value)} required>
-              {KASPERSKY_TIERS.map((tier) => (
-                <optgroup key={tier} label={`Kaspersky ${KASPERSKY_TIER_DETAILS[tier].display}`}>
-                  {KASPERSKY_VARIANTS.filter((item) => item.tier === tier).map((item) => (
+              {family.groups.map((group) => (
+                <optgroup key={group.key} label={group.label}>
+                  {family.variants.filter((item) => variantGroupKey(item) === group.key).map((item) => (
                     <option key={item.sku} value={item.sku}>
                       {item.label} — {available[item.sku] ?? 0} dispo.
                     </option>
@@ -77,7 +82,7 @@ export function GenerateLicenceForm({ formToken, defaultSku, available }: Props)
           {stock === 0
             ? "Aucun code disponible pour cette variante. Ajoutez des codes avant de générer."
             : enough
-              ? `${quantity} code(s) seront réservés automatiquement sur ${stock} disponible(s). Une page A4 par code.`
+              ? `${quantity} code(s) seront réservés automatiquement sur ${stock} disponible(s). ${family.documentHint}`
               : `Stock insuffisant : ${stock} code(s) disponible(s).`}
         </p>
 
@@ -128,7 +133,7 @@ export function GenerateLicenceForm({ formToken, defaultSku, available }: Props)
           <div className="flex justify-between gap-3">
             <dt className="text-zinc-500 dark:text-zinc-400">Produit</dt>
             <dd className="text-right font-medium text-zinc-900 dark:text-zinc-100">
-              Kaspersky {variant ? KASPERSKY_TIER_DETAILS[variant.tier].display : ""}
+              {variant ? (variantGroup(variant)?.label ?? variant.label) : family.name}
             </dd>
           </div>
           <div className="flex justify-between gap-3">
@@ -137,7 +142,9 @@ export function GenerateLicenceForm({ formToken, defaultSku, available }: Props)
           </div>
           <div className="flex justify-between gap-3">
             <dt className="text-zinc-500 dark:text-zinc-400">Durée</dt>
-            <dd className="font-medium text-zinc-900 dark:text-zinc-100">1 an</dd>
+            <dd className="font-medium text-zinc-900 dark:text-zinc-100">
+              {variant ? variantDurationLabel(variant) : family.durationLabel}
+            </dd>
           </div>
           <div className="flex justify-between gap-3">
             <dt className="text-zinc-500 dark:text-zinc-400">Codes à attribuer</dt>

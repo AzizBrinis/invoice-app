@@ -291,9 +291,16 @@ export async function countAvailableLicenceCodes(tenantId: string, productSku: s
   return Number(rows[0]?.count ?? 0);
 }
 
+/** `column IN (…skus)`; an empty list matches nothing. */
+function skuInFilter(column: Prisma.Sql, skus: readonly string[]) {
+  return skus.length > 0 ? Prisma.sql`${column} IN (${Prisma.join([...skus])})` : Prisma.sql`FALSE`;
+}
+
 export async function listLicenceCodes(params: {
   tenantId: string;
   productSku?: string | null;
+  /** Restricts to one product family's SKUs (admin section of that family). */
+  productSkus?: readonly string[] | null;
   status?: LicenceCodeStatus | null;
   hint?: string | null;
   page: number;
@@ -301,6 +308,7 @@ export async function listLicenceCodes(params: {
 }): Promise<{ items: LicenceCodeListItem[]; total: number }> {
   const filters = [Prisma.sql`c."userId" = ${params.tenantId}`];
   if (params.productSku) filters.push(Prisma.sql`c."productSku" = ${params.productSku}`);
+  if (params.productSkus) filters.push(skuInFilter(Prisma.sql`c."productSku"`, params.productSkus));
   if (params.status) filters.push(Prisma.sql`c."status" = ${params.status}`);
   if (params.hint) filters.push(Prisma.sql`c."codeHint" = ${params.hint}`);
   const where = Prisma.join(filters, " AND ");
@@ -581,6 +589,8 @@ export async function cancelPendingLicenceOrder(params: {
 export async function listLicenceOrders(params: {
   tenantId: string;
   productSku?: string | null;
+  /** Restricts to one product family's SKUs (admin section of that family). */
+  productSkus?: readonly string[] | null;
   status?: LicenceOrderStatus | null;
   search?: string | null;
   page: number;
@@ -588,6 +598,7 @@ export async function listLicenceOrders(params: {
 }): Promise<{ items: LicenceOrderRecord[]; total: number }> {
   const filters = [Prisma.sql`o."userId" = ${params.tenantId}`];
   if (params.productSku) filters.push(Prisma.sql`o."productSku" = ${params.productSku}`);
+  if (params.productSkus) filters.push(skuInFilter(Prisma.sql`o."productSku"`, params.productSkus));
   if (params.status) filters.push(Prisma.sql`o."status" = ${params.status}`);
   if (params.search) {
     const pattern = `%${params.search.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
@@ -617,10 +628,15 @@ export async function listLicenceOrders(params: {
 export async function listLicenceEvents(params: {
   tenantId: string;
   orderId?: string | null;
+  /** Events of these SKUs only (through the order, else the event's details.sku). */
+  productSkus?: readonly string[] | null;
   limit: number;
 }): Promise<LicenceEventRecord[]> {
   const filters = [Prisma.sql`e."userId" = ${params.tenantId}`];
   if (params.orderId) filters.push(Prisma.sql`e."orderId" = ${params.orderId}`);
+  if (params.productSkus) {
+    filters.push(skuInFilter(Prisma.sql`COALESCE(o."productSku", e."details"->>'sku')`, params.productSkus));
+  }
   const rows = await prisma.$queryRaw<Record<string, unknown>[]>(Prisma.sql`
     SELECT e."id", e."orderId", o."number" AS "orderNumber", e."codeId", e."type", e."actor",
            au."name" AS "actorName", e."details", e."createdAt"

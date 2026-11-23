@@ -41,7 +41,7 @@ export const DEFAULT_SELLER_BRANDING: LicenceSellerBranding = {
   phone: null,
 };
 
-function escapeHtml(value: unknown): string {
+export function escapeHtml(value: unknown): string {
   return String(value ?? "").replace(/[&<>"']/g, (char) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!,
   );
@@ -68,12 +68,12 @@ export function formatFrenchDate(yyyyMmDd: string | null | undefined): string {
     .replace(/^1 /, "1er ");
 }
 
-function websiteHref(website: string) {
+export function websiteHref(website: string) {
   const trimmed = website.trim();
   return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
 }
 
-function websiteLabel(website: string) {
+export function websiteLabel(website: string) {
   return website.trim().replace(/^https?:\/\//i, "").replace(/\/$/, "");
 }
 

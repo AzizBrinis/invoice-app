@@ -9,6 +9,12 @@ import { AuthorizationError } from "@/lib/errors";
 import { isRedirectError } from "@/lib/next";
 import { LicenceImportTooLargeError } from "@/lib/digital-products/licence-code-format";
 import {
+  DIGITAL_PRODUCT_FAMILIES,
+  DIGITAL_PRODUCT_FAMILY_IDS,
+  familyOfSku,
+  type DigitalProductFamilyId,
+} from "@/lib/digital-products/catalog";
+import {
   importLicenceCodes,
   LicenceValidationError,
   parseLicenceRequest,
@@ -23,7 +29,15 @@ import {
 } from "@/server/digital-products/store";
 
 const BASE_PATH = "/produits-digitaux";
-const KASPERSKY_PATH = `${BASE_PATH}/kaspersky`;
+
+/** Admin section of the family named by the form (hidden "family" field). */
+function familyPath(formData: FormData) {
+  const raw = String(formData.get("family") ?? "");
+  const id = (DIGITAL_PRODUCT_FAMILY_IDS as readonly string[]).includes(raw)
+    ? (raw as DigitalProductFamilyId)
+    : "kaspersky";
+  return DIGITAL_PRODUCT_FAMILIES[id].basePath;
+}
 
 export type ImportCodesActionState = {
   submissionId?: string;
@@ -147,6 +161,8 @@ export async function generateLicenceAction(
       return { status: "error", message: "Ce formulaire a déjà été utilisé. Rechargez la page." };
     }
     orderId = result.order.id;
+    // The licence opens in the section of the product actually ordered.
+    formData.set("family", familyOfSku(result.order.productSku)?.id ?? "kaspersky");
     revalidateDigitalProducts();
   } catch (error) {
     if (isRedirectError(error)) throw error;
@@ -154,14 +170,14 @@ export async function generateLicenceAction(
     if (!message) console.error("[digital-licences] generate_failed", { error: (error as Error)?.name });
     return { status: "error", message: message ?? "Génération impossible. Réessayez." };
   }
-  redirect(`${KASPERSKY_PATH}/licences/${orderId}?nouveau=1` as Route);
+  redirect(`${familyPath(formData)}/licences/${orderId}?nouveau=1` as Route);
 }
 
 /**
- * Only same-origin paths inside the Kaspersky section. The check runs on the
- * URL as the browser will resolve it: dot segments and backslashes are
- * normalized first, so "/produits-digitaux/kaspersky/../..//evil.com" (which
- * resolves to "//evil.com") is rejected.
+ * Only same-origin paths inside a product section (Kaspersky, Windows…). The
+ * check runs on the URL as the browser will resolve it: dot segments and
+ * backslashes are normalized first, so "/produits-digitaux/kaspersky/../..//evil.com"
+ * (which resolves to "//evil.com") is rejected.
  */
 function backTo(formData: FormData, fallback: string) {
   const raw = String(formData.get("redirectTo") ?? "");
@@ -173,7 +189,9 @@ function backTo(formData: FormData, fallback: string) {
     return fallback;
   }
   const path = resolved.pathname;
-  const inSection = path === KASPERSKY_PATH || path.startsWith(`${KASPERSKY_PATH}/`);
+  const inSection = Object.values(DIGITAL_PRODUCT_FAMILIES).some(
+    ({ basePath }) => path === basePath || path.startsWith(`${basePath}/`),
+  );
   if (resolved.origin !== "http://local" || path.startsWith("//") || !inSection) return fallback;
   return `${path}${resolved.search}`;
 }
@@ -185,7 +203,7 @@ function withParam(path: string, key: string, value: string) {
 }
 
 export async function revokeCodeAction(formData: FormData) {
-  const target = backTo(formData, `${KASPERSKY_PATH}/codes`);
+  const target = backTo(formData, `${familyPath(formData)}/codes`);
   let outcome: [string, string];
   try {
     const { user, tenantId } = await requireAdmin();
@@ -204,8 +222,9 @@ export async function revokeCodeAction(formData: FormData) {
 export async function cancelLicenceAction(formData: FormData) {
   const rawOrderId = String(formData.get("orderId") ?? "");
   const orderId = /^dlord-[0-9a-f-]{36}$/.test(rawOrderId) ? rawOrderId : "";
-  if (!orderId) redirect(`${KASPERSKY_PATH}/licences` as Route);
-  const target = `${KASPERSKY_PATH}/licences/${orderId}`;
+  const sectionPath = familyPath(formData);
+  if (!orderId) redirect(`${sectionPath}/licences` as Route);
+  const target = `${sectionPath}/licences/${orderId}`;
   let outcome: [string, string];
   try {
     const { user, tenantId } = await requireAdmin();

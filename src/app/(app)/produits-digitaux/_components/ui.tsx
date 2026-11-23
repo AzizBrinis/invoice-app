@@ -5,11 +5,15 @@ import {
   LICENCE_CODE_STATUS_LABELS,
   LICENCE_ORDER_SOURCE_LABELS,
   LICENCE_ORDER_STATUS_LABELS,
-  type KasperskyTier,
   type LicenceCodeStatus,
   type LicenceOrderSource,
   type LicenceOrderStatus,
 } from "@/lib/digital-products/kaspersky-catalog";
+import {
+  getDigitalProductVariant,
+  variantGroup,
+  type DigitalProductVariant,
+} from "@/lib/digital-products/catalog";
 
 export const KASPERSKY_BASE_PATH = "/produits-digitaux/kaspersky";
 export const LOW_STOCK_THRESHOLD = 5;
@@ -92,18 +96,26 @@ export function SourceLabel({ source }: { source: LicenceOrderSource }) {
   return <>{LICENCE_ORDER_SOURCE_LABELS[source] ?? source}</>;
 }
 
-export const TIER_ACCENTS: Record<KasperskyTier, string> = {
-  standard: "bg-teal-500",
-  plus: "bg-emerald-500",
-  premium: "bg-violet-600",
-};
-
-export function TierDot({ tier, className }: { tier: KasperskyTier; className?: string }) {
+export function GroupDot({ accent, className }: { accent: string; className?: string }) {
   return (
-    <span
-      aria-hidden="true"
-      className={clsx("inline-block h-2.5 w-2.5 flex-none rounded-full", TIER_ACCENTS[tier], className)}
-    />
+    <span aria-hidden="true" className={clsx("inline-block h-2.5 w-2.5 flex-none rounded-full", accent, className)} />
+  );
+}
+
+/** Coloured dot of a variant's group (Kaspersky tier / Windows edition). */
+export function VariantDot({ variant, className }: { variant: DigitalProductVariant; className?: string }) {
+  const group = variantGroup(variant);
+  return group ? <GroupDot accent={group.accent} className={className} /> : null;
+}
+
+/** Short label + dot of a SKU, falling back to the raw SKU. */
+export function VariantLabel({ sku }: { sku: string }) {
+  const variant = getDigitalProductVariant(sku);
+  return (
+    <span className="inline-flex items-center gap-2">
+      {variant ? <VariantDot variant={variant} /> : null}
+      {variant?.shortLabel ?? sku}
+    </span>
   );
 }
 

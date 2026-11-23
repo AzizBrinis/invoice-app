@@ -146,16 +146,67 @@ export type OrderEmailInput = {
   attachments: EmailAttachment[];
 };
 
+export type OrderEmailContentInput = Omit<OrderEmailInput, "attachments" | "invoiceId">;
+
+export type OrderEmailContent = { to: string; subject: string; html: string; text: string };
+
+/** Subject and body exactly as {@link sendDigitalOrderEmail} sends them. */
+async function buildOrderEmail(
+  input: OrderEmailContentInput,
+  credentials: MessagingCredentials,
+  env: Env,
+): Promise<OrderEmailContent> {
+  const [template, settings] = await Promise.all([
+    loadOrderEmailTemplate(input.tenantId, env),
+    getSettings(input.tenantId),
+  ]);
+  const values: Record<string, string> = {
+    order_number: input.orderReference,
+    order_reference: input.orderReference,
+    client_name: input.customerName,
+    invoice_number: input.invoiceNumber,
+    licence_numbers: input.licenceNumbers.join(", "),
+    company_name: settings.companyName?.trim() ?? "",
+    company_email: settings.email?.trim() ?? credentials.fromEmail ?? "",
+    company_phone: settings.phone?.trim() ?? "",
+    company_address: settings.address?.trim() ?? "",
+    sender_name: credentials.senderName?.trim() ?? "",
+  };
+  const { html, text } = renderOrderEmailBody(template, values);
+  return { to: input.to, subject: orderEmailSubject(input.orderReference), html, text };
+}
+
+/**
+ * Preview of the customer e-mail (manual "Traiter la commande" flow): same
+ * template, values and sanitization as the real send, nothing sent. A missing
+ * template still throws (nothing sensible to show); a transport that would
+ * refuse the send is reported as `sendIssue` so the employee sees it up front.
+ */
+export async function previewDigitalOrderEmail(
+  input: OrderEmailContentInput,
+  env: Env = process.env,
+): Promise<OrderEmailContent & { sendIssue: string | null }> {
+  let sendIssue: string | null = null;
+  let devSmtp: ReturnType<typeof resolveDevSmtpOverride> = null;
+  try {
+    devSmtp = resolveDevSmtpOverride(env);
+  } catch (error) {
+    sendIssue = error instanceof OrderEmailError ? error.message : "Envoi d’e-mails indisponible.";
+  }
+  const credentials = await getMessagingCredentials(input.tenantId);
+  if (!sendIssue && !devSmtp && !credentials.smtp) {
+    sendIssue = "Le serveur SMTP n’est pas configuré dans Messagerie → Paramètres.";
+  }
+  const content = await buildOrderEmail(input, credentials, env);
+  return { ...content, sendIssue };
+}
+
 export async function sendDigitalOrderEmail(
   input: OrderEmailInput,
   env: Env = process.env,
 ): Promise<{ subject: string; to: string }> {
   const devSmtp = resolveDevSmtpOverride(env);
-  const [template, settings, credentials] = await Promise.all([
-    loadOrderEmailTemplate(input.tenantId, env),
-    getSettings(input.tenantId),
-    getMessagingCredentials(input.tenantId),
-  ]);
+  const credentials = await getMessagingCredentials(input.tenantId);
 
   let effective: MessagingCredentials = credentials;
   if (devSmtp) {
@@ -174,20 +225,7 @@ export async function sendDigitalOrderEmail(
     );
   }
 
-  const values: Record<string, string> = {
-    order_number: input.orderReference,
-    order_reference: input.orderReference,
-    client_name: input.customerName,
-    invoice_number: input.invoiceNumber,
-    licence_numbers: input.licenceNumbers.join(", "),
-    company_name: settings.companyName?.trim() ?? "",
-    company_email: settings.email?.trim() ?? credentials.fromEmail ?? "",
-    company_phone: settings.phone?.trim() ?? "",
-    company_address: settings.address?.trim() ?? "",
-    sender_name: credentials.senderName?.trim() ?? "",
-  };
-  const { html, text } = renderOrderEmailBody(template, values);
-  const subject = orderEmailSubject(input.orderReference);
+  const { html, text, subject } = await buildOrderEmail(input, credentials, env);
 
   try {
     await sendEmailMessageForUser(

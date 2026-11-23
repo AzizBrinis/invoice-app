@@ -4,11 +4,12 @@ import {
   enforceRateLimit,
   PublicRequestSecurityError,
 } from "@/lib/security/public-request";
+import { MAX_LICENCE_QUANTITY } from "@/lib/digital-products/kaspersky-catalog";
 import {
-  getKasperskyVariant,
-  KASPERSKY_SKUS,
-  MAX_LICENCE_QUANTITY,
-} from "@/lib/digital-products/kaspersky-catalog";
+  codeFormatForSku,
+  DIGITAL_PRODUCT_SKUS,
+  getDigitalProductVariant,
+} from "@/lib/digital-products/catalog";
 import { maskLicenceCode } from "@/lib/digital-products/licence-code-format";
 import {
   LICENCE_API_SIGNATURE_SCHEME,
@@ -93,7 +94,7 @@ const externalId = z.union([z.string().trim().min(1).max(64), z.number().int().n
 export const licenceApiPayloadSchema = z
   .object({
     schemaVersion: z.literal(1),
-    sku: z.enum(KASPERSKY_SKUS),
+    sku: z.enum(DIGITAL_PRODUCT_SKUS),
     quantity: z.number().int().min(1).max(MAX_LICENCE_QUANTITY),
     customer: z
       .object({
@@ -184,7 +185,8 @@ function wantsBinaryPdf(request: Request) {
 }
 
 function licenceSummary(order: LicenceOrderRecord, hints: { codeHint: string }[]) {
-  const variant = getKasperskyVariant(order.productSku);
+  const variant = getDigitalProductVariant(order.productSku);
+  const format = codeFormatForSku(order.productSku);
   return {
     id: order.id,
     number: order.number,
@@ -197,7 +199,7 @@ function licenceSummary(order: LicenceOrderRecord, hints: { codeHint: string }[]
     createdAt: order.createdAt.toISOString(),
     generatedAt: order.generatedAt ? order.generatedAt.toISOString() : null,
     // Masked only: the PDF is the single place where codes appear in clear.
-    codes: hints.map((hint) => maskLicenceCode(hint.codeHint)),
+    codes: hints.map((hint) => maskLicenceCode(hint.codeHint, format)),
   };
 }
 

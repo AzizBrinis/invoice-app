@@ -3,15 +3,19 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { generateId } from "@/lib/id";
 import {
-  getKasperskyVariant,
-  KASPERSKY_SKUS,
-  KASPERSKY_VARIANTS,
   LICENCE_CODE_STATUSES,
   MAX_LICENCE_QUANTITY,
   type KasperskyVariant,
   type LicenceCodeStatus,
   type LicenceOrderSource,
 } from "@/lib/digital-products/kaspersky-catalog";
+import {
+  DIGITAL_PRODUCT_FAMILIES,
+  DIGITAL_PRODUCT_SKUS,
+  getDigitalProductVariant,
+  type DigitalProductFamilyId,
+  type DigitalProductVariant,
+} from "@/lib/digital-products/catalog";
 import {
   licenceCodeHint,
   parseLicenceCodeInput,
@@ -28,6 +32,8 @@ import {
   DEFAULT_SELLER_BRANDING,
   type LicenceSellerBranding,
 } from "@/server/digital-products/kaspersky-licence-html";
+import { buildIdmLicenceHtml } from "@/server/digital-products/idm-licence-html";
+import { buildWindowsLicenceHtml } from "@/server/digital-products/windows-licence-html";
 import {
   createLicenceOrderWithAllocation,
   getLicenceInventoryCounts,
@@ -97,7 +103,7 @@ const isoDate = z
   }, "Date invalide.");
 
 export const licenceRequestSchema = z.object({
-  sku: z.enum(KASPERSKY_SKUS, { message: "Produit inconnu." }),
+  sku: z.enum(DIGITAL_PRODUCT_SKUS, { message: "Produit inconnu." }),
   quantity: z.coerce
     .number({ message: "Quantité invalide." })
     .int("Quantité invalide.")
@@ -176,11 +182,12 @@ export async function importLicenceCodes(params: {
   text: string;
   batchLabel?: string | null;
 }): Promise<LicenceImportSummary> {
-  const variant = getKasperskyVariant(params.sku);
+  const variant = getDigitalProductVariant(params.sku);
   if (!variant) throw new LicenceValidationError("Produit inconnu.");
   assertLicenceEncryptionConfigured();
 
-  const parsed = parseLicenceCodeInput(params.text);
+  // Each family has its own code format (Kaspersky 20, Windows 25, IDM 20 characters).
+  const parsed = parseLicenceCodeInput(params.text, DIGITAL_PRODUCT_FAMILIES[variant.family].codeFormat);
   const batchLabel = params.batchLabel?.trim().slice(0, 80) || null;
 
   const rows = parsed.valid.map(({ code }) => {
@@ -221,15 +228,23 @@ export async function importLicenceCodes(params: {
   return summary;
 }
 
-export type VariantInventory = {
-  variant: KasperskyVariant;
+export type VariantInventory<V extends DigitalProductVariant = KasperskyVariant> = {
+  variant: V;
   counts: Record<LicenceCodeStatus, number>;
   total: number;
 };
 
 export async function getKasperskyInventory(tenantId: string): Promise<VariantInventory[]> {
+  return (await getDigitalProductInventory(tenantId, "kaspersky")) as VariantInventory[];
+}
+
+/** Stock per variant of one product family (all statuses). */
+export async function getDigitalProductInventory(
+  tenantId: string,
+  familyId: DigitalProductFamilyId,
+): Promise<VariantInventory<DigitalProductVariant>[]> {
   const rows = await getLicenceInventoryCounts(tenantId);
-  return KASPERSKY_VARIANTS.map((variant) => {
+  return DIGITAL_PRODUCT_FAMILIES[familyId].variants.map((variant) => {
     const counts = Object.fromEntries(LICENCE_CODE_STATUSES.map((status) => [status, 0])) as Record<
       LicenceCodeStatus,
       number
@@ -290,23 +305,53 @@ export async function requestLicenceDocument(params: {
   return result;
 }
 
+/**
+ * Seller details printed on every licence document (Kaspersky, Windows, IDM).
+ * The company phone number is deliberately left out: licence documents only
+ * show the support e-mail and the website.
+ */
 export async function getSellerBranding(tenantId: string): Promise<LicenceSellerBranding> {
   const settings = await prisma.companySettings.findUnique({
     where: { userId: tenantId },
-    select: { companyName: true, email: true, phone: true },
+    select: { companyName: true, email: true },
   });
   return {
     name: settings?.companyName?.trim() || DEFAULT_SELLER_BRANDING.name,
     email: settings?.email?.trim() || DEFAULT_SELLER_BRANDING.email,
-    phone: settings?.phone?.trim() || null,
+    phone: null,
     website: process.env.DIGITAL_LICENCE_SELLER_WEBSITE?.trim() || DEFAULT_SELLER_BRANDING.website,
   };
 }
 
 export function licencePdfFilename(order: Pick<LicenceOrderRecord, "number" | "productSku">) {
-  const variant = getKasperskyVariant(order.productSku);
-  const product = variant ? `${variant.tier}-${variant.devices}p` : "licence";
-  return `licence-kaspersky-${product}-${order.number}.pdf`.replace(/[^A-Za-z0-9._-]+/g, "_");
+  const variant = getDigitalProductVariant(order.productSku);
+  const product =
+    variant?.family === "windows" || variant?.family === "idm"
+      ? variant.sku
+      : `kaspersky-${variant ? `${variant.tier}-${variant.devices}p` : "licence"}`;
+  return `licence-${product}-${order.number}.pdf`.replace(/[^A-Za-z0-9._-]+/g, "_");
+}
+
+/** Licence document HTML for the order's product family. */
+export function buildLicenceDocumentHtml(params: {
+  variant: DigitalProductVariant;
+  codes: string[];
+  licenceNumber: string;
+  orderReference?: string | null;
+  customerName?: string | null;
+  activationRegion?: string | null;
+  useBefore?: string | null;
+  seller: LicenceSellerBranding;
+}): string {
+  const { variant, ...rest } = params;
+  switch (variant.family) {
+    case "windows":
+      return buildWindowsLicenceHtml({ variant, ...rest });
+    case "idm":
+      return buildIdmLicenceHtml({ variant, ...rest });
+    case "kaspersky":
+      return buildKasperskyLicenceHtml({ variant, ...rest });
+  }
 }
 
 /**
@@ -323,7 +368,7 @@ export async function renderLicenceOrderPdf(params: {
   if (order.status === "CANCELLED") {
     throw new LicenceOrderStateError("Cette licence a été annulée.");
   }
-  const variant = getKasperskyVariant(order.productSku);
+  const variant = getDigitalProductVariant(order.productSku);
   if (!variant) throw new LicenceOrderStateError("Produit inconnu pour cette licence.");
 
   const ciphers = await getOrderCodeCiphertexts(params.tenantId, order.id);
@@ -341,7 +386,7 @@ export async function renderLicenceOrderPdf(params: {
     const codes = ciphers.map((row) =>
       decryptLicenceCode({ tenantId: params.tenantId, codeId: row.id, ciphertext: row.codeCiphertext }),
     );
-    const html = buildKasperskyLicenceHtml({
+    const html = buildLicenceDocumentHtml({
       variant,
       codes,
       licenceNumber: order.number,

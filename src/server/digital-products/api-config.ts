@@ -8,6 +8,7 @@ import { parseApiKeys } from "@/server/integrations/prestashop/config";
 
 export const LICENCE_API_SIGNATURE_SCHEME = "DPLIC1";
 export const LICENCE_API_PATH = "/api/integrations/digital-products/licences";
+export const LICENCE_STOCK_API_PATH = "/api/integrations/digital-products/stock";
 
 export type LicenceApiConfig = {
   tenantUserId: string;

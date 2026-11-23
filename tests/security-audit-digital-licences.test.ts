@@ -65,7 +65,7 @@ import {
   generateLicenceAction,
   importCodesAction,
   revokeCodeAction,
-} from "@/app/(app)/produits-digitaux/kaspersky/actions";
+} from "@/app/(app)/produits-digitaux/actions";
 
 const describeWithDb = process.env.TEST_DATABASE_URL ? describe : describe.skip;
 const SKU = "kaspersky-standard-3p-1y";

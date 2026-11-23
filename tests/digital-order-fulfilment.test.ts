@@ -124,6 +124,10 @@ function makeDeps() {
     return { kind: "created", order };
   });
   const sendEmail = vi.fn<DigitalOrderDeps["sendEmail"]>(async (input) => ({ to: input.to, subject: `Commande ${input.orderReference}` }));
+  const previewEmail = vi.fn<DigitalOrderDeps["previewEmail"]>(async (input) => ({
+    to: input.to, subject: `Commande ${input.orderReference}`,
+    html: `<p>Bonjour ${input.customerName}, facture ${input.invoiceNumber}</p>`, text: "Bonjour", sendIssue: null,
+  }));
   const markDelivered = vi.fn<DigitalOrderDeps["markDelivered"]>(async () => {});
   const renderInvoicePdf = vi.fn(async () => new Uint8Array(INVOICE_PDF));
   const logs: string[] = [];
@@ -154,10 +158,11 @@ function makeDeps() {
     getLicenceOrder: async (_tenant, id) => [...licences.values()].find((order) => order.id === id) ?? null,
     findInvoiceForOrder: async () => "inv-existing",
     sendEmail,
+    previewEmail,
     markDelivered,
     log: (_level, event, fields) => logs.push(JSON.stringify({ event, ...fields })),
   };
-  return { deps, store, requestLicence, sendEmail, markDelivered, renderInvoicePdf, logs };
+  return { deps, store, requestLicence, sendEmail, previewEmail, markDelivered, renderInvoicePdf, logs };
 }
 
 describe("digital-order fulfilment API", () => {
@@ -200,6 +205,66 @@ describe("digital-order fulfilment API", () => {
     expect(markDelivered).toHaveBeenCalledWith(expect.objectContaining({ invoiceId: "inv-42" }));
     expect(store.record).toMatchObject({ status: "COMPLETED", invoiceId: "inv-42" });
     expect(logs.join("\n")).not.toContain("example.com");
+  });
+
+  it("delivers a Windows 11 Pro line alongside a Kaspersky line in one order", async () => {
+    const { deps, requestLicence, sendEmail } = makeDeps();
+    const response = await handleDigitalOrderRequest(
+      signed(body({
+        licences: [
+          { lineId: 9876, sku: "kaspersky-plus-3p-1y", quantity: 1 },
+          { lineId: 9878, sku: "windows-11-pro", quantity: 1 },
+        ],
+      })),
+      deps,
+    );
+    expect(response.status).toBe(201);
+    const json = await response.json();
+    expect(json.licences.map((line: { sku: string }) => line.sku)).toEqual(["kaspersky-plus-3p-1y", "windows-11-pro"]);
+    expect(json.licences[1]).toMatchObject({
+      product: "Windows 11 Professionnel | Licence perpétuelle | 1 PC",
+      status: "DELIVERED",
+      codes: ["•••••-•••••-•••••-•••••-•7890"],
+    });
+    expect(json.licences[0].codes).toEqual(["•••••-•••••-•••••-•7890"]);
+    expect(requestLicence.mock.calls[1][0]).toMatchObject({
+      idempotencyKey: "api:ps-1-4521-9878",
+      request: { sku: "windows-11-pro", quantity: 1 },
+    });
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+    expect(sendEmail.mock.calls[0][0].attachments).toHaveLength(3);
+  });
+
+  it("delivers IDM annual and lifetime lines alongside a Kaspersky line in one order", async () => {
+    const { deps, requestLicence, sendEmail, markDelivered } = makeDeps();
+    const response = await handleDigitalOrderRequest(
+      signed(body({
+        licences: [
+          { lineId: 9876, sku: "kaspersky-plus-3p-1y", quantity: 1 },
+          { lineId: 9880, sku: "idm-1p-1y", quantity: 1 },
+          { lineId: 9881, sku: "idm-1p-lifetime", quantity: 1 },
+        ],
+      })),
+      deps,
+    );
+    expect(response.status).toBe(201);
+    const json = await response.json();
+    expect(json.licences.map((line: { sku: string }) => line.sku)).toEqual([
+      "kaspersky-plus-3p-1y", "idm-1p-1y", "idm-1p-lifetime",
+    ]);
+    expect(json.licences[1]).toMatchObject({
+      product: "Internet Download Manager | 1 an | 1 PC",
+      status: "DELIVERED",
+      codes: ["•••••-•••••-•••••-•7890"],
+    });
+    expect(json.licences[2]).toMatchObject({ product: "Internet Download Manager | À vie | 1 PC", status: "DELIVERED" });
+    expect(requestLicence.mock.calls[2][0]).toMatchObject({
+      idempotencyKey: "api:ps-1-4521-9881",
+      request: { sku: "idm-1p-lifetime", quantity: 1 },
+    });
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+    expect(sendEmail.mock.calls[0][0].attachments).toHaveLength(4);
+    expect(markDelivered).toHaveBeenCalled();
   });
 
   it("replays a fulfilled order without a second invoice or e-mail", async () => {
@@ -432,5 +497,108 @@ describe("digital-order fulfilment security controls", () => {
     expect((await handleDigitalOrderRequest(signed(body()), deps)).status).toBe(201);
     expect((await handleDigitalOrderRequest(signed(body()), deps)).status).toBe(200);
     expect(sendEmail).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("digital-order manual review (mode: preview)", () => {
+  beforeEach(() => {
+    processInvoice.mockReset();
+    processInvoice.mockResolvedValue({
+      kind: "ok", invoiceId: "inv-42", outcome: "created", payment: { recorded: true },
+      expectedOrderTotalMinor: 245_000, shopTimbreMinor: null,
+    });
+  });
+
+  it("prepares licences, invoice and PDFs, returns the e-mail, and sends nothing", async () => {
+    const { deps, store, sendEmail, previewEmail, markDelivered, logs } = makeDeps();
+    const response = await handleDigitalOrderRequest(signed(body({ mode: "preview" })), deps);
+    expect(response.status).toBe(200);
+    const json = await response.json();
+    expect(json.status).toBe("preview");
+    expect(json.invoice).toMatchObject({ id: "inv-42", number: "FAC-2026-00042" });
+    expect(Buffer.from(json.pdf.base64, "base64").equals(INVOICE_PDF)).toBe(true);
+    expect(json.licences).toHaveLength(2);
+    expect(json.licences[0]).toMatchObject({ lineId: "9876", status: "GENERATED", codes: ["•••••-•••••-•••••-•7890"] });
+    expect(Buffer.from(json.licences[0].pdf.base64, "base64").equals(LICENCE_PDF)).toBe(true);
+    expect(json.licences[0].pdf.sha256).toBe(sha256Hex(LICENCE_PDF));
+    expect(json.email).toMatchObject({
+      to: "Client.Test@example.com",
+      subject: "Commande XKBKNABJK",
+      sendIssue: null,
+      attachments: [
+        { filename: "facture-FAC-2026-00042.pdf" },
+        { filename: "licence-dlord-1abcdef.pdf" },
+        { filename: "licence-dlord-2abcdef.pdf" },
+      ],
+    });
+    expect(json.email.html).toContain("FAC-2026-00042");
+    expect(previewEmail).toHaveBeenCalledTimes(1);
+    expect(sendEmail).not.toHaveBeenCalled();
+    expect(markDelivered).not.toHaveBeenCalled();
+    expect(store.record).toMatchObject({ status: "FAILED", lastErrorCode: "AWAITING_APPROVAL", invoiceId: "inv-42", emailSentAt: null });
+    expect(logs.join("\n")).not.toContain("example.com");
+  });
+
+  it("sends exactly what was previewed once approved: same licences, same invoice, one e-mail", async () => {
+    const { deps, store, requestLicence, sendEmail, markDelivered } = makeDeps();
+    const previewed = await (await handleDigitalOrderRequest(signed(body({ mode: "preview" })), deps)).json();
+
+    const sent = await handleDigitalOrderRequest(signed(body()), deps);
+    expect(sent.status).toBe(201);
+    const json = await sent.json();
+    expect(json.status).toBe("delivered");
+    expect(json.licences.map((line: { number: string }) => line.number)).toEqual(
+      previewed.licences.map((line: { number: string }) => line.number),
+    );
+    expect(processInvoice).toHaveBeenCalledTimes(1);
+    expect(requestLicence.mock.results.slice(2).every((result) => result.type === "return")).toBe(true);
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+    expect(sendEmail.mock.calls[0][0].attachments.map((file) => file.filename)).toEqual(
+      previewed.email.attachments.map((file: { filename: string }) => file.filename),
+    );
+    expect(markDelivered).toHaveBeenCalledTimes(1);
+    expect(store.record?.status).toBe("COMPLETED");
+
+    // A preview requested after delivery is a plain replay: nothing new is sent.
+    const again = await handleDigitalOrderRequest(signed(body({ mode: "preview" })), deps);
+    expect(again.status).toBe(200);
+    expect((await again.json()).status).toBe("existing");
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+  });
+
+  it("can be previewed again before sending without allocating more codes", async () => {
+    const { deps, requestLicence, sendEmail } = makeDeps();
+    const first = await (await handleDigitalOrderRequest(signed(body({ mode: "preview" })), deps)).json();
+    const second = await (await handleDigitalOrderRequest(signed(body({ mode: "preview" })), deps)).json();
+    expect(second.status).toBe("preview");
+    expect(second.licences.map((line: { id: string }) => line.id)).toEqual(first.licences.map((line: { id: string }) => line.id));
+    expect(requestLicence.mock.results.slice(2).every((result) => result.type === "return")).toBe(true);
+    expect(processInvoice).toHaveBeenCalledTimes(1);
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("applies the payment gate to previews (codes are revealed)", async () => {
+    const { deps, requestLicence } = makeDeps();
+    const base = buildPayload();
+    const unpaid = body({ mode: "preview", invoice: { ...base, order: { ...base.order, isPaid: false, paidAt: null } } });
+    const response = await handleDigitalOrderRequest(signed(unpaid), deps);
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe("ORDER_NOT_PAID");
+    expect(requestLicence).not.toHaveBeenCalled();
+  });
+
+  it("reports a missing \"Commande\" template before anything is sent", async () => {
+    const { deps, previewEmail, sendEmail } = makeDeps();
+    previewEmail.mockRejectedValueOnce(new OrderEmailError("EMAIL_TEMPLATE_MISSING", "absent", false));
+    const response = await handleDigitalOrderRequest(signed(body({ mode: "preview" })), deps);
+    expect(response.status).toBe(503);
+    expect((await response.json()).error).toMatchObject({ code: "EMAIL_TEMPLATE_MISSING", retryable: false });
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unknown mode", async () => {
+    const { deps } = makeDeps();
+    const response = await handleDigitalOrderRequest(signed(body({ mode: "send-later" })), deps);
+    expect(response.status).toBe(422);
   });
 });

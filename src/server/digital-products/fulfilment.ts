@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import { MAX_LICENCE_QUANTITY } from "@/lib/digital-products/kaspersky-catalog";
 import {
-  getKasperskyVariant,
-  KASPERSKY_SKUS,
-  MAX_LICENCE_QUANTITY,
-} from "@/lib/digital-products/kaspersky-catalog";
+  codeFormatForSku,
+  DIGITAL_PRODUCT_SKUS,
+  getDigitalProductVariant,
+} from "@/lib/digital-products/catalog";
 import { maskLicenceCode } from "@/lib/digital-products/licence-code-format";
 import { loadLicenceApiConfig } from "@/server/digital-products/api-config";
 import {
@@ -30,6 +31,7 @@ import { LicenceEncryptionConfigError } from "@/server/digital-products/licence-
 import {
   OrderEmailError,
   orderEmailSubject,
+  previewDigitalOrderEmail,
   sendDigitalOrderEmail,
 } from "@/server/digital-products/order-email";
 import {
@@ -69,6 +71,12 @@ import { postgresPrestashopInvoiceStore } from "@/server/integrations/prestashop
  *   4. e-mail the customer once ("Commande {référence}", saved response "Commande");
  *   5. answer 201/200 only when everything succeeded -> the shop sets "Livré".
  * Retries are safe: nothing is created twice and the e-mail is never resent.
+ *
+ * `mode: "preview"` (manual "Traiter la commande" button, for products whose
+ * automatic delivery is off) runs steps 1-3 and answers with the e-mail and
+ * every PDF instead of sending: the employee checks them, then the same order
+ * is sent again without `mode` and steps 1-3 are reused (same licences, same
+ * invoice) before the e-mail goes out.
  */
 
 const MAX_BODY_BYTES = 1024 * 1024;
@@ -93,6 +101,7 @@ export type DigitalOrderDeps = {
   getLicenceOrder: (tenantId: string, orderId: string) => Promise<LicenceOrderRecord | null>;
   findInvoiceForOrder: (tenantUserId: string, shopId: string, orderId: string) => Promise<string | null>;
   sendEmail: typeof sendDigitalOrderEmail;
+  previewEmail: typeof previewDigitalOrderEmail;
   markDelivered: typeof markLicenceOrdersDelivered;
   requirePaidOrder: () => boolean;
   log: (level: "info" | "warn" | "error", event: string, fields: LogFields) => void;
@@ -128,6 +137,7 @@ const defaultDeps: DigitalOrderDeps = {
   findInvoiceForOrder: (tenant, shop, order) =>
     postgresPrestashopInvoiceStore.findInvoiceForOrder(tenant, shop, order),
   sendEmail: sendDigitalOrderEmail,
+  previewEmail: previewDigitalOrderEmail,
   markDelivered: markLicenceOrdersDelivered,
   requirePaidOrder: () => requirePaidOrderFromEnv(),
   log: (level, event, fields) => console[level]("[digital-orders]", { event, ...fields }),
@@ -141,8 +151,17 @@ const lineId = z
   .union([z.int().positive(), z.string().regex(/^[1-9][0-9]{0,17}$/)])
   .transform((value) => String(value));
 
+/** Fulfilment parked after a preview, waiting for the employee's "Envoyer". */
+export const AWAITING_APPROVAL_CODE = "AWAITING_APPROVAL";
+
 export const digitalOrderPayloadSchema = z.strictObject({
   schemaVersion: z.literal(1),
+  /**
+   * "deliver" (default): full fulfilment, customer e-mailed.
+   * "preview": licences + invoice + PDFs only; the e-mail is rendered and
+   * returned, never sent, and the order is not marked delivered.
+   */
+  mode: z.enum(["deliver", "preview"]).optional(),
   /** Same order payload as POST /api/integrations/prestashop/invoices. */
   invoice: prestashopOrderPayloadSchema,
   /** Instant-delivery lines of the order (PrestaShop id_order_detail). */
@@ -150,7 +169,7 @@ export const digitalOrderPayloadSchema = z.strictObject({
     .array(
       z.strictObject({
         lineId,
-        sku: z.enum(KASPERSKY_SKUS),
+        sku: z.enum(DIGITAL_PRODUCT_SKUS),
         quantity: z.int().min(1).max(MAX_LICENCE_QUANTITY),
       }),
     )
@@ -324,12 +343,15 @@ export async function handleDigitalOrderRequest(
     }
   }
 
+  const preview = payload.mode === "preview" && !replay;
+
   try {
     const result = await fulfil({
       deps,
       payload,
       record,
       replay,
+      preview,
       tenantId,
       invoiceConfig: invoiceConfig.config,
       keyId: verification.keyId,
@@ -341,37 +363,37 @@ export async function handleDigitalOrderRequest(
       log(result.fail.retryable ? "warn" : "error", "fulfilment_failed", { code: result.fail.code });
       return respondError(result.fail);
     }
+    if ("preview" in result) {
+      // Parked as FAILED/AWAITING_APPROVAL: the approved send takes it over
+      // like any retry and reuses the licences and invoice recorded here.
+      await deps.store.markFailed(record.id, AWAITING_APPROVAL_CODE);
+      log("info", "fulfilment_previewed", { invoiceId: result.invoice.id, licences: result.licences.length });
+      return Response.json(
+        {
+          status: "preview",
+          requestId,
+          order: { id: order.order.id, reference: order.order.reference },
+          invoice: invoiceJson(result.invoice, order.order.id),
+          pdf: pdfJson(invoiceFilename(result.invoice.number), result.invoicePdf),
+          licences: result.licences,
+          email: result.email,
+        },
+        { status: 200, headers: { ...baseHeaders(requestId), "X-Invoice-Id": result.invoice.id, "X-Idempotent-Replay": "false" } },
+      );
+    }
     if (!replay) await deps.store.markCompleted(record.id);
     log("info", replay ? "fulfilment_replayed" : "fulfilment_completed", {
       invoiceId: result.invoice.id,
       licences: result.licences.length,
     });
 
-    const pdfSha256 = sha256Hex(result.invoicePdf);
-    const filename = `facture-${result.invoice.number.replace(/[^A-Za-z0-9._-]+/g, "_")}.pdf`;
     return Response.json(
       {
         status: replay ? "existing" : "delivered",
         requestId,
         order: { id: order.order.id, reference: order.order.reference },
-        invoice: {
-          id: result.invoice.id,
-          number: result.invoice.number,
-          status: result.invoice.status,
-          orderId: order.order.id,
-          orderReference: result.invoice.reference,
-          issueDate: new Date(result.invoice.issueDate).toISOString(),
-          currency: result.invoice.currency,
-          totalTaxIncl: formatMinor(result.invoice.totalTTCCents, result.invoice.currency),
-          amountPaid: formatMinor(result.invoice.amountPaidCents, result.invoice.currency),
-        },
-        pdf: {
-          filename,
-          contentType: "application/pdf",
-          sizeBytes: result.invoicePdf.byteLength,
-          sha256: pdfSha256,
-          base64: Buffer.from(result.invoicePdf).toString("base64"),
-        },
+        invoice: invoiceJson(result.invoice, order.order.id),
+        pdf: pdfJson(invoiceFilename(result.invoice.number), result.invoicePdf),
         licences: result.licences,
         email: {
           to: maskEmail(result.email.to),
@@ -396,20 +418,66 @@ export async function handleDigitalOrderRequest(
   }
 }
 
+function invoiceFilename(number: string) {
+  return `facture-${number.replace(/[^A-Za-z0-9._-]+/g, "_")}.pdf`;
+}
+
+function invoiceJson(invoice: InvoiceSummary, orderId: number | string) {
+  return {
+    id: invoice.id,
+    number: invoice.number,
+    status: invoice.status,
+    orderId,
+    orderReference: invoice.reference,
+    issueDate: new Date(invoice.issueDate).toISOString(),
+    currency: invoice.currency,
+    totalTaxIncl: formatMinor(invoice.totalTTCCents, invoice.currency),
+    amountPaid: formatMinor(invoice.amountPaidCents, invoice.currency),
+  };
+}
+
+function pdfJson(filename: string, bytes: Uint8Array) {
+  return {
+    filename,
+    contentType: "application/pdf",
+    sizeBytes: bytes.byteLength,
+    sha256: sha256Hex(bytes),
+    base64: Buffer.from(bytes).toString("base64"),
+  };
+}
+
+type LicenceSummary = {
+  lineId: string;
+  id: string;
+  number: string;
+  sku: string;
+  product: string;
+  quantity: number;
+  status: string;
+  codes: string[];
+};
+
 type FulfilSuccess = {
   invoice: InvoiceSummary;
   invoicePdf: Uint8Array;
-  licences: Array<{
-    lineId: string;
-    id: string;
-    number: string;
-    sku: string;
-    product: string;
-    quantity: number;
-    status: string;
-    codes: string[];
-  }>;
+  licences: LicenceSummary[];
   email: { to: string; subject: string; sentAt: Date };
+};
+
+type FulfilPreview = {
+  preview: true;
+  invoice: InvoiceSummary;
+  invoicePdf: Uint8Array;
+  licences: Array<LicenceSummary & { pdf: ReturnType<typeof pdfJson> }>;
+  email: {
+    to: string;
+    subject: string;
+    html: string;
+    text: string;
+    attachments: Array<{ filename: string; sizeBytes: number }>;
+    /** Why the send would currently fail (SMTP not configured…), or null. */
+    sendIssue: string | null;
+  };
 };
 
 async function fulfil(params: {
@@ -417,12 +485,14 @@ async function fulfil(params: {
   payload: DigitalOrderPayload;
   record: FulfilmentRecord;
   replay: boolean;
+  /** Stop before the e-mail and return everything for review (never on a replay). */
+  preview?: boolean;
   tenantId: string;
   invoiceConfig: PrestashopIntegrationConfig;
   keyId: string;
   idempotencyKey: string;
   log: (level: "info" | "warn" | "error", event: string, fields?: LogFields) => void;
-}): Promise<FulfilSuccess | { fail: Fail }> {
+}): Promise<FulfilSuccess | FulfilPreview | { fail: Fail }> {
   const { deps, payload, record, tenantId, log } = params;
   const order = payload.invoice;
   const actor = `api:${params.keyId}`;
@@ -573,6 +643,74 @@ async function fulfil(params: {
     return { fail: { status: 500, code: "PDF_GENERATION_FAILED", message: "Échec de génération des PDF.", retryable: true } };
   }
 
+  const summarize = async () => {
+    const licences: LicenceSummary[] = [];
+    for (const entry of licenceOrders) {
+      const hints = await deps.getCodeHints(tenantId, entry.order.id);
+      const variant = getDigitalProductVariant(entry.order.productSku);
+      const format = codeFormatForSku(entry.order.productSku);
+      licences.push({
+        lineId: entry.lineId,
+        id: entry.order.id,
+        number: entry.order.number,
+        sku: entry.order.productSku,
+        product: variant?.label ?? entry.order.productSku,
+        quantity: entry.order.quantity,
+        status: params.preview ? entry.order.status : "DELIVERED",
+        codes: hints.map((hint) => maskLicenceCode(hint.codeHint, format)),
+      });
+    }
+    return licences;
+  };
+  const invoiceAttachment = {
+    filename: invoiceFilename(invoice.number),
+    content: Buffer.from(invoicePdf),
+    contentType: "application/pdf",
+  };
+
+  // 3b. Preview: everything the customer would receive, nothing sent. An
+  //     e-mail already sent by an earlier attempt is never previewed again:
+  //     the order just completes below.
+  if (params.preview && !record.emailSentAt) {
+    let content;
+    try {
+      content = await deps.previewEmail({
+        tenantId,
+        to: order.customer.email,
+        orderReference: order.order.reference,
+        customerName,
+        invoiceNumber: invoice.number,
+        licenceNumbers: licenceOrders.map((entry) => entry.order.number),
+      });
+    } catch (error) {
+      if (error instanceof OrderEmailError) {
+        return { fail: { status: 503, code: error.code, message: error.message, retryable: error.retryable } };
+      }
+      throw error;
+    }
+    const summaries = await summarize();
+    return {
+      preview: true,
+      invoice,
+      invoicePdf,
+      licences: summaries.map((summary, index) => ({
+        ...summary,
+        pdf: pdfJson(licencePdfs[index].filename, licencePdfs[index].content),
+      })),
+      email: {
+        to: content.to,
+        subject: content.subject,
+        html: content.html,
+        text: content.text,
+        attachments: [invoiceAttachment, ...licencePdfs].map((file) => ({
+          filename: file.filename,
+          sizeBytes: file.content.byteLength,
+        })),
+        sendIssue: content.sendIssue,
+      },
+    };
+  }
+
   // 4. Customer e-mail, exactly once per order.
   let email = record.emailSentAt
     ? { to: record.emailTo ?? order.customer.email, subject: record.emailSubject ?? orderEmailSubject(order.order.reference), sentAt: record.emailSentAt }
@@ -591,7 +729,7 @@ async function fulfil(params: {
         invoiceNumber: invoice.number,
         licenceNumbers: licenceOrders.map((entry) => entry.order.number),
         attachments: [
-          { filename: `facture-${invoice.number.replace(/[^A-Za-z0-9._-]+/g, "_")}.pdf`, content: Buffer.from(invoicePdf), contentType: "application/pdf" },
+          invoiceAttachment,
           ...licencePdfs.map((pdf) => ({ ...pdf, contentType: "application/pdf" })),
         ],
       });
@@ -632,21 +770,5 @@ async function fulfil(params: {
     actor,
   });
 
-  const licences = [];
-  for (const entry of licenceOrders) {
-    const hints = await deps.getCodeHints(tenantId, entry.order.id);
-    const variant = getKasperskyVariant(entry.order.productSku);
-    licences.push({
-      lineId: entry.lineId,
-      id: entry.order.id,
-      number: entry.order.number,
-      sku: entry.order.productSku,
-      product: variant?.label ?? entry.order.productSku,
-      quantity: entry.order.quantity,
-      status: "DELIVERED",
-      codes: hints.map((hint) => maskLicenceCode(hint.codeHint)),
-    });
-  }
-
-  return { invoice, invoicePdf, licences, email };
+  return { invoice, invoicePdf, licences: await summarize(), email };
 }

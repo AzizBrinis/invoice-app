@@ -9,9 +9,10 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast-provider";
-import { KASPERSKY_VARIANTS } from "@/lib/digital-products/kaspersky-catalog";
+import { getDigitalProductFamily, type DigitalProductFamilyId } from "@/lib/digital-products/catalog";
 import {
   formatLicenceCode,
+  isValidLicenceCode,
   normalizeLicenceCode,
   parseLicenceCodeInput,
 } from "@/lib/digital-products/licence-code-format";
@@ -25,7 +26,15 @@ function formatLines(lines: number[]) {
   return lines.length > 12 ? `${shown}… (+${lines.length - 12})` : shown;
 }
 
-export function ImportCodesForm({ defaultSku }: { defaultSku: string }) {
+export function ImportCodesForm({
+  familyId,
+  defaultSku,
+}: {
+  familyId: DigitalProductFamilyId;
+  defaultSku: string;
+}) {
+  const family = getDigitalProductFamily(familyId);
+  const format = family.codeFormat;
   const [mode, setMode] = useState<"single" | "bulk">("single");
   const [single, setSingle] = useState("");
   const [bulk, setBulk] = useState("");
@@ -54,15 +63,16 @@ export function ImportCodesForm({ defaultSku }: { defaultSku: string }) {
   }, [state, addToast]);
 
   const singleNormalized = normalizeLicenceCode(single);
-  const singleValid = /^[A-Z0-9]{20}$/.test(singleNormalized);
+  const singleValid = isValidLicenceCode(singleNormalized, format);
+  const singleRejected = format.rejected.includes(singleNormalized);
   const preview = useMemo(() => {
     if (mode !== "bulk" || !bulk.trim()) return null;
     try {
-      return parseLicenceCodeInput(bulk);
+      return parseLicenceCodeInput(bulk, getDigitalProductFamily(familyId).codeFormat);
     } catch {
       return null;
     }
-  }, [bulk, mode]);
+  }, [bulk, mode, familyId]);
 
   const onFile = async (file: File | undefined) => {
     setFileError(null);
@@ -90,11 +100,12 @@ export function ImportCodesForm({ defaultSku }: { defaultSku: string }) {
         </p>
       </div>
 
+      <input type="hidden" name="family" value={family.id} />
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-1.5">
           <label htmlFor="import-sku" className="label">Variante</label>
           <Select id="import-sku" name="sku" defaultValue={defaultSku} required>
-            {KASPERSKY_VARIANTS.map((variant) => (
+            {family.variants.map((variant) => (
               <option key={variant.sku} value={variant.sku}>
                 {variant.label}
               </option>
@@ -141,9 +152,9 @@ export function ImportCodesForm({ defaultSku }: { defaultSku: string }) {
           <label htmlFor="single-code" className="label">Code d’activation</label>
           <Input
             id="single-code"
-            value={formatLicenceCode(single)}
-            onChange={(event) => setSingle(normalizeLicenceCode(event.target.value).slice(0, 20))}
-            placeholder="XXXXX-XXXXX-XXXXX-XXXXX"
+            value={formatLicenceCode(single, format)}
+            onChange={(event) => setSingle(normalizeLicenceCode(event.target.value).slice(0, format.length))}
+            placeholder={format.placeholder}
             className="font-mono tracking-wider"
             inputMode="text"
             autoCapitalize="characters"
@@ -160,8 +171,10 @@ export function ImportCodesForm({ defaultSku }: { defaultSku: string }) {
             )}
           >
             {singleValid
-              ? "Code complet : 20 caractères valides."
-              : `20 caractères A–Z / 0–9 (${singleNormalized.length}/20). Les tirets sont ajoutés automatiquement.`}
+              ? `Code complet : ${format.length} caractères valides.`
+              : singleRejected
+                ? "Clé générique publique Microsoft : elle n’active pas Windows et ne peut pas être vendue."
+                : `${format.length} caractères A–Z / 0–9 (${singleNormalized.length}/${format.length}). Les tirets sont ajoutés automatiquement.`}
           </p>
         </div>
       ) : (
@@ -188,7 +201,7 @@ export function ImportCodesForm({ defaultSku }: { defaultSku: string }) {
             value={bulk}
             onChange={(event) => setBulk(event.target.value)}
             className="font-mono text-sm"
-            placeholder={"ABCDE-12345-FGHIJ-67890\nKLMNO-12345-PQRST-67890"}
+            placeholder={`${format.placeholder}\n${format.placeholder}`}
             spellCheck={false}
             autoCorrect="off"
           />

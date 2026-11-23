@@ -6,8 +6,7 @@
  * rename an existing SKU (add a new one instead).
  */
 
-export const DIGITAL_PRODUCT_FAMILIES = ["kaspersky"] as const;
-export type DigitalProductFamily = (typeof DIGITAL_PRODUCT_FAMILIES)[number];
+// Product families (Kaspersky, Windows…) are registered in ./catalog.ts.
 
 export const KASPERSKY_TIERS = ["standard", "plus", "premium"] as const;
 export type KasperskyTier = (typeof KASPERSKY_TIERS)[number];
