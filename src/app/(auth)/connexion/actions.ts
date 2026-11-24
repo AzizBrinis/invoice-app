@@ -88,9 +88,9 @@ export async function authenticate(
     };
   }
 
-  const safeRedirect = (parsed.data.redirectTo.startsWith("/")
-    ? parsed.data.redirectTo
-    : "/tableau-de-bord") as Route;
+  // Same-site paths only: "//host" and "/\\host" are protocol-relative URLs.
+  const target = parsed.data.redirectTo;
+  const safeRedirect = (/^\/(?![/\\])/.test(target) ? target : "/tableau-de-bord") as Route;
 
   redirect(safeRedirect);
 }

@@ -14,6 +14,7 @@ import {
   licenceLineKey,
   loadFulfilmentInvoiceConfig,
   requirePaidOrderFromEnv,
+  sendReviewedDigitalOrder,
   unpaidOrderReason,
   type DigitalOrderDeps,
 } from "@/server/digital-products/fulfilment";
@@ -84,6 +85,26 @@ function signed(payload: unknown, options: { key?: string; scheme?: string; path
 
 class MemoryStore implements FulfilmentStore {
   record: FulfilmentRecord | null = null;
+  review: { payload: unknown; keyId: string } | null = null;
+  sentBy: string | null = null;
+  async findByOrder() {
+    return this.record ? { ...this.record, reviewed: this.review !== null } : null;
+  }
+  async markAwaitingReview(_id: string, data: { payload: unknown; keyId: string }) {
+    if (this.record!.status === "PROCESSING") {
+      Object.assign(this.record!, { status: "FAILED", lastErrorCode: "AWAITING_APPROVAL" });
+      this.review = data;
+    }
+  }
+  async findReview(tenant: string, id: string) {
+    if (!this.record || tenant !== TENANT || id !== this.record.id) return null;
+    return {
+      ...this.record, userId: TENANT, shopId: "1", externalOrderId: "4521", orderReference: "XKBKNABJK",
+      reviewPayload: this.review?.payload ?? null, reviewKeyId: this.review?.keyId ?? null,
+      reviewRequestedAt: this.review ? new Date() : null, updatedAt: new Date(),
+    };
+  }
+  async markSentBy(_id: string, userId: string) { this.sentBy = userId; }
   async claim(): Promise<FulfilmentClaim> {
     if (!this.record) {
       this.record = {
@@ -124,10 +145,7 @@ function makeDeps() {
     return { kind: "created", order };
   });
   const sendEmail = vi.fn<DigitalOrderDeps["sendEmail"]>(async (input) => ({ to: input.to, subject: `Commande ${input.orderReference}` }));
-  const previewEmail = vi.fn<DigitalOrderDeps["previewEmail"]>(async (input) => ({
-    to: input.to, subject: `Commande ${input.orderReference}`,
-    html: `<p>Bonjour ${input.customerName}, facture ${input.invoiceNumber}</p>`, text: "Bonjour", sendIssue: null,
-  }));
+
   const markDelivered = vi.fn<DigitalOrderDeps["markDelivered"]>(async () => {});
   const renderInvoicePdf = vi.fn(async () => new Uint8Array(INVOICE_PDF));
   const logs: string[] = [];
@@ -158,11 +176,10 @@ function makeDeps() {
     getLicenceOrder: async (_tenant, id) => [...licences.values()].find((order) => order.id === id) ?? null,
     findInvoiceForOrder: async () => "inv-existing",
     sendEmail,
-    previewEmail,
     markDelivered,
     log: (_level, event, fields) => logs.push(JSON.stringify({ event, ...fields })),
   };
-  return { deps, store, requestLicence, sendEmail, previewEmail, markDelivered, renderInvoicePdf, logs };
+  return { deps, store, requestLicence, sendEmail, markDelivered, renderInvoicePdf, logs };
 }
 
 describe("digital-order fulfilment API", () => {
@@ -500,7 +517,7 @@ describe("digital-order fulfilment security controls", () => {
   });
 });
 
-describe("digital-order manual review (mode: preview)", () => {
+describe("digital-order manual review (mode: review, sent from invoice-app)", () => {
   beforeEach(() => {
     processInvoice.mockReset();
     processInvoice.mockResolvedValue({
@@ -509,96 +526,123 @@ describe("digital-order manual review (mode: preview)", () => {
     });
   });
 
-  it("prepares licences, invoice and PDFs, returns the e-mail, and sends nothing", async () => {
-    const { deps, store, sendEmail, previewEmail, markDelivered, logs } = makeDeps();
-    const response = await handleDigitalOrderRequest(signed(body({ mode: "preview" })), deps);
+  it("prepares licences and invoice, keeps the request, sends and renders nothing", async () => {
+    const { deps, store, sendEmail, markDelivered, logs } = makeDeps();
+    const renderLicencePdf = deps.renderLicencePdf as ReturnType<typeof vi.fn>;
+    const response = await handleDigitalOrderRequest(signed(body({ mode: "review" })), deps);
     expect(response.status).toBe(200);
     const json = await response.json();
-    expect(json.status).toBe("preview");
+    expect(json.status).toBe("review");
+    expect(json.reviewPath).toBe("/api/produits-digitaux/commandes/dlful-1/ouvrir");
     expect(json.invoice).toMatchObject({ id: "inv-42", number: "FAC-2026-00042" });
-    expect(Buffer.from(json.pdf.base64, "base64").equals(INVOICE_PDF)).toBe(true);
-    expect(json.licences).toHaveLength(2);
-    expect(json.licences[0]).toMatchObject({ lineId: "9876", status: "GENERATED", codes: ["•••••-•••••-•••••-•7890"] });
-    expect(Buffer.from(json.licences[0].pdf.base64, "base64").equals(LICENCE_PDF)).toBe(true);
-    expect(json.licences[0].pdf.sha256).toBe(sha256Hex(LICENCE_PDF));
-    expect(json.email).toMatchObject({
-      to: "Client.Test@example.com",
-      subject: "Commande XKBKNABJK",
-      sendIssue: null,
-      attachments: [
-        { filename: "facture-FAC-2026-00042.pdf" },
-        { filename: "licence-dlord-1abcdef.pdf" },
-        { filename: "licence-dlord-2abcdef.pdf" },
-      ],
-    });
-    expect(json.email.html).toContain("FAC-2026-00042");
-    expect(previewEmail).toHaveBeenCalledTimes(1);
+    expect(json.licences.map((line: { lineId: string }) => line.lineId)).toEqual(["9876", "9877"]);
+    expect(json).not.toHaveProperty("pdf");
+    expect(JSON.stringify(json)).not.toContain("base64");
     expect(sendEmail).not.toHaveBeenCalled();
     expect(markDelivered).not.toHaveBeenCalled();
+    expect(renderLicencePdf).not.toHaveBeenCalled();
     expect(store.record).toMatchObject({ status: "FAILED", lastErrorCode: "AWAITING_APPROVAL", invoiceId: "inv-42", emailSentAt: null });
+    expect(store.review?.keyId).toBe(KEY_ID);
+    expect((store.review?.payload as { mode?: string }).mode).toBeUndefined();
     expect(logs.join("\n")).not.toContain("example.com");
   });
 
-  it("sends exactly what was previewed once approved: same licences, same invoice, one e-mail", async () => {
+  it("\"Envoyer\" in invoice-app sends the same licences and invoice once, then the shop learns it", async () => {
     const { deps, store, requestLicence, sendEmail, markDelivered } = makeDeps();
-    const previewed = await (await handleDigitalOrderRequest(signed(body({ mode: "preview" })), deps)).json();
+    const reviewed = await (await handleDigitalOrderRequest(signed(body({ mode: "review" })), deps)).json();
 
-    const sent = await handleDigitalOrderRequest(signed(body()), deps);
-    expect(sent.status).toBe(201);
-    const json = await sent.json();
-    expect(json.status).toBe("delivered");
-    expect(json.licences.map((line: { number: string }) => line.number)).toEqual(
-      previewed.licences.map((line: { number: string }) => line.number),
-    );
+    // Before sending: status says "awaiting", nothing changes.
+    const waiting = await handleDigitalOrderRequest(signed(body({ mode: "status" })), deps);
+    expect(waiting.status).toBe(409);
+    expect((await waiting.json()).error).toMatchObject({ code: "AWAITING_APPROVAL", details: { reviewPath: reviewed.reviewPath } });
+    expect(store.record?.status).toBe("FAILED");
+
+    expect(await sendReviewedDigitalOrder({ tenantId: "other-tenant", fulfilmentId: "dlful-1", userId: "u1" }, deps))
+      .toMatchObject({ ok: false, code: "NOT_FOUND" });
+    const sent = await sendReviewedDigitalOrder({ tenantId: TENANT, fulfilmentId: "dlful-1", userId: "user-7" }, deps);
+    expect(sent).toMatchObject({ ok: true, invoiceId: "inv-42", invoiceNumber: "FAC-2026-00042", alreadySent: false });
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+    expect(sendEmail.mock.calls[0][0].attachments.map((file) => file.filename)).toEqual([
+      "facture-FAC-2026-00042.pdf", "licence-dlord-1abcdef.pdf", "licence-dlord-2abcdef.pdf",
+    ]);
+    expect(markDelivered).toHaveBeenCalledWith(expect.objectContaining({ actor: "user:user-7" }));
     expect(processInvoice).toHaveBeenCalledTimes(1);
     expect(requestLicence.mock.results.slice(2).every((result) => result.type === "return")).toBe(true);
-    expect(sendEmail).toHaveBeenCalledTimes(1);
-    expect(sendEmail.mock.calls[0][0].attachments.map((file) => file.filename)).toEqual(
-      previewed.email.attachments.map((file: { filename: string }) => file.filename),
-    );
-    expect(markDelivered).toHaveBeenCalledTimes(1);
     expect(store.record?.status).toBe("COMPLETED");
+    expect(store.sentBy).toBe("user-7");
 
-    // A preview requested after delivery is a plain replay: nothing new is sent.
-    const again = await handleDigitalOrderRequest(signed(body({ mode: "preview" })), deps);
-    expect(again.status).toBe(200);
-    expect((await again.json()).status).toBe("existing");
+    // Second click: nothing resent.
+    expect(await sendReviewedDigitalOrder({ tenantId: TENANT, fulfilmentId: "dlful-1", userId: "user-7" }, deps))
+      .toMatchObject({ ok: true, alreadySent: true });
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+
+    // The shop's status poll now replays the delivered order (no e-mail).
+    const status = await handleDigitalOrderRequest(signed(body({ mode: "status" })), deps);
+    expect(status.status).toBe(200);
+    const json = await status.json();
+    expect(json.status).toBe("existing");
+    expect(json.licences.map((line: { number: string }) => line.number)).toEqual(
+      reviewed.licences.map((line: { number: string }) => line.number),
+    );
     expect(sendEmail).toHaveBeenCalledTimes(1);
   });
 
-  it("can be previewed again before sending without allocating more codes", async () => {
-    const { deps, requestLicence, sendEmail } = makeDeps();
-    const first = await (await handleDigitalOrderRequest(signed(body({ mode: "preview" })), deps)).json();
-    const second = await (await handleDigitalOrderRequest(signed(body({ mode: "preview" })), deps)).json();
-    expect(second.status).toBe("preview");
-    expect(second.licences.map((line: { id: string }) => line.id)).toEqual(first.licences.map((line: { id: string }) => line.id));
-    expect(requestLicence.mock.results.slice(2).every((result) => result.type === "return")).toBe(true);
-    expect(processInvoice).toHaveBeenCalledTimes(1);
-    expect(sendEmail).not.toHaveBeenCalled();
+  it("keeps the order sendable from invoice-app after a failed send (SMTP)", async () => {
+    const { deps, sendEmail, store } = makeDeps();
+    await handleDigitalOrderRequest(signed(body({ mode: "review" })), deps);
+    sendEmail.mockRejectedValueOnce(new OrderEmailError("EMAIL_SEND_FAILED", "SMTP down", true));
+    expect(await sendReviewedDigitalOrder({ tenantId: TENANT, fulfilmentId: "dlful-1", userId: "u" }, deps))
+      .toMatchObject({ ok: false, code: "EMAIL_SEND_FAILED" });
+    expect(store.record).toMatchObject({ status: "FAILED", lastErrorCode: "EMAIL_SEND_FAILED" });
+    const status = await handleDigitalOrderRequest(signed(body({ mode: "status" })), deps);
+    expect((await status.json()).error.code).toBe("AWAITING_APPROVAL");
+    expect(await sendReviewedDigitalOrder({ tenantId: TENANT, fulfilmentId: "dlful-1", userId: "u" }, deps))
+      .toMatchObject({ ok: true });
+    expect(sendEmail).toHaveBeenCalledTimes(2);
   });
 
-  it("applies the payment gate to previews (codes are revealed)", async () => {
+  it("status is read-only: unknown order 404, never claims or allocates", async () => {
+    const { deps, store, requestLicence } = makeDeps();
+    const response = await handleDigitalOrderRequest(signed(body({ mode: "status" })), deps);
+    expect(response.status).toBe(404);
+    expect((await response.json()).error.code).toBe("FULFILMENT_NOT_FOUND");
+    expect(store.record).toBeNull();
+    expect(requestLicence).not.toHaveBeenCalled();
+  });
+
+  it("refuses to send an order that was never reviewed (automatic failure)", async () => {
+    const { deps, requestLicence } = makeDeps();
+    requestLicence.mockImplementationOnce(async () => {
+      throw new InsufficientLicenceStockError("kaspersky-plus-3p-1y", 1, 0);
+    });
+    await handleDigitalOrderRequest(signed(body()), deps);
+    expect(await sendReviewedDigitalOrder({ tenantId: TENANT, fulfilmentId: "dlful-1", userId: "u" }, deps))
+      .toMatchObject({ ok: false, code: "NOT_AWAITING_REVIEW" });
+  });
+
+  it("applies the payment gate to reviews (no licence reserved)", async () => {
     const { deps, requestLicence } = makeDeps();
     const base = buildPayload();
-    const unpaid = body({ mode: "preview", invoice: { ...base, order: { ...base.order, isPaid: false, paidAt: null } } });
+    const unpaid = body({ mode: "review", invoice: { ...base, order: { ...base.order, isPaid: false, paidAt: null } } });
     const response = await handleDigitalOrderRequest(signed(unpaid), deps);
     expect(response.status).toBe(409);
     expect((await response.json()).error.code).toBe("ORDER_NOT_PAID");
     expect(requestLicence).not.toHaveBeenCalled();
   });
 
-  it("reports a missing \"Commande\" template before anything is sent", async () => {
-    const { deps, previewEmail, sendEmail } = makeDeps();
-    previewEmail.mockRejectedValueOnce(new OrderEmailError("EMAIL_TEMPLATE_MISSING", "absent", false));
-    const response = await handleDigitalOrderRequest(signed(body({ mode: "preview" })), deps);
-    expect(response.status).toBe(503);
-    expect((await response.json()).error).toMatchObject({ code: "EMAIL_TEMPLATE_MISSING", retryable: false });
+  it("refuses to send a reviewed order the shop has since reported unpaid", async () => {
+    const { deps, sendEmail } = makeDeps();
+    await handleDigitalOrderRequest(signed(body({ mode: "review" })), deps);
+    const base = buildPayload();
+    const unpaid = body({ mode: "review", invoice: { ...base, order: { ...base.order, isPaid: false, paidAt: null } } });
+    expect((await handleDigitalOrderRequest(signed(unpaid), deps)).status).toBe(409);
+    expect(await sendReviewedDigitalOrder({ tenantId: TENANT, fulfilmentId: "dlful-1", userId: "u" }, deps))
+      .toMatchObject({ ok: false, code: "NOT_AWAITING_REVIEW" });
     expect(sendEmail).not.toHaveBeenCalled();
   });
 
   it("rejects an unknown mode", async () => {
     const { deps } = makeDeps();
-    const response = await handleDigitalOrderRequest(signed(body({ mode: "send-later" })), deps);
-    expect(response.status).toBe(422);
+    expect((await handleDigitalOrderRequest(signed(body({ mode: "preview" })), deps)).status).toBe(422);
   });
 });

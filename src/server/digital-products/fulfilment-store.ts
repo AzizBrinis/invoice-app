@@ -42,8 +42,39 @@ export type FulfilmentClaim =
   | { kind: "in_progress" }
   | { kind: "idempotency_key_reused" };
 
+/** A fulfilment as shown on the review page (mode "review"). */
+export type FulfilmentReview = FulfilmentRecord & {
+  userId: string;
+  shopId: string;
+  externalOrderId: string;
+  orderReference: string;
+  reviewPayload: unknown;
+  reviewKeyId: string | null;
+  reviewRequestedAt: Date | null;
+  updatedAt: Date | null;
+};
+
+/** Error code of a fulfilment parked after mode "review", waiting for "Envoyer". */
+export const AWAITING_APPROVAL_CODE = "AWAITING_APPROVAL";
+
+/**
+ * Kept for review and not sent yet: parked by mode "review", or a send from the
+ * review page that failed (SMTP…) and can be retried from there. Never an order
+ * the shop has since reported unpaid: its stored request still says "paid".
+ */
+export function isAwaitingApproval(record: Pick<FulfilmentRecord, "status" | "lastErrorCode"> & { reviewed?: boolean }) {
+  if (record.status !== "FAILED" || record.lastErrorCode === "ORDER_NOT_PAID") return false;
+  return (record.lastErrorCode === AWAITING_APPROVAL_CODE || record.reviewed === true);
+}
+
 export interface FulfilmentStore {
   claim(input: FulfilmentClaimInput): Promise<FulfilmentClaim>;
+  /** Read-only lookup by shop order (mode "status"). */
+  findByOrder(tenantUserId: string, shopId: string, externalOrderId: string): Promise<(FulfilmentRecord & { reviewed: boolean }) | null>;
+  /** Parks the order for review: keeps the request so invoice-app can send it later. */
+  markAwaitingReview(id: string, data: { payload: unknown; keyId: string }): Promise<void>;
+  findReview(tenantUserId: string, id: string): Promise<FulfilmentReview | null>;
+  markSentBy(id: string, userId: string): Promise<void>;
   saveProgress(id: string, data: { licenceOrderIds?: string[]; invoiceId?: string }): Promise<void>;
   markEmailSent(id: string, data: { to: string; subject: string }): Promise<void>;
   markCompleted(id: string): Promise<void>;
@@ -123,6 +154,56 @@ export const postgresFulfilmentStore: FulfilmentStore = {
       RETURNING ${COLUMNS}
     `);
     return reclaimed[0] ? { kind: "claimed", record: mapRecord(reclaimed[0]) } : { kind: "in_progress" };
+  },
+
+  async findByOrder(tenantUserId, shopId, externalOrderId) {
+    const rows = await prisma.$queryRaw<Row[]>(Prisma.sql`
+      SELECT ${COLUMNS}, ("reviewPayload" IS NOT NULL) AS "reviewed" FROM "DigitalOrderFulfilment"
+      WHERE "userId" = ${tenantUserId} AND "source" = ${FULFILMENT_SOURCE}
+        AND "shopId" = ${shopId} AND "externalOrderId" = ${externalOrderId}
+      LIMIT 1
+    `);
+    return rows[0] ? { ...mapRecord(rows[0]), reviewed: rows[0].reviewed === true } : null;
+  },
+
+  async markAwaitingReview(id, data) {
+    await prisma.$executeRaw(Prisma.sql`
+      UPDATE "DigitalOrderFulfilment"
+      SET "status" = 'FAILED', "lastErrorCode" = ${AWAITING_APPROVAL_CODE},
+          "reviewPayload" = ${JSON.stringify(data.payload)}::text::jsonb, "reviewKeyId" = ${data.keyId},
+          "reviewRequestedAt" = NOW(), "updatedAt" = NOW()
+      WHERE "id" = ${id} AND "status" = 'PROCESSING'
+    `);
+  },
+
+  async findReview(tenantUserId, id) {
+    const rows = await prisma.$queryRaw<Row[]>(Prisma.sql`
+      SELECT ${COLUMNS}, "userId", "shopId", "externalOrderId", "orderReference",
+             "reviewPayload", "reviewKeyId", "reviewRequestedAt", "updatedAt"
+      FROM "DigitalOrderFulfilment"
+      WHERE "id" = ${id} AND "userId" = ${tenantUserId} AND "source" = ${FULFILMENT_SOURCE}
+      LIMIT 1
+    `);
+    const row = rows[0];
+    if (!row) return null;
+    const payload = typeof row.reviewPayload === "string" ? JSON.parse(row.reviewPayload) : row.reviewPayload;
+    return {
+      ...mapRecord(row),
+      userId: String(row.userId),
+      shopId: String(row.shopId),
+      externalOrderId: String(row.externalOrderId),
+      orderReference: String(row.orderReference),
+      reviewPayload: payload ?? null,
+      reviewKeyId: (row.reviewKeyId as string | null) ?? null,
+      reviewRequestedAt: toDate(row.reviewRequestedAt),
+      updatedAt: toDate(row.updatedAt),
+    };
+  },
+
+  async markSentBy(id, userId) {
+    await prisma.$executeRaw(Prisma.sql`
+      UPDATE "DigitalOrderFulfilment" SET "sentById" = ${userId}, "updatedAt" = NOW() WHERE "id" = ${id}
+    `);
   },
 
   async saveProgress(id, data) {
