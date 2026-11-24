@@ -110,13 +110,13 @@ describeWithDb("IDM licences (Postgres)", () => {
 
     const { order, filename } = await renderLicenceOrderPdf({ tenantId, orderId: result.order.id, actor: "api:test" });
     expect(order.status).toBe("GENERATED");
-    expect(filename).toBe(`licence-idm-1p-1y-${order.number}.pdf`);
+    expect(filename).toBe("IDMCIDMTEST01.pdf");
     const html = rendered.html.at(-1)!;
     expect(html).toContain("Internet Download</span><span>Manager");
     expect(html).toContain("1 an · 1 PC");
     expect(html).toMatch(/TSTID-M0000-00000-0000[12]/);
-    expect(html).toContain("IDMTEST01");
-    expect(html).toContain("Client Test");
+    expect(html).not.toMatch(/IDMTEST01|LIC-|Commande :|Client :/);
+    expect(html).not.toContain("Client Test");
 
     const [annual, lifetime] = await getDigitalProductInventory(tenantId, "idm");
     expect(annual.counts).toMatchObject({ AVAILABLE: 1, USED: 1 });

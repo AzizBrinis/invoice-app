@@ -22,6 +22,7 @@ import { digitalOrderPayloadSchema } from "@/server/digital-products/fulfilment"
 import {
   buildLicenceDocumentHtml,
   licencePdfFilename,
+  uniqueFilenames,
   parseLicenceRequest,
 } from "@/server/digital-products/licences";
 import { DEFAULT_SELLER_BRANDING } from "@/server/digital-products/kaspersky-licence-html";
@@ -82,25 +83,24 @@ describe("Windows 11 Pro catalogue", () => {
   });
 
   it("names the PDF after the product", () => {
-    expect(licencePdfFilename({ number: "LIC-20261116-ABC123", productSku: WINDOWS_11_PRO_SKU })).toBe(
-      "licence-windows-11-pro-LIC-20261116-ABC123.pdf",
-    );
-    expect(licencePdfFilename({ number: "LIC-1", productSku: "kaspersky-plus-3p-1y" })).toBe(
-      "licence-kaspersky-plus-3p-LIC-1.pdf",
-    );
+    const name = (productSku: string) => licencePdfFilename({ number: "LIC-1", productSku, orderReference: "018348" });
+    expect(name(WINDOWS_11_PRO_SKU)).toBe("WIN11C018348.pdf");
+    expect(name("kaspersky-standard-1p-1y")).toBe("KSSDC018348.pdf");
+    expect(name("kaspersky-plus-3p-1y")).toBe("KSPLC018348.pdf");
+    expect(name("kaspersky-premium-5p-1y")).toBe("KSPRC018348.pdf");
+    expect(licencePdfFilename({ number: "LIC-1", productSku: WINDOWS_11_PRO_SKU, orderReference: "../../a\r\nb" })).toBe("WIN11C....ab.pdf");
+    expect(uniqueFilenames([{ filename: "KSPLC1.pdf" }, { filename: "KSPLC1.pdf" }, { filename: "ksplc1.pdf" }]).map((f) => f.filename))
+      .toEqual(["KSPLC1.pdf", "KSPLC1-2.pdf", "ksplc1-3.pdf"]);
   });
 });
 
 describe("Windows 11 Pro licence document", () => {
   const variant = getWindowsVariant(WINDOWS_11_PRO_SKU)!;
 
-  it("prints each key with the order details, then the Famille → Pro notice", () => {
+  it("prints each key without any order information, then the Famille → Pro notice", () => {
     const html = buildWindowsLicenceHtml({
       variant,
       codes: [KEY_A, KEY_B],
-      licenceNumber: "LIC-20261116-ABC123",
-      orderReference: "XKBKNABJK",
-      customerName: "Amine Ben Salah",
       useBefore: "2026-12-01",
       seller: DEFAULT_SELLER_BRANDING,
     });
@@ -108,9 +108,7 @@ describe("Windows 11 Pro licence document", () => {
     expect(html).toContain("HJKMP-QRTVW-XY234-6789B-CDFGH");
     expect((html.match(/class="page box"/g) ?? []).length).toBe(2);
     expect((html.match(/class="page leaflet"/g) ?? []).length).toBe(1);
-    expect(html).toContain("LIC-20261116-ABC123");
-    expect(html).toContain("XKBKNABJK");
-    expect(html).toContain("Amine Ben Salah");
+    expect(html).not.toMatch(/N° de licence|Commande :|Client :|LIC-/);
     expect(html).toContain("1er décembre 2026");
     expect(html).toContain("1 / 3");
     expect(html).toContain("3 / 3");
@@ -126,22 +124,19 @@ describe("Windows 11 Pro licence document", () => {
     const html = buildWindowsLicenceHtml({
       variant,
       codes: [KEY_A],
-      licenceNumber: "LIC-<1>",
-      orderReference: '"><img src=x onerror=alert(1)>',
-      customerName: "<script>alert(1)</script>",
+      activationRegion: '<script>alert(1)</script>"><img src=x onerror=alert(1)>',
       seller: { name: "Acme & Co", email: "help@acme.test", phone: "+216 70 000 000", website: "acme.test" },
     });
     expect(html).not.toContain("<script>alert(1)</script>");
     expect(html).not.toContain("<img src=x");
     expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
-    expect(html).toContain("LIC-&lt;1&gt;");
     expect(html).toContain('<span class="brand-text">Acme &amp; Co</span>');
     expect(html).not.toContain("data:image/png");
     expect(html).toContain("2 / 2");
   });
 
   it("is selected by the shared renderer for Windows only", () => {
-    const common = { codes: [KEY_A.slice(0, 20)], licenceNumber: "LIC-1", seller: DEFAULT_SELLER_BRANDING };
+    const common = { codes: [KEY_A.slice(0, 20)], seller: DEFAULT_SELLER_BRANDING };
     const kaspersky = buildLicenceDocumentHtml({ ...common, variant: getDigitalProductVariant("kaspersky-plus-3p-1y")! });
     expect(kaspersky).toContain('class="wordmark">kaspersky');
     const windows = buildLicenceDocumentHtml({ ...common, codes: [KEY_A], variant });

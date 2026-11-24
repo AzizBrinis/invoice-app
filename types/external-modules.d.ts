@@ -16,6 +16,7 @@ declare module "sanitize-html" {
     allowedAttributes?: Record<string, string[]>;
     allowedStyles?: Record<string, Record<string, RegExp[]>>;
     allowedSchemes?: string[];
+    allowedSchemesByTag?: Record<string, string[]>;
     disallowedTagsMode?: "discard" | "recursiveEscape";
     selfClosing?: string[];
     transformTags?: Record<string, TransformHandler>;

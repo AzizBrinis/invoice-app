@@ -34,12 +34,25 @@ export type FulfilmentClaimInput = {
   orderReference: string;
   idempotencyKey: string;
   requestHash: string;
+  /**
+   * Automatic delivery: never takes over an order kept for review (its e-mail
+   * must go through an administrator's "Envoyer").
+   */
+  holdIfReviewed?: boolean;
+  /**
+   * "Envoyer": the attempt counter read together with the request being sent.
+   * Every claim increments it, so a different value means the shop sent the
+   * order again (other recipient, unpaid…) since it was read.
+   */
+  expectedAttempts?: number;
 };
 
 export type FulfilmentClaim =
   | { kind: "claimed"; record: FulfilmentRecord }
   | { kind: "completed"; record: FulfilmentRecord }
   | { kind: "in_progress" }
+  | { kind: "awaiting_review"; record: FulfilmentRecord }
+  | { kind: "changed" }
   | { kind: "idempotency_key_reused" };
 
 /** A fulfilment as shown on the review page (mode "review"). */
@@ -51,6 +64,8 @@ export type FulfilmentReview = FulfilmentRecord & {
   reviewPayload: unknown;
   reviewKeyId: string | null;
   reviewRequestedAt: Date | null;
+  shopNotifiedAt: Date | null;
+  shopNotifyResult: string | null;
   updatedAt: Date | null;
 };
 
@@ -75,6 +90,11 @@ export interface FulfilmentStore {
   markAwaitingReview(id: string, data: { payload: unknown; keyId: string }): Promise<void>;
   findReview(tenantUserId: string, id: string): Promise<FulfilmentReview | null>;
   markSentBy(id: string, userId: string): Promise<void>;
+  /** The stored request no longer matches the shop's order: it must not be sent. */
+  clearReview(id: string): Promise<void>;
+  /** The shop no longer allows this order (unpaid, refunded, edited): drops the stored request unless it changed since. */
+  refuseReview(id: string, errorCode: string, attempts: number): Promise<void>;
+  markShopNotified(id: string, result: string, notified: boolean): Promise<void>;
   saveProgress(id: string, data: { licenceOrderIds?: string[]; invoiceId?: string }): Promise<void>;
   markEmailSent(id: string, data: { to: string; subject: string }): Promise<void>;
   markCompleted(id: string): Promise<void>;
@@ -125,8 +145,8 @@ export const postgresFulfilmentStore: FulfilmentStore = {
     `);
     if (inserted[0]) return { kind: "claimed", record: mapRecord(inserted[0]) };
 
-    const existingRows = await prisma.$queryRaw<(Row & { isStale: boolean })[]>(Prisma.sql`
-      SELECT ${COLUMNS},
+    const existingRows = await prisma.$queryRaw<(Row & { isStale: boolean; reviewed: boolean })[]>(Prisma.sql`
+      SELECT ${COLUMNS}, ("reviewPayload" IS NOT NULL) AS "reviewed",
         ("updatedAt" < NOW() - make_interval(secs => ${STALE_FULFILMENT_SECONDS})) AS "isStale"
       FROM "DigitalOrderFulfilment"
       WHERE "userId" = ${input.tenantUserId} AND "source" = ${FULFILMENT_SOURCE}
@@ -143,6 +163,10 @@ export const postgresFulfilmentStore: FulfilmentStore = {
     // retry carries (the customer already received the documents).
     if (record.status === "COMPLETED") return { kind: "completed", record };
     if (record.status === "PROCESSING" && !existing.isStale) return { kind: "in_progress" };
+    if (input.holdIfReviewed && existing.reviewed === true) return { kind: "awaiting_review", record };
+    if (input.expectedAttempts !== undefined && record.attempts !== input.expectedAttempts) {
+      return { kind: "changed" };
+    }
 
     // FAILED or abandoned: take over atomically (optimistic concurrency).
     const reclaimed = await prisma.$queryRaw<Row[]>(Prisma.sql`
@@ -179,7 +203,7 @@ export const postgresFulfilmentStore: FulfilmentStore = {
   async findReview(tenantUserId, id) {
     const rows = await prisma.$queryRaw<Row[]>(Prisma.sql`
       SELECT ${COLUMNS}, "userId", "shopId", "externalOrderId", "orderReference",
-             "reviewPayload", "reviewKeyId", "reviewRequestedAt", "updatedAt"
+             "reviewPayload", "reviewKeyId", "reviewRequestedAt", "shopNotifiedAt", "shopNotifyResult", "updatedAt"
       FROM "DigitalOrderFulfilment"
       WHERE "id" = ${id} AND "userId" = ${tenantUserId} AND "source" = ${FULFILMENT_SOURCE}
       LIMIT 1
@@ -196,8 +220,35 @@ export const postgresFulfilmentStore: FulfilmentStore = {
       reviewPayload: payload ?? null,
       reviewKeyId: (row.reviewKeyId as string | null) ?? null,
       reviewRequestedAt: toDate(row.reviewRequestedAt),
+      shopNotifiedAt: toDate(row.shopNotifiedAt),
+      shopNotifyResult: (row.shopNotifyResult as string | null) ?? null,
       updatedAt: toDate(row.updatedAt),
     };
+  },
+
+  async clearReview(id) {
+    await prisma.$executeRaw(Prisma.sql`
+      UPDATE "DigitalOrderFulfilment"
+      SET "reviewPayload" = NULL, "reviewKeyId" = NULL, "updatedAt" = NOW()
+      WHERE "id" = ${id} AND "status" <> 'COMPLETED'
+    `);
+  },
+
+  async refuseReview(id, errorCode, attempts) {
+    await prisma.$executeRaw(Prisma.sql`
+      UPDATE "DigitalOrderFulfilment"
+      SET "lastErrorCode" = ${errorCode.slice(0, 64)}, "reviewPayload" = NULL, "reviewKeyId" = NULL, "updatedAt" = NOW()
+      WHERE "id" = ${id} AND "status" = 'FAILED' AND "attempts" = ${attempts}
+    `);
+  },
+
+  async markShopNotified(id, result, notified) {
+    await prisma.$executeRaw(Prisma.sql`
+      UPDATE "DigitalOrderFulfilment"
+      SET "shopNotifyResult" = ${result.slice(0, 64)},
+          "shopNotifiedAt" = CASE WHEN ${notified} THEN NOW() ELSE "shopNotifiedAt" END
+      WHERE "id" = ${id}
+    `);
   },
 
   async markSentBy(id, userId) {

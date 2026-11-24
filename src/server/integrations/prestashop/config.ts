@@ -14,6 +14,8 @@ export type PrestashopIntegrationConfig = {
   maxClockSkewSeconds: number;
   rateLimitPerMinute: number;
   allowedIps: Set<string> | null;
+  /** PrestaShop shop ids served by this account; null = any shop holding a key. */
+  allowedShopIds: Set<string> | null;
   requireHttps: boolean;
   /** Accepted difference between PrestaShop's total and the computed total, in currency units. */
   totalTolerance: string;
@@ -112,6 +114,14 @@ export function loadPrestashopIntegrationConfig(
     return { ok: false, reason: "PRESTASHOP_INVOICE_TOTAL_TOLERANCE must be a decimal such as 0.010" };
   }
 
+  const shopIds = (env.PRESTASHOP_ALLOWED_SHOP_IDS ?? "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean);
+  if (shopIds.some((id) => !/^[1-9]\d{0,9}$/.test(id))) {
+    return { ok: false, reason: "PRESTASHOP_ALLOWED_SHOP_IDS must be a comma-separated list of shop ids" };
+  }
+
   const ipList = (env.PRESTASHOP_INVOICE_ALLOWED_IPS ?? "")
     .split(",")
     .map((ip) => ip.trim())
@@ -125,6 +135,7 @@ export function loadPrestashopIntegrationConfig(
       maxClockSkewSeconds,
       rateLimitPerMinute,
       allowedIps: ipList.length > 0 ? new Set(ipList) : null,
+      allowedShopIds: shopIds.length > 0 ? new Set(shopIds) : null,
       requireHttps: env.NODE_ENV === "production",
       totalTolerance,
       applyTimbre,

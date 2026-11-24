@@ -106,6 +106,7 @@ function apiConfig(tenantId: string, extra: Record<string, string> = {}) {
     loadLicenceApiConfig({
       DIGITAL_LICENCE_TENANT_ID: tenantId,
       DIGITAL_LICENCE_API_KEYS: `${KEY_ID}:${SECRET}`,
+      DIGITAL_LICENCE_API_ALLOW_ALLOCATION: "true",
       NODE_ENV: "production",
       ...extra,
     });
@@ -411,7 +412,8 @@ describeWithDb("SECURITY AUDIT — Kaspersky activation codes", () => {
       expect(res.status).toBe(201);
       const html = pdfState.html.at(-1)!;
       expect(html).not.toMatch(/<script|<img src=x|<svg onload|<iframe/i);
-      expect(html).toContain("&lt;script&gt;");
+      expect(html).toContain("&lt;/div&gt;&lt;iframe"); // activation region: printed, escaped
+      expect(html).not.toContain("&lt;script&gt;"); // customer and order are not printed any more
     });
   });
 

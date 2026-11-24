@@ -102,11 +102,11 @@ describeWithDb("Windows 11 Pro licences (Postgres)", () => {
 
     const { order, filename } = await renderLicenceOrderPdf({ tenantId, orderId: result.order.id, actor: "api:test" });
     expect(order.status).toBe("GENERATED");
-    expect(filename).toBe(`licence-windows-11-pro-${order.number}.pdf`);
+    expect(filename).toBe("WIN11CWINTEST01.pdf");
     const html = rendered.html.at(-1)!;
     expect(html).toContain("Windows 11<span>Professionnel</span>");
     expect(html).toMatch(/TSTWI-N0000-00000-00000-0000[12]/);
-    expect(html).toContain("WINTEST01");
+    expect(html).not.toMatch(/WINTEST01|LIC-|Commande :|Client/);
 
     const [inventory] = await getDigitalProductInventory(tenantId, "windows");
     expect(inventory.counts).toMatchObject({ AVAILABLE: 1, USED: 1 });

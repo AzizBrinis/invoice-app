@@ -27,6 +27,7 @@ import {
   formatZodIssues,
   mapPrestashopOrder,
   PayloadConsistencyError,
+  type MappedPrestashopOrder,
   prestashopOrderPayloadSchema,
   type PrestashopOrderPayload,
   type ValidationIssue,
@@ -180,6 +181,7 @@ export type ErrorCode =
   | "INVOICE_GENERATION_FAILED"
   | "PDF_GENERATION_FAILED"
   | "INVOICE_NOT_FOUND"
+  | "SHOP_NOT_ALLOWED"
   | "INTERNAL_ERROR";
 
 const RETRYABLE: ReadonlySet<ErrorCode> = new Set([
@@ -433,7 +435,7 @@ async function authenticateRequest(
 
   const clientIp = getTrustedClientIp(request.headers);
   if (config.allowedIps && !config.allowedIps.has(clientIp)) {
-    log("warn", "ip_not_allowed");
+    log("warn", "ip_not_allowed", { ip: clientIp });
     return fail(errorResponse(requestId, 403, "FORBIDDEN", "Accès refusé."));
   }
 
@@ -445,7 +447,7 @@ async function authenticateRequest(
     });
   } catch (error) {
     if (error instanceof PublicRequestSecurityError && error.statusCode === 429) {
-      log("warn", "rate_limited_ip");
+      log("warn", "rate_limited_ip", { ip: clientIp });
       return fail(
         errorResponse(requestId, 429, "RATE_LIMITED", "Trop de requêtes.", {
           headers: { "Retry-After": String(error.retryAfterSeconds ?? 60) },
@@ -485,7 +487,7 @@ async function authenticateRequest(
   });
   if (!verification.ok) {
     // One generic answer for every failure; the precise reason is only logged.
-    log("warn", "auth_failed", { reason: verification.reason });
+    log("warn", "auth_failed", { reason: verification.reason, ip: clientIp });
     return fail(errorResponse(requestId, 401, "UNAUTHORIZED", "Authentification invalide."));
   }
   logContext.keyId = verification.keyId;
@@ -498,7 +500,7 @@ async function authenticateRequest(
       config.maxClockSkewSeconds * 2 + 60,
     );
     if (!fresh) {
-      log("warn", "auth_failed", { reason: "nonce_replayed" });
+      log("warn", "auth_failed", { reason: "nonce_replayed", ip: clientIp });
       return fail(errorResponse(requestId, 401, "UNAUTHORIZED", "Authentification invalide."));
     }
     if (deps.random() < NONCE_PURGE_PROBABILITY) {
@@ -543,6 +545,133 @@ export type InvoiceCoreSuccess = {
 };
 
 /**
+ * Everything that can refuse an order before anything is created: amounts,
+ * VAT rate, timbre and recomputed totals. Side-effect free. Digital orders run
+ * it before reserving activation codes, so that an order that can never be
+ * invoiced never holds stock.
+ */
+export async function validatePrestashopInvoice(params: {
+  deps: PrestashopInvoiceDeps;
+  config: PrestashopIntegrationConfig;
+  payload: PrestashopOrderPayload;
+  log: RequestLog;
+}): Promise<{ kind: "ok"; mapped: MappedPrestashopOrder } | InvoiceCoreError> {
+  const { deps, config, payload, log } = params;
+  const fail = (
+    status: number,
+    code: ErrorCode,
+    message: string,
+    extra?: { details?: unknown; headers?: Record<string, string> },
+  ): InvoiceCoreError => ({ kind: "error", status, code, message, ...extra });
+
+  let mapped;
+  try {
+    mapped = mapPrestashopOrder(payload, config);
+  } catch (error) {
+    if (error instanceof PayloadConsistencyError) {
+      log("info", "validation_failed", { issues: error.issues.length });
+      return fail(422, "VALIDATION_FAILED", error.message, {
+        details: error.issues,
+      });
+    }
+    throw error;
+  }
+
+  const tenantUserId = config.tenantUserId;
+  if (!(await deps.store.tenantExists(tenantUserId))) {
+    log("error", "misconfigured", { reason: "tenant_not_found" });
+    return fail(503, "SERVICE_UNAVAILABLE", "Service indisponible.");
+  }
+
+  // --- VAT rate chosen in PrestaShop must be one configured in invoice-app --
+  if (mapped.vatRateOverride != null) {
+    const { vatRates } = await deps.getTaxRules(tenantUserId);
+    if (!vatRates.some((rate) => Math.abs(rate - mapped.vatRateOverride!) < 0.0005)) {
+      log("info", "vat_rate_not_allowed", { vatRate: mapped.vatRateOverride });
+      return fail(
+        422,
+        "VAT_RATE_NOT_ALLOWED",
+        "Ce taux de TVA n'est pas configuré dans invoice-app.",
+        {
+          details: [
+            {
+              path: "invoiceOptions.vatRate",
+              message: `Taux autorisés : ${vatRates.map((rate) => `${rate} %`).join(", ") || "aucun"}`,
+            } satisfies ValidationIssue,
+          ],
+        },
+      );
+    }
+  }
+
+  // --- Totals cross-check (before consuming an invoice number) ------------
+  let preview;
+  try {
+    preview = await deps.previewTotals(tenantUserId, {
+      ...mapped.invoice,
+      clientId: "pending",
+    } as InvoiceInput);
+  } catch (error) {
+    if (error instanceof ZodError) {
+      return fail(422, "VALIDATION_FAILED", "Données de commande invalides.", {
+        details: formatZodIssues(error),
+      });
+    }
+    throw error;
+  }
+  // A timbre charged at checkout must be exactly the tenant's configured timbre.
+  if (mapped.shopTimbreMinor != null && preview.timbreAmountCents !== mapped.shopTimbreMinor) {
+    const currency = payload.order.currency;
+    log("info", "timbre_mismatch", { shop: mapped.shopTimbreMinor, tenant: preview.timbreAmountCents });
+    return fail(
+      422,
+      "TIMBRE_MISMATCH",
+      "Le timbre fiscal facturé par la boutique ne correspond pas à celui configuré dans invoice-app.",
+      {
+        details: [
+          {
+            path: "timbreFiscal.amount",
+            message: `Boutique ${formatMinor(mapped.shopTimbreMinor, currency)}, invoice-app ${
+              preview.timbreAmountCents > 0 ? formatMinor(preview.timbreAmountCents, currency) : "désactivé"
+            }`,
+          } satisfies ValidationIssue,
+        ],
+      },
+    );
+  }
+  const computedOrderTotal = preview.totals.totalTTCCents - preview.timbreAmountCents;
+  if (computedOrderTotal !== mapped.expectedTotalTTCMinor) {
+    // Within tolerance (checked below) but not exact: reported in the response.
+    log("info", "totals_rounding_difference", {
+      expected: mapped.expectedTotalTTCMinor,
+      computed: computedOrderTotal,
+    });
+  }
+  if (Math.abs(computedOrderTotal - mapped.expectedTotalTTCMinor) > mapped.toleranceMinor) {
+    const currency = payload.order.currency;
+    log("warn", "totals_mismatch", {
+      expected: mapped.expectedTotalTTCMinor,
+      computed: computedOrderTotal,
+    });
+    return fail(
+      422,
+      "TOTALS_MISMATCH",
+      "Le total recalculé ne correspond pas au total de la commande.",
+      {
+        details: [
+          {
+            path: "totals.totalTaxIncl",
+            message: `Attendu ${formatMinor(mapped.expectedTotalTTCMinor, currency)}, calculé ${formatMinor(computedOrderTotal, currency)}`,
+          } satisfies ValidationIssue,
+        ],
+      },
+    );
+  }
+
+  return { kind: "ok", mapped };
+}
+
+/**
  * Validated order payload -> invoice (created once per shop order, idempotent).
  * Shared by the invoice API and the digital-order fulfilment endpoint. Never
  * throws for expected failures; returns an error descriptor instead.
@@ -564,109 +693,10 @@ export async function processPrestashopInvoice(params: {
   let claimedRequestId: string | null = null;
   let invoiceCreated = false;
   try {
-    let mapped;
-    try {
-      mapped = mapPrestashopOrder(payload, config);
-    } catch (error) {
-      if (error instanceof PayloadConsistencyError) {
-        log("info", "validation_failed", { issues: error.issues.length });
-        return fail(422, "VALIDATION_FAILED", error.message, {
-          details: error.issues,
-        });
-      }
-      throw error;
-    }
-
+    const validated = await validatePrestashopInvoice({ deps, config, payload, log });
+    if (validated.kind === "error") return validated;
+    const { mapped } = validated;
     const tenantUserId = config.tenantUserId;
-    if (!(await deps.store.tenantExists(tenantUserId))) {
-      log("error", "misconfigured", { reason: "tenant_not_found" });
-      return fail(503, "SERVICE_UNAVAILABLE", "Service indisponible.");
-    }
-
-    // --- VAT rate chosen in PrestaShop must be one configured in invoice-app --
-    if (mapped.vatRateOverride != null) {
-      const { vatRates } = await deps.getTaxRules(tenantUserId);
-      if (!vatRates.some((rate) => Math.abs(rate - mapped.vatRateOverride!) < 0.0005)) {
-        log("info", "vat_rate_not_allowed", { vatRate: mapped.vatRateOverride });
-        return fail(
-          422,
-          "VAT_RATE_NOT_ALLOWED",
-          "Ce taux de TVA n'est pas configuré dans invoice-app.",
-          {
-            details: [
-              {
-                path: "invoiceOptions.vatRate",
-                message: `Taux autorisés : ${vatRates.map((rate) => `${rate} %`).join(", ") || "aucun"}`,
-              } satisfies ValidationIssue,
-            ],
-          },
-        );
-      }
-    }
-
-    // --- Totals cross-check (before consuming an invoice number) ------------
-    let preview;
-    try {
-      preview = await deps.previewTotals(tenantUserId, {
-        ...mapped.invoice,
-        clientId: "pending",
-      } as InvoiceInput);
-    } catch (error) {
-      if (error instanceof ZodError) {
-        return fail(422, "VALIDATION_FAILED", "Données de commande invalides.", {
-          details: formatZodIssues(error),
-        });
-      }
-      throw error;
-    }
-    // A timbre charged at checkout must be exactly the tenant's configured timbre.
-    if (mapped.shopTimbreMinor != null && preview.timbreAmountCents !== mapped.shopTimbreMinor) {
-      const currency = payload.order.currency;
-      log("info", "timbre_mismatch", { shop: mapped.shopTimbreMinor, tenant: preview.timbreAmountCents });
-      return fail(
-        422,
-        "TIMBRE_MISMATCH",
-        "Le timbre fiscal facturé par la boutique ne correspond pas à celui configuré dans invoice-app.",
-        {
-          details: [
-            {
-              path: "timbreFiscal.amount",
-              message: `Boutique ${formatMinor(mapped.shopTimbreMinor, currency)}, invoice-app ${
-                preview.timbreAmountCents > 0 ? formatMinor(preview.timbreAmountCents, currency) : "désactivé"
-              }`,
-            } satisfies ValidationIssue,
-          ],
-        },
-      );
-    }
-    const computedOrderTotal = preview.totals.totalTTCCents - preview.timbreAmountCents;
-    if (computedOrderTotal !== mapped.expectedTotalTTCMinor) {
-      // Within tolerance (checked below) but not exact: reported in the response.
-      log("info", "totals_rounding_difference", {
-        expected: mapped.expectedTotalTTCMinor,
-        computed: computedOrderTotal,
-      });
-    }
-    if (Math.abs(computedOrderTotal - mapped.expectedTotalTTCMinor) > mapped.toleranceMinor) {
-      const currency = payload.order.currency;
-      log("warn", "totals_mismatch", {
-        expected: mapped.expectedTotalTTCMinor,
-        computed: computedOrderTotal,
-      });
-      return fail(
-        422,
-        "TOTALS_MISMATCH",
-        "Le total recalculé ne correspond pas au total de la commande.",
-        {
-          details: [
-            {
-              path: "totals.totalTaxIncl",
-              message: `Attendu ${formatMinor(mapped.expectedTotalTTCMinor, currency)}, calculé ${formatMinor(computedOrderTotal, currency)}`,
-            } satisfies ValidationIssue,
-          ],
-        },
-      );
-    }
 
     // --- Idempotency ---------------------------------------------------------
     const claim = await deps.store.claimRequest({
@@ -838,6 +868,10 @@ export async function handlePrestashopInvoiceRequest(
     const payload = parsed.data;
     logContext.shopId = payload.shop.id;
     logContext.orderId = payload.order.id;
+    if (config.allowedShopIds && !config.allowedShopIds.has(String(payload.shop.id))) {
+      log("warn", "shop_not_allowed");
+      return errorResponse(requestId, 403, "SHOP_NOT_ALLOWED", "Boutique non autorisée.");
+    }
 
     const core = await processPrestashopInvoice({
       deps,
@@ -924,7 +958,11 @@ export async function handlePrestashopInvoiceDownload(
   if (auth.rawBody.byteLength > 0) {
     return errorResponse(requestId, 400, "VALIDATION_FAILED", "Une requête GET ne doit pas avoir de corps.");
   }
-  if (!ID_SEGMENT.test(params.shopId) || !ID_SEGMENT.test(params.orderId)) {
+  if (
+    !ID_SEGMENT.test(params.shopId) ||
+    !ID_SEGMENT.test(params.orderId) ||
+    (auth.config.allowedShopIds && !auth.config.allowedShopIds.has(params.shopId))
+  ) {
     return errorResponse(requestId, 404, "INVOICE_NOT_FOUND", "Aucune facture pour cette commande.");
   }
   logContext.shopId = params.shopId;

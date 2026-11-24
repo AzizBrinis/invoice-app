@@ -32,9 +32,6 @@ import {
 export type IdmLicenceDocumentInput = {
   variant: IdmVariant;
   codes: string[];
-  licenceNumber: string;
-  orderReference?: string | null;
-  customerName?: string | null;
   activationRegion?: string | null;
   /** YYYY-MM-DD */
   useBefore?: string | null;
@@ -199,9 +196,6 @@ function brandMark(seller: LicenceSellerBranding) {
 function buildMeta(input: IdmLicenceDocumentInput, index: number) {
   const items: Array<[string, string]> = [["Produit :", IDM_PRODUCT_NAME]];
   if (input.codes.length > 1) items.push(["Numéro :", `${index + 1} / ${input.codes.length}`]);
-  items.push(["N° de licence :", input.licenceNumber]);
-  if (input.customerName) items.push(["Client :", input.customerName]);
-  if (input.orderReference) items.push(["Commande :", input.orderReference]);
   if (input.activationRegion) items.push(["Zone d’activation :", input.activationRegion]);
   const date = formatFrenchDate(input.useBefore);
   if (date) items.push(["À activer avant le", date]);
@@ -226,8 +220,6 @@ function buildPage(input: IdmLicenceDocumentInput, code: string, index: number) 
   const { seller } = input;
   const plan = IDM_PLAN_DETAILS[input.variant.plan];
   const compact =
-    (input.customerName?.length ?? 0) > 42 ||
-    (input.orderReference?.length ?? 0) > 32 ||
     Boolean(input.activationRegion && input.useBefore);
   const site = seller.website
     ? `<a class="site" href="${escapeHtml(websiteHref(seller.website))}">${escapeHtml(websiteLabel(seller.website))}</a>`
@@ -302,7 +294,7 @@ export function buildIdmLicenceHtml(input: IdmLicenceDocumentInput): string {
   if (input.codes.length === 0) {
     throw new Error("A licence document needs at least one code");
   }
-  const title = `Licence ${input.variant.label} — ${input.licenceNumber}`;
+  const title = `Licence ${input.variant.label}`;
   return `<!DOCTYPE html>
 <html lang="fr">
 <head>

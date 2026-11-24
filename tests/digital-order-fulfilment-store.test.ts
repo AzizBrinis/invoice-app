@@ -13,13 +13,17 @@ import {
   parseLicenceRequest,
   requestLicenceDocument,
 } from "@/server/digital-products/licences";
-import { markLicenceOrderGenerated } from "@/server/digital-products/store";
+import { adoptUndeliveredLicenceRequest, findLicenceOrderByKey, markLicenceOrderGenerated } from "@/server/digital-products/store";
+import { countCodesReleasedLastHour } from "@/server/digital-products/delivery-policy";
+import { allowLoginAttempt } from "@/server/security/login-throttle";
 
 const describeWithDb = process.env.TEST_DATABASE_URL ? describe : describe.skip;
 const MIGRATIONS = [
   "scripts/sql/20261109_external_invoice_requests.sql",
   "scripts/sql/20261110_digital_licences.sql",
   "scripts/sql/20261113_digital_order_fulfilment.sql",
+  "scripts/sql/20261123_digital_order_review.sql",
+  "scripts/sql/20261124_digital_order_shop_callback.sql",
 ].map((file) => path.resolve(process.cwd(), file));
 
 describeWithDb("digital-order fulfilment store (Postgres)", () => {
@@ -112,5 +116,76 @@ describeWithDb("digital-order fulfilment store (Postgres)", () => {
     `);
     expect(kinds.map((row) => row.kind)).toEqual(["object"]);
     expect(rows[0].deliveredAt).not.toBeNull();
+  });
+
+  it("holds a reviewed order, binds \"Envoyer\" to the request that was read, and can withdraw it", async () => {
+    const order = input({ externalOrderId: `rev-${suffix}`, idempotencyKey: `ps-1-rev-${suffix}` });
+    const first = await store.claim(order);
+    const id = first.kind === "claimed" ? first.record.id : "";
+    await store.markAwaitingReview(id, { payload: { a: 1 }, keyId: "k" });
+
+    // Automatic delivery is held; the row is untouched.
+    expect(await store.claim({ ...order, holdIfReviewed: true })).toMatchObject({ kind: "awaiting_review", record: { id, attempts: 1 } });
+    const read = (await store.findReview(tenantId, id))!;
+    expect(read.reviewPayload).toEqual({ a: 1 });
+
+    // The shop sends the order again between the read and the send.
+    expect((await store.claim(order)).kind).toBe("claimed");
+    await store.markAwaitingReview(id, { payload: { a: 2 }, keyId: "k" });
+    expect((await store.claim({ ...order, expectedAttempts: read.attempts })).kind).toBe("changed");
+    // Withdrawing a version that is no longer the stored one does nothing.
+    await store.refuseReview(id, "ORDER_NOT_PAID", read.attempts);
+    expect((await store.findReview(tenantId, id))!.reviewPayload).toEqual({ a: 2 });
+
+    // Ten simultaneous sends of the current version: exactly one goes through.
+    const current = (await store.findReview(tenantId, id))!;
+    const claims = await Promise.all(Array.from({ length: 10 }, () => store.claim({ ...order, expectedAttempts: current.attempts })));
+    expect(claims.filter((claim) => claim.kind === "claimed")).toHaveLength(1);
+
+    await store.markFailed(id, "EMAIL_SEND_FAILED");
+    const latest = (await store.findReview(tenantId, id))!;
+    await store.refuseReview(id, "ORDER_NOT_PAID", latest.attempts);
+    expect(await store.findReview(tenantId, id)).toMatchObject({ reviewPayload: null, reviewKeyId: null, lastErrorCode: "ORDER_NOT_PAID" });
+    expect((await store.claim({ ...order, holdIfReviewed: true })).kind).toBe("claimed"); // paid again later: not blocked
+  });
+
+  it("counts exposed codes, audits a changed recipient and finds a licence by key", async () => {
+    await importLicenceCodes({
+      tenantId, actorUserId: tenantId, sku: "kaspersky-plus-5p-1y", text: `AUD3${suffix.toUpperCase().padEnd(16, "1")}`.slice(0, 20),
+    });
+    const before = await countCodesReleasedLastHour(tenantId, "none");
+    const created = await requestLicenceDocument({
+      tenantId,
+      request: parseLicenceRequest({ sku: "kaspersky-plus-5p-1y", quantity: 1, customerEmail: "a@example.com" }),
+      idempotencyKey: `api:ps-1-aud3-${suffix}`,
+      source: "PRESTASHOP",
+      actor: "test",
+      external: { source: "prestashop", orderId: `aud3-${suffix}`, lineId: "1" },
+    });
+    expect(await countCodesReleasedLastHour(tenantId, "none")).toBe(before); // reserved only
+    expect(await adoptUndeliveredLicenceRequest({
+      tenantId, orderId: created.order.id, requestHash: "h", customerName: "B", customerEmail: "b@example.com", orderReference: "R", actor: "api:k",
+    })).toBe(true);
+    const events = await prisma.$queryRaw<{ actor: string; details: unknown }[]>(Prisma.sql`
+      SELECT "actor", "details" FROM "DigitalLicenceEvent" WHERE "orderId" = ${created.order.id} AND "type" = 'REQUEST_UPDATED'
+    `);
+    expect(events).toEqual([{ actor: "api:k", details: null }]);
+    await markLicenceOrderGenerated({ tenantId, orderId: created.order.id, actor: "test", kind: "generated" });
+    expect(await countCodesReleasedLastHour(tenantId, "none")).toBe(before + 1);
+    expect(await countCodesReleasedLastHour(tenantId, `aud3-${suffix}`)).toBe(before); // its own retry
+    expect(await countCodesReleasedLastHour("other-tenant", "none")).toBe(0);
+    expect((await findLicenceOrderByKey(tenantId, `api:ps-1-aud3-${suffix}`))?.id).toBe(created.order.id);
+    expect(await findLicenceOrderByKey("other-tenant", `api:ps-1-aud3-${suffix}`)).toBeNull();
+  });
+
+  it("throttles logins through Postgres, whatever the instance", async () => {
+    const headers = new Headers({ "x-real-ip": "192.0.2.77" });
+    let allowed = 0;
+    for (let i = 0; i < 13; i += 1) {
+      delete (globalThis as Record<string, unknown>).__publicRouteRateLimitStore; // another instance
+      if (await allowLoginAttempt(headers, `login-${suffix}@example.com`)) allowed += 1;
+    }
+    expect(allowed).toBe(10);
+    await prisma.$executeRaw(Prisma.sql`DELETE FROM "IntegrationRequestNonce" WHERE "keyId" LIKE 'login:%'`);
   });
 });

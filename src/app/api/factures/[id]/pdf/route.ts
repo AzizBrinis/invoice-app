@@ -42,9 +42,14 @@ export async function GET(
         { status: 403 },
       );
     }
+    // Only the known business error is shown: anything else may carry internals.
+    const notFound = error instanceof Error && error.message === "Facture introuvable";
+    if (!notFound) {
+      console.error("[factures] pdf_route_failed", { error: error instanceof Error ? error.name : typeof error });
+    }
     return NextResponse.json(
-      { message: (error as Error).message ?? "Erreur de génération du PDF" },
-      { status: 500 },
+      { message: notFound ? "Facture introuvable" : "Erreur de génération du PDF" },
+      { status: notFound ? 404 : 500 },
     );
   }
 }

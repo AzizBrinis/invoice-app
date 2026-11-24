@@ -26,6 +26,7 @@ import {
 } from "@/server/digital-products/licences";
 import { LicenceEncryptionConfigError } from "@/server/digital-products/licence-crypto";
 import {
+  findLicenceOrderByKey,
   getOrderCodeHints,
   InsufficientLicenceStockError,
   type CreateLicenceOrderResult,
@@ -70,6 +71,7 @@ export type LicenceApiDeps = {
   requestLicence: typeof requestLicenceDocument;
   renderPdf: typeof renderLicenceOrderPdf;
   getCodeHints: (tenantId: string, orderId: string) => Promise<{ codeHint: string }[]>;
+  findLicence: (tenantId: string, idempotencyKey: string) => Promise<LicenceOrderRecord | null>;
   log: (level: "info" | "warn" | "error", event: string, fields: LogFields) => void;
   random: () => number;
 };
@@ -80,6 +82,7 @@ const defaultDeps: LicenceApiDeps = {
   requestLicence: requestLicenceDocument,
   renderPdf: renderLicenceOrderPdf,
   getCodeHints: getOrderCodeHints,
+  findLicence: findLicenceOrderByKey,
   log: (level, event, fields) => console[level]("[digital-licence-api]", { event, ...fields }),
   random: Math.random,
 };
@@ -140,6 +143,8 @@ export type LicenceApiErrorCode =
   | "IDEMPOTENCY_KEY_REUSED"
   | "ORDER_LINE_ALREADY_FULFILLED"
   | "LICENCE_CANCELLED"
+  | "LICENCE_NOT_DELIVERED"
+  | "ALLOCATION_DISABLED"
   | "PDF_GENERATION_FAILED"
   | "INTERNAL_ERROR";
 
@@ -226,6 +231,8 @@ export async function authenticateLicenceApiRequest(
     log: (level: "info" | "warn" | "error", event: string, fields?: LogFields) => void;
     logContext: LogFields;
     maxBodyBytes?: number;
+    /** Separate per-key rate limit (shop page views must not starve order deliveries). */
+    rateBucket?: string;
   },
 ): Promise<{ response: Response } | LicenceAuthSuccess> {
   const { requestId, log } = context;
@@ -242,7 +249,7 @@ export async function authenticateLicenceApiRequest(
   }
   const clientIp = getTrustedClientIp(request.headers);
   if (config.allowedIps && !config.allowedIps.has(clientIp)) {
-    log("warn", "ip_not_allowed");
+    log("warn", "ip_not_allowed", { ip: clientIp });
     return fail(errorResponse(requestId, 403, "FORBIDDEN", "Accès refusé."));
   }
   try {
@@ -253,6 +260,7 @@ export async function authenticateLicenceApiRequest(
     });
   } catch (error) {
     if (error instanceof PublicRequestSecurityError && error.statusCode === 429) {
+      log("warn", "rate_limited_ip", { ip: clientIp });
       return fail(errorResponse(requestId, 429, "RATE_LIMITED", "Trop de requêtes.", {
         headers: { "Retry-After": String(error.retryAfterSeconds ?? 60) },
       }));
@@ -285,11 +293,11 @@ export async function authenticateLicenceApiRequest(
     scheme: LICENCE_API_SIGNATURE_SCHEME,
   });
   if (!verification.ok) {
-    log("warn", "auth_failed", { reason: verification.reason });
+    log("warn", "auth_failed", { reason: verification.reason, ip: clientIp });
     return fail(errorResponse(requestId, 401, "UNAUTHORIZED", "Authentification invalide."));
   }
   context.logContext.keyId = verification.keyId;
-  const nonceKey = `${NONCE_NAMESPACE}${verification.keyId}`;
+  const nonceKey = `${NONCE_NAMESPACE}${context.rateBucket ? `${context.rateBucket}:` : ""}${verification.keyId}`;
 
   try {
     const fresh = await deps.nonces.registerNonce(
@@ -298,7 +306,7 @@ export async function authenticateLicenceApiRequest(
       config.maxClockSkewSeconds * 2 + 60,
     );
     if (!fresh) {
-      log("warn", "auth_failed", { reason: "nonce_replayed" });
+      log("warn", "auth_failed", { reason: "nonce_replayed", ip: clientIp });
       return fail(errorResponse(requestId, 401, "UNAUTHORIZED", "Authentification invalide."));
     }
     if (deps.random() < NONCE_PURGE_PROBABILITY) {
@@ -306,6 +314,7 @@ export async function authenticateLicenceApiRequest(
     }
     const recent = await deps.nonces.countRecentRequests(nonceKey, 60);
     if (recent > config.rateLimitPerMinute) {
+      log("warn", "rate_limited_key", { recent, ip: clientIp });
       return fail(errorResponse(requestId, 429, "RATE_LIMITED", "Trop de requêtes.", {
         headers: { "Retry-After": "60" },
       }));
@@ -381,6 +390,19 @@ export async function handleLicenceApiRequest(
   // --- Allocation (atomic, idempotent) --------------------------------------
   let allocation: CreateLicenceOrderResult;
   try {
+    if (!config.allowAllocation) {
+      // Replay only: the licence must exist and its codes must already be out
+      // (never those of an order still waiting for its review).
+      const known = await deps.findLicence(config.tenantUserId, `api:${verification.idempotencyKey}`);
+      if (!known) {
+        log("warn", "allocation_refused");
+        return errorResponse(requestId, 403, "ALLOCATION_DISABLED", "Création de licence refusée : utilisez la commande numérique.");
+      }
+      if (known.status === "PENDING") {
+        log("warn", "licence_not_delivered", { licenceId: known.id });
+        return errorResponse(requestId, 409, "LICENCE_NOT_DELIVERED", "Cette licence n’est pas encore délivrée.");
+      }
+    }
     allocation = await deps.requestLicence({
       tenantId: config.tenantUserId,
       request: licenceRequest,

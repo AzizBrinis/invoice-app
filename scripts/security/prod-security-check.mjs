@@ -18,6 +18,7 @@ const SHOP = (process.env.SHOP_URL ?? "https://techno-smart.tn").replace(/\/$/, 
 const ORDERS = "/api/integrations/prestashop/digital-orders";
 const INVOICES = "/api/integrations/prestashop/invoices";
 const LICENCES = "/api/integrations/digital-products/licences";
+const STOCK = "/api/integrations/digital-products/stock";
 
 let pass = 0, fail = 0, warn = 0;
 const result = (ok, name, detail) => {
@@ -55,7 +56,7 @@ const FAKE = "x".repeat(64);
 const BODY = JSON.stringify({ schemaVersion: 1 });
 
 console.log(`\n== invoice-app API (${APP}) ==`);
-for (const p of [ORDERS, INVOICES, LICENCES]) {
+for (const p of [ORDERS, INVOICES, LICENCES, STOCK]) {
   await expect(`GET ${p} refused`, APP + p, {}, [405]);
   await expect(`unsigned POST ${p} refused`, APP + p, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }, [401]);
 }
@@ -67,6 +68,11 @@ await expect("wrong content-type", APP + ORDERS, { method: "POST", body: BODY, h
 const big = JSON.stringify({ pad: "x".repeat(1100 * 1024) });
 await expect("oversized body (>1 MiB)", APP + ORDERS, { method: "POST", body: big, headers: signed({ path: ORDERS, body: big, keyId: "ts-licences-prod", secret: FAKE }) }, [413]);
 await expect("licence PDF without session", APP + "/api/produits-digitaux/licences/dlord-00000000-0000-0000-0000-000000000000/pdf", {}, [401]);
+await expect("unsigned invoice download", APP + INVOICES + "/1/1", {}, [401]);
+const reviewPage = await req(APP + "/produits-digitaux/commandes/dlful-00000000-0000-4000-8000-000000000000");
+result([302, 303, 307, 308, 401, 403].includes(reviewPage.status), "order review page needs login", String(reviewPage.status));
+const open = await req(APP + "/api/produits-digitaux/commandes/dlful-00000000-0000-4000-8000-000000000000/ouvrir", { headers: { "x-forwarded-host": "evil.example" } });
+result(open.status === 303 && new URL(open.headers.get("location") ?? "/", APP).host === new URL(APP).host, "review link only redirects to this app", `${open.status} ${open.headers.get("location") ?? ""}`);
 await expect("internal probe without token", APP + "/api/internal/document-precision", {}, [404]);
 const http = await req(APP.replace(/^https:/, "http:") + ORDERS, { method: "POST" });
 result([301, 302, 307, 308].includes(http.status), "plain HTTP redirected to HTTPS", String(http.status));
@@ -99,6 +105,17 @@ await expect("README.md denied", M + "/README.md", {}, [403, 404]);
 await expect("Smarty templates denied", M + "/views/templates/hook/order_licences.tpl", {}, [403, 404]);
 const cls = await req(M + "/classes/LicenceClient.php");
 result([403, 404].includes(cls.status) || (cls.status === 200 && cls.text.trim() === ""), "PHP classes not executable/readable directly", String(cls.status));
+const notify = `${SHOP}/index.php?fc=module&module=tsinvoiceapp&controller=fulfilmentnotify`;
+const notifyBody = JSON.stringify({ schemaVersion: 1, event: "order.sent", fulfilmentId: "dlful-00000000-0000-4000-8000-000000000000", shopId: 1, orderId: 1, orderReference: "X" });
+for (const [label, headers, payload = notifyBody] of [
+  ["unsigned order-sent call refused", {}],
+  ["unsigned order-check call refused", {}, notifyBody.replace("order.sent", "order.check")],
+  ["forged order-sent call refused", { "x-signature-key-id": "ts-licences-prod", "x-signature-timestamp": now(), "x-signature-nonce": nonce(), "idempotency-key": "dlful-00000000-0000-4000-8000-000000000000", "x-signature": `v1=${randomBytes(32).toString("hex")}` }],
+]) {
+  // 404 until module 1.7.2 is installed.
+  const r = await req(notify, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: payload });
+  result(r.status === 401 ? true : r.status === 404 ? "warn" : false, label, String(r.status));
+}
 const root = await req(M + "/");
 result(!/Index of|<a href="classes/i.test(root.text), "no directory listing", String(root.status));
 await expect("private PDF folder not reachable", SHOP + "/var/tsinvoiceapp/", {}, [403, 404]);

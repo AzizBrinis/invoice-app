@@ -56,7 +56,7 @@ export async function handleLicenceStockRequest(
   const log = (level: "info" | "warn" | "error", event: string, fields: LogFields = {}) =>
     deps.log(level, event, { ...logContext, ...fields });
 
-  const auth = await authenticateLicenceApiRequest(request, deps, { requestId, log, logContext });
+  const auth = await authenticateLicenceApiRequest(request, deps, { requestId, log, logContext, rateBucket: "stock" });
   if ("response" in auth) return auth.response;
 
   let json: unknown;

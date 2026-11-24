@@ -9,6 +9,7 @@ import {
   type EmailAttachment,
   type MessagingCredentials,
 } from "@/server/messaging";
+import { safeErrorName } from "@/server/integrations/prestashop/service";
 import { getSettings } from "@/server/settings";
 
 /**
@@ -22,7 +23,7 @@ export const DEFAULT_ORDER_EMAIL_TEMPLATE = "Commande";
 
 export class OrderEmailError extends Error {
   constructor(
-    public readonly code: "EMAIL_TEMPLATE_MISSING" | "EMAIL_NOT_CONFIGURED" | "EMAIL_DISABLED" | "EMAIL_SEND_FAILED",
+    public readonly code: "EMAIL_TEMPLATE_MISSING" | "EMAIL_INVALID" | "EMAIL_NOT_CONFIGURED" | "EMAIL_DISABLED" | "EMAIL_SEND_FAILED",
     message: string,
     public readonly retryable: boolean,
   ) {
@@ -144,9 +145,33 @@ export type OrderEmailInput = {
   invoiceNumber: string;
   licenceNumbers: string[];
   attachments: EmailAttachment[];
+  /** Subject and body edited on the review page (instead of the saved response). */
+  override?: { subject: string; html: string } | null;
 };
 
-export type OrderEmailContentInput = Omit<OrderEmailInput, "attachments" | "invoiceId">;
+export type OrderEmailContentInput = Omit<OrderEmailInput, "attachments" | "invoiceId" | "override">;
+
+export const MAX_ORDER_EMAIL_SUBJECT = 200;
+export const MAX_ORDER_EMAIL_HTML = 200_000;
+
+/**
+ * Subject/body edited by an administrator: header-safe subject, sanitized HTML
+ * (same rules as the saved response), text part derived from it. Throws when
+ * either is empty or oversized.
+ */
+export function sanitizeOrderEmailOverride(override: { subject: string; html: string }) {
+  const subject = override.subject.replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!subject || subject.length > MAX_ORDER_EMAIL_SUBJECT) {
+    throw new OrderEmailError("EMAIL_INVALID", `L’objet est requis (${MAX_ORDER_EMAIL_SUBJECT} caractères au maximum).`, false);
+  }
+  if (override.html.length > MAX_ORDER_EMAIL_HTML) {
+    throw new OrderEmailError("EMAIL_INVALID", "Le contenu de l’e-mail est trop long.", false);
+  }
+  const html = sanitizeEmailHtml(override.html);
+  const text = htmlToText(html);
+  if (!text) throw new OrderEmailError("EMAIL_INVALID", "Le contenu de l’e-mail est vide.", false);
+  return { subject, html, text };
+}
 
 export type OrderEmailContent = { to: string; subject: string; html: string; text: string };
 
@@ -225,7 +250,9 @@ export async function sendDigitalOrderEmail(
     );
   }
 
-  const { html, text, subject } = await buildOrderEmail(input, credentials, env);
+  const { html, text, subject } = input.override
+    ? sanitizeOrderEmailOverride(input.override)
+    : await buildOrderEmail(input, credentials, env);
 
   try {
     await sendEmailMessageForUser(
@@ -235,7 +262,8 @@ export async function sendDigitalOrderEmail(
     );
   } catch (error) {
     console.error("[digital-orders] email_send_failed", {
-      error: error instanceof Error ? error.message.slice(0, 160) : typeof error,
+      // SMTP answers often quote the recipient's address: redacted.
+      error: safeErrorName(error),
     });
     throw new OrderEmailError("EMAIL_SEND_FAILED", "L’e-mail au client n’a pas pu être envoyé.", true);
   }

@@ -17,6 +17,12 @@ export type LicenceApiConfig = {
   rateLimitPerMinute: number;
   allowedIps: Set<string> | null;
   requireHttps: boolean;
+  /**
+   * Lets POST …/licences reserve new codes. Off in production unless set: the
+   * shop orders through digital-orders (payment checked) and only replays
+   * licences here, so a stolen key cannot draw codes without a paid order.
+   */
+  allowAllocation: boolean;
 };
 
 export type LicenceApiConfigResult =
@@ -65,6 +71,9 @@ export function loadLicenceApiConfig(env: Env = process.env): LicenceApiConfigRe
       rateLimitPerMinute,
       allowedIps: ips.length > 0 ? new Set(ips) : null,
       requireHttps: env.NODE_ENV === "production",
+      allowAllocation:
+        env.NODE_ENV !== "production" ||
+        ["1", "true", "yes", "on"].includes(env.DIGITAL_LICENCE_API_ALLOW_ALLOCATION?.trim().toLowerCase() ?? ""),
     },
   };
 }

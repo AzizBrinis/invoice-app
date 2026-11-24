@@ -25,9 +25,6 @@ export type LicenceSellerBranding = {
 export type LicenceDocumentInput = {
   variant: KasperskyVariant;
   codes: string[];
-  licenceNumber: string;
-  orderReference?: string | null;
-  customerName?: string | null;
   activationRegion?: string | null;
   /** YYYY-MM-DD */
   useBefore?: string | null;
@@ -176,9 +173,6 @@ const CSS = `
 function buildMeta(input: LicenceDocumentInput, index: number) {
   const items: Array<[string, string]> = [];
   if (input.codes.length > 1) items.push(["Licence", `${index + 1} / ${input.codes.length}`]);
-  items.push(["N° :", input.licenceNumber]);
-  if (input.orderReference) items.push(["Commande :", input.orderReference]);
-  if (input.customerName) items.push(["Client :", input.customerName]);
   if (input.activationRegion) items.push(["Zone d’activation :", input.activationRegion]);
   const date = formatFrenchDate(input.useBefore);
   if (date) items.push(["Code à utiliser avant le", date]);
@@ -301,7 +295,7 @@ export function buildKasperskyLicenceHtml(input: LicenceDocumentInput): string {
   if (input.codes.length === 0) {
     throw new Error("A licence document needs at least one code");
   }
-  const title = `Licence ${input.variant.label} — ${input.licenceNumber}`;
+  const title = `Licence ${input.variant.label}`;
   return `<!DOCTYPE html>
 <html lang="fr">
 <head>

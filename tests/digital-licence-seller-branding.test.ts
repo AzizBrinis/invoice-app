@@ -29,7 +29,6 @@ describe("licence documents seller branding", () => {
     const html = buildLicenceDocumentHtml({
       variant: getDigitalProductVariant(sku)!,
       codes: [code],
-      licenceNumber: "LIC-1",
       seller: await getSellerBranding("tenant-1"),
     });
     expect(html).not.toContain("99 699 280");

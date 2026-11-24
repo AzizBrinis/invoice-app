@@ -120,6 +120,7 @@ function makeDeps(overrides: Partial<LicenceApiDeps> = {}) {
       loadLicenceApiConfig({
         DIGITAL_LICENCE_TENANT_ID: TENANT,
         DIGITAL_LICENCE_API_KEYS: `${KEY_ID}:${SECRET}`,
+        DIGITAL_LICENCE_API_ALLOW_ALLOCATION: "true",
         NODE_ENV: "production",
       }),
     nonces: {
@@ -294,5 +295,60 @@ describe("digital licence API", () => {
     const response = await handleLicenceApiRequest(signedRequest(payload()), deps);
     expect(response.status).toBe(500);
     expect((await response.json()).error).toMatchObject({ code: "PDF_GENERATION_FAILED", retryable: true });
+  });
+});
+
+describe("licence API without allocation (production default)", () => {
+  const replayOnly = () =>
+    loadLicenceApiConfig({ DIGITAL_LICENCE_TENANT_ID: TENANT, DIGITAL_LICENCE_API_KEYS: `${KEY_ID}:${SECRET}`, NODE_ENV: "production" });
+
+  it("cannot create a licence, nor read one that was never delivered", async () => {
+    const requestLicence = vi.fn();
+    const renderPdf = vi.fn();
+    const { deps } = makeDeps({ loadConfig: replayOnly, requestLicence, renderPdf, findLicence: async () => null });
+    const refused = await handleLicenceApiRequest(signedRequest(payload()), deps);
+    expect(refused.status).toBe(403);
+    expect((await refused.json()).error).toMatchObject({ code: "ALLOCATION_DISABLED", retryable: false });
+    const pending = makeDeps({ loadConfig: replayOnly, requestLicence, renderPdf, findLicence: async () => order() });
+    const response = await handleLicenceApiRequest(signedRequest(payload()), pending.deps);
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe("LICENCE_NOT_DELIVERED");
+    expect(requestLicence).not.toHaveBeenCalled();
+    expect(renderPdf).not.toHaveBeenCalled();
+  });
+
+  it("still replays a delivered licence (\"Télécharger le PDF\")", async () => {
+    const findLicence = vi.fn(async () => order({ status: "DELIVERED" }));
+    const { deps } = makeDeps({
+      loadConfig: replayOnly,
+      findLicence,
+      requestLicence: vi.fn(async () => ({ kind: "existing", order: order({ status: "DELIVERED" }) }) as const),
+    });
+    const response = await handleLicenceApiRequest(signedRequest(payload(), { accept: "application/pdf" }), deps);
+    expect(response.status).toBe(200);
+    expect(findLicence).toHaveBeenCalledWith(TENANT, "api:ps-1-42-7");
+  });
+
+  it("counts stock lookups apart from deliveries", async () => {
+    const keys: string[] = [];
+    const base = makeDeps().deps;
+    const nonces = { ...base.nonces!, registerNonce: async (key: string) => { keys.push(key); return true; } };
+    const { handleLicenceStockRequest } = await import("@/server/digital-products/stock-api");
+    const raw = signedRequest(payload());
+    await handleLicenceApiRequest(raw, { ...base, nonces });
+    const stockBody = JSON.stringify({ schemaVersion: 1, skus: ["idm-1p-1y"] });
+    const path = "/api/integrations/digital-products/stock";
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const nonce = randomBytes(16).toString("hex");
+    const response = await handleLicenceStockRequest(new Request(`https://invoices.example.com${path}`, {
+      method: "POST", body: stockBody,
+      headers: {
+        "content-type": "application/json", "x-signature-key-id": KEY_ID, "x-signature-timestamp": timestamp, "x-signature-nonce": nonce,
+        "idempotency-key": "stock-12345678",
+        "x-signature": computeSignature(SECRET, { method: "POST", path, timestamp, nonce, idempotencyKey: "stock-12345678", bodySha256Hex: sha256Hex(stockBody), scheme: "DPLIC1" }),
+      },
+    }), { loadConfig: base.loadConfig!, nonces, random: () => 1, log: () => {}, getInventoryCounts: async () => [] });
+    expect(response.status).toBe(200);
+    expect(keys).toEqual([`dplic:${KEY_ID}`, `dplic:stock:${KEY_ID}`]);
   });
 });

@@ -72,7 +72,9 @@ const EMAIL_SANITIZE_OPTIONS: IOptions = {
       "vertical-align": [/^.*$/],
     },
   },
-  allowedSchemes: ["http", "https", "mailto", "tel", "data"],
+  // data: only for inline images: a "data:text/html" link would be a phishing page.
+  allowedSchemes: ["http", "https", "mailto", "tel"],
+  allowedSchemesByTag: { img: ["http", "https", "data"] },
   transformTags: {
     a: sanitizeHtml.simpleTransform("a", {
       rel: "noopener noreferrer",

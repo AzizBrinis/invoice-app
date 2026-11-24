@@ -6,22 +6,25 @@ import { Button } from "@/components/ui/button";
 import { PrefetchLink } from "@/components/ui/prefetch-link";
 import { codeFormatForSku, getDigitalProductVariant } from "@/lib/digital-products/catalog";
 import { maskLicenceCode } from "@/lib/digital-products/licence-code-format";
-import { customerNameOf, digitalOrderPayloadSchema } from "@/server/digital-products/fulfilment";
+import { customerNameOf, digitalOrderPayloadSchema, invoiceFilename, reviewVersionOf } from "@/server/digital-products/fulfilment";
 import {
   AWAITING_APPROVAL_CODE,
   isAwaitingApproval,
   postgresFulfilmentStore,
 } from "@/server/digital-products/fulfilment-store";
+import { licencePdfFilename, uniqueFilenames } from "@/server/digital-products/licences";
 import { OrderEmailError, previewDigitalOrderEmail } from "@/server/digital-products/order-email";
 import { getLicenceOrder, getOrderCodeHints } from "@/server/digital-products/store";
 import { formatMinor } from "@/server/integrations/prestashop/payload";
 import { defaultPrestashopInvoiceDeps } from "@/server/integrations/prestashop/service";
 import { firstParam, formatDateTime, SectionHeader } from "../../_components/ui";
-import { sendReviewedOrderAction } from "../actions";
+import { notifyShopAction } from "../actions";
+import { ReviewComposer, type ComposerDocument } from "./review-composer";
 import { ReviewDocuments, type ReviewDocument } from "./review-documents";
-import { SendButton } from "./send-button";
 
 export const dynamic = "force-dynamic";
+/** "Envoyer" renders the PDFs, sends the e-mail, then calls the shop. */
+export const maxDuration = 120;
 
 type Params = { id: string };
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -61,13 +64,14 @@ export default async function DigitalOrderReviewPage({
         return {
           id: licence.id,
           number: licence.number,
+          filename: licencePdfFilename(licence),
           product: getDigitalProductVariant(licence.productSku)?.label ?? licence.productSku,
           quantity: licence.quantity,
           status: licence.status,
           codes: hints.map((hint) => maskLicenceCode(hint.codeHint, format)),
         };
       }),
-    ).then((rows) => rows.filter((row) => row !== null)),
+    ).then((rows) => uniqueFilenames(rows.filter((row) => row !== null))),
   ]);
 
   const completed = review.status === "COMPLETED";
@@ -92,15 +96,19 @@ export default async function DigitalOrderReviewPage({
   }
 
   const documents: ReviewDocument[] = [
-    ...(invoice ? [{ id: "invoice", title: `Facture ${invoice.number}`, href: `/api/factures/${invoice.id}/pdf` }] : []),
+    ...(invoice ? [{ id: "invoice", title: invoice.number, href: `/api/factures/${invoice.id}/pdf` }] : []),
     ...licences.map((licence) => ({
       id: licence.id,
-      title: `Licence ${licence.number}`,
+      title: licence.filename.replace(/\.pdf$/, ""),
       href: `/api/produits-digitaux/licences/${licence.id}/pdf?disposition=inline`,
     })),
   ];
+  const composerDocuments: ComposerDocument[] = [
+    ...(invoice ? [{ id: "invoice", kind: "invoice" as const, filename: invoiceFilename(invoice.number) }] : []),
+    ...licences.map((licence) => ({ id: licence.id, kind: "licence" as const, filename: licence.filename })),
+  ];
   const sent = firstParam(query.envoye);
-  const sendError = firstParam(query.erreur);
+  const shop = completed && payload && (review.shopNotifyResult || payload.callbackUrl) ? shopNotice(review.shopNotifyResult) : null;
   const totals = payload?.invoice.totals;
   const currency = payload?.invoice.order.currency ?? invoice?.currency ?? "";
 
@@ -120,16 +128,24 @@ export default async function DigitalOrderReviewPage({
       {sent ? (
         <Alert
           variant="success"
-          title={sent === "deja" ? "Cette commande avait déjà été envoyée." : "E-mail envoyé au client avec la facture et les licences."}
-          description="PrestaShop passera la commande à « Livré » au prochain affichage de la commande ou au prochain passage de la tâche planifiée."
+          title={sent === "deja" ? "Cette commande avait déjà été envoyée." : "E-mail envoyé au client."}
+          description={shop?.ok ? shop.text : undefined}
         />
       ) : null}
-      {sendError ? <Alert variant="error" title="L’envoi a échoué." description={sendError} /> : null}
+      {shop && !shop.ok ? (
+        <div className="space-y-3">
+          <Alert variant="warning" title="PrestaShop n’a pas encore été mis à jour." description={shop.text} />
+          <form action={notifyShopAction}>
+            <input type="hidden" name="fulfilmentId" value={review.id} />
+            <Button type="submit" variant="secondary">Mettre à jour PrestaShop</Button>
+          </form>
+        </div>
+      ) : null}
       {completed && !sent ? (
         <Alert
           variant="success"
           title="Commande déjà envoyée."
-          description={`E-mail « ${review.emailSubject ?? ""} » envoyé à ${review.emailTo ?? "—"} le ${formatDateTime(review.emailSentAt)}.`}
+          description={`E-mail « ${review.emailSubject ?? ""} » envoyé à ${review.emailTo ?? "—"} le ${formatDateTime(review.emailSentAt)}.${shop?.ok ? ` ${shop.text}` : ""}`}
         />
       ) : null}
       {!completed && !awaiting ? (
@@ -139,7 +155,7 @@ export default async function DigitalOrderReviewPage({
           description={review.lastErrorCode ? `Dernier état : ${review.lastErrorCode}. Relancez-la depuis PrestaShop si nécessaire.` : undefined}
         />
       ) : null}
-      {lastSendFailed && !sendError ? (
+      {lastSendFailed ? (
         <Alert variant="warning" title="Le dernier envoi a échoué." description={`Code : ${review.lastErrorCode}. Vous pouvez réessayer.`} />
       ) : null}
 
@@ -196,27 +212,16 @@ export default async function DigitalOrderReviewPage({
         <section className="card p-5 lg:col-span-2" aria-labelledby="email-preview">
           <h2 id="email-preview" className="mb-4 font-semibold text-zinc-900 dark:text-zinc-100">E-mail au client</h2>
           {emailError ? <Alert variant="error" title="Aperçu indisponible" description={emailError} /> : null}
-          {email ? (
-            <>
-              <dl className="mb-4 grid gap-2 text-sm sm:grid-cols-[8rem_1fr]">
-                <dt className="text-zinc-500 dark:text-zinc-400">À</dt>
-                <dd className="text-zinc-900 dark:text-zinc-100">{email.to}</dd>
-                <dt className="text-zinc-500 dark:text-zinc-400">Objet</dt>
-                <dd className="font-medium text-zinc-900 dark:text-zinc-100">{email.subject}</dd>
-                <dt className="text-zinc-500 dark:text-zinc-400">Pièces jointes</dt>
-                <dd className="text-zinc-900 dark:text-zinc-100">{documents.map((doc) => doc.title).join(" · ")}</dd>
-              </dl>
-              {/* Sanitized server-side. Sandboxed without allow-scripts: no script, form,
-                  popup or navigation can run. allow-same-origin is only there because
-                  an opaque-origin srcdoc frame cannot render under the app's CSP. */}
-              <iframe
-                title="Aperçu de l’e-mail"
-                sandbox="allow-same-origin"
-                referrerPolicy="no-referrer"
-                srcDoc={email.html}
-                className="h-[420px] w-full rounded-md border border-zinc-200 bg-white dark:border-zinc-800"
-              />
-            </>
+          {email && awaiting ? (
+            <ReviewComposer
+              fulfilmentId={review.id}
+              reviewVersion={reviewVersionOf(review)}
+              to={email.to}
+              initialSubject={email.subject}
+              initialHtml={email.html}
+              documents={composerDocuments}
+              sendIssue={email.sendIssue}
+            />
           ) : null}
           {completed ? <p className="text-sm text-zinc-600 dark:text-zinc-300">L’e-mail a été envoyé.</p> : null}
         </section>
@@ -228,22 +233,23 @@ export default async function DigitalOrderReviewPage({
           <ReviewDocuments documents={documents} />
         </section>
       ) : null}
-
-      {awaiting ? (
-        <section className="card sticky bottom-0 z-10 flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
-          {email?.sendIssue ? (
-            <Alert variant="error" title="Envoi impossible pour le moment" description={email.sendIssue} />
-          ) : (
-            <p className="text-sm text-zinc-600 dark:text-zinc-300">
-              Le client recevra cet e-mail avec les pièces jointes ci-dessus.
-            </p>
-          )}
-          <form action={sendReviewedOrderAction}>
-            <input type="hidden" name="fulfilmentId" value={review.id} />
-            <SendButton recipient={email?.to ?? payload?.invoice.customer.email ?? ""} disabled={!email || Boolean(email.sendIssue)} />
-          </form>
-        </section>
-      ) : null}
     </div>
   );
+}
+
+/** What the shop answered when told that the order was sent. */
+function shopNotice(result: string | null): { ok: boolean; text: string } {
+  switch (result) {
+    case "delivered":
+      return { ok: true, text: "La commande est passée à « Livré » dans PrestaShop." };
+    case "mixed":
+      return { ok: true, text: "La commande contient aussi d’autres articles : PrestaShop a enregistré les licences sans changer son statut." };
+    case "unchanged":
+      return { ok: true, text: "PrestaShop a enregistré la livraison ; le statut de la commande n’a pas changé." };
+    case "CALLBACK_NOT_PROVIDED":
+    case null:
+      return { ok: false, text: "Cette commande a été préparée avec une version du module sans mise à jour immédiate : ouvrez-la dans PrestaShop pour actualiser son statut." };
+    default:
+      return { ok: false, text: `L’appel à PrestaShop a échoué (${result}). L’e-mail est bien parti et ne sera pas renvoyé.` };
+  }
 }

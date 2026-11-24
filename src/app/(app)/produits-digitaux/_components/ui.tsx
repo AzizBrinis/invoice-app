@@ -172,6 +172,7 @@ const EVENT_LABELS: Record<string, string> = {
   CODES_IMPORTED: "Codes importés",
   CODE_REVOKED: "Code retiré",
   ORDER_CREATED: "Licence créée (codes réservés)",
+  REQUEST_UPDATED: "Destinataire ou commande mis à jour par la boutique",
   PDF_GENERATED: "PDF généré (codes utilisés)",
   PDF_DOWNLOADED: "PDF re-téléchargé",
   PDF_FAILED: "Échec de génération du PDF",

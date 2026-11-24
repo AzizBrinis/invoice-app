@@ -105,9 +105,8 @@ describe("IDM catalogue", () => {
       ],
     });
     expect(order.success).toBe(true);
-    expect(licencePdfFilename({ number: "LIC-20261123-ABC123", productSku: IDM_LIFETIME_SKU })).toBe(
-      "licence-idm-1p-lifetime-LIC-20261123-ABC123.pdf",
-    );
+    expect(licencePdfFilename({ number: "LIC-1", productSku: IDM_LIFETIME_SKU, orderReference: "018348" })).toBe("IDMC018348.pdf");
+    expect(licencePdfFilename({ number: "LIC-1", productSku: IDM_ANNUAL_SKU })).toBe("IDMCLIC-1.pdf");
   });
 });
 
@@ -115,13 +114,10 @@ describe("IDM licence certificate", () => {
   const annual = getIdmVariant(IDM_ANNUAL_SKU)!;
   const lifetime = getIdmVariant(IDM_LIFETIME_SKU)!;
 
-  it("prints one certificate per serial with the order details", () => {
+  it("prints one certificate per serial without any order information", () => {
     const html = buildIdmLicenceHtml({
       variant: annual,
       codes: [SERIAL_A, SERIAL_B],
-      licenceNumber: "LIC-20261123-ABC123",
-      orderReference: "XKBKNABJK",
-      customerName: "Amine Ben Salah",
       useBefore: "2026-12-01",
       seller: DEFAULT_SELLER_BRANDING,
     });
@@ -131,9 +127,7 @@ describe("IDM licence certificate", () => {
     expect(html).toContain('<span class="plan-pill">1 an · 1 PC</span>');
     expect(html).toContain("Validité · 1 an");
     expect(html).toContain("Votre licence <span>Internet Download</span><span>Manager</span>");
-    expect(html).toContain("LIC-20261123-ABC123");
-    expect(html).toContain("XKBKNABJK");
-    expect(html).toContain("Amine Ben Salah");
+    expect(html).not.toMatch(/N° de licence|Commande :|Client :|LIC-/);
     expect(html).toContain("1er décembre 2026");
     expect(html).toContain("1 / 2");
     expect(html).toContain("2 / 2");
@@ -152,7 +146,6 @@ describe("IDM licence certificate", () => {
     const html = buildIdmLicenceHtml({
       variant: lifetime,
       codes: [SERIAL_A],
-      licenceNumber: "LIC-1",
       seller: DEFAULT_SELLER_BRANDING,
     });
     expect(html).toContain('<span class="plan-pill">À vie · 1 PC</span>');
@@ -164,22 +157,19 @@ describe("IDM licence certificate", () => {
     const html = buildIdmLicenceHtml({
       variant: annual,
       codes: [SERIAL_A],
-      licenceNumber: "LIC-<1>",
-      orderReference: '"><img src=x onerror=alert(1)>',
-      customerName: "<script>alert(1)</script>",
+      activationRegion: '<script>alert(1)</script>"><img src=x onerror=alert(1)>',
       seller: { name: "Acme & Co", email: "help@acme.test", phone: "+216 70 000 000", website: "acme.test" },
     });
     expect(html).not.toContain("<script>alert(1)</script>");
     expect(html).not.toContain("<img src=x");
     expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
-    expect(html).toContain("LIC-&lt;1&gt;");
     expect(html).toContain('<span class="brand-text">Acme &amp; Co</span>');
     expect(html).toContain("help@acme.test");
     expect(html).not.toContain("data:image/png");
   });
 
   it("is selected by the shared renderer for IDM only", () => {
-    const common = { codes: [SERIAL_A], licenceNumber: "LIC-1", seller: DEFAULT_SELLER_BRANDING };
+    const common = { codes: [SERIAL_A], seller: DEFAULT_SELLER_BRANDING };
     const idm = buildLicenceDocumentHtml({ ...common, variant: lifetime });
     expect(idm).toContain("Certificat de licence Internet Download Manager | À vie | 1 PC");
     const kaspersky = buildLicenceDocumentHtml({ ...common, variant: getDigitalProductVariant("kaspersky-plus-3p-1y")! });

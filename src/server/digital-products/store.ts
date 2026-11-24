@@ -464,6 +464,46 @@ export async function createLicenceOrderWithAllocation(
   throw new Error("Impossible d’attribuer un numéro de licence unique.");
 }
 
+/**
+ * Same order line asked again with other customer details before anything was
+ * delivered (e.g. a corrected e-mail): the licence keeps its codes and takes
+ * the new request. Returns false once delivered or cancelled.
+ */
+export async function adoptUndeliveredLicenceRequest(params: {
+  tenantId: string;
+  orderId: string;
+  requestHash: string;
+  customerName: string | null;
+  customerEmail: string | null;
+  orderReference: string | null;
+  actor: string;
+}): Promise<boolean> {
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
+      UPDATE "DigitalLicenceOrder"
+      SET "requestHash" = ${params.requestHash}, "customerName" = ${params.customerName},
+          "customerEmail" = ${params.customerEmail}, "orderReference" = ${params.orderReference},
+          "updatedAt" = NOW()
+      WHERE "userId" = ${params.tenantId} AND "id" = ${params.orderId} AND "status" IN ('PENDING', 'GENERATED')
+      RETURNING "id"
+    `);
+    if (updated.length !== 1) return false;
+    // Who receives the codes may have changed: kept in the audit trail (without the address).
+    await insertEvent(tx, {
+      tenantId: params.tenantId,
+      type: "REQUEST_UPDATED",
+      actor: params.actor,
+      orderId: params.orderId,
+    });
+    return true;
+  });
+}
+
+/** Licence already created for an idempotency key, if any. */
+export async function findLicenceOrderByKey(tenantId: string, idempotencyKey: string) {
+  return selectOrder(prisma, tenantId, Prisma.sql`o."idempotencyKey" = ${idempotencyKey}`);
+}
+
 export async function getLicenceOrder(tenantId: string, orderId: string) {
   return selectOrder(prisma, tenantId, Prisma.sql`o."id" = ${orderId}`);
 }

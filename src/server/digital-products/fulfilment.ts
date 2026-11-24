@@ -16,26 +16,42 @@ import {
   type LogFields,
 } from "@/server/digital-products/api";
 import {
+  countCodesReleasedLastHour,
+  loadDeliveryPolicy,
+  type DeliveryPolicy,
+} from "@/server/digital-products/delivery-policy";
+import {
   AWAITING_APPROVAL_CODE,
   isAwaitingApproval,
   markLicenceOrdersDelivered,
   postgresFulfilmentStore,
   type FulfilmentRecord,
+  type FulfilmentReview,
   type FulfilmentStore,
 } from "@/server/digital-products/fulfilment-store";
 import {
+  hashLicenceRequest,
   LicenceOrderStateError,
   parseLicenceRequest,
   renderLicenceOrderPdf,
   requestLicenceDocument,
+  uniqueFilenames,
 } from "@/server/digital-products/licences";
 import { LicenceEncryptionConfigError } from "@/server/digital-products/licence-crypto";
+import type { EmailAttachment } from "@/server/messaging";
 import {
   OrderEmailError,
   orderEmailSubject,
   sendDigitalOrderEmail,
 } from "@/server/digital-products/order-email";
 import {
+  callbackUrlIssue,
+  checkShopOrder,
+  notifyShopOrderSent,
+  type ShopCallbackResult,
+} from "@/server/digital-products/shop-callback";
+import {
+  adoptUndeliveredLicenceRequest,
   getLicenceOrder,
   getOrderCodeHints,
   InsufficientLicenceStockError,
@@ -56,6 +72,8 @@ import {
   defaultPrestashopInvoiceDeps,
   processPrestashopInvoice,
   safeErrorName,
+  validatePrestashopInvoice,
+  type InvoiceCoreError,
   type InvoiceSummary,
   type PrestashopInvoiceDeps,
 } from "@/server/integrations/prestashop/service";
@@ -103,6 +121,12 @@ export type DigitalOrderDeps = {
   getLicenceOrder: (tenantId: string, orderId: string) => Promise<LicenceOrderRecord | null>;
   findInvoiceForOrder: (tenantUserId: string, shopId: string, orderId: string) => Promise<string | null>;
   sendEmail: typeof sendDigitalOrderEmail;
+  adoptLicence: typeof adoptUndeliveredLicenceRequest;
+  notifyShop: typeof notifyShopOrderSent;
+  checkShop: typeof checkShopOrder;
+  validateInvoice: typeof validatePrestashopInvoice;
+  policy: () => DeliveryPolicy;
+  countReleasedCodes: typeof countCodesReleasedLastHour;
   markDelivered: typeof markLicenceOrdersDelivered;
   requirePaidOrder: () => boolean;
   log: (level: "info" | "warn" | "error", event: string, fields: LogFields) => void;
@@ -138,6 +162,12 @@ const defaultDeps: DigitalOrderDeps = {
   findInvoiceForOrder: (tenant, shop, order) =>
     postgresPrestashopInvoiceStore.findInvoiceForOrder(tenant, shop, order),
   sendEmail: sendDigitalOrderEmail,
+  adoptLicence: adoptUndeliveredLicenceRequest,
+  notifyShop: notifyShopOrderSent,
+  checkShop: checkShopOrder,
+  validateInvoice: validatePrestashopInvoice,
+  policy: () => loadDeliveryPolicy(),
+  countReleasedCodes: countCodesReleasedLastHour,
   markDelivered: markLicenceOrdersDelivered,
   requirePaidOrder: () => requirePaidOrderFromEnv(),
   log: (level, event, fields) => console[level]("[digital-orders]", { event, ...fields }),
@@ -162,6 +192,14 @@ export const digitalOrderPayloadSchema = z.strictObject({
    * "status": read-only; the delivered order is replayed, otherwise 409.
    */
   mode: z.enum(["deliver", "review", "status"]).optional(),
+  /** Module >= 1.7.2, mode "review": shop URL told when the order is sent (see shop-callback.ts). */
+  callbackUrl: z
+    .string()
+    .max(500)
+    .refine((value) => callbackUrlIssue(value) === null, { message: "Adresse de notification refusée" })
+    .optional(),
+  /** Module >= 1.7.3: the callback URL also answers "order.check" (is the order still paid and unchanged?). */
+  paymentCheck: z.boolean().optional(),
   /** Same order payload as POST /api/integrations/prestashop/invoices. */
   invoice: prestashopOrderPayloadSchema,
   /** Instant-delivery lines of the order (PrestaShop id_order_detail). */
@@ -207,9 +245,11 @@ export function licenceLineKey(payload: PrestashopOrderPayload, line: { lineId: 
 /**
  * Payment gate for instant delivery. Activation codes cannot be taken back,
  * so they are only released for an order PrestaShop reports as paid in full.
- * Opt-out (not recommended): DIGITAL_ORDER_REQUIRE_PAYMENT=false.
+ * Opt-out for development only: DIGITAL_ORDER_REQUIRE_PAYMENT=false (ignored
+ * in production).
  */
 export function requirePaidOrderFromEnv(env: Record<string, string | undefined> = process.env) {
+  if (env.NODE_ENV === "production") return true;
   const raw = env.DIGITAL_ORDER_REQUIRE_PAYMENT?.trim().toLowerCase();
   return !(raw && ["0", "false", "no", "off"].includes(raw));
 }
@@ -298,6 +338,12 @@ export async function handleDigitalOrderRequest(
   logContext.shopId = order.shop.id;
   logContext.orderId = order.order.id;
 
+  const { allowedShopIds } = invoiceConfig.config;
+  if (allowedShopIds && !allowedShopIds.has(String(order.shop.id))) {
+    log("warn", "shop_not_allowed");
+    return respondError({ status: 403, code: "SHOP_NOT_ALLOWED", message: "Boutique non autorisée.", retryable: false });
+  }
+
   if (payload.mode === "status") {
     // Read-only: never claims, allocates, invoices or e-mails.
     const existing = await deps.store.findByOrder(tenantId, String(order.shop.id), String(order.order.id));
@@ -324,6 +370,7 @@ export async function handleDigitalOrderRequest(
     keyId: verification.keyId,
     idempotencyKey: verification.idempotencyKey,
     actor: `api:${verification.keyId}`,
+    automatic: payload.mode !== "review" && payload.mode !== "status",
     log,
   });
   if ("fail" in outcome) return respondError(outcome.fail);
@@ -390,6 +437,12 @@ async function runDigitalOrder(params: {
   keyId: string;
   idempotencyKey: string;
   actor: string;
+  /** Delivery nobody looks at (API, mode "deliver"): holds reviewed orders and applies the delivery policy. */
+  automatic?: boolean;
+  /** "Envoyer": attempt counter of the request being sent (see FulfilmentClaimInput). */
+  expectedAttempts?: number;
+  /** Set when an administrator sends from the review page. */
+  reviewedEmail?: ReviewedEmail;
   log: (level: "info" | "warn" | "error", event: string, fields?: LogFields) => void;
 }): Promise<RunOutcome> {
   const { deps, payload, tenantId, log } = params;
@@ -403,6 +456,8 @@ async function runDigitalOrder(params: {
     orderReference: order.order.reference,
     idempotencyKey: params.idempotencyKey,
     requestHash: sha256Hex(JSON.stringify(payload)),
+    holdIfReviewed: params.automatic,
+    expectedAttempts: params.expectedAttempts,
   });
   if (claim.kind === "idempotency_key_reused") {
     return {
@@ -425,6 +480,26 @@ async function runDigitalOrder(params: {
       },
     };
   }
+  if (claim.kind === "awaiting_review") {
+    // Prepared for an administrator: an automatic request may not e-mail it instead.
+    log("warn", "automatic_delivery_held", { fulfilmentId: claim.record.id });
+    if (deps.requirePaidOrder() && unpaidOrderReason(order, params.invoiceConfig.totalTolerance)) {
+      await deps.store.refuseReview(claim.record.id, "ORDER_NOT_PAID", claim.record.attempts).catch(() => undefined);
+    }
+    return {
+      fail: {
+        status: 409,
+        code: AWAITING_APPROVAL_CODE,
+        message: "Commande en attente de validation dans invoice-app.",
+        retryable: false,
+        details: { reviewPath: reviewPathFor(claim.record.id) },
+      },
+    };
+  }
+  if (claim.kind === "changed") {
+    log("warn", "review_changed");
+    return { fail: REVIEW_CHANGED };
+  }
 
   const record = claim.record;
   const replay = claim.kind === "completed";
@@ -434,6 +509,7 @@ async function runDigitalOrder(params: {
     const unpaid = unpaidOrderReason(order, params.invoiceConfig.totalTolerance);
     if (unpaid) {
       await deps.store.markFailed(record.id, "ORDER_NOT_PAID").catch(() => undefined);
+      await deps.store.clearReview(record.id).catch(() => undefined);
       log("warn", "order_not_paid", { reason: unpaid });
       return {
         fail: {
@@ -448,6 +524,22 @@ async function runDigitalOrder(params: {
 
   const review = payload.mode === "review" && !replay;
 
+  // --- Anti-fraud limits (automatic deliveries whose e-mail is not out yet) ----
+  if (params.automatic && !replay && !record.emailSentAt) {
+    let held: Fail | null;
+    try {
+      held = await deliveryPolicyFailure(deps, payload, tenantId);
+    } catch (error) {
+      log("error", "unexpected_error", { error: safeErrorName(error) });
+      held = { status: 500, code: "INTERNAL_ERROR", message: "Erreur interne.", retryable: true };
+    }
+    if (held) {
+      await deps.store.markFailed(record.id, held.code).catch(() => undefined);
+      log("error", "delivery_held", { code: held.code });
+      return { fail: held };
+    }
+  }
+
   try {
     const result = await fulfil({
       deps,
@@ -459,11 +551,15 @@ async function runDigitalOrder(params: {
       invoiceConfig: params.invoiceConfig,
       keyId: params.keyId,
       actor: params.actor,
+      reviewedEmail: params.reviewedEmail,
       idempotencyKey: params.idempotencyKey,
       log,
     });
     if ("fail" in result) {
       if (!replay) await deps.store.markFailed(record.id, result.fail.code).catch(() => undefined);
+      // The shop's order changed since the last review (or cannot be prepared any
+      // more): what was stored before must not be sent.
+      if (review) await deps.store.clearReview(record.id).catch(() => undefined);
       log(result.fail.retryable ? "warn" : "error", "fulfilment_failed", { code: result.fail.code });
       return { fail: result.fail };
     }
@@ -487,9 +583,107 @@ async function runDigitalOrder(params: {
   }
 }
 
+const REVIEW_CHANGED: Fail = {
+  status: 409,
+  code: "REVIEW_CHANGED",
+  message: "La commande a changé depuis l’ouverture de cette page. Rechargez-la et vérifiez-la avant d’envoyer.",
+  retryable: false,
+};
+
+async function deliveryPolicyFailure(
+  deps: DigitalOrderDeps,
+  payload: DigitalOrderPayload,
+  tenantId: string,
+): Promise<Fail | null> {
+  const policy = deps.policy();
+  const needsReview = (message: string): Fail => ({ status: 409, code: "MANUAL_REVIEW_REQUIRED", message, retryable: false });
+  if (!policy.allowFreeOrders && thousandths(payload.invoice.totals.totalTaxIncl) === 0) {
+    return needsReview("Commande à 0 : livraison automatique refusée, à traiter manuellement.");
+  }
+  const requested = payload.licences.reduce((sum, line) => sum + line.quantity, 0);
+  if (requested > policy.maxAutoCodesPerOrder) {
+    return needsReview(`Plus de ${policy.maxAutoCodesPerOrder} licences : livraison automatique refusée, à traiter manuellement.`);
+  }
+  if (policy.maxCodesPerHour > 0) {
+    const released = await deps.countReleasedCodes(tenantId, String(payload.invoice.order.id));
+    if (released > 0 && released + requested > policy.maxCodesPerHour) {
+      return {
+        status: 429,
+        code: "DELIVERY_LIMIT_REACHED",
+        message: "Nombre de licences délivrées par heure atteint : la commande sera réessayée.",
+        retryable: true,
+        headers: { "Retry-After": "900" },
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * Identifies what an administrator is looking at: the stored order (recipient,
+ * lines, amounts), its licences and its invoice. "Envoyer" refuses to send
+ * anything else.
+ */
+export function reviewVersionOf(review: { reviewPayload: unknown; licenceOrderIds: readonly string[]; invoiceId: string | null }) {
+  return sha256Hex(JSON.stringify([review.reviewPayload ?? null, review.licenceOrderIds, review.invoiceId]));
+}
+
 export type SendReviewedOrderResult =
   | { ok: true; emailTo: string; invoiceId: string | null; invoiceNumber: string; alreadySent: boolean }
   | { ok: false; code: string; message: string };
+
+/** What the administrator decided on the review page (all optional parts already validated by the caller). */
+export type ReviewedEmail = {
+  subject: string;
+  html: string;
+  includeInvoice: boolean;
+  /** Licence documents to attach (ids of this order's licences). */
+  licenceOrderIds: string[];
+  extraAttachments: EmailAttachment[];
+};
+
+/**
+ * Tells the shop that a reviewed order was sent, so that it becomes "Livré"
+ * now. Never throws and never undoes the send; the shop's own checks (order
+ * page, cron) remain the fallback.
+ */
+export async function notifyShopForReview(
+  params: { tenantId: string; fulfilmentId: string },
+  overrides: Partial<DigitalOrderDeps> = {},
+): Promise<ShopCallbackResult> {
+  const deps: DigitalOrderDeps = { ...defaultDeps, ...overrides };
+  const startedAt = Date.now();
+  let result: ShopCallbackResult;
+  const review = await deps.store.findReview(params.tenantId, params.fulfilmentId);
+  if (!review || review.status !== "COMPLETED") return { ok: false, code: "NOT_SENT" };
+  const parsed = digitalOrderPayloadSchema.safeParse(review.reviewPayload);
+  if (!parsed.success || !review.reviewKeyId || !parsed.data.callbackUrl) {
+    result = { ok: false, code: "CALLBACK_NOT_PROVIDED" };
+  } else {
+    try {
+      result = await deps.notifyShop({
+        url: parsed.data.callbackUrl,
+        keyId: review.reviewKeyId,
+        fulfilmentId: review.id,
+        shopId: parsed.data.invoice.shop.id,
+        orderId: parsed.data.invoice.order.id,
+        orderReference: parsed.data.invoice.order.reference,
+      });
+    } catch (error) {
+      result = { ok: false, code: "SHOP_UNREACHABLE" };
+      deps.log("error", "shop_notify_error", { fulfilmentId: review.id, error: safeErrorName(error) });
+    }
+  }
+  await deps.store
+    .markShopNotified(review.id, result.ok ? result.state : result.code, result.ok)
+    .catch(() => undefined);
+  deps.log(result.ok ? "info" : "warn", "shop_notified", {
+    fulfilmentId: review.id,
+    result: result.ok ? result.state : result.code,
+    durationMs: Date.now() - startedAt,
+  });
+  return result;
+}
 
 /**
  * "Envoyer" on the review page: the order kept by mode "review" goes through
@@ -497,7 +691,14 @@ export type SendReviewedOrderResult =
  * customer is e-mailed once. Only orders still awaiting review are accepted.
  */
 export async function sendReviewedDigitalOrder(
-  params: { tenantId: string; fulfilmentId: string; userId: string },
+  params: {
+    tenantId: string;
+    fulfilmentId: string;
+    userId: string;
+    email?: ReviewedEmail;
+    /** {@link reviewVersionOf} of the page the administrator approved. */
+    expectedVersion?: string;
+  },
   overrides: Partial<DigitalOrderDeps> = {},
 ): Promise<SendReviewedOrderResult> {
   const deps: DigitalOrderDeps = { ...defaultDeps, ...overrides };
@@ -513,9 +714,17 @@ export async function sendReviewedDigitalOrder(
   if (!review.reviewPayload || !review.reviewKeyId || !isAwaitingApproval({ ...review, reviewed: true })) {
     return { ok: false, code: "NOT_AWAITING_REVIEW", message: "Cette commande n’attend pas de validation." };
   }
+  if (params.expectedVersion !== undefined && params.expectedVersion !== reviewVersionOf(review)) {
+    log("warn", "review_changed");
+    return { ok: false, code: REVIEW_CHANGED.code, message: REVIEW_CHANGED.message };
+  }
   const parsed = digitalOrderPayloadSchema.safeParse(review.reviewPayload);
   if (!parsed.success) {
     return { ok: false, code: "VALIDATION_FAILED", message: "La commande enregistrée est invalide." };
+  }
+  if (!review.emailSentAt) {
+    const refused = await verifyReviewedPayment({ deps, review, payload: parsed.data, log });
+    if (refused) return refused;
   }
   const invoiceConfig = deps.loadInvoiceConfig(params.tenantId);
   if (!invoiceConfig.ok) {
@@ -530,6 +739,8 @@ export async function sendReviewedDigitalOrder(
     keyId: review.reviewKeyId,
     idempotencyKey: review.idempotencyKey,
     actor: `user:${params.userId}`,
+    expectedAttempts: review.attempts,
+    reviewedEmail: params.email,
     log,
   });
   if ("fail" in outcome) return { ok: false, code: outcome.fail.code, message: outcome.fail.message };
@@ -544,8 +755,70 @@ export async function sendReviewedDigitalOrder(
   };
 }
 
-function invoiceFilename(number: string) {
-  return `facture-${number.replace(/[^A-Za-z0-9._-]+/g, "_")}.pdf`;
+/**
+ * The stored request says "paid" as of the moment "Traiter la commande" was
+ * clicked. Before releasing codes the shop is asked whether the order is still
+ * paid, not refunded and unchanged (module >= 1.7.3). When it cannot be asked
+ * (older module, shop unreachable), that first proof is accepted for a limited
+ * time only; afterwards "Traiter la commande" must be clicked again, which
+ * checks the payment again and keeps the same licences and invoice.
+ */
+async function verifyReviewedPayment(params: {
+  deps: DigitalOrderDeps;
+  review: FulfilmentReview;
+  payload: DigitalOrderPayload;
+  log: (level: "info" | "warn" | "error", event: string, fields?: LogFields) => void;
+}): Promise<Extract<SendReviewedOrderResult, { ok: false }> | null> {
+  const { deps, review, payload, log } = params;
+  let unavailable = "CHECK_NOT_SUPPORTED";
+  if (payload.paymentCheck && payload.callbackUrl && review.reviewKeyId) {
+    try {
+      const check = await deps.checkShop({
+        url: payload.callbackUrl,
+        keyId: review.reviewKeyId,
+        fulfilmentId: review.id,
+        shopId: payload.invoice.shop.id,
+        orderId: payload.invoice.order.id,
+        orderReference: payload.invoice.order.reference,
+      });
+      if (check.ok && check.payable) {
+        log("info", "payment_confirmed_by_shop");
+        return null;
+      }
+      if (check.ok) {
+        const changed = check.reason === "ORDER_CHANGED";
+        const code = changed ? "ORDER_CHANGED" : "ORDER_NOT_PAID";
+        await deps.store.refuseReview(review.id, code, review.attempts);
+        log("error", "payment_refused_by_shop", { code });
+        return {
+          ok: false,
+          code,
+          message: changed
+            ? "La commande a été modifiée dans PrestaShop : cliquez de nouveau sur « Traiter la commande »."
+            : "PrestaShop indique que la commande n’est plus payée (annulée, remboursée…) : rien n’a été envoyé.",
+        };
+      }
+      unavailable = check.code;
+    } catch (error) {
+      unavailable = "SHOP_UNREACHABLE";
+      log("error", "payment_check_error", { error: safeErrorName(error) });
+    }
+  }
+  const age = review.reviewRequestedAt ? Date.now() - review.reviewRequestedAt.getTime() : Number.POSITIVE_INFINITY;
+  if (age <= deps.policy().reviewMaxAgeMinutes * 60_000) {
+    log("warn", "payment_check_skipped", { reason: unavailable });
+    return null;
+  }
+  log("warn", "payment_check_required", { reason: unavailable });
+  return {
+    ok: false,
+    code: "PAYMENT_CHECK_REQUIRED",
+    message: "Le paiement doit être revérifié : cliquez de nouveau sur « Traiter la commande » dans PrestaShop, puis envoyez.",
+  };
+}
+
+export function invoiceFilename(number: string) {
+  return `${number.replace(/[^A-Za-z0-9._-]+/g, "_")}.pdf`;
 }
 
 function invoiceJson(invoice: InvoiceSummary, orderId: number | string) {
@@ -596,6 +869,17 @@ type FulfilReview = {
   licences: LicenceSummary[];
 };
 
+function invoiceFailure(error: InvoiceCoreError): Fail {
+  return {
+    status: error.status,
+    code: error.code,
+    message: error.message,
+    retryable: ["SERVICE_UNAVAILABLE", "RATE_LIMITED", "REQUEST_IN_PROGRESS", "INVOICE_GENERATION_FAILED", "PDF_GENERATION_FAILED", "INTERNAL_ERROR"].includes(error.code),
+    details: error.details,
+    headers: error.headers,
+  };
+}
+
 async function fulfil(params: {
   deps: DigitalOrderDeps;
   payload: DigitalOrderPayload;
@@ -605,6 +889,7 @@ async function fulfil(params: {
   review?: boolean;
   /** Who acts (events, PDF renders): `api:<keyId>` or `user:<id>`. */
   actor?: string;
+  reviewedEmail?: ReviewedEmail;
   tenantId: string;
   invoiceConfig: PrestashopIntegrationConfig;
   keyId: string;
@@ -626,23 +911,30 @@ async function fulfil(params: {
       if (delivered) licenceOrders.push({ lineId: delivered.externalLineId ?? "", order: delivered });
     }
   }
+  // An order that cannot be invoiced must not hold activation codes.
+  if (!params.replay && !record.invoiceId) {
+    const validated = await deps.validateInvoice({ deps: deps.invoice, config: params.invoiceConfig, payload: order, log });
+    if (validated.kind === "error") return { fail: invoiceFailure(validated) };
+  }
   for (const line of params.replay ? [] : payload.licences) {
     let allocation;
+    const request = parseLicenceRequest({
+      sku: line.sku,
+      quantity: line.quantity,
+      customerName,
+      customerEmail: order.customer.email,
+      orderReference: order.order.reference,
+    });
+    const external = { source: "prestashop", orderId: String(order.order.id), lineId: line.lineId };
     try {
       allocation = await deps.requestLicence({
         tenantId,
-        request: parseLicenceRequest({
-          sku: line.sku,
-          quantity: line.quantity,
-          customerName,
-          customerEmail: order.customer.email,
-          orderReference: order.order.reference,
-        }),
+        request,
         idempotencyKey: licenceLineKey(order, line),
         source: "PRESTASHOP",
         actor,
         apiKeyId: params.keyId,
-        external: { source: "prestashop", orderId: String(order.order.id), lineId: line.lineId },
+        external,
       });
     } catch (error) {
       if (error instanceof InsufficientLicenceStockError) {
@@ -661,6 +953,28 @@ async function fulfil(params: {
       }
       throw error;
     }
+    // Asked again for review with other customer details (corrected e-mail…):
+    // same line, product and quantity, nothing delivered -> same codes.
+    if (
+      allocation.kind === "idempotency_key_reused" &&
+      params.review &&
+      allocation.order.externalOrderId === external.orderId &&
+      allocation.order.externalLineId === external.lineId &&
+      allocation.order.productSku === line.sku &&
+      allocation.order.quantity === line.quantity &&
+      (await deps.adoptLicence({
+        tenantId,
+        orderId: allocation.order.id,
+        requestHash: hashLicenceRequest(request, external),
+        customerName: request.customerName ?? null,
+        customerEmail: request.customerEmail ?? null,
+        orderReference: request.orderReference ?? null,
+        actor,
+      }))
+    ) {
+      log("info", "licence_request_adopted", { licenceOrderId: allocation.order.id });
+      allocation = { kind: "existing" as const, order: allocation.order };
+    }
     if (allocation.kind === "idempotency_key_reused") {
       return {
         fail: {
@@ -673,10 +987,17 @@ async function fulfil(params: {
       };
     }
     const existing = allocation.order;
+    // Same PrestaShop line reached through another key (other shop id, licence
+    // API…): its codes may only go to the customer they were reserved for, and
+    // never once delivered.
     if (
       allocation.kind === "external_line_conflict" &&
-      (existing.productSku !== line.sku || existing.quantity !== line.quantity)
+      (existing.productSku !== line.sku ||
+        existing.quantity !== line.quantity ||
+        existing.status === "DELIVERED" ||
+        existing.customerEmail?.toLowerCase() !== order.customer.email.toLowerCase())
     ) {
+      log("warn", "licence_line_conflict", { licenceOrderId: existing.id });
       return {
         fail: {
           status: 409,
@@ -724,16 +1045,7 @@ async function fulfil(params: {
       }
       log("info", "existing_invoice_reused", { invoiceId });
     } else {
-      return {
-        fail: {
-          status: core.status,
-          code: core.code,
-          message: core.message,
-          retryable: ["SERVICE_UNAVAILABLE", "RATE_LIMITED", "REQUEST_IN_PROGRESS", "INVOICE_GENERATION_FAILED", "PDF_GENERATION_FAILED", "INTERNAL_ERROR"].includes(core.code),
-          details: core.details,
-          headers: core.headers,
-        },
-      };
+      return { fail: invoiceFailure(core) };
     }
     await deps.store.saveProgress(record.id, { invoiceId });
   }
@@ -769,15 +1081,16 @@ async function fulfil(params: {
 
   // 3. PDFs (the licence render marks codes USED on first success).
   let invoicePdf: Uint8Array;
-  const licencePdfs: Array<{ filename: string; content: Buffer }> = [];
+  let licencePdfs: Array<{ id: string; filename: string; content: Buffer }> = [];
   try {
     invoicePdf = await deps.invoice.renderPdf(tenantId, invoice.id);
     // Licence PDFs only travel with the e-mail, which a replay never resends.
     for (const entry of params.replay ? [] : licenceOrders) {
       const rendered = await deps.renderLicencePdf({ tenantId, orderId: entry.order.id, actor });
       entry.order = rendered.order;
-      licencePdfs.push({ filename: rendered.filename, content: rendered.pdf });
+      licencePdfs.push({ id: entry.order.id, filename: rendered.filename, content: rendered.pdf });
     }
+    licencePdfs = uniqueFilenames(licencePdfs);
   } catch (error) {
     if (error instanceof LicenceOrderStateError) {
       return { fail: { status: 409, code: "LICENCE_CANCELLED", message: error.message, retryable: false } };
@@ -793,6 +1106,7 @@ async function fulfil(params: {
   };
 
   // 4. Customer e-mail, exactly once per order.
+  const reviewed = params.reviewedEmail;
   let email = record.emailSentAt
     ? { to: record.emailTo ?? order.customer.email, subject: record.emailSubject ?? orderEmailSubject(order.order.reference), sentAt: record.emailSentAt }
     : null;
@@ -809,10 +1123,14 @@ async function fulfil(params: {
         invoiceId: invoice.id,
         invoiceNumber: invoice.number,
         licenceNumbers: licenceOrders.map((entry) => entry.order.number),
-        attachments: [
-          invoiceAttachment,
-          ...licencePdfs.map((pdf) => ({ ...pdf, contentType: "application/pdf" })),
-        ],
+        attachments: uniqueFilenames([
+          ...(reviewed && !reviewed.includeInvoice ? [] : [invoiceAttachment]),
+          ...licencePdfs
+            .filter((pdf) => !reviewed || reviewed.licenceOrderIds.includes(pdf.id))
+            .map((pdf) => ({ filename: pdf.filename, content: pdf.content, contentType: "application/pdf" })),
+          ...(reviewed?.extraAttachments ?? []),
+        ]),
+        override: reviewed ? { subject: reviewed.subject, html: reviewed.html } : null,
       });
       // The e-mail is out: recording it must not be lost to a transient DB
       // error, otherwise the next retry would e-mail the customer again.

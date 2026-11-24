@@ -1,5 +1,6 @@
 "use server";
 
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import type { Route } from "next";
 import { z } from "zod";
@@ -9,6 +10,7 @@ import {
   getPendingAccountInvitation,
   setSessionActiveTenant,
 } from "@/server/accounts";
+import { allowLoginAttempt } from "@/server/security/login-throttle";
 
 const loginSchema = z.object({
   email: z.string().email({ message: "Adresse e-mail invalide" }),
@@ -43,6 +45,9 @@ export async function authenticate(
   }
 
   try {
+    if (!(await allowLoginAttempt(await headers(), parsed.data.email))) {
+      return { message: "Trop de tentatives de connexion. Réessayez dans 15 minutes." };
+    }
     const invitationToken = parsed.data.invitationToken?.trim() || null;
     const normalizedEmail = parsed.data.email.trim().toLowerCase();
 

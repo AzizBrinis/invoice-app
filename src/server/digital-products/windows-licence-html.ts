@@ -25,9 +25,6 @@ import {
 export type WindowsLicenceDocumentInput = {
   variant: WindowsVariant;
   codes: string[];
-  licenceNumber: string;
-  orderReference?: string | null;
-  customerName?: string | null;
   activationRegion?: string | null;
   /** YYYY-MM-DD */
   useBefore?: string | null;
@@ -224,9 +221,6 @@ function sellerContacts(seller: LicenceSellerBranding) {
 function buildMeta(input: WindowsLicenceDocumentInput, index: number) {
   const items: Array<[string, string]> = [];
   if (input.codes.length > 1) items.push(["Clé", `${index + 1} / ${input.codes.length}`]);
-  items.push(["N° de licence :", input.licenceNumber]);
-  if (input.orderReference) items.push(["Commande :", input.orderReference]);
-  if (input.customerName) items.push(["Client :", input.customerName]);
   if (input.activationRegion) items.push(["Zone d’activation :", input.activationRegion]);
   const date = formatFrenchDate(input.useBefore);
   if (date) items.push(["À activer avant le", date]);
@@ -374,7 +368,7 @@ export function buildWindowsLicenceHtml(input: WindowsLicenceDocumentInput): str
     throw new Error("A licence document needs at least one code");
   }
   const pageCount = input.codes.length + 1;
-  const title = `Licence ${input.variant.label} — ${input.licenceNumber}`;
+  const title = `Licence ${input.variant.label}`;
   return `<!DOCTYPE html>
 <html lang="fr">
 <head>

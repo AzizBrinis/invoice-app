@@ -80,6 +80,9 @@ export async function hashPassword(password: string) {
   return bcrypt.hash(password, 12);
 }
 
+/** bcrypt hash (cost 12) of a random value nobody knows. */
+const UNKNOWN_USER_HASH = "$2b$12$ZuWgCjXzOcQVm3k9Ob8KIOc.ro.V0GfBoGYAunMOxY7E7S6UFuIPm";
+
 export async function verifyPassword(
   password: string,
   hash: string,
@@ -211,6 +214,8 @@ export async function signIn(
   });
 
   if (!user) {
+    // Same work as a wrong password: the answer time must not tell which e-mails have an account.
+    await verifyPassword(password, UNKNOWN_USER_HASH);
     return null;
   }
 

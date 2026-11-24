@@ -14,11 +14,14 @@ import {
   licenceLineKey,
   loadFulfilmentInvoiceConfig,
   requirePaidOrderFromEnv,
+  reviewVersionOf,
+  notifyShopForReview,
   sendReviewedDigitalOrder,
   unpaidOrderReason,
   type DigitalOrderDeps,
 } from "@/server/digital-products/fulfilment";
-import type { FulfilmentClaim, FulfilmentRecord, FulfilmentStore } from "@/server/digital-products/fulfilment-store";
+import type { FulfilmentClaim, FulfilmentClaimInput, FulfilmentRecord, FulfilmentStore } from "@/server/digital-products/fulfilment-store";
+import { loadDeliveryPolicy } from "@/server/digital-products/delivery-policy";
 import { OrderEmailError } from "@/server/digital-products/order-email";
 import { InsufficientLicenceStockError, type LicenceOrderRecord } from "@/server/digital-products/store";
 import { hashLicenceRequest, parseLicenceRequest } from "@/server/digital-products/licences";
@@ -101,11 +104,21 @@ class MemoryStore implements FulfilmentStore {
     return {
       ...this.record, userId: TENANT, shopId: "1", externalOrderId: "4521", orderReference: "XKBKNABJK",
       reviewPayload: this.review?.payload ?? null, reviewKeyId: this.review?.keyId ?? null,
-      reviewRequestedAt: this.review ? new Date() : null, updatedAt: new Date(),
+      reviewRequestedAt: this.review ? this.reviewRequestedAt : null, updatedAt: new Date(),
+      shopNotifiedAt: null, shopNotifyResult: this.notified,
     };
   }
+  notified: string | null = null;
+  async clearReview() { if (this.record!.status !== "COMPLETED") this.review = null; }
+  async markShopNotified(_id: string, result: string) { this.notified = result; }
+  reviewRequestedAt = new Date();
+  async refuseReview(_id: string, code: string, attempts: number) {
+    if (this.record!.status !== "FAILED" || this.record!.attempts !== attempts) return;
+    this.record!.lastErrorCode = code;
+    this.review = null;
+  }
   async markSentBy(_id: string, userId: string) { this.sentBy = userId; }
-  async claim(): Promise<FulfilmentClaim> {
+  async claim(input?: FulfilmentClaimInput): Promise<FulfilmentClaim> {
     if (!this.record) {
       this.record = {
         id: "dlful-1", status: "PROCESSING", idempotencyKey: "ps-1-4521", requestHash: "h", invoiceId: null,
@@ -115,6 +128,8 @@ class MemoryStore implements FulfilmentStore {
     }
     if (this.record.status === "COMPLETED") return { kind: "completed", record: { ...this.record } };
     if (this.record.status === "PROCESSING") return { kind: "in_progress" };
+    if (input?.holdIfReviewed && this.review) return { kind: "awaiting_review", record: { ...this.record } };
+    if (input?.expectedAttempts !== undefined && input.expectedAttempts !== this.record.attempts) return { kind: "changed" };
     this.record.status = "PROCESSING";
     this.record.attempts += 1;
     return { kind: "claimed", record: { ...this.record } };
@@ -176,6 +191,12 @@ function makeDeps() {
     getLicenceOrder: async (_tenant, id) => [...licences.values()].find((order) => order.id === id) ?? null,
     findInvoiceForOrder: async () => "inv-existing",
     sendEmail,
+    adoptLicence: vi.fn(async () => true),
+    notifyShop: vi.fn(async () => ({ ok: true as const, state: "delivered" as const })),
+    checkShop: vi.fn(async () => ({ ok: true as const, payable: true as const })),
+    validateInvoice: vi.fn(async () => ({ kind: "ok" as const, mapped: {} as never })),
+    policy: () => loadDeliveryPolicy({}),
+    countReleasedCodes: vi.fn(async () => 0),
     markDelivered,
     log: (_level, event, fields) => logs.push(JSON.stringify({ event, ...fields })),
   };
@@ -217,7 +238,7 @@ describe("digital-order fulfilment API", () => {
     const mail = sendEmail.mock.calls[0][0];
     expect(mail).toMatchObject({ to: "Client.Test@example.com", orderReference: "XKBKNABJK", invoiceNumber: "FAC-2026-00042" });
     expect(mail.attachments.map((attachment) => attachment.filename)).toEqual([
-      "facture-FAC-2026-00042.pdf", "licence-dlord-1abcdef.pdf", "licence-dlord-2abcdef.pdf",
+      "FAC-2026-00042.pdf", "licence-dlord-1abcdef.pdf", "licence-dlord-2abcdef.pdf",
     ]);
     expect(markDelivered).toHaveBeenCalledWith(expect.objectContaining({ invoiceId: "inv-42" }));
     expect(store.record).toMatchObject({ status: "COMPLETED", invoiceId: "inv-42" });
@@ -563,7 +584,7 @@ describe("digital-order manual review (mode: review, sent from invoice-app)", ()
     expect(sent).toMatchObject({ ok: true, invoiceId: "inv-42", invoiceNumber: "FAC-2026-00042", alreadySent: false });
     expect(sendEmail).toHaveBeenCalledTimes(1);
     expect(sendEmail.mock.calls[0][0].attachments.map((file) => file.filename)).toEqual([
-      "facture-FAC-2026-00042.pdf", "licence-dlord-1abcdef.pdf", "licence-dlord-2abcdef.pdf",
+      "FAC-2026-00042.pdf", "licence-dlord-1abcdef.pdf", "licence-dlord-2abcdef.pdf",
     ]);
     expect(markDelivered).toHaveBeenCalledWith(expect.objectContaining({ actor: "user:user-7" }));
     expect(processInvoice).toHaveBeenCalledTimes(1);
@@ -641,8 +662,272 @@ describe("digital-order manual review (mode: review, sent from invoice-app)", ()
     expect(sendEmail).not.toHaveBeenCalled();
   });
 
-  it("rejects an unknown mode", async () => {
+  it("sends the edited subject, content and attachments", async () => {
+    const { deps, sendEmail, markDelivered } = makeDeps();
+    await handleDigitalOrderRequest(signed(body({ mode: "review" })), deps);
+    const extra = { filename: "FAC-2026-00042.pdf", content: Buffer.from("x"), contentType: "application/pdf" };
+    const sent = await sendReviewedDigitalOrder({
+      tenantId: TENANT, fulfilmentId: "dlful-1", userId: "u",
+      email: { subject: "Vos licences", html: "<p>Bonjour</p>", includeInvoice: true, licenceOrderIds: ["dlord-2abcdef"], extraAttachments: [extra] },
+    }, deps);
+    expect(sent).toMatchObject({ ok: true });
+    const mail = sendEmail.mock.calls[0][0];
+    expect(mail.override).toEqual({ subject: "Vos licences", html: "<p>Bonjour</p>" });
+    expect(mail.to).toBe("Client.Test@example.com");
+    expect(mail.attachments.map((file) => file.filename)).toEqual(["FAC-2026-00042.pdf", "licence-dlord-2abcdef.pdf", "FAC-2026-00042-2.pdf"]);
+    expect(markDelivered).toHaveBeenCalledTimes(1);
+  });
+
+  it("reuses the same codes when the shop asks again with a corrected e-mail", async () => {
+    const { deps, store, requestLicence } = makeDeps();
+    await handleDigitalOrderRequest(signed(body({ mode: "review" })), deps);
+    const reused = licenceOrder("dlord-1abcdef", { externalLineId: "9876" });
+    requestLicence.mockImplementationOnce(async () => ({ kind: "idempotency_key_reused", order: reused }));
+    const base = buildPayload();
+    const corrected = body({ mode: "review", invoice: { ...base, customer: { ...base.customer, email: "new@example.com" } } });
+    expect((await handleDigitalOrderRequest(signed(corrected), deps)).status).toBe(200);
+    expect(deps.adoptLicence).toHaveBeenCalledTimes(1);
+    expect((store.review?.payload as { invoice: { customer: { email: string } } }).invoice.customer.email).toBe("new@example.com");
+  });
+
+  it("never adopts another product, an automatic delivery or a delivered licence", async () => {
+    for (const [mode, overrides, adopted] of [
+      ["review", { quantity: 3 }, true], ["review", { productSku: "kaspersky-premium-5p-1y" }, true],
+      ["review", { externalOrderId: "999" }, true], ["review", {}, false], [undefined, {}, true],
+    ] as const) {
+      const { deps, requestLicence } = makeDeps();
+      deps.adoptLicence = vi.fn(async () => adopted);
+      requestLicence.mockImplementationOnce(async () => ({
+        kind: "idempotency_key_reused", order: licenceOrder("dlord-1abcdef", { externalLineId: "9876", ...overrides }),
+      }));
+      const response = await handleDigitalOrderRequest(signed(body(mode ? { mode } : {})), deps);
+      expect(response.status).toBe(409);
+      expect((await response.json()).error.code).toBe("LICENCE_REQUEST_CONFLICT");
+    }
+  });
+
+  it("a failed new review invalidates the stored one (never sends an outdated request)", async () => {
+    const { deps, requestLicence, sendEmail, store } = makeDeps();
+    await handleDigitalOrderRequest(signed(body({ mode: "review" })), deps);
+    requestLicence.mockImplementationOnce(async () => ({ kind: "idempotency_key_reused", order: licenceOrder("dlord-x", { quantity: 9 }) }));
+    expect((await handleDigitalOrderRequest(signed(body({ mode: "review" })), deps)).status).toBe(409);
+    expect(store.review).toBeNull();
+    expect(await sendReviewedDigitalOrder({ tenantId: TENANT, fulfilmentId: "dlful-1", userId: "u" }, deps)).toMatchObject({ ok: false });
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("tells the shop once sent, never before, and records the answer", async () => {
+    const { deps, store } = makeDeps();
+    const callbackUrl = "https://shop.example.com/index.php?fc=module&module=tsinvoiceapp&controller=fulfilmentnotify";
+    await handleDigitalOrderRequest(signed(body({ mode: "review", callbackUrl })), deps);
+    expect(await notifyShopForReview({ tenantId: TENANT, fulfilmentId: "dlful-1" }, deps)).toEqual({ ok: false, code: "NOT_SENT" });
+    expect(deps.notifyShop).not.toHaveBeenCalled();
+    await sendReviewedDigitalOrder({ tenantId: TENANT, fulfilmentId: "dlful-1", userId: "u" }, deps);
+    expect(await notifyShopForReview({ tenantId: "other", fulfilmentId: "dlful-1" }, deps)).toMatchObject({ ok: false });
+    expect(await notifyShopForReview({ tenantId: TENANT, fulfilmentId: "dlful-1" }, deps)).toEqual({ ok: true, state: "delivered" });
+    expect(deps.notifyShop).toHaveBeenCalledWith(expect.objectContaining({ url: callbackUrl, keyId: KEY_ID, orderId: 4521, orderReference: "XKBKNABJK" }));
+    expect(store.notified).toBe("delivered");
+    deps.notifyShop = vi.fn(async () => { throw new Error("boom"); });
+    expect(await notifyShopForReview({ tenantId: TENANT, fulfilmentId: "dlful-1" }, deps)).toEqual({ ok: false, code: "SHOP_UNREACHABLE" });
+  });
+
+  it("works with a module that sends no callback URL, and rejects an unknown mode", async () => {
     const { deps } = makeDeps();
     expect((await handleDigitalOrderRequest(signed(body({ mode: "preview" })), deps)).status).toBe(422);
+    await handleDigitalOrderRequest(signed(body({ mode: "review" })), deps);
+    await sendReviewedDigitalOrder({ tenantId: TENANT, fulfilmentId: "dlful-1", userId: "u" }, deps);
+    expect(await notifyShopForReview({ tenantId: TENANT, fulfilmentId: "dlful-1" }, deps)).toEqual({ ok: false, code: "CALLBACK_NOT_PROVIDED" });
+  });
+});
+
+describe("security audit 3: payment, approval and fraud controls", () => {
+  const callbackUrl = "https://shop.example.com/index.php?fc=module&module=tsinvoiceapp&controller=fulfilmentnotify";
+  const send = (deps: Partial<DigitalOrderDeps>, extra: Record<string, unknown> = {}) =>
+    sendReviewedDigitalOrder({ tenantId: TENANT, fulfilmentId: "dlful-1", userId: "u", ...extra }, deps);
+  const withInvoice = (patch: (base: ReturnType<typeof buildPayload>) => Record<string, unknown>, extra: Record<string, unknown> = {}) => {
+    const base = buildPayload();
+    return body({ invoice: { ...base, ...patch(base) }, ...extra });
+  };
+  beforeEach(() => {
+    processInvoice.mockReset();
+    processInvoice.mockResolvedValue({
+      kind: "ok", invoiceId: "inv-42", outcome: "created", payment: { recorded: true },
+      expectedOrderTotalMinor: 245_000, shopTimbreMinor: null,
+    });
+  });
+
+  it("asks the shop before releasing codes; a refunded or cancelled order is never sent", async () => {
+    const { deps, store, sendEmail } = makeDeps();
+    const renderLicencePdf = deps.renderLicencePdf as ReturnType<typeof vi.fn>;
+    await handleDigitalOrderRequest(signed(body({ mode: "review", callbackUrl, paymentCheck: true })), deps);
+    deps.checkShop = vi.fn(async () => ({ ok: true as const, payable: false as const, reason: "ORDER_NOT_PAID" }));
+    expect(await send(deps)).toMatchObject({ ok: false, code: "ORDER_NOT_PAID" });
+    expect(deps.checkShop).toHaveBeenCalledWith(expect.objectContaining({ url: callbackUrl, keyId: KEY_ID, orderId: 4521 }));
+    expect(sendEmail).not.toHaveBeenCalled();
+    expect(renderLicencePdf).not.toHaveBeenCalled();
+    expect(store.review).toBeNull();
+    // Not sendable again without a new "Traiter la commande".
+    deps.checkShop = vi.fn(async () => ({ ok: true as const, payable: true as const }));
+    expect(await send(deps)).toMatchObject({ ok: false, code: "NOT_AWAITING_REVIEW" });
+    await handleDigitalOrderRequest(signed(body({ mode: "review", callbackUrl, paymentCheck: true })), deps);
+    expect(await send(deps)).toMatchObject({ ok: true });
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+  });
+
+  it("an order edited in the shop must be prepared again", async () => {
+    const { deps, sendEmail } = makeDeps();
+    await handleDigitalOrderRequest(signed(body({ mode: "review", callbackUrl, paymentCheck: true })), deps);
+    deps.checkShop = vi.fn(async () => ({ ok: true as const, payable: false as const, reason: "ORDER_CHANGED" }));
+    expect(await send(deps)).toMatchObject({ ok: false, code: "ORDER_CHANGED" });
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("without an answer from the shop, the first payment proof expires", async () => {
+    for (const [extra, check] of [
+      [{}, null], // module < 1.7.3
+      [{ callbackUrl, paymentCheck: true }, async () => ({ ok: false as const, code: "SHOP_BLOCKED" })],
+      [{ callbackUrl, paymentCheck: true }, async () => { throw new Error("boom"); }],
+    ] as const) {
+      const { deps, store, sendEmail } = makeDeps();
+      if (check) deps.checkShop = vi.fn(check);
+      await handleDigitalOrderRequest(signed(body({ mode: "review", ...extra })), deps);
+      store.reviewRequestedAt = new Date(Date.now() - 121 * 60_000);
+      expect(await send(deps)).toMatchObject({ ok: false, code: "PAYMENT_CHECK_REQUIRED" });
+      expect(sendEmail).not.toHaveBeenCalled();
+      expect(store.review).not.toBeNull(); // still there: "Traiter la commande" again is enough
+      store.reviewRequestedAt = new Date(Date.now() - 10 * 60_000);
+      expect(await send(deps)).toMatchObject({ ok: true });
+    }
+  });
+
+  it("sends only what the administrator saw (recipient changed meanwhile)", async () => {
+    const { deps, sendEmail } = makeDeps();
+    await handleDigitalOrderRequest(signed(body({ mode: "review" })), deps);
+    const seen = reviewVersionOf((await deps.store!.findReview(TENANT, "dlful-1"))!);
+    await handleDigitalOrderRequest(signed(body({ mode: "review" })), deps); // unchanged: the page stays valid
+    expect(reviewVersionOf((await deps.store!.findReview(TENANT, "dlful-1"))!)).toBe(seen);
+    const changed = withInvoice((base) => ({ customer: { ...base.customer, email: "attacker@example.com" } }), { mode: "review" });
+    await handleDigitalOrderRequest(signed(changed), deps);
+    expect(await send(deps, { expectedVersion: seen })).toMatchObject({ ok: false, code: "REVIEW_CHANGED" });
+    expect(sendEmail).not.toHaveBeenCalled();
+    const now = reviewVersionOf((await deps.store!.findReview(TENANT, "dlful-1"))!);
+    expect(await send(deps, { expectedVersion: now })).toMatchObject({ ok: true });
+  });
+
+  it("a shop request arriving between the check and the send wins", async () => {
+    const { deps, store, sendEmail } = makeDeps();
+    await handleDigitalOrderRequest(signed(body({ mode: "review", callbackUrl, paymentCheck: true })), deps);
+    deps.checkShop = vi.fn(async () => {
+      store.record!.attempts += 1; // what any claim by the shop does
+      return { ok: true as const, payable: true as const };
+    });
+    expect(await send(deps)).toMatchObject({ ok: false, code: "REVIEW_CHANGED" });
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("an automatic request cannot bypass a pending review, and reporting it unpaid withdraws it", async () => {
+    const { deps, store, sendEmail } = makeDeps();
+    await handleDigitalOrderRequest(signed(body({ mode: "review" })), deps);
+    const response = await handleDigitalOrderRequest(signed(body()), deps);
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toMatchObject({ code: "AWAITING_APPROVAL", retryable: false });
+    expect(store.review).not.toBeNull();
+    const unpaid = withInvoice((base) => ({ order: { ...base.order, isPaid: false, paidAt: null } }));
+    expect((await handleDigitalOrderRequest(signed(unpaid), deps)).status).toBe(409);
+    expect(store.review).toBeNull();
+    expect(await send(deps)).toMatchObject({ ok: false, code: "NOT_AWAITING_REVIEW" });
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("never re-delivers a line's codes to someone else through another shop id or key", async () => {
+    for (const overrides of [
+      { status: "DELIVERED" as const, customerEmail: "Client.Test@example.com" },
+      { status: "GENERATED" as const, customerEmail: "victim@example.com" },
+      { status: "PENDING" as const, customerEmail: null },
+    ]) {
+      const { deps, requestLicence, sendEmail } = makeDeps();
+      requestLicence.mockImplementationOnce(async () => ({
+        kind: "external_line_conflict", order: licenceOrder("dlord-1abcdef", { externalLineId: "9876", ...overrides }),
+      }));
+      const response = await handleDigitalOrderRequest(signed(body()), deps);
+      expect(response.status).toBe(409);
+      expect((await response.json()).error.code).toBe("LICENCE_REQUEST_CONFLICT");
+      expect(sendEmail).not.toHaveBeenCalled();
+    }
+    const { deps, requestLicence } = makeDeps();
+    const same = licenceOrder("dlord-9abcdef", { status: "GENERATED", customerEmail: "client.test@example.com", externalLineId: "9876" });
+    requestLicence.mockImplementationOnce(async () => ({ kind: "external_line_conflict", order: same }));
+    deps.renderLicencePdf = vi.fn(async () => ({ order: same, pdf: LICENCE_PDF, filename: "l.pdf" }));
+    expect((await handleDigitalOrderRequest(signed(body()), deps)).status).toBe(201);
+  });
+
+  it("an order that cannot be invoiced reserves no code", async () => {
+    const { deps, requestLicence } = makeDeps();
+    deps.validateInvoice = vi.fn(async () => ({ kind: "error" as const, status: 422, code: "TOTALS_MISMATCH" as const, message: "x" }));
+    const response = await handleDigitalOrderRequest(signed(body()), deps);
+    expect(response.status).toBe(422);
+    expect((await response.json()).error).toMatchObject({ code: "TOTALS_MISMATCH", retryable: false });
+    expect(requestLicence).not.toHaveBeenCalled();
+  });
+
+  it("holds free and oversized orders for a person; a review still works", async () => {
+    const zero = "0.000000";
+    const free = withInvoice((base) => ({ totals: { ...base.totals, totalTaxIncl: zero, totalTaxExcl: zero, totalPaid: null } }));
+    const { deps, requestLicence, sendEmail } = makeDeps();
+    const response = await handleDigitalOrderRequest(signed(free), deps);
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toMatchObject({ code: "MANUAL_REVIEW_REQUIRED", retryable: false });
+    expect(requestLicence).not.toHaveBeenCalled();
+    expect((await handleDigitalOrderRequest(signed({ ...free, mode: "review" }), deps)).status).toBe(200);
+    expect(await send(deps)).toMatchObject({ ok: true });
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+
+    const allowed = makeDeps();
+    allowed.deps.policy = () => loadDeliveryPolicy({ DIGITAL_ORDER_ALLOW_FREE: "true" });
+    expect((await handleDigitalOrderRequest(signed(free), allowed.deps)).status).toBe(201);
+
+    const big = makeDeps();
+    big.deps.policy = () => loadDeliveryPolicy({ DIGITAL_ORDER_MAX_AUTO_CODES: "2" });
+    expect((await (await handleDigitalOrderRequest(signed(body()), big.deps)).json()).error.code).toBe("MANUAL_REVIEW_REQUIRED");
+  });
+
+  it("stops a burst of deliveries (stolen key) and lets the shop retry later", async () => {
+    const { deps, requestLicence, logs } = makeDeps();
+    deps.countReleasedCodes = vi.fn(async () => 198);
+    const response = await handleDigitalOrderRequest(signed(body()), deps);
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("900");
+    expect((await response.json()).error).toMatchObject({ code: "DELIVERY_LIMIT_REACHED", retryable: true });
+    expect(requestLicence).not.toHaveBeenCalled();
+    expect(logs.join()).toContain("delivery_held");
+    deps.countReleasedCodes = vi.fn(async () => 10);
+    expect((await handleDigitalOrderRequest(signed(body()), deps)).status).toBe(201);
+  });
+
+  it("fails closed when the delivery limits cannot be read", async () => {
+    const { deps, requestLicence } = makeDeps();
+    deps.countReleasedCodes = vi.fn(async () => { throw new Error("db down"); });
+    const response = await handleDigitalOrderRequest(signed(body()), deps);
+    expect(response.status).toBe(500);
+    expect(await response.text()).not.toContain("db down");
+    expect(requestLicence).not.toHaveBeenCalled();
+  });
+
+  it("refuses a shop that is not pinned", async () => {
+    const { deps, store } = makeDeps();
+    deps.loadInvoiceConfig = (tenant) => loadFulfilmentInvoiceConfig(tenant, { NODE_ENV: "production", PRESTASHOP_ALLOWED_SHOP_IDS: "7" });
+    const response = await handleDigitalOrderRequest(signed(body()), deps);
+    expect(response.status).toBe(403);
+    expect((await response.json()).error.code).toBe("SHOP_NOT_ALLOWED");
+    expect(store.record).toBeNull();
+  });
+
+  it("logs the source address of refused requests, and nothing about the customer", async () => {
+    const { deps, logs } = makeDeps();
+    const request = signed(body());
+    request.headers.set("x-signature", `v1=${"0".repeat(64)}`);
+    expect((await handleDigitalOrderRequest(request, deps)).status).toBe(401);
+    expect(logs.join()).toContain("203.0.113.20");
+    expect(logs.join()).not.toContain("example.com");
   });
 });

@@ -176,7 +176,6 @@ describe("licence request validation", () => {
 
 describe("licence HTML document", () => {
   const base = {
-    licenceNumber: "LIC-20261110-ABCDEF",
     seller: DEFAULT_SELLER_BRANDING,
   };
 
@@ -185,7 +184,6 @@ describe("licence HTML document", () => {
       ...base,
       variant: getKasperskyVariant("kaspersky-premium-5p-1y")!,
       codes: [CODE_A, CODE_B],
-      orderReference: "CMD-1",
       useBefore: "2027-01-01",
     });
     expect(html.match(/<article class="sheet"/g)).toHaveLength(2);
@@ -198,6 +196,7 @@ describe("licence HTML document", () => {
     expect(html).toContain("Code QR vers my.kaspersky.com");
     expect(html).toContain("https://www.kaspersky.com/downloads/premium");
     expect(html).toContain("support@techno-smart.tn");
+    expect(html).not.toMatch(/N° :|Commande :|Client :|LIC-/);
     expect(html).toContain("size: A4 portrait");
     expect(html).not.toContain("<script");
   });
@@ -207,8 +206,7 @@ describe("licence HTML document", () => {
       ...base,
       variant: getKasperskyVariant("kaspersky-standard-1p-1y")!,
       codes: [CODE_A],
-      customerName: '<img src=x onerror="alert(1)">',
-      activationRegion: "Maghreb & Europe",
+      activationRegion: '<img src=x onerror="alert(1)"> Maghreb & Europe',
       seller: { ...DEFAULT_SELLER_BRANDING, name: "<script>x</script>" },
     });
     expect(html).not.toContain("<img src=x");
